@@ -1,0 +1,36 @@
+import { spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import electronPath from "electron";
+
+const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const outputDirectory = join(projectRoot, ".test-dist", "deepseek-live");
+const viteCli = join(projectRoot, "node_modules", "vite", "bin", "vite.js");
+const testEntry = join(projectRoot, "tests", "deepseek-live.integration.ts");
+
+try {
+  process.loadEnvFile(join(projectRoot, ".env.local"));
+  if (!process.env.KATARUNE_TEST_DEEPSEEK_API_KEY) {
+    throw new Error("KATARUNE_TEST_DEEPSEEK_API_KEY is not configured in .env.local.");
+  }
+
+  const build = spawnSync(
+    process.execPath,
+    [viteCli, "build", "--ssr", testEntry, "--outDir", outputDirectory, "--emptyOutDir"],
+    { cwd: projectRoot, stdio: "inherit" },
+  );
+  if (build.status !== 0) process.exitCode = build.status ?? 1;
+
+  if (process.exitCode === undefined) {
+    const testBundle = join(outputDirectory, "deepseek-live.integration.js");
+    const test = spawnSync(electronPath, [testBundle], {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: "inherit",
+    });
+    if (test.status !== 0) process.exitCode = test.status ?? 1;
+  }
+} finally {
+  rmSync(resolve(projectRoot, ".test-dist"), { recursive: true, force: true });
+}
