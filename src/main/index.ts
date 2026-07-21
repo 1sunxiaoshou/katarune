@@ -189,6 +189,7 @@ function createMainWindow(): BrowserWindow {
     minWidth: 760,
     minHeight: 520,
     show: false,
+    icon: join(__dirname, "../renderer/logo.png"),
     backgroundColor: "#10131a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),

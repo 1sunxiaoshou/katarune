@@ -1,10 +1,12 @@
 import {
   ArrowLeftIcon,
+  BotIcon,
   CheckCircle2Icon,
   EyeIcon,
   EyeOffIcon,
   KeyRoundIcon,
   PlusIcon,
+  PaletteIcon,
   RefreshCwIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -147,12 +149,12 @@ function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.J
 
   return (
     <form onSubmit={(event) => void submit(event)}>
-      <Card>
+      <Card size="sm">
       <CardHeader>
         <CardTitle>添加模型供应商</CardTitle>
         <CardDescription>连接一个 AI SDK Provider，并可选地写入安全凭据。</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="new-provider-type">供应商类型</Label>
           <NativeSelect
@@ -338,13 +340,13 @@ function ProviderEditor({ provider, models, onChanged }: ProviderEditorProps): R
   return (
     <div className="grid gap-4">
       <form onSubmit={(event) => void submit(event)}>
-        <Card>
+        <Card size="sm">
         <CardHeader>
           <CardTitle>{provider.displayName}</CardTitle>
           <CardDescription>{PROVIDER_CATALOG[provider.providerType].description}</CardDescription>
           <CardAction><StatusBadge enabled={provider.enabled} /></CardAction>
         </CardHeader>
-        <CardContent className="grid gap-4">
+        <CardContent className="grid gap-3">
           <div className="grid gap-3 text-sm sm:grid-cols-2">
             <div><p className="text-muted-foreground">类型</p><p className="font-mono">{provider.providerType}</p></div>
             <div><p className="text-muted-foreground">Registry ID</p><p className="font-mono">{provider.registryId}</p></div>
@@ -483,7 +485,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
   };
 
   return (
-    <Card>
+    <Card size="sm">
       <CardHeader>
         <CardTitle>模型配置</CardTitle>
         <CardDescription>模型 ID 由供应商定义；连接测试会产生一次最小的真实调用。</CardDescription>
@@ -551,17 +553,43 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
 
   return (
     <main className="h-full overflow-y-auto" id="main-content">
-      <div className="mx-auto grid w-full max-w-4xl gap-6 px-4 py-6 pb-24 sm:px-6">
-        <header className="flex items-start gap-3">
+      <div className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-4 pb-20 sm:px-5">
+        <header className="flex items-start gap-2">
           <TooltipIconButton tooltip="返回对话" className="shrink-0" onClick={onClose}><ArrowLeftIcon aria-hidden="true" /></TooltipIconButton>
-          <div><h1 className="text-2xl font-semibold">设置</h1><p className="text-sm text-muted-foreground">管理界面主题、模型供应商与本机安全凭据。</p></div>
+          <div><h1 className="text-xl font-semibold">设置</h1><p className="text-sm text-muted-foreground">管理界面主题、模型供应商与本机安全凭据。</p></div>
         </header>
 
-        <Tabs defaultValue="models">
-          <TabsList><TabsTrigger value="models">模型</TabsTrigger><TabsTrigger data-testid="appearance-tab" value="appearance">外观</TabsTrigger></TabsList>
+        <Tabs
+          className="grid min-h-0 gap-4 md:grid-cols-[11rem_minmax(0,1fr)]"
+          defaultValue="models"
+          orientation="vertical"
+        >
+          <TabsList
+            aria-label="设置菜单"
+            className="w-full items-stretch justify-start rounded-none p-0 md:sticky md:top-4"
+            data-testid="settings-menu"
+            variant="line"
+          >
+            <TabsTrigger
+              className="h-10 w-full rounded-none px-2 py-1.5"
+              data-testid="settings-model-menu"
+              value="models"
+            >
+              <BotIcon aria-hidden="true" />
+              模型
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-10 w-full rounded-none px-2 py-1.5"
+              data-testid="appearance-tab"
+              value="appearance"
+            >
+              <PaletteIcon aria-hidden="true" />
+              外观
+            </TabsTrigger>
+          </TabsList>
 
-          <TabsContent value="appearance" className="pt-2">
-            <Card>
+          <TabsContent value="appearance">
+            <Card size="sm">
               <CardHeader><CardTitle>界面主题</CardTitle><CardDescription>两套主题使用相同的 shadcn 组件，只切换语义颜色。</CardDescription></CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <Button data-testid="theme-plana" variant={theme === "plana" ? "default" : "outline"} aria-pressed={theme === "plana"} onClick={() => onThemeChange("plana")}>普拉娜</Button>
@@ -570,8 +598,8 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
             </Card>
           </TabsContent>
 
-          <TabsContent value="models" className="grid gap-4 pt-2">
-            <Card>
+          <TabsContent className="grid gap-3" value="models">
+            <Card size="sm">
               <CardHeader><CardTitle>模型供应商</CardTitle><CardDescription>选择已有配置，或添加新的 AI SDK Provider。</CardDescription><CardAction><Button variant="outline" onClick={() => setCreatingProvider(true)}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加</Button></CardAction></CardHeader>
               <CardContent>
                 {dataState.status === "loading" && <p className="text-sm text-muted-foreground" role="status">正在读取配置……</p>}
@@ -593,7 +621,7 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
             ) : selectedProvider !== undefined ? (
               <ProviderEditor provider={selectedProvider} models={selectedModels} onChanged={reload} />
             ) : (
-              <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">选择一个 Provider，或添加新的模型供应商。</CardContent></Card>
+              <Card size="sm"><CardContent className="py-6 text-center text-sm text-muted-foreground">选择一个 Provider，或添加新的模型供应商。</CardContent></Card>
             ))}
           </TabsContent>
         </Tabs>
