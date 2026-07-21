@@ -535,54 +535,54 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
   const selectedModels = useMemo(() => dataState.status === "ready" && selectedProviderId !== null ? dataState.models.filter((model) => model.providerConfigId === selectedProviderId) : [], [dataState, selectedProviderId]);
 
   return (
-    <main className="h-full overflow-y-auto" id="main-content">
-      <div className="mx-auto grid w-full max-w-3xl gap-4 px-4 py-4 pb-20 sm:px-5">
-        <header className="flex items-start gap-2">
-          <TooltipIconButton tooltip="返回对话" className="shrink-0" onClick={onClose}><ArrowLeftIcon aria-hidden="true" /></TooltipIconButton>
-          <div><h1 className="text-xl font-semibold">设置</h1><p className="text-sm text-muted-foreground">管理界面主题、模型供应商与本机安全凭据。</p></div>
-        </header>
-
-        <Tabs
-          className="grid min-h-0 gap-4 md:grid-cols-[11rem_minmax(0,1fr)]"
-          defaultValue="models"
-          orientation="vertical"
+    <main
+      className="h-full min-h-0 overflow-hidden bg-background"
+      data-testid="settings-page"
+      id="main-content"
+    >
+      <Tabs
+        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[13rem_minmax(0,1fr)] md:grid-rows-1"
+        defaultValue="models"
+        orientation="vertical"
+        data-testid="settings-workspace"
+      >
+        <TabsList
+          aria-label="设置菜单"
+          className="w-full items-stretch justify-start gap-0 rounded-none border-b bg-muted/30 p-2 md:h-full md:border-r md:border-b-0 md:p-3"
+          data-testid="settings-menu"
+          variant="line"
         >
-          <TabsList
-            aria-label="设置菜单"
-            className="w-full items-stretch justify-start rounded-none p-0 md:sticky md:top-4"
-            data-testid="settings-menu"
-            variant="line"
+          <TabsTrigger
+            className="h-10 w-full flex-none rounded-md px-3 py-2"
+            data-testid="settings-model-menu"
+            value="models"
           >
-            <TabsTrigger
-              className="h-10 w-full rounded-none px-2 py-1.5"
-              data-testid="settings-model-menu"
-              value="models"
-            >
-              <BotIcon aria-hidden="true" />
-              模型
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-10 w-full rounded-none px-2 py-1.5"
-              data-testid="appearance-tab"
-              value="appearance"
-            >
-              <PaletteIcon aria-hidden="true" />
-              外观
-            </TabsTrigger>
-          </TabsList>
+            <BotIcon aria-hidden="true" />
+            模型
+          </TabsTrigger>
+          <TabsTrigger
+            className="h-10 w-full flex-none rounded-md px-3 py-2"
+            data-testid="appearance-tab"
+            value="appearance"
+          >
+            <PaletteIcon aria-hidden="true" />
+            外观
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="appearance">
-            <Card size="sm">
-              <CardHeader><CardTitle>界面主题</CardTitle><CardDescription>两套主题使用相同的 shadcn 组件，只切换语义颜色。</CardDescription></CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-2">
-                <Button data-testid="theme-plana" variant={theme === "plana" ? "default" : "outline"} aria-pressed={theme === "plana"} onClick={() => onThemeChange("plana")}>普拉娜</Button>
-                <Button data-testid="theme-arona" variant={theme === "arona" ? "default" : "outline"} aria-pressed={theme === "arona"} onClick={() => onThemeChange("arona")}>阿洛娜</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+        <TabsContent className="min-h-0 overflow-y-auto p-4 sm:p-6" value="appearance">
+          <Card size="sm">
+            <CardHeader><CardTitle>界面主题</CardTitle><CardDescription>两套主题使用相同的 shadcn 组件，只切换语义颜色。</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2">
+              <Button data-testid="theme-plana" variant={theme === "plana" ? "default" : "outline"} aria-pressed={theme === "plana"} onClick={() => onThemeChange("plana")}>普拉娜</Button>
+              <Button data-testid="theme-arona" variant={theme === "arona" ? "default" : "outline"} aria-pressed={theme === "arona"} onClick={() => onThemeChange("arona")}>阿洛娜</Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          <TabsContent className="grid gap-3" value="models">
-            <Card size="sm">
+        <TabsContent className="min-h-0 overflow-y-auto" value="models">
+          <div className="grid gap-4 p-4 sm:p-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start">
+            <Card className="lg:sticky lg:top-6" size="sm">
               <CardHeader><CardTitle>模型供应商</CardTitle><CardDescription>选择已有配置，或添加新的 AI SDK Provider。</CardDescription><CardAction><Button variant="outline" onClick={() => setCreatingProvider(true)}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加</Button></CardAction></CardHeader>
               <CardContent>
                 {dataState.status === "loading" && <p className="text-sm text-muted-foreground" role="status">正在读取配置……</p>}
@@ -606,9 +606,18 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
             ) : (
               <Card size="sm"><CardContent className="py-6 text-center text-sm text-muted-foreground">选择一个 Provider，或添加新的模型供应商。</CardContent></Card>
             ))}
-          </TabsContent>
-        </Tabs>
-      </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <TooltipIconButton
+        className="fixed bottom-4 left-4 z-40"
+        data-testid="settings-back"
+        tooltip="返回主页"
+        onClick={onClose}
+      >
+        <ArrowLeftIcon aria-hidden="true" />
+      </TooltipIconButton>
     </main>
   );
 }

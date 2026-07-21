@@ -140,14 +140,81 @@ async function run() {
   assert.equal(chatScrollMetrics.documentScrollHeight, chatScrollMetrics.windowHeight);
   assert.equal(chatScrollMetrics.viewportOverflowY, "auto");
   await waitForSelector(window, '[data-testid="settings-launcher"]');
+  const launcherMetrics = await window.webContents.executeJavaScript(`(() => {
+    const launcherElement = document.querySelector('[data-testid="settings-launcher"]');
+    const launcher = launcherElement.getBoundingClientRect();
+    return {
+      left: Math.round(launcher.left),
+      bottom: Math.round(window.innerHeight - launcher.bottom),
+      width: Math.round(launcher.width),
+      height: Math.round(launcher.height),
+      radius: getComputedStyle(launcherElement).borderRadius,
+    };
+  })()`);
+  assert.deepEqual(launcherMetrics, { left: 16, bottom: 16, width: 24, height: 24, radius: "10px" });
   console.log("UI smoke: opening settings");
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
   await waitForSelector(window, '[data-testid="model-row"]');
+
+  const settingsLayout = await window.webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('[data-testid="settings-page"]');
+    const back = document.querySelector('[data-testid="settings-back"]').getBoundingClientRect();
+    const rect = page.getBoundingClientRect();
+    return {
+      hasExternalLauncher: document.querySelector('[data-testid="settings-launcher"]') !== null,
+      hasPageHeader: page.querySelector('header') !== null,
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      pageOverflow: getComputedStyle(page).overflow,
+      backLeft: Math.round(back.left),
+      backBottom: Math.round(window.innerHeight - back.bottom),
+      backWidth: Math.round(back.width),
+      backHeight: Math.round(back.height),
+      backRadius: getComputedStyle(document.querySelector('[data-testid="settings-back"]')).borderRadius,
+    };
+  })()`);
+  assert.equal(settingsLayout.hasExternalLauncher, false);
+  assert.equal(settingsLayout.hasPageHeader, false);
+  assert.deepEqual(
+    { left: settingsLayout.left, top: settingsLayout.top, width: settingsLayout.width, height: settingsLayout.height },
+    { left: 0, top: 0, width: settingsLayout.viewportWidth, height: settingsLayout.viewportHeight },
+  );
+  assert.equal(settingsLayout.pageOverflow, "hidden");
+  assert.equal(settingsLayout.backLeft, 16);
+  assert.equal(settingsLayout.backBottom, 16);
+  assert.equal(settingsLayout.backWidth, launcherMetrics.width);
+  assert.equal(settingsLayout.backHeight, launcherMetrics.height);
+  assert.equal(settingsLayout.backRadius, launcherMetrics.radius);
+
+  window.setSize(375, 700);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const compactLayout = await window.webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('[data-testid="settings-page"]');
+    const back = document.querySelector('[data-testid="settings-back"]').getBoundingClientRect();
+    return {
+      pageWidth: Math.round(page.getBoundingClientRect().width),
+      viewportWidth: window.innerWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      backLeft: Math.round(back.left),
+      backBottom: Math.round(window.innerHeight - back.bottom),
+    };
+  })()`);
+  assert.equal(compactLayout.pageWidth, compactLayout.viewportWidth);
+  assert.equal(compactLayout.documentScrollWidth, compactLayout.viewportWidth);
+  assert.equal(compactLayout.backLeft, 16);
+  assert.equal(compactLayout.backBottom, 16);
+  window.setSize(1280, 900);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 
   const settingsText = await window.webContents.executeJavaScript(`document.querySelector("main").textContent`);
   assert.match(settingsText, /安全凭据/);
   assert.match(settingsText, /DeepSeek Chat/);
   assert.doesNotMatch(settingsText, /Registry ID/);
+  const modelScreenshot = await capture(window, "model-settings.png");
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="appearance-tab"]').click()`);
   await waitForSelector(window, '[data-testid="theme-plana"]');
@@ -155,25 +222,13 @@ async function run() {
 
   const planaMetrics = await window.webContents.executeJavaScript(`(() => {
     const root = getComputedStyle(document.documentElement);
-    const launcherElement = document.querySelector('[data-testid="settings-launcher"]');
-    const launcher = launcherElement.getBoundingClientRect();
     return {
       theme: document.documentElement.dataset.theme,
       background: root.getPropertyValue("--background").trim(),
       radius: root.getPropertyValue("--radius").trim(),
-      launcherLeft: Math.round(launcher.left),
-      launcherBottom: Math.round(window.innerHeight - launcher.bottom),
-      launcherWidth: Math.round(launcher.width),
-      launcherHeight: Math.round(launcher.height),
-      launcherRadius: getComputedStyle(launcherElement).borderRadius,
     };
   })()`);
   assert.equal(planaMetrics.theme, "plana");
-  assert.equal(planaMetrics.launcherLeft, 16);
-  assert.equal(planaMetrics.launcherBottom, 16);
-  assert.equal(planaMetrics.launcherWidth, 24);
-  assert.equal(planaMetrics.launcherHeight, 24);
-  assert.equal(planaMetrics.launcherRadius, "10px");
   assert.equal(Number.parseFloat(planaMetrics.radius), 0.625);
   const planaScreenshot = await capture(window, "plana-settings.png");
 
@@ -191,8 +246,11 @@ async function run() {
   assert.equal(aronaMetrics.radius, planaMetrics.radius);
   const aronaScreenshot = await capture(window, "arona-settings.png");
 
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-back"]').click()`);
+  await waitForSelector(window, '[data-testid="settings-launcher"]');
+
   window.destroy();
-  console.log(JSON.stringify({ planaScreenshot, aronaScreenshot }));
+  console.log(JSON.stringify({ modelScreenshot, planaScreenshot, aronaScreenshot }));
 }
 
 console.log("UI smoke: waiting for Electron");

@@ -35,20 +35,21 @@ export function App({ initialTheme }: AppProps): React.JSX.Element {
           <SettingsPage theme={theme} onThemeChange={changeTheme} onClose={() => setActiveView("chat")} />
         </Suspense>
       ) : (
-        <main className="h-full min-h-0 overflow-hidden" id="main-content">
-          <Thread />
-        </main>
-      )}
+        <>
+          <main className="h-full min-h-0 overflow-hidden" id="main-content">
+            <Thread />
+          </main>
 
-      <TooltipIconButton
-        tooltip="打开设置"
-        className="fixed bottom-4 left-4 z-40"
-        data-testid="settings-launcher"
-        aria-pressed={activeView === "settings"}
-        onClick={() => setActiveView("settings")}
-      >
-        <SettingsIcon aria-hidden="true" />
-      </TooltipIconButton>
+          <TooltipIconButton
+            tooltip="打开设置"
+            className="fixed bottom-4 left-4 z-40"
+            data-testid="settings-launcher"
+            onClick={() => setActiveView("settings")}
+          >
+            <SettingsIcon aria-hidden="true" />
+          </TooltipIconButton>
+        </>
+      )}
     </div>
   );
 }
