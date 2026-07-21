@@ -15,7 +15,6 @@ const message = {
   },
 } as const;
 const providerConfigRequest = {
-  registryId: "openai-compatible-local",
   displayName: "本地兼容端点",
   providerType: "openai-compatible",
   baseUrl: "http://127.0.0.1:1234/v1",
@@ -37,10 +36,9 @@ try {
   runtime.initializeThread(threadId);
   runtime.appendThreadMessage({ threadId, message });
   const providerConfig = runtime.createProviderConfig(providerConfigRequest);
-  assert.throws(
-    () => runtime?.createProviderConfig(providerConfigRequest),
-    /already exists/,
-  );
+  const duplicateProviderConfig = runtime.createProviderConfig(providerConfigRequest);
+  assert.notEqual(duplicateProviderConfig.id, providerConfig.id);
+  runtime.deleteProviderConfig(duplicateProviderConfig.id);
   const modelConfig = runtime.createModelConfig({
     providerConfigId: providerConfig.id,
     ...modelConfigRequest,
@@ -89,7 +87,6 @@ try {
     settings: providerConfig.settings,
     enabled: false,
   });
-  assert.equal(updatedProviderConfig.registryId, providerConfig.registryId);
   assert.equal(updatedProviderConfig.credentialRef, credentialReference);
   assert.equal(updatedProviderConfig.enabled, false);
 

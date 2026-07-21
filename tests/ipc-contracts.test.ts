@@ -82,7 +82,6 @@ describe("shared IPC contracts", () => {
 
   it("accepts non-secret Provider factory configuration", () => {
     const request = {
-      registryId: "openai-main",
       displayName: "主要 OpenAI",
       providerType: "openai",
       baseUrl: null,
@@ -99,13 +98,12 @@ describe("shared IPC contracts", () => {
         createdAt: new Date("2026-07-19T00:00:00.000Z"),
         updatedAt: new Date("2026-07-19T00:00:00.000Z"),
       }),
-    ).toMatchObject({ registryId: "openai-main", providerType: "openai" });
+    ).toMatchObject({ providerType: "openai" });
   });
 
   it.each(PROVIDER_TYPES)("accepts the supported AI SDK Provider type %s", (providerType) => {
     expect(
       createProviderConfigRequestSchema.parse({
-        registryId: `provider_${providerType.replaceAll("-", "_")}`,
         displayName: providerType,
         providerType,
         baseUrl: null,
@@ -154,11 +152,11 @@ describe("shared IPC contracts", () => {
     ["fractional provider count", aiRuntimeStatusSchema, { ready: true, configuredProviderCount: 0.5, modelCallsEnabled: false }],
     ["unknown property", aiRuntimeStatusSchema, { ready: true, configuredProviderCount: 0, modelCallsEnabled: false, extra: true }],
     ["unknown message field", threadMessagesSchema, { messages: [{ id: "message-1", parent_id: null, format: "ai-sdk/v6", content: {}, extra: true }] }],
-    ["registry separator", createProviderConfigRequestSchema, { registryId: "openai:main", displayName: "OpenAI", providerType: "openai", baseUrl: null, settings: null, enabled: true }],
-    ["unsupported provider type", createProviderConfigRequestSchema, { registryId: "custom", displayName: "Custom", providerType: "arbitrary-package", baseUrl: null, settings: null, enabled: true }],
-    ["non-HTTP base URL", createProviderConfigRequestSchema, { registryId: "custom", displayName: "Custom", providerType: "openai-compatible", baseUrl: "file:///secret", settings: null, enabled: true }],
-    ["renderer-selected credential reference", createProviderConfigRequestSchema, { registryId: "custom", displayName: "Custom", providerType: "openai-compatible", baseUrl: "https://example.com/v1", credentialRef: "safe-storage/12345678-1234-4123-8123-123456789abc", settings: null, enabled: true }],
-    ["unknown provider setting", createProviderConfigRequestSchema, { registryId: "custom", displayName: "Custom", providerType: "openai-compatible", baseUrl: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
+    ["legacy registry ID", createProviderConfigRequestSchema, { registryId: "openai-main", displayName: "OpenAI", providerType: "openai", baseUrl: null, settings: null, enabled: true }],
+    ["unsupported provider type", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "arbitrary-package", baseUrl: null, settings: null, enabled: true }],
+    ["non-HTTP base URL", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "file:///secret", settings: null, enabled: true }],
+    ["renderer-selected credential reference", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "https://example.com/v1", credentialRef: "safe-storage/12345678-1234-4123-8123-123456789abc", settings: null, enabled: true }],
+    ["unknown provider setting", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
     ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
     ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
   ])("rejects %s", (_name, schema, value) => {

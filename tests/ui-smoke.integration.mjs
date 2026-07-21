@@ -42,7 +42,6 @@ function registerMockHandlers() {
     providerConfigs: [
       {
         id: providerId,
-        registryId: "deepseek-main",
         displayName: "DeepSeek",
         providerType: "deepseek",
         baseUrl: null,
@@ -148,6 +147,7 @@ async function run() {
   const settingsText = await window.webContents.executeJavaScript(`document.querySelector("main").textContent`);
   assert.match(settingsText, /安全凭据/);
   assert.match(settingsText, /DeepSeek Chat/);
+  assert.doesNotMatch(settingsText, /Registry ID/);
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="appearance-tab"]').click()`);
   await waitForSelector(window, '[data-testid="theme-plana"]');

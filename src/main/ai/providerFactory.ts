@@ -35,7 +35,7 @@ export function createConfiguredProvider(
         throw new Error("An OpenAI-compatible Provider requires a base URL.");
       }
       return createOpenAICompatible({
-        name: config.registryId,
+        name: config.id,
         baseURL: config.baseUrl,
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(config.settings?.includeUsage === undefined

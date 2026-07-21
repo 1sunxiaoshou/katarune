@@ -31,7 +31,6 @@ void app.whenReady().then(async () => {
 
   const providerConfig: ProviderConfig = {
     id: providerConfigId,
-    registryId: "deepseek-live",
     displayName: "DeepSeek live test",
     providerType: "deepseek",
     baseUrl: null,

@@ -113,12 +113,6 @@ export const operationSuccessSchema = z.strictObject({
 
 export const providerTypeSchema = z.enum(PROVIDER_TYPES);
 
-export const providerRegistryIdSchema = z.string().check(
-  z.minLength(1),
-  z.maxLength(63),
-  z.regex(/^[a-z0-9][a-z0-9_-]*$/),
-);
-
 export const providerSettingsSchema = z.strictObject({
   includeUsage: z.optional(z.boolean()),
   supportsStructuredOutputs: z.optional(z.boolean()),
@@ -126,7 +120,6 @@ export const providerSettingsSchema = z.strictObject({
 
 export const providerConfigSchema = z.strictObject({
   id: z.uuid(),
-  registryId: providerRegistryIdSchema,
   displayName: boundedStringSchema,
   providerType: providerTypeSchema,
   baseUrl: z.nullable(z.url({ protocol: /^https?$/ })),
@@ -146,7 +139,6 @@ export const providerConfigIdRequestSchema = z.strictObject({
 });
 
 export const createProviderConfigRequestSchema = z.strictObject({
-  registryId: providerRegistryIdSchema,
   displayName: boundedStringSchema,
   providerType: providerTypeSchema,
   baseUrl: z.nullable(z.url({ protocol: /^https?$/ })),

@@ -279,22 +279,12 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
           .all(),
       }),
     createProviderConfig: (request) => {
-      const existingConfig = database
-        .select({ id: providerConfigs.id })
-        .from(providerConfigs)
-        .where(eq(providerConfigs.registryId, request.registryId))
-        .get();
-      if (existingConfig !== undefined) {
-        throw new Error(`Provider registry ID "${request.registryId}" already exists.`);
-      }
-
       const id = randomUUID();
       const now = new Date();
       database
         .insert(providerConfigs)
         .values({
           id,
-          registryId: request.registryId,
           displayName: request.displayName,
           providerType: request.providerType,
           baseUrl: request.baseUrl,

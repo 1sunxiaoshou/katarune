@@ -14,7 +14,6 @@ function providerConfig(
 ): ProviderConfig {
   return {
     id: providerConfigId,
-    registryId: `provider_${providerType.replaceAll("-", "_")}`,
     displayName: providerType,
     providerType,
     baseUrl: providerType === "openai-compatible" ? "http://127.0.0.1:1234/v1" : null,

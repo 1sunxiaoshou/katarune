@@ -74,7 +74,7 @@ export async function createAiRuntime({
           config.credentialRef === null
             ? undefined
             : await credentialStore.resolve(config.credentialRef);
-        providers[config.registryId] = createConfiguredProvider(config, apiKey);
+        providers[config.id] = createConfiguredProvider(config, apiKey);
       } catch {
         // An invalid or unavailable config remains persisted but is not exposed as callable.
       }
@@ -85,7 +85,7 @@ export async function createAiRuntime({
     const modelCallsEnabled = database.listModelConfigs().modelConfigs.some((modelConfig) => {
       if (!modelConfig.enabled) return false;
       const providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
-      return providerConfig.enabled && registeredProviderIds.has(providerConfig.registryId);
+      return providerConfig.enabled && registeredProviderIds.has(providerConfig.id);
     });
     status = aiRuntimeStatusSchema.parse({
       ready: true,
@@ -101,12 +101,12 @@ export async function createAiRuntime({
     }
 
     const providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
-    if (!providerConfig.enabled || !registeredProviderIds.has(providerConfig.registryId)) {
+    if (!providerConfig.enabled || !registeredProviderIds.has(providerConfig.id)) {
       throw new Error(`Provider config "${providerConfig.id}" is not callable.`);
     }
 
     const model = registry.languageModel(
-      `${providerConfig.registryId}:${modelConfig.modelId}` as `${string}:${string}`,
+      `${providerConfig.id}:${modelConfig.modelId}` as `${string}:${string}`,
     );
     return modelConfig.settings === null
       ? model

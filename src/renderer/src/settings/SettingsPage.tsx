@@ -99,7 +99,6 @@ interface NewProviderFormProps {
 function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.JSX.Element {
   const [providerType, setProviderType] = useState<ProviderType>("deepseek");
   const [displayName, setDisplayName] = useState("DeepSeek");
-  const [registryId, setRegistryId] = useState("deepseek-main");
   const [baseUrl, setBaseUrl] = useState("");
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
@@ -110,7 +109,6 @@ function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.J
   const changeProviderType = (nextType: ProviderType): void => {
     setProviderType(nextType);
     setDisplayName(PROVIDER_CATALOG[nextType].label);
-    setRegistryId(`${nextType.replaceAll("-", "_")}-main`);
     setBaseUrl("");
     setFeedback(null);
   };
@@ -127,7 +125,6 @@ function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.J
     setSubmitting(true);
     try {
       const provider = await window.katarune.createProviderConfig({
-        registryId: registryId.trim(),
         displayName: displayName.trim(),
         providerType,
         baseUrl: optionalUrl(baseUrl),
@@ -181,20 +178,6 @@ function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.J
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="new-provider-registry">Registry ID</Label>
-          <Input
-            id="new-provider-registry"
-            required
-            maxLength={63}
-            pattern="[a-z0-9][a-z0-9_-]*"
-            value={registryId}
-            onChange={(event) => setRegistryId(event.target.value)}
-            spellCheck={false}
-          />
-          <p className="text-xs text-muted-foreground">创建后不可修改，例如 deepseek-main。</p>
         </div>
 
         <div className="grid gap-2">
@@ -347,9 +330,9 @@ function ProviderEditor({ provider, models, onChanged }: ProviderEditorProps): R
           <CardAction><StatusBadge enabled={provider.enabled} /></CardAction>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div><p className="text-muted-foreground">类型</p><p className="font-mono">{provider.providerType}</p></div>
-            <div><p className="text-muted-foreground">Registry ID</p><p className="font-mono">{provider.registryId}</p></div>
+          <div className="text-sm">
+            <p className="text-muted-foreground">类型</p>
+            <p className="font-mono">{provider.providerType}</p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

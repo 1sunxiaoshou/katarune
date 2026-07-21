@@ -31,7 +31,6 @@ export const messages = sqliteTable(
 
 export const providerConfigs = sqliteTable("provider_configs", {
   id: text("id").primaryKey(),
-  registryId: text("registry_id").notNull().unique(),
   displayName: text("display_name").notNull(),
   providerType: text("provider_type", { enum: PROVIDER_TYPES }).notNull(),
   baseUrl: text("base_url"),
