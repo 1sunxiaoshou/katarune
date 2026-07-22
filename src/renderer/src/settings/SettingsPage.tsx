@@ -29,13 +29,25 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import {
+  MODEL_TYPES,
   PROVIDER_TYPES,
   type ModelConfig,
+  type ModelType,
   type ProviderConfig,
   type ProviderType,
 } from "../../../shared/ipc";
 import type { ThemeId } from "../theme";
 import { PROVIDER_CATALOG } from "./providerCatalog";
+
+const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
+  languageModel: "语言模型",
+  embeddingModel: "嵌入模型",
+  imageModel: "图像生成模型",
+  transcriptionModel: "语音识别模型",
+  speechModel: "语音生成模型",
+  rerankingModel: "重排序模型",
+  videoModel: "视频生成模型",
+};
 
 interface SettingsPageProps {
   readonly onClose: () => void;
@@ -401,6 +413,7 @@ interface ModelSettingsProps {
 
 function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): React.JSX.Element {
   const [editingModelId, setEditingModelId] = useState<string | "new" | null>(null);
+  const [modelType, setModelType] = useState<ModelType>("languageModel");
   const [modelId, setModelId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -409,6 +422,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
 
   useEffect(() => {
     setEditingModelId(null);
+    setModelType("languageModel");
     setModelId("");
     setDisplayName("");
     setEnabled(true);
@@ -417,6 +431,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
 
   const beginCreate = (): void => {
     setEditingModelId("new");
+    setModelType("languageModel");
     setModelId("");
     setDisplayName("");
     setEnabled(true);
@@ -425,6 +440,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
 
   const beginEdit = (model: ModelConfig): void => {
     setEditingModelId(model.id);
+    setModelType(model.modelType);
     setModelId(model.modelId);
     setDisplayName(model.displayName ?? "");
     setEnabled(model.enabled);
@@ -437,11 +453,11 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
     setFeedback(null);
     try {
       if (editingModelId === "new") {
-        await window.katarune.createModelConfig({ providerConfigId: provider.id, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: null, enabled });
+        await window.katarune.createModelConfig({ providerConfigId: provider.id, modelType, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: null, enabled });
       } else if (editingModelId !== null) {
         const previousModel = models.find((model) => model.id === editingModelId);
         if (previousModel === undefined) throw new Error("模型配置已不存在，请刷新后重试。");
-        await window.katarune.updateModelConfig({ id: editingModelId, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: previousModel.settings, enabled });
+        await window.katarune.updateModelConfig({ id: editingModelId, modelType, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: previousModel.settings, enabled });
       }
       setEditingModelId(null);
       await onChanged(provider.id);
@@ -496,10 +512,10 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
           <div className="flex items-center gap-3" data-testid="model-row" key={model.id}>
             <button className="min-w-0 flex-1 text-left" type="button" onClick={() => beginEdit(model)}>
               <span className="block truncate font-medium">{model.displayName ?? model.modelId}</span>
-              <span className="block truncate font-mono text-xs text-muted-foreground">{model.modelId}</span>
+              <span className="block truncate font-mono text-xs text-muted-foreground">{model.modelId} · {MODEL_TYPE_LABELS[model.modelType]}</span>
             </button>
             <StatusBadge enabled={model.enabled} />
-            <TooltipIconButton tooltip="测试连接（可能产生费用）" onClick={() => void testConnection(model)} disabled={submitting}><RefreshCwIcon aria-hidden="true" /></TooltipIconButton>
+            <TooltipIconButton tooltip={model.modelType === "languageModel" ? "测试连接（可能产生费用）" : "当前仅支持语言模型连接测试"} onClick={() => void testConnection(model)} disabled={submitting || model.modelType !== "languageModel"}><RefreshCwIcon aria-hidden="true" /></TooltipIconButton>
             <TooltipIconButton tooltip="删除模型" className="text-destructive" onClick={() => void deleteModel(model)} disabled={submitting}><Trash2Icon aria-hidden="true" /></TooltipIconButton>
           </div>
         ))}
@@ -507,7 +523,13 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
         {editingModelId !== null && (
           <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
             <h3 className="font-medium">{editingModelId === "new" ? "添加模型" : "编辑模型"}</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-2">
+                <Label htmlFor="model-type">模型类别</Label>
+                <NativeSelect id="model-type" value={modelType} onChange={(event) => setModelType(event.target.value as ModelType)}>
+                  {MODEL_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{MODEL_TYPE_LABELS[type]}</NativeSelectOption>)}
+                </NativeSelect>
+              </div>
               <div className="grid gap-2"><Label htmlFor="model-id">厂商模型 ID</Label><Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} /></div>
               <div className="grid gap-2"><Label htmlFor="model-name">显示名称（可选）</Label><Input id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></div>
             </div>

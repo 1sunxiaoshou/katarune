@@ -23,6 +23,7 @@ const providerConfigRequest = {
   enabled: true,
 } as const;
 const modelConfigRequest = {
+  modelType: "languageModel",
   modelId: "local-chat",
   displayName: "本地聊天模型",
   settings: { temperature: 0.7, maxOutputTokens: 512 },
@@ -73,12 +74,14 @@ try {
 
   const updatedModelConfig = runtime.updateModelConfig({
     id: modelConfig.id,
+    modelType: "embeddingModel",
     modelId: "local-chat-updated",
     displayName: null,
     settings: { temperature: 0.2 },
     enabled: false,
   });
   assert.equal(updatedModelConfig.providerConfigId, providerConfig.id);
+  assert.equal(updatedModelConfig.modelType, "embeddingModel");
   assert.equal(updatedModelConfig.modelId, "local-chat-updated");
   assert.equal(updatedModelConfig.enabled, false);
 

@@ -1,5 +1,6 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ModelSettings } from "../../shared/ipc";
+import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
 
 export const threads = sqliteTable("threads", {
@@ -49,6 +50,9 @@ export const modelConfigs = sqliteTable(
     providerConfigId: text("provider_config_id")
       .notNull()
       .references(() => providerConfigs.id, { onDelete: "cascade" }),
+    modelType: text("model_type", { enum: MODEL_TYPES })
+      .notNull()
+      .default("languageModel"),
     modelId: text("model_id").notNull(),
     displayName: text("display_name"),
     settings: text("settings", { mode: "json" }).$type<ModelSettings | null>(),

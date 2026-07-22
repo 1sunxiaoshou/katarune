@@ -1,6 +1,9 @@
 import * as z from "zod/mini";
+import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
 
+export { MODEL_TYPES } from "./models";
+export type { ModelType } from "./models";
 export { PROVIDER_TYPES } from "./providers";
 export type { ProviderType } from "./providers";
 
@@ -181,10 +184,12 @@ export const modelSettingsSchema = z.strictObject({
 });
 
 const providerModelIdSchema = z.string().check(z.minLength(1), z.maxLength(500));
+export const modelTypeSchema = z.enum(MODEL_TYPES);
 
 export const modelConfigSchema = z.strictObject({
   id: z.uuid(),
   providerConfigId: z.uuid(),
+  modelType: modelTypeSchema,
   modelId: providerModelIdSchema,
   displayName: z.nullable(boundedStringSchema),
   settings: z.nullable(modelSettingsSchema),
@@ -203,6 +208,7 @@ export const modelConfigIdRequestSchema = z.strictObject({
 
 export const createModelConfigRequestSchema = z.strictObject({
   providerConfigId: z.uuid(),
+  modelType: modelTypeSchema,
   modelId: providerModelIdSchema,
   displayName: z.nullable(boundedStringSchema),
   settings: z.nullable(modelSettingsSchema),
@@ -211,6 +217,7 @@ export const createModelConfigRequestSchema = z.strictObject({
 
 export const updateModelConfigRequestSchema = z.strictObject({
   id: z.uuid(),
+  modelType: modelTypeSchema,
   modelId: providerModelIdSchema,
   displayName: z.nullable(boundedStringSchema),
   settings: z.nullable(modelSettingsSchema),

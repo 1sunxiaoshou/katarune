@@ -83,7 +83,7 @@ export async function createAiRuntime({
     registry = createProviderRegistry(providers);
     registeredProviderIds = new Set(Object.keys(providers));
     const modelCallsEnabled = database.listModelConfigs().modelConfigs.some((modelConfig) => {
-      if (!modelConfig.enabled) return false;
+      if (!modelConfig.enabled || modelConfig.modelType !== "languageModel") return false;
       const providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
       return providerConfig.enabled && registeredProviderIds.has(providerConfig.registryId);
     });
@@ -98,6 +98,11 @@ export async function createAiRuntime({
     const modelConfig = database.fetchModelConfig(modelConfigId);
     if (!modelConfig.enabled) {
       throw new Error(`Model config "${modelConfigId}" is disabled.`);
+    }
+    if (modelConfig.modelType !== "languageModel") {
+      throw new Error(
+        `Model config "${modelConfigId}" has type "${modelConfig.modelType}", not "languageModel".`,
+      );
     }
 
     const providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
