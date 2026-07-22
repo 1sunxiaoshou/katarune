@@ -58,6 +58,7 @@ function registerMockHandlers() {
       {
         id: modelId,
         providerConfigId: providerId,
+        modelType: "languageModel",
         modelId: "deepseek-chat",
         displayName: "DeepSeek Chat",
         settings: null,
@@ -214,6 +215,27 @@ async function run() {
   assert.match(settingsText, /安全凭据/);
   assert.match(settingsText, /DeepSeek Chat/);
   assert.doesNotMatch(settingsText, /Registry ID/);
+  assert.match(settingsText, /语言模型/);
+
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-row"] button').click()`);
+  await waitForSelector(window, "#model-type");
+  const modelTypeOptions = await window.webContents.executeJavaScript(`(() => {
+    const select = document.querySelector("#model-type");
+    return {
+      value: select.value,
+      options: Array.from(select.options, (option) => option.value),
+    };
+  })()`);
+  assert.equal(modelTypeOptions.value, "languageModel");
+  assert.deepEqual(modelTypeOptions.options, [
+    "languageModel",
+    "embeddingModel",
+    "imageModel",
+    "transcriptionModel",
+    "speechModel",
+    "rerankingModel",
+    "videoModel",
+  ]);
   const modelScreenshot = await capture(window, "model-settings.png");
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="appearance-tab"]').click()`);

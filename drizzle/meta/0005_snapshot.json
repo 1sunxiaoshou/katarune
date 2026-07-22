@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "499358fc-080f-4531-acb6-9c282e87cb97",
-  "prevId": "aea49a38-e26b-4fdd-bb2a-f00a9d56ae46",
+  "id": "d1848527-4ed9-4d3d-8ed3-ceacf3a5f767",
+  "prevId": "499358fc-080f-4531-acb6-9c282e87cb97",
   "tables": {
     "messages": {
       "name": "messages",
@@ -186,13 +186,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "registry_id": {
-          "name": "registry_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "display_name": {
           "name": "display_name",
           "type": "text",
@@ -250,15 +243,7 @@
           "autoincrement": false
         }
       },
-      "indexes": {
-        "provider_configs_registry_id_unique": {
-          "name": "provider_configs_registry_id_unique",
-          "columns": [
-            "registry_id"
-          ],
-          "isUnique": true
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

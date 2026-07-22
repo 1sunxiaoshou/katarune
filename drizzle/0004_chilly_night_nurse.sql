@@ -1,0 +1,1 @@
+ALTER TABLE `model_configs` ADD `model_type` text DEFAULT 'languageModel' NOT NULL;

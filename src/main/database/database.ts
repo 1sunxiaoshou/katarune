@@ -348,6 +348,7 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
         .values({
           id,
           providerConfigId: request.providerConfigId,
+          modelType: request.modelType,
           modelId: request.modelId,
           displayName: request.displayName,
           settings: request.settings,

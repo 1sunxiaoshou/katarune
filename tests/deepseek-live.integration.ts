@@ -43,6 +43,7 @@ void app.whenReady().then(async () => {
   const modelConfig: ModelConfig = {
     id: modelConfigId,
     providerConfigId,
+    modelType: "languageModel",
     modelId: "deepseek-chat",
     displayName: "DeepSeek Chat live test",
     settings: { maxOutputTokens: 16 },

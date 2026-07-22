@@ -29,6 +29,7 @@ function providerConfig(
 const modelConfig: ModelConfig = {
   id: modelConfigId,
   providerConfigId,
+  modelType: "languageModel",
   modelId: "test-model",
   displayName: "Test model",
   settings: { temperature: 0.2, maxOutputTokens: 128 },
@@ -102,5 +103,22 @@ describe("configured Provider runtime", () => {
       configuredProviderCount: 0,
       modelCallsEnabled: false,
     });
+  });
+
+  it("does not resolve a non-language model as a language model", async () => {
+    const provider = providerConfig("openai-compatible");
+    const embeddingConfig: ModelConfig = { ...modelConfig, modelType: "embeddingModel" };
+    const database = runtimeDatabase(provider);
+    const runtime = await createAiRuntime({
+      database: {
+        ...database,
+        listModelConfigs: () => ({ modelConfigs: [embeddingConfig] }),
+        fetchModelConfig: () => embeddingConfig,
+      },
+      credentialStore,
+    });
+
+    expect(runtime.getStatus().modelCallsEnabled).toBe(false);
+    expect(() => runtime.resolveLanguageModel(modelConfigId)).toThrow(/embeddingModel/);
   });
 });

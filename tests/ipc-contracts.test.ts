@@ -6,6 +6,7 @@ import {
   createProviderConfigRequestSchema,
   databaseStatusSchema,
   createModelConfigRequestSchema,
+  MODEL_TYPES,
   modelConfigSchema,
   PROVIDER_TYPES,
   providerConfigSchema,
@@ -124,6 +125,7 @@ describe("shared IPC contracts", () => {
   it("accepts an AI SDK-aligned model configuration", () => {
     const request = {
       providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
+      modelType: "languageModel",
       modelId: "vendor/model-name",
       displayName: "主要模型",
       settings: {
@@ -143,7 +145,20 @@ describe("shared IPC contracts", () => {
         createdAt: new Date("2026-07-19T00:00:00.000Z"),
         updatedAt: new Date("2026-07-19T00:00:00.000Z"),
       }),
-    ).toMatchObject({ modelId: "vendor/model-name", enabled: true });
+    ).toMatchObject({ modelType: "languageModel", modelId: "vendor/model-name", enabled: true });
+  });
+
+  it.each(MODEL_TYPES)("accepts the AI SDK Registry model type %s", (modelType) => {
+    expect(
+      createModelConfigRequestSchema.parse({
+        providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
+        modelType,
+        modelId: "vendor/model-name",
+        displayName: null,
+        settings: null,
+        enabled: true,
+      }).modelType,
+    ).toBe(modelType);
   });
 
   it.each([
@@ -157,8 +172,9 @@ describe("shared IPC contracts", () => {
     ["non-HTTP base URL", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "file:///secret", settings: null, enabled: true }],
     ["renderer-selected credential reference", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "https://example.com/v1", credentialRef: "safe-storage/12345678-1234-4123-8123-123456789abc", settings: null, enabled: true }],
     ["unknown provider setting", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
-    ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
-    ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
+    ["unsupported model type", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "audioModel", modelId: "model", displayName: null, settings: null, enabled: true }],
+    ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
+    ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
   ])("rejects %s", (_name, schema, value) => {
     expect(schema.safeParse(value).success).toBe(false);
   });
