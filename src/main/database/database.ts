@@ -77,11 +77,23 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
   const sqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
 
   sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
 
   const database = drizzle(sqlite);
-  migrate(database, { migrationsFolder: join(appPath, "drizzle") });
+  // Migration 0005 rebuilds a referenced table to converge the old local and merged histories.
+  // SQLite requires enforcement to be disabled before Drizzle opens its migration transaction.
+  sqlite.pragma("foreign_keys = OFF");
+  try {
+    migrate(database, { migrationsFolder: join(appPath, "drizzle") });
+    sqlite.pragma("foreign_keys = ON");
+    const foreignKeyViolations = sqlite.pragma("foreign_key_check");
+    if (!Array.isArray(foreignKeyViolations) || foreignKeyViolations.length > 0) {
+      throw new Error("SQLite foreign key validation failed after migration.");
+    }
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
 
   const existingThread = database.select().from(threads).where(eq(threads.id, VALIDATION_THREAD_ID)).get();
   const validationThreadRestored = existingThread !== undefined;
