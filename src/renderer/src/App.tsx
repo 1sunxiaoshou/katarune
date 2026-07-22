@@ -2,25 +2,14 @@ import { SettingsIcon } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { Thread } from "@/components/thread";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
-import { applyTheme, type ThemeId } from "./theme";
 
 const SettingsPage = lazy(async () => {
   const settingsModule = await import("./settings/SettingsPage");
   return { default: settingsModule.SettingsPage };
 });
 
-interface AppProps {
-  readonly initialTheme: ThemeId;
-}
-
-export function App({ initialTheme }: AppProps): React.JSX.Element {
+export function App(): React.JSX.Element {
   const [activeView, setActiveView] = useState<"chat" | "settings">("chat");
-  const [theme, setTheme] = useState<ThemeId>(initialTheme);
-
-  const changeTheme = (nextTheme: ThemeId): void => {
-    applyTheme(nextTheme);
-    setTheme(nextTheme);
-  };
 
   return (
     <div className="h-dvh overflow-hidden">
@@ -32,7 +21,7 @@ export function App({ initialTheme }: AppProps): React.JSX.Element {
             </main>
           }
         >
-          <SettingsPage theme={theme} onThemeChange={changeTheme} onClose={() => setActiveView("chat")} />
+          <SettingsPage onClose={() => setActiveView("chat")} />
         </Suspense>
       ) : (
         <>

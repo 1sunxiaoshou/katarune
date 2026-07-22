@@ -6,7 +6,6 @@ import {
   EyeOffIcon,
   KeyRoundIcon,
   PlusIcon,
-  PaletteIcon,
   RefreshCwIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -28,7 +27,6 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import {
   MODEL_TYPES,
@@ -38,7 +36,6 @@ import {
   type ProviderConfig,
   type ProviderType,
 } from "../../../shared/ipc";
-import type { ThemeId } from "../theme";
 import { PROVIDER_CATALOG } from "./providerCatalog";
 
 const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
@@ -53,8 +50,6 @@ const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
 
 interface SettingsPageProps {
   readonly onClose: () => void;
-  readonly theme: ThemeId;
-  readonly onThemeChange: (theme: ThemeId) => void;
 }
 
 type SettingsDataState =
@@ -528,7 +523,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
   );
 }
 
-export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProps): React.JSX.Element {
+export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element {
   const [dataState, setDataState] = useState<SettingsDataState>({ status: "loading" });
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [creatingProvider, setCreatingProvider] = useState(false);
@@ -562,50 +557,12 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
       data-testid="settings-page"
       id="main-content"
     >
-      <Tabs
-        className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[13rem_minmax(0,1fr)] md:grid-rows-1"
-        defaultValue="models"
-        orientation="vertical"
+      <div
+        className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start"
         data-testid="settings-workspace"
       >
-        <TabsList
-          aria-label="设置菜单"
-          className="w-full items-stretch justify-start gap-0 rounded-none border-b bg-muted/30 p-2 md:h-full md:border-r md:border-b-0 md:p-3"
-          data-testid="settings-menu"
-          variant="line"
-        >
-          <TabsTrigger
-            className="h-10 w-full flex-none rounded-md px-3 py-2"
-            data-testid="settings-model-menu"
-            value="models"
-          >
-            <BotIcon aria-hidden="true" />
-            模型
-          </TabsTrigger>
-          <TabsTrigger
-            className="h-10 w-full flex-none rounded-md px-3 py-2"
-            data-testid="appearance-tab"
-            value="appearance"
-          >
-            <PaletteIcon aria-hidden="true" />
-            外观
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent className="min-h-0 overflow-y-auto p-4 sm:p-6" value="appearance">
-          <Card size="sm">
-            <CardHeader><CardTitle>界面主题</CardTitle><CardDescription>两套主题使用相同的 shadcn 组件，只切换语义颜色。</CardDescription></CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <Button data-testid="theme-plana" variant={theme === "plana" ? "default" : "outline"} aria-pressed={theme === "plana"} onClick={() => onThemeChange("plana")}>普拉娜</Button>
-              <Button data-testid="theme-arona" variant={theme === "arona" ? "default" : "outline"} aria-pressed={theme === "arona"} onClick={() => onThemeChange("arona")}>阿洛娜</Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent className="min-h-0 overflow-y-auto" value="models">
-          <div className="grid gap-4 p-4 sm:p-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start">
             <Card className="lg:sticky lg:top-6" size="sm">
-              <CardHeader><CardTitle>模型供应商</CardTitle><CardDescription>选择已有配置，或添加新的 AI SDK Provider。</CardDescription><CardAction><Button variant="outline" onClick={() => setCreatingProvider(true)}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加</Button></CardAction></CardHeader>
+              <CardHeader><CardTitle><span className="flex items-center gap-2"><BotIcon aria-hidden="true" />模型供应商</span></CardTitle><CardDescription>选择已有配置，或添加新的 AI SDK Provider。</CardDescription><CardAction><Button variant="outline" onClick={() => setCreatingProvider(true)}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加</Button></CardAction></CardHeader>
               <CardContent>
                 {dataState.status === "loading" && <p className="text-sm text-muted-foreground" role="status">正在读取配置……</p>}
                 {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void reload()}>重试</Button></div>}
@@ -628,9 +585,7 @@ export function SettingsPage({ onClose, theme, onThemeChange }: SettingsPageProp
             ) : (
               <Card size="sm"><CardContent className="py-6 text-center text-sm text-muted-foreground">选择一个 Provider，或添加新的模型供应商。</CardContent></Card>
             ))}
-          </div>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <TooltipIconButton
         className="fixed bottom-4 left-4 z-40"

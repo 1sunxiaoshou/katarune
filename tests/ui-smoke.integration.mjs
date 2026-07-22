@@ -109,7 +109,7 @@ async function run() {
     width: 1280,
     height: 900,
     show: false,
-    backgroundColor: "#10131e",
+    backgroundColor: "#ffffff",
     webPreferences: {
       preload: join(projectRoot, "out", "preload", "index.cjs"),
       contextIsolation: true,
@@ -216,6 +216,7 @@ async function run() {
   assert.match(settingsText, /DeepSeek Chat/);
   assert.doesNotMatch(settingsText, /Registry ID/);
   assert.match(settingsText, /语言模型/);
+  assert.doesNotMatch(settingsText, /外观|普拉娜|阿洛娜/);
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-row"] button').click()`);
   await waitForSelector(window, "#model-type");
@@ -238,41 +239,25 @@ async function run() {
   ]);
   const modelScreenshot = await capture(window, "model-settings.png");
 
-  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="appearance-tab"]').click()`);
-  await waitForSelector(window, '[data-testid="theme-plana"]');
-  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="theme-plana"]').click()`);
-
-  const planaMetrics = await window.webContents.executeJavaScript(`(() => {
+  const themeMetrics = await window.webContents.executeJavaScript(`(() => {
     const root = getComputedStyle(document.documentElement);
     return {
-      theme: document.documentElement.dataset.theme,
-      background: root.getPropertyValue("--background").trim(),
+      hasThemeAttribute: document.documentElement.hasAttribute("data-theme"),
+      dark: document.documentElement.classList.contains("dark"),
+      background: getComputedStyle(document.body).backgroundColor,
       radius: root.getPropertyValue("--radius").trim(),
     };
   })()`);
-  assert.equal(planaMetrics.theme, "plana");
-  assert.equal(Number.parseFloat(planaMetrics.radius), 0.625);
-  const planaScreenshot = await capture(window, "plana-settings.png");
-
-  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="theme-arona"]').click()`);
-  const aronaMetrics = await window.webContents.executeJavaScript(`(() => {
-    const root = getComputedStyle(document.documentElement);
-    return {
-      theme: document.documentElement.dataset.theme,
-      background: root.getPropertyValue("--background").trim(),
-      radius: root.getPropertyValue("--radius").trim(),
-    };
-  })()`);
-  assert.equal(aronaMetrics.theme, "arona");
-  assert.notEqual(aronaMetrics.background, planaMetrics.background);
-  assert.equal(aronaMetrics.radius, planaMetrics.radius);
-  const aronaScreenshot = await capture(window, "arona-settings.png");
+  assert.equal(themeMetrics.hasThemeAttribute, false);
+  assert.equal(themeMetrics.dark, false);
+  assert.equal(themeMetrics.background, "oklch(1 0 0)");
+  assert.equal(Number.parseFloat(themeMetrics.radius), 0.625);
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-back"]').click()`);
   await waitForSelector(window, '[data-testid="settings-launcher"]');
 
   window.destroy();
-  console.log(JSON.stringify({ modelScreenshot, planaScreenshot, aronaScreenshot }));
+  console.log(JSON.stringify({ modelScreenshot }));
 }
 
 console.log("UI smoke: waiting for Electron");
