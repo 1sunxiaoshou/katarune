@@ -18,7 +18,7 @@ ATRI Chat 是参考实现、行为基准、资产和迁移数据来源，不是�
 
 ## 当前阶段
 
-项目目前处于设计与技术验证准备阶段。桌面容器已决定采用 Electron，可信 Harness 运行在其内置 Node.js 主进程；本地持久化已决定采用 SQLite + `better-sqlite3` + Drizzle ORM 稳定版。具体依赖版本、迁移执行流程、打包工具、长期记忆系统和最终分发方案仍待验证或决定。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
+项目已经完成 P1 技术验证基线，准备进入 P2 最小垂直闭环。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流和 Windows unpacked 产物验证。真实模型 Provider、main process 与 renderer 之间的流传输、Windows 安装包格式、签名与更新配置、长期记忆系统和最终分发方案仍待验证或决定。VRM 仍是目标能力，但当前原型暂缓实现，先独立调查技术路线。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
 
 ## Agent Skills
 
@@ -64,6 +64,7 @@ npx skills list --json
 - AI SDK 负责模型调用、工具调用、流式输出和基础 Agent 循环。
 - assistant-ui 负责聊天交互框架与工具 UI 基础能力。
 - 非核心能力优先采用成熟库、Provider、MCP、ACP 或其他现成实现。
+- 框架已提供稳定类型、协议、生命周期或持久化格式时直接复用；不要建立镜像模型、重复转换层或没有真实迁移需求的兼容层。只在 SQLite、Electron IPC、安全边界和言奏特有领域语义处实现薄适配。
 - 自研重点是角色、记忆策略、VRM、TTS/ASR 协调、桌面能力和安全策略。
 - 密钥、文件系统、数据库和高权限工具不得放在不可信的 Electron renderer 边界内。
 - TTS 与 ASR 是独立 Capability，不与 Agent 循环强耦合。

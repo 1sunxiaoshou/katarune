@@ -1,0 +1,15 @@
+# P1 prototype identifier; replace after the distribution identity is decided.
+appId: app.katarune.prototype
+productName: Katarune
+icon: icon.png
+asar: true
+npmRebuild: true
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**/*
+  - drizzle/**/*
+  - package.json
