@@ -4,6 +4,7 @@ import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
   createProviderConfigRequestSchema,
+  discoveredModelListSchema,
   databaseStatusSchema,
   deleteThreadMessagesRequestSchema,
   initializeThreadResponseSchema,
@@ -169,6 +170,12 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.deleteModelConfig,
       operationSuccessSchema,
       modelConfigIdRequestSchema.parse(request),
+    ),
+  discoverProviderModels: (request: ProviderConfigIdRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.discoverProviderModels,
+      discoveredModelListSchema,
+      providerConfigIdRequestSchema.parse(request),
     ),
   testModelConnection: (request: ModelConfigIdRequest) =>
     invokeValidated(

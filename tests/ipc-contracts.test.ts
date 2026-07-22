@@ -5,6 +5,7 @@ import {
   appInfoSchema,
   createProviderConfigRequestSchema,
   databaseStatusSchema,
+  discoveredModelListSchema,
   createModelConfigRequestSchema,
   MODEL_TYPES,
   modelConfigSchema,
@@ -146,6 +147,12 @@ describe("shared IPC contracts", () => {
         updatedAt: new Date("2026-07-19T00:00:00.000Z"),
       }),
     ).toMatchObject({ modelType: "languageModel", modelId: "vendor/model-name", enabled: true });
+  });
+
+  it("accepts a sanitized discovered model list", () => {
+    expect(discoveredModelListSchema.parse({
+      models: [{ id: "provider/model", displayName: "Model", owner: "provider", description: null, modelType: "languageModel" }],
+    })).toMatchObject({ models: [{ id: "provider/model", modelType: "languageModel" }] });
   });
 
   it.each(MODEL_TYPES)("accepts the AI SDK Registry model type %s", (modelType) => {
