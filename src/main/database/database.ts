@@ -6,6 +6,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { z } from "zod";
 import {
+  characterListSchema,
+  characterSchema,
   databaseStatusSchema,
   initializeThreadResponseSchema,
   modelConfigListSchema,
@@ -16,6 +18,8 @@ import {
   threadMessagesSchema,
   threadMetadataSchema,
   type AppendThreadMessageRequest,
+  type Character,
+  type CharacterList,
   type DatabaseStatus,
   type CreateProviderConfigRequest,
   type CreateModelConfigRequest,
@@ -28,10 +32,12 @@ import {
   type ThreadList,
   type ThreadMessages,
   type ThreadMetadata,
+  type UpdateCharacterRequest,
   type UpdateProviderConfigRequest,
   type UpdateModelConfigRequest,
 } from "../../shared/ipc";
-import { messages, modelConfigs, providerConfigs, threads } from "./schema";
+import { loadDefaultCharacterConfig } from "../characters/defaultCharacter";
+import { characters, messages, modelConfigs, providerConfigs, threads } from "./schema";
 
 const VALIDATION_THREAD_ID = "p1-database-validation";
 
@@ -65,15 +71,24 @@ export interface DatabaseRuntime {
   fetchModelConfig(id: string): ModelConfig;
   updateModelConfig(request: UpdateModelConfigRequest): ModelConfig;
   deleteModelConfig(id: string): void;
+  listCharacters(): CharacterList;
+  fetchCharacter(id: string): Character;
+  updateCharacter(request: UpdateCharacterRequest): Character;
+  setCharacterPortraitAsset(id: string, portraitAssetId: string): Character;
   close(): void;
 }
 
 interface OpenDatabaseOptions {
   readonly userDataPath: string;
   readonly appPath: string;
+  readonly characterResourcesPath?: string;
 }
 
-export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): DatabaseRuntime {
+export function openDatabase({
+  userDataPath,
+  appPath,
+  characterResourcesPath = join(appPath, "resources", "characters"),
+}: OpenDatabaseOptions): DatabaseRuntime {
   const sqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
 
   sqlite.pragma("journal_mode = WAL");
@@ -93,6 +108,28 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
   } catch (error) {
     sqlite.close();
     throw error;
+  }
+
+  const defaultCharacterConfig = loadDefaultCharacterConfig(characterResourcesPath);
+  const existingCharacterCount = database.select({ value: count() }).from(characters).get()?.value;
+  if (existingCharacterCount === undefined) {
+    sqlite.close();
+    throw new Error("Database validation could not count characters.");
+  }
+  if (existingCharacterCount === 0) {
+    const now = new Date();
+    database
+      .insert(characters)
+      .values({
+        id: defaultCharacterConfig.character.id,
+        name: defaultCharacterConfig.character.name,
+        portraitAssetId: defaultCharacterConfig.character.portrait?.assetId ?? null,
+        modelConfigId: defaultCharacterConfig.character.modelConfigId,
+        systemPrompt: defaultCharacterConfig.character.systemPrompt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
   }
 
   const existingThread = database.select().from(threads).where(eq(threads.id, VALIDATION_THREAD_ID)).get();
@@ -165,6 +202,14 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
     }
 
     return modelConfigSchema.parse(modelConfig);
+  };
+
+  const fetchCharacter = (id: string): Character => {
+    const character = database.select().from(characters).where(eq(characters.id, id)).get();
+    if (character === undefined) {
+      throw new Error(`Character "${id}" was not found.`);
+    }
+    return characterSchema.parse(character);
   };
 
   return {
@@ -400,6 +445,39 @@ export function openDatabase({ userDataPath, appPath }: OpenDatabaseOptions): Da
     deleteModelConfig: (id) => {
       const result = database.delete(modelConfigs).where(eq(modelConfigs.id, id)).run();
       if (result.changes === 0) fetchModelConfig(id);
+    },
+    listCharacters: () =>
+      characterListSchema.parse({
+        characters: database.select().from(characters).orderBy(asc(characters.createdAt)).all(),
+      }),
+    fetchCharacter,
+    updateCharacter: ({ id, name, modelConfigId, systemPrompt }) => {
+      const updates: {
+        name?: string;
+        modelConfigId?: string | null;
+        systemPrompt?: string;
+        updatedAt: Date;
+      } = { updatedAt: new Date() };
+      if (name !== undefined) updates.name = name;
+      if (modelConfigId !== undefined) updates.modelConfigId = modelConfigId;
+      if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
+
+      const result = database
+        .update(characters)
+        .set(updates)
+        .where(eq(characters.id, id))
+        .run();
+      if (result.changes === 0) fetchCharacter(id);
+      return fetchCharacter(id);
+    },
+    setCharacterPortraitAsset: (id, portraitAssetId) => {
+      const result = database
+        .update(characters)
+        .set({ portraitAssetId, updatedAt: new Date() })
+        .where(eq(characters.id, id))
+        .run();
+      if (result.changes === 0) fetchCharacter(id);
+      return fetchCharacter(id);
     },
     close: () => sqlite.close(),
   };

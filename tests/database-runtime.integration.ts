@@ -119,6 +119,17 @@ try {
       }),
     /already exists/,
   );
+  const defaultCharacter = runtime.listCharacters().characters[0];
+  assert.ok(defaultCharacter);
+  assert.equal(defaultCharacter.name, "星澜");
+  assert.equal(defaultCharacter.modelConfigId, null);
+  const updatedCharacter = runtime.updateCharacter({
+    id: defaultCharacter.id,
+    name: "数据库中的星澜",
+    modelConfigId: modelConfig.id,
+    systemPrompt: "数据库配置优先于默认配置。",
+  });
+  assert.equal(updatedCharacter.name, "数据库中的星澜");
   runtime.close();
   runtime = undefined;
 
@@ -129,6 +140,8 @@ try {
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, [providerConfig]);
   assert.deepEqual(runtime.fetchModelConfig(modelConfig.id), modelConfig);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, [modelConfig]);
+  assert.deepEqual(runtime.fetchCharacter(updatedCharacter.id), updatedCharacter);
+  assert.equal(runtime.listCharacters().characters[0]?.name, "数据库中的星澜");
 
   const credentialReference = "safe-storage/12345678-1234-4123-8123-123456789abc";
   const providerWithCredential = runtime.setProviderCredentialReference(
@@ -165,6 +178,11 @@ try {
   runtime.deleteProviderConfig(providerConfig.id);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, []);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, []);
+  assert.equal(
+    runtime.fetchCharacter(updatedCharacter.id).modelConfigId,
+    modelConfig.id,
+    "角色应保留已失效的模型引用，供 UI 显示不可用状态",
+  );
 
   createLegacyProviderIdentityDatabase();
   legacyRuntime = openDatabase({ userDataPath: legacyUserDataPath, appPath: process.cwd() });
@@ -195,7 +213,7 @@ try {
   }
 
   console.log(
-    "SQLite thread, message, Provider/model config, and legacy migration recovery passed.",
+    "SQLite thread, message, Provider/model/character config, and legacy migration recovery passed.",
   );
 } finally {
   runtime?.close();

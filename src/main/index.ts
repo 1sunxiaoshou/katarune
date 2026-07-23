@@ -1,8 +1,11 @@
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, Menu, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from "electron";
 import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  characterIdRequestSchema,
+  characterPortraitImportResultSchema,
+  characterPortraitSchema,
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
   deleteThreadMessagesRequestSchema,
@@ -17,10 +20,16 @@ import {
   threadIdRequestSchema,
   updateProviderConfigRequestSchema,
   updateModelConfigRequestSchema,
+  updateCharacterRequestSchema,
   type AppInfo,
 } from "../shared/ipc";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
 import { discoverProviderModels } from "./ai/modelDiscovery";
+import {
+  createCharacterAssetStore,
+  type CharacterAssetStore,
+} from "./characters/characterAssets";
+import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { createCredentialStore, type CredentialStore } from "./security/credentialStore";
 
@@ -42,6 +51,7 @@ function registerIpcHandlers(
   database: DatabaseRuntime,
   aiRuntime: AiRuntime,
   credentialStore: CredentialStore,
+  characterAssets: CharacterAssetStore,
 ): void {
   ipcMain.handle(IPC_CHANNELS.getAppInfo, getAppInfo);
   ipcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
@@ -190,6 +200,58 @@ function registerIpcHandlers(
     const { id } = modelConfigIdRequestSchema.parse(value);
     return aiRuntime.testConnection(id);
   });
+  ipcMain.handle(IPC_CHANNELS.listCharacters, () => database.listCharacters());
+  ipcMain.handle(IPC_CHANNELS.updateCharacter, (_event, value: unknown) => {
+    return database.updateCharacter(updateCharacterRequestSchema.parse(value));
+  });
+  ipcMain.handle(IPC_CHANNELS.getCharacterPortrait, (_event, value: unknown) => {
+    const { id } = characterIdRequestSchema.parse(value);
+    const character = database.fetchCharacter(id);
+    return characterPortraitSchema.parse({
+      characterId: id,
+      dataUrl:
+        character.portraitAssetId === null
+          ? null
+          : characterAssets.readPortraitDataUrl(character.portraitAssetId),
+    });
+  });
+  ipcMain.handle(IPC_CHANNELS.importCharacterPortrait, async (event, value: unknown) => {
+    const { id } = characterIdRequestSchema.parse(value);
+    const character = database.fetchCharacter(id);
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const selection =
+      owner === null
+        ? await dialog.showOpenDialog({
+            properties: ["openFile"],
+            filters: [{ name: "角色立绘", extensions: ["png", "jpg", "jpeg", "webp"] }],
+          })
+        : await dialog.showOpenDialog(owner, {
+            properties: ["openFile"],
+            filters: [{ name: "角色立绘", extensions: ["png", "jpg", "jpeg", "webp"] }],
+          });
+
+    if (selection.canceled || selection.filePaths[0] === undefined) {
+      return characterPortraitImportResultSchema.parse({ canceled: true, character: null });
+    }
+
+    const nextAssetId = characterAssets.importPortrait(selection.filePaths[0]);
+    try {
+      const updated = database.setCharacterPortraitAsset(id, nextAssetId);
+      const previousAssetId = character.portraitAssetId;
+      if (
+        previousAssetId !== null &&
+        !database
+          .listCharacters()
+          .characters.some((item) => item.portraitAssetId === previousAssetId)
+      ) {
+        characterAssets.deletePortrait(previousAssetId);
+      }
+      return characterPortraitImportResultSchema.parse({ canceled: false, character: updated });
+    } catch (error) {
+      characterAssets.deletePortrait(nextAssetId);
+      throw error;
+    }
+  });
 }
 
 function createMainWindow(): BrowserWindow {
@@ -239,25 +301,48 @@ let databaseRuntime: DatabaseRuntime | undefined;
 let aiRuntime: AiRuntime | undefined;
 
 void app.whenReady().then(() => {
+  const characterResourcesPath = app.isPackaged
+    ? join(process.resourcesPath, "characters")
+    : join(app.getAppPath(), "resources", "characters");
+  const defaultCharacterConfig = loadDefaultCharacterConfig(characterResourcesPath);
+  const characterAssets = createCharacterAssetStore({
+    userDataPath: app.getPath("userData"),
+    characterResourcesPath,
+  });
   databaseRuntime = openDatabase({
     userDataPath: app.getPath("userData"),
     appPath: app.getAppPath(),
+    characterResourcesPath,
   });
-  return createCredentialStore({
-    userDataPath: app.getPath("userData"),
-    cipher: {
-      isEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
-      encryptString: (value) => safeStorage.encryptStringAsync(value),
-      decryptString: (value) => safeStorage.decryptStringAsync(value),
-    },
-  });
-}).then(async (credentialStore) => {
+  if (
+    defaultCharacterConfig.character.portrait !== null &&
+    databaseRuntime
+      .listCharacters()
+      .characters.some(
+        (character) =>
+          character.portraitAssetId === defaultCharacterConfig.character.portrait?.assetId,
+      )
+  ) {
+    characterAssets.ensureDefaultPortrait(defaultCharacterConfig);
+  }
+  return Promise.all([
+    createCredentialStore({
+      userDataPath: app.getPath("userData"),
+      cipher: {
+        isEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
+        encryptString: (value) => safeStorage.encryptStringAsync(value),
+        decryptString: (value) => safeStorage.decryptStringAsync(value),
+      },
+    }),
+    Promise.resolve(characterAssets),
+  ]);
+}).then(async ([credentialStore, characterAssets]) => {
   if (databaseRuntime === undefined) {
     throw new Error("Database runtime was not initialized.");
   }
   Menu.setApplicationMenu(null);
   aiRuntime = await createAiRuntime({ database: databaseRuntime, credentialStore });
-  registerIpcHandlers(databaseRuntime, aiRuntime, credentialStore);
+  registerIpcHandlers(databaseRuntime, aiRuntime, credentialStore, characterAssets);
   createMainWindow();
 
   app.on("activate", () => {

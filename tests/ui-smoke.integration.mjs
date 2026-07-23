@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
@@ -16,12 +16,26 @@ app.commandLine.appendSwitch("disable-gpu");
 const now = new Date("2026-07-19T00:00:00.000Z");
 const providerId = "d3867f4b-e85f-4ff4-ac2b-974dc39ad832";
 const modelId = "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb";
+const characterId = "00000000-0000-4000-8000-000000000001";
+const characterPortraitDataUrl = `data:image/png;base64,${readFileSync(
+  join(projectRoot, "resources", "characters", "celestial-mage-line-art.png"),
+).toString("base64")}`;
 let emptyConfigMode = false;
 let createdProviderRequest = null;
 let createdProvider = null;
 let replacedCredentialRequest = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
+let updatedCharacterRequest = null;
+let character = {
+  id: characterId,
+  name: "星澜",
+  portraitAssetId: "00000000-0000-4000-8000-000000000002",
+  modelConfigId: modelId,
+  systemPrompt: "你是星澜，一位温柔、沉静的数字角色。",
+  createdAt: now,
+  updatedAt: now,
+};
 
 function registerMockHandlers() {
   ipcMain.handle("app:get-info", () => ({
@@ -115,6 +129,20 @@ function registerMockHandlers() {
       updatedAt: now,
     };
   });
+  ipcMain.handle("characters:list", () => ({ characters: [character] }));
+  ipcMain.handle("characters:update", (_event, request) => {
+    updatedCharacterRequest = request;
+    character = { ...character, ...request, updatedAt: now };
+    return character;
+  });
+  ipcMain.handle("characters:get-portrait", (_event, request) => ({
+    characterId: request.id,
+    dataUrl: characterPortraitDataUrl,
+  }));
+  ipcMain.handle("characters:import-portrait", () => ({
+    canceled: true,
+    character: null,
+  }));
 }
 
 async function waitForSelector(window, selector) {
@@ -212,18 +240,97 @@ async function run() {
   assert.equal(chatScrollMetrics.documentScrollHeight, chatScrollMetrics.windowHeight);
   assert.equal(chatScrollMetrics.viewportOverflowY, "auto");
   await waitForSelector(window, '[data-testid="settings-launcher"]');
+  await waitForSelector(window, '[data-testid="character-launcher"]');
   const launcherMetrics = await window.webContents.executeJavaScript(`(() => {
     const launcherElement = document.querySelector('[data-testid="settings-launcher"]');
     const launcher = launcherElement.getBoundingClientRect();
+    const character = document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect();
     return {
       left: Math.round(launcher.left),
       bottom: Math.round(window.innerHeight - launcher.bottom),
       width: Math.round(launcher.width),
       height: Math.round(launcher.height),
       isRound: Number.parseFloat(getComputedStyle(launcherElement).borderRadius) * 2 >= Math.min(launcher.width, launcher.height),
+      characterLeft: Math.round(character.left),
+      characterBottom: Math.round(window.innerHeight - character.bottom),
+      verticalGap: Math.round(launcher.top - character.bottom),
     };
   })()`);
-  assert.deepEqual(launcherMetrics, { left: 16, bottom: 16, width: 32, height: 32, isRound: true });
+  assert.deepEqual(launcherMetrics, {
+    left: 16,
+    bottom: 16,
+    width: 32,
+    height: 32,
+    isRound: true,
+    characterLeft: 16,
+    characterBottom: 56,
+    verticalGap: 8,
+  });
+
+  console.log("UI smoke: opening character management");
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-launcher"]').click()`);
+  await waitForSelector(window, '[data-testid="character-page"]');
+  await waitForSelector(window, '[data-testid="character-list-item"]');
+  const characterLayout = await window.webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('[data-testid="character-page"]');
+    const name = document.querySelector('[data-testid="character-name"]');
+    const model = document.querySelector('[data-testid="character-model"]');
+    const prompt = document.querySelector('[data-testid="character-system-prompt"]');
+    const list = document.querySelector('[data-testid="character-list"]');
+    return {
+      title: page.querySelector('h1').textContent.trim(),
+      name: name.value,
+      model: model.getAttribute('data-model-id'),
+      prompt: prompt.value,
+      listCount: list.querySelectorAll('[data-testid="character-list-item"]').length,
+      columns: getComputedStyle(page.querySelector('.character-layout')).gridTemplateColumns.split(' ').length,
+      backgroundImage: getComputedStyle(page).backgroundImage,
+      backgroundMatchesBody: getComputedStyle(page).backgroundColor === getComputedStyle(document.body).backgroundColor,
+    };
+  })()`);
+  assert.equal(characterLayout.title, "角色图鉴");
+  assert.equal(characterLayout.name, "星澜");
+  assert.equal(characterLayout.model, modelId);
+  assert.match(characterLayout.prompt, /温柔、沉静/);
+  assert.equal(characterLayout.listCount, 1);
+  assert.equal(characterLayout.columns, 3);
+  assert.equal(characterLayout.backgroundImage, "none");
+  assert.equal(characterLayout.backgroundMatchesBody, true);
+
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-model"]').click()`);
+  await waitForSelector(window, '[data-slot="model-selector-content"]');
+  const modelSelector = await window.webContents.executeJavaScript(`(() => {
+    const content = document.querySelector('[data-slot="model-selector-content"]');
+    const groups = [...content.querySelectorAll('[data-slot="model-selector-group"]')];
+    const selectedItem = content.querySelector('[data-slot="model-selector-item"][data-selected="true"]')
+      ?? [...content.querySelectorAll('[data-slot="model-selector-item"]')].find((item) => item.textContent.includes('DeepSeek Chat'));
+    const providerLogo = selectedItem.querySelector('span[style*="mask-image"]');
+    return {
+      hasSearch: content.querySelector('[data-slot="model-selector-search"]') !== null,
+      groupLabels: groups.map((group) => group.textContent.trim()),
+      selectedText: selectedItem.textContent.trim(),
+      hasProviderLogo: providerLogo !== null && getComputedStyle(providerLogo).maskImage !== "none",
+    };
+  })()`);
+  assert.equal(modelSelector.hasSearch, true);
+  assert.ok(modelSelector.groupLabels.some((label) => label.includes("DeepSeek")));
+  assert.match(modelSelector.selectedText, /DeepSeek Chat/);
+  assert.equal(modelSelector.hasProviderLogo, true);
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ESC" });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ESC" });
+
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[data-testid="character-name"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '星澜·测试');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  })()`);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 50))`);
+  assert.deepEqual(updatedCharacterRequest, { id: characterId, name: "星澜·测试" });
+  const characterScreenshot = await capture(window, "character-gallery.png");
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-back"]').click()`);
+  await waitForSelector(window, '[data-testid="settings-launcher"]');
+
   console.log("UI smoke: opening settings");
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
   await waitForSelector(window, '[data-testid="settings-page"]');
@@ -351,6 +458,8 @@ async function run() {
   assert.ok(modelLayout.providerRight < modelLayout.modelLeft);
   assert.equal(modelLayout.categoryTopCount, 1);
   assert.equal(modelLayout.categoryCenterOffset, 0);
+  window.webContents.sendInputEvent({ type: "mouseMove", x: 1, y: 1 });
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   const modelItemStyle = await window.webContents.executeJavaScript(`(() => {
     const row = document.querySelector('[data-testid="model-row"]');
     const style = getComputedStyle(row);
@@ -726,7 +835,7 @@ async function run() {
   emptyWindow.destroy();
   window.destroy();
 
-  console.log(JSON.stringify({ modelScreenshot, emptyScreenshot, providerDialogScreenshot, hoverScreenshot }));
+  console.log(JSON.stringify({ characterScreenshot, modelScreenshot, emptyScreenshot, providerDialogScreenshot, hoverScreenshot }));
 }
 
 console.log("UI smoke: waiting for Electron");

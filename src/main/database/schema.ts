@@ -66,3 +66,17 @@ export const modelConfigs = sqliteTable(
     ),
   ],
 );
+
+export const characters = sqliteTable(
+  "characters",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    portraitAssetId: text("portrait_asset_id"),
+    modelConfigId: text("model_config_id"),
+    systemPrompt: text("system_prompt").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("characters_created_at_idx").on(table.createdAt)],
+);

@@ -13,3 +13,6 @@ files:
   - out/**/*
   - drizzle/**/*
   - package.json
+extraResources:
+  - from: resources/characters
+    to: characters

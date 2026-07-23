@@ -1,7 +1,33 @@
 import * as z from "zod/mini";
+import {
+  type Character,
+  type CharacterIdRequest,
+  type CharacterList,
+  type CharacterPortrait,
+  type CharacterPortraitImportResult,
+  type UpdateCharacterRequest,
+} from "./characters";
 import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
 
+export {
+  characterIdRequestSchema,
+  characterListSchema,
+  characterPortraitImportResultSchema,
+  characterPortraitSchema,
+  characterSchema,
+  defaultCharacterConfigSchema,
+  updateCharacterRequestSchema,
+} from "./characters";
+export type {
+  Character,
+  CharacterIdRequest,
+  CharacterList,
+  CharacterPortrait,
+  CharacterPortraitImportResult,
+  DefaultCharacterConfig,
+  UpdateCharacterRequest,
+} from "./characters";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
 export { PROVIDER_TYPES } from "./providers";
@@ -34,6 +60,10 @@ export const IPC_CHANNELS = {
   deleteModelConfig: "model-configs:delete",
   discoverProviderModels: "model-configs:discover",
   testModelConnection: "model-configs:test-connection",
+  listCharacters: "characters:list",
+  updateCharacter: "characters:update",
+  importCharacterPortrait: "characters:import-portrait",
+  getCharacterPortrait: "characters:get-portrait",
 } as const;
 
 const nonEmptyStringSchema = z.string().check(z.minLength(1));
@@ -296,4 +326,10 @@ export interface KataruneApi {
   deleteModelConfig(request: ModelConfigIdRequest): Promise<OperationSuccess>;
   discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
+  listCharacters(): Promise<CharacterList>;
+  updateCharacter(request: UpdateCharacterRequest): Promise<Character>;
+  importCharacterPortrait(
+    request: CharacterIdRequest,
+  ): Promise<CharacterPortraitImportResult>;
+  getCharacterPortrait(request: CharacterIdRequest): Promise<CharacterPortrait>;
 }

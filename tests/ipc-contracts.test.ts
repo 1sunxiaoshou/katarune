@@ -3,6 +3,8 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  characterListSchema,
+  defaultCharacterConfigSchema,
   createProviderConfigRequestSchema,
   databaseStatusSchema,
   discoveredModelListSchema,
@@ -14,6 +16,7 @@ import {
   replaceProviderCredentialRequestSchema,
   threadListSchema,
   threadMessagesSchema,
+  updateCharacterRequestSchema,
 } from "../src/shared/ipc";
 
 describe("shared IPC contracts", () => {
@@ -149,6 +152,47 @@ describe("shared IPC contracts", () => {
     ).toMatchObject({ modelType: "languageModel", modelId: "vendor/model-name", enabled: true });
   });
 
+  it("accepts default and persisted character configuration", () => {
+    expect(
+      defaultCharacterConfigSchema.parse({
+        version: 1,
+        character: {
+          id: "00000000-0000-4000-8000-000000000001",
+          name: "星澜",
+          modelConfigId: null,
+          systemPrompt: "你是星澜。",
+          portrait: {
+            assetId: "00000000-0000-4000-8000-000000000002",
+            file: "celestial-mage-line-art.png",
+          },
+        },
+      }),
+    ).toMatchObject({ character: { name: "星澜" } });
+
+    expect(
+      characterListSchema.parse({
+        characters: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            name: "星澜",
+            portraitAssetId: "00000000-0000-4000-8000-000000000002",
+            modelConfigId: null,
+            systemPrompt: "你是星澜。",
+            createdAt: new Date("2026-07-23T00:00:00.000Z"),
+            updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+          },
+        ],
+      }),
+    ).toMatchObject({ characters: [{ name: "星澜" }] });
+
+    expect(
+      updateCharacterRequestSchema.parse({
+        id: "00000000-0000-4000-8000-000000000001",
+        systemPrompt: "更新后的提示词",
+      }),
+    ).toMatchObject({ systemPrompt: "更新后的提示词" });
+  });
+
   it("accepts a sanitized discovered model list", () => {
     expect(discoveredModelListSchema.parse({
       models: [{ id: "provider/model", displayName: "Model", owner: "provider", description: null, modelType: "languageModel" }],
@@ -182,6 +226,8 @@ describe("shared IPC contracts", () => {
     ["unsupported model type", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "audioModel", modelId: "model", displayName: null, settings: null, enabled: true }],
     ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
     ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
+    ["blank character name", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "" }],
+    ["unknown character field", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "星澜", providerId: "secret" }],
   ])("rejects %s", (_name, schema, value) => {
     expect(schema.safeParse(value).success).toBe(false);
   });
