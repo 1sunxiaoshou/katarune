@@ -1,3 +1,4 @@
+import "../characters/character-fonts.css";
 import {
   ArrowUpDownIcon,
   ArrowLeftIcon,
@@ -837,12 +838,27 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
 
   return (
     <main
-      className="h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
+      className="relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
       data-testid="settings-page"
       id="main-content"
     >
+      <header className="settings-header">
+        <TooltipIconButton
+          className="settings-back size-8 rounded-md active:scale-100"
+          data-testid="settings-back"
+          tooltip="返回聊天"
+          onClick={onClose}
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+        </TooltipIconButton>
+        <span className="settings-header-star" aria-hidden="true">✦</span>
+        <h1>设置</h1>
+        <span>SETTINGS</span>
+        <div className="settings-header-line" aria-hidden="true" />
+      </header>
+
       <Tabs
-        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
+        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
         defaultValue="general"
         data-testid="settings-workspace"
         orientation="vertical"
@@ -907,14 +923,6 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
         onConfirm={async () => { if (providerToDelete !== null) await deleteProvider(providerToDelete); }}
       />
 
-      <TooltipIconButton
-        className="fixed bottom-4 left-4 z-40 size-8"
-        data-testid="settings-back"
-        tooltip="返回主页"
-        onClick={onClose}
-      >
-        <ArrowLeftIcon aria-hidden="true" />
-      </TooltipIconButton>
     </main>
   );
 }

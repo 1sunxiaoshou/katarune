@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import {
   ModelSelectorContent,
   ModelSelectorEmpty,
@@ -203,7 +204,7 @@ function CharacterEditor({
         <div className="character-field">
           <label htmlFor="character-model">
             <span className="character-star" aria-hidden="true">✦</span>
-            模型 <small>/ MODEL</small>
+            心智 <small>/ MODEL</small>
           </label>
           <ModelSelectorRoot
             models={modelOptions}
@@ -255,7 +256,7 @@ function CharacterEditor({
         <div className="character-field character-prompt-field">
           <label htmlFor="character-system-prompt">
             <span className="character-star" aria-hidden="true">✦</span>
-            系统提示词 <small>/ SYSTEM PROMPT</small>
+            人格 <small>/ SYSTEM PROMPT</small>
           </label>
           <Textarea
             id="character-system-prompt"
@@ -378,21 +379,15 @@ export function CharacterPage({
 
   return (
     <main className="character-studio" data-testid="character-page" id="main-content">
-      <div className="character-frame-corner corner-top-left" aria-hidden="true">✦</div>
-      <div className="character-frame-corner corner-top-right" aria-hidden="true">✦</div>
-      <div className="character-frame-corner corner-bottom-left" aria-hidden="true">✦</div>
-      <div className="character-frame-corner corner-bottom-right" aria-hidden="true">✦</div>
-
       <header className="character-header">
-        <button
-          aria-label="返回聊天"
-          className="character-back"
+        <TooltipIconButton
+          className="character-back size-8 rounded-md active:scale-100"
           data-testid="character-back"
-          type="button"
+          tooltip="返回聊天"
           onClick={onClose}
         >
           <ArrowLeftIcon aria-hidden="true" />
-        </button>
+        </TooltipIconButton>
         <span className="character-header-star" aria-hidden="true">✦</span>
         <h1>角色图鉴</h1>
         <span>CHARACTER GALLERY</span>

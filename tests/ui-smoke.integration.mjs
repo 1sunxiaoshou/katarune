@@ -278,6 +278,7 @@ async function run() {
     const prompt = document.querySelector('[data-testid="character-system-prompt"]');
     const list = document.querySelector('[data-testid="character-list"]');
     const listReading = document.querySelector('[data-testid="character-list-reading"]');
+    const backIcon = document.querySelector('[data-testid="character-back"] svg');
     return {
       title: page.querySelector('h1').textContent.trim(),
       name: name.value,
@@ -288,6 +289,7 @@ async function run() {
       columns: getComputedStyle(page.querySelector('.character-layout')).gridTemplateColumns.split(' ').length,
       backgroundImage: getComputedStyle(page).backgroundImage,
       backgroundMatchesBody: getComputedStyle(page).backgroundColor === getComputedStyle(document.body).backgroundColor,
+      backTransitionDuration: getComputedStyle(backIcon).transitionDuration,
     };
   })()`);
   assert.equal(characterLayout.title, "角色图鉴");
@@ -299,6 +301,7 @@ async function run() {
   assert.equal(characterLayout.columns, 3);
   assert.equal(characterLayout.backgroundImage, "none");
   assert.equal(characterLayout.backgroundMatchesBody, true);
+  assert.equal(characterLayout.backTransitionDuration, "0.16s");
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-model"]').click()`);
   await waitForSelector(window, '[data-slot="model-selector-content"]');
@@ -374,7 +377,8 @@ async function run() {
 
   const settingsLayout = await window.webContents.executeJavaScript(`(() => {
     const page = document.querySelector('[data-testid="settings-page"]');
-    const back = document.querySelector('[data-testid="settings-back"]').getBoundingClientRect();
+    const backElement = document.querySelector('[data-testid="settings-back"]');
+    const back = backElement.getBoundingClientRect();
     const rect = page.getBoundingClientRect();
     return {
       hasExternalLauncher: document.querySelector('[data-testid="settings-launcher"]') !== null,
@@ -387,24 +391,24 @@ async function run() {
       viewportHeight: window.innerHeight,
       pageOverflow: getComputedStyle(page).overflow,
       backLeft: Math.round(back.left),
-      backBottom: Math.round(window.innerHeight - back.bottom),
+      backTop: Math.round(back.top),
       backWidth: Math.round(back.width),
       backHeight: Math.round(back.height),
-      backIsRound: Number.parseFloat(getComputedStyle(document.querySelector('[data-testid="settings-back"]')).borderRadius) * 2 >= Math.min(back.width, back.height),
+      backTransitionDuration: getComputedStyle(backElement.querySelector('svg')).transitionDuration,
     };
   })()`);
   assert.equal(settingsLayout.hasExternalLauncher, false);
-  assert.equal(settingsLayout.hasPageHeader, false);
+  assert.equal(settingsLayout.hasPageHeader, true);
   assert.deepEqual(
     { left: settingsLayout.left, top: settingsLayout.top, width: settingsLayout.width, height: settingsLayout.height },
     { left: 0, top: 0, width: settingsLayout.viewportWidth, height: settingsLayout.viewportHeight },
   );
   assert.equal(settingsLayout.pageOverflow, "hidden");
-  assert.equal(settingsLayout.backLeft, 16);
-  assert.equal(settingsLayout.backBottom, 16);
+  assert.equal(settingsLayout.backLeft, 32);
+  assert.equal(settingsLayout.backTop, 17);
   assert.equal(settingsLayout.backWidth, launcherMetrics.width);
   assert.equal(settingsLayout.backHeight, launcherMetrics.height);
-  assert.equal(settingsLayout.backIsRound, true);
+  assert.equal(settingsLayout.backTransitionDuration, characterLayout.backTransitionDuration);
 
   window.setSize(375, 700);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
@@ -421,7 +425,7 @@ async function run() {
       viewportWidth: window.innerWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
       backLeft: Math.round(back.left),
-      backBottom: Math.round(window.innerHeight - back.bottom),
+      backTop: Math.round(back.top),
       tabsInline: Math.round(generalTab.top) === Math.round(modelTab.top) && generalTab.right <= modelTab.left,
       panelsStacked: provider.bottom <= model.top,
       contentLeft: Math.round(provider.left),
@@ -430,8 +434,8 @@ async function run() {
   })()`);
   assert.equal(compactLayout.pageWidth, compactLayout.viewportWidth);
   assert.equal(compactLayout.documentScrollWidth, compactLayout.viewportWidth);
-  assert.equal(compactLayout.backLeft, 16);
-  assert.equal(compactLayout.backBottom, 16);
+  assert.equal(compactLayout.backLeft, 24);
+  assert.equal(compactLayout.backTop, 17);
   assert.equal(compactLayout.tabsInline, true);
   assert.equal(compactLayout.panelsStacked, true);
   assert.equal(compactLayout.contentLeft, 24);
