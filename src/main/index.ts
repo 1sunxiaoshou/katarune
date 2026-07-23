@@ -8,6 +8,7 @@ import {
   deleteThreadMessagesRequestSchema,
   IPC_CHANNELS,
   modelConfigIdRequestSchema,
+  discoveredModelListSchema,
   operationSuccessSchema,
   providerConfigIdRequestSchema,
   replaceProviderCredentialRequestSchema,
@@ -19,6 +20,7 @@ import {
   type AppInfo,
 } from "../shared/ipc";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
+import { discoverProviderModels } from "./ai/modelDiscovery";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { createCredentialStore, type CredentialStore } from "./security/credentialStore";
 
@@ -175,6 +177,14 @@ function registerIpcHandlers(
     database.deleteModelConfig(id);
     await aiRuntime.reload();
     return operationSuccessSchema.parse({ success: true });
+  });
+  ipcMain.handle(IPC_CHANNELS.discoverProviderModels, async (_event, value: unknown) => {
+    const { id } = providerConfigIdRequestSchema.parse(value);
+    const provider = database.fetchProviderConfig(id);
+    const apiKey = provider.credentialRef === null
+      ? undefined
+      : await credentialStore.resolve(provider.credentialRef);
+    return discoveredModelListSchema.parse(await discoverProviderModels(provider, apiKey));
   });
   ipcMain.handle(IPC_CHANNELS.testModelConnection, (_event, value: unknown) => {
     const { id } = modelConfigIdRequestSchema.parse(value);

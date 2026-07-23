@@ -32,6 +32,7 @@ export const IPC_CHANNELS = {
   fetchModelConfig: "model-configs:fetch",
   updateModelConfig: "model-configs:update",
   deleteModelConfig: "model-configs:delete",
+  discoverProviderModels: "model-configs:discover",
   testModelConnection: "model-configs:test-connection",
 } as const;
 
@@ -194,6 +195,18 @@ export const modelConfigListSchema = z.strictObject({
   modelConfigs: z.array(modelConfigSchema),
 });
 
+export const discoveredModelSchema = z.strictObject({
+  id: providerModelIdSchema,
+  displayName: z.nullable(z.string().check(z.minLength(1), z.maxLength(500))),
+  owner: z.nullable(boundedStringSchema),
+  description: z.nullable(z.string().check(z.minLength(1), z.maxLength(4000))),
+  modelType: z.nullable(modelTypeSchema),
+});
+
+export const discoveredModelListSchema = z.strictObject({
+  models: z.array(discoveredModelSchema).check(z.maxLength(5000)),
+});
+
 export const modelConfigIdRequestSchema = z.strictObject({
   id: z.uuid(),
 });
@@ -249,6 +262,8 @@ export type ReplaceProviderCredentialRequest = Readonly<
 export type ModelSettings = Readonly<z.infer<typeof modelSettingsSchema>>;
 export type ModelConfig = Readonly<z.infer<typeof modelConfigSchema>>;
 export type ModelConfigList = Readonly<z.infer<typeof modelConfigListSchema>>;
+export type DiscoveredModel = Readonly<z.infer<typeof discoveredModelSchema>>;
+export type DiscoveredModelList = Readonly<z.infer<typeof discoveredModelListSchema>>;
 export type ModelConfigIdRequest = Readonly<z.infer<typeof modelConfigIdRequestSchema>>;
 export type CreateModelConfigRequest = Readonly<z.infer<typeof createModelConfigRequestSchema>>;
 export type UpdateModelConfigRequest = Readonly<z.infer<typeof updateModelConfigRequestSchema>>;
@@ -279,5 +294,6 @@ export interface KataruneApi {
   fetchModelConfig(request: ModelConfigIdRequest): Promise<ModelConfig>;
   updateModelConfig(request: UpdateModelConfigRequest): Promise<ModelConfig>;
   deleteModelConfig(request: ModelConfigIdRequest): Promise<OperationSuccess>;
+  discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
 }

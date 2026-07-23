@@ -31,7 +31,7 @@ export function App(): React.JSX.Element {
 
           <TooltipIconButton
             tooltip="打开设置"
-            className="fixed bottom-4 left-4 z-40"
+            className="fixed bottom-4 left-4 z-40 size-8"
             data-testid="settings-launcher"
             onClick={() => setActiveView("settings")}
           >

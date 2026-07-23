@@ -1,14 +1,35 @@
 import {
+  ArrowUpDownIcon,
   ArrowLeftIcon,
+  AudioLinesIcon,
+  BinaryIcon,
   BotIcon,
+  BrainIcon,
   CheckCircle2Icon,
+  CircleHelpIcon,
+  CloudIcon,
+  DownloadIcon,
   EyeIcon,
   EyeOffIcon,
-  KeyRoundIcon,
+  HexagonIcon,
+  ImageIcon,
+  MessageSquareTextIcon,
+  MoonIcon,
+  NetworkIcon,
+  OrbitIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
+  SearchIcon,
+  SlidersHorizontalIcon,
+  SparklesIcon,
+  SunIcon,
   Trash2Icon,
   TriangleAlertIcon,
+  VideoIcon,
+  Volume2Icon,
+  WavesIcon,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -18,20 +39,30 @@ import {
   CardAction,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { applyTheme, readTheme, type Theme } from "../theme";
 import {
   MODEL_TYPES,
   PROVIDER_TYPES,
   type ModelConfig,
+  type DiscoveredModel,
   type ModelType,
   type ProviderConfig,
   type ProviderType,
@@ -47,6 +78,55 @@ const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
   rerankingModel: "重排序模型",
   videoModel: "视频生成模型",
 };
+
+type ModelCategory = "all" | ModelType;
+
+const MODEL_CATEGORIES: ReadonlyArray<{
+  readonly value: ModelCategory;
+  readonly label: string;
+}> = [
+  { value: "all", label: "全部" },
+  { value: "languageModel", label: "语言" },
+  { value: "embeddingModel", label: "嵌入" },
+  { value: "imageModel", label: "图像" },
+  { value: "transcriptionModel", label: "语音识别" },
+  { value: "speechModel", label: "语音生成" },
+  { value: "rerankingModel", label: "重排序" },
+  { value: "videoModel", label: "视频" },
+];
+
+const PROVIDER_ICONS: Readonly<Record<ProviderType, LucideIcon>> = {
+  gateway: HexagonIcon,
+  "openai-compatible": NetworkIcon,
+  openai: SparklesIcon,
+  anthropic: BrainIcon,
+  google: SearchIcon,
+  deepseek: WavesIcon,
+  xai: OrbitIcon,
+  moonshotai: MoonIcon,
+  alibaba: CloudIcon,
+};
+
+const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
+  languageModel: MessageSquareTextIcon,
+  embeddingModel: BinaryIcon,
+  imageModel: ImageIcon,
+  transcriptionModel: AudioLinesIcon,
+  speechModel: Volume2Icon,
+  rerankingModel: ArrowUpDownIcon,
+  videoModel: VideoIcon,
+};
+
+function findModelCategory(value: string): ModelCategory | undefined {
+  return MODEL_CATEGORIES.find((item) => item.value === value)?.value;
+}
+
+function matchesSearch(query: string, fields: readonly (string | null | undefined)[]): boolean {
+  const tokens = query.normalize("NFKC").toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const searchableText = fields.filter((field): field is string => field != null).join(" ").normalize("NFKC").toLocaleLowerCase();
+  return tokens.every((token) => searchableText.includes(token));
+}
 
 interface SettingsPageProps {
   readonly onClose: () => void;
@@ -75,8 +155,10 @@ function optionalUrl(value: string): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
-function StatusBadge({ enabled }: { readonly enabled: boolean }): React.JSX.Element {
-  return <Badge variant={enabled ? "secondary" : "outline"}>{enabled ? "已启用" : "已停用"}</Badge>;
+function ModelTypeIcon({ type }: { readonly type: ModelType | null }): React.JSX.Element {
+  const Icon = type === null ? CircleHelpIcon : MODEL_TYPE_ICONS[type];
+  const label = type === null ? "类型未识别" : MODEL_TYPE_LABELS[type];
+  return <span className="inline-flex justify-center text-foreground" data-testid="model-type-icon" role="img" aria-label={label} title={label}><Icon className="size-4" aria-hidden="true" /></span>;
 }
 
 function FeedbackMessage({ feedback }: { readonly feedback: Feedback | null }): React.JSX.Element | null {
@@ -98,20 +180,91 @@ function FeedbackMessage({ feedback }: { readonly feedback: Feedback | null }): 
   );
 }
 
-interface NewProviderFormProps {
-  readonly onCancel: () => void;
-  readonly onCreated: (providerId: string) => Promise<void>;
+function ThemeSettings(): React.JSX.Element {
+  const [theme, setTheme] = useState<Theme>(readTheme);
+
+  const selectTheme = (nextTheme: Theme): void => {
+    applyTheme(nextTheme);
+    setTheme(nextTheme);
+  };
+
+  return (
+    <section className="mx-auto grid w-full max-w-3xl gap-6" aria-labelledby="general-settings-title">
+      <div className="grid gap-1">
+        <h2 className="text-xl font-semibold" id="general-settings-title">常规</h2>
+        <p className="text-sm text-muted-foreground">调整言奏在此设备上的显示方式。</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>主题</CardTitle>
+          <CardDescription>选择界面的明暗外观，设置会保存在当前设备。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <Button
+            className="h-auto min-h-24 justify-start gap-3 px-4 py-4 text-left"
+            data-testid="theme-light"
+            variant={theme === "light" ? "secondary" : "outline"}
+            onClick={() => selectTheme("light")}
+          >
+            <SunIcon className="size-5" aria-hidden="true" />
+            <span className="grid gap-1">
+              <span>亮色</span>
+              <span className="text-xs font-normal text-muted-foreground">明亮、清晰的默认界面</span>
+            </span>
+          </Button>
+          <Button
+            className="h-auto min-h-24 justify-start gap-3 px-4 py-4 text-left"
+            data-testid="theme-dark"
+            variant={theme === "dark" ? "secondary" : "outline"}
+            onClick={() => selectTheme("dark")}
+          >
+            <MoonIcon className="size-5" aria-hidden="true" />
+            <span className="grid gap-1">
+              <span>暗色</span>
+              <span className="text-xs font-normal text-muted-foreground">适合低光环境的深色界面</span>
+            </span>
+          </Button>
+        </CardContent>
+      </Card>
+    </section>
+  );
 }
 
-function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.JSX.Element {
-  const [providerType, setProviderType] = useState<ProviderType>("deepseek");
-  const [displayName, setDisplayName] = useState("DeepSeek");
-  const [baseUrl, setBaseUrl] = useState("");
+function ModelCategoryList(): React.JSX.Element {
+  return (
+    <div className="mx-auto mt-auto w-fit max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" data-testid="model-categories">
+      <TabsList className="grid h-8! min-w-[32rem] grid-cols-8 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+        {MODEL_CATEGORIES.map((item) => (
+          <TabsTrigger
+            className="isolate w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 before:absolute before:inset-x-1 before:inset-y-0.5 before:-z-10 before:-skew-x-12 before:rounded-sm hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:before:bg-background data-active:hover:text-foreground dark:data-active:bg-transparent! dark:data-active:text-foreground dark:data-active:hover:text-foreground"
+            key={item.value}
+            value={item.value}
+          >
+            {item.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </div>
+  );
+}
+
+interface ProviderDialogProps {
+  readonly provider?: ProviderConfig | undefined;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onSaved: (providerId: string) => Promise<void>;
+}
+
+function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps): React.JSX.Element {
+  const editing = provider !== undefined;
+  const [providerType, setProviderType] = useState<ProviderType>(provider?.providerType ?? "deepseek");
+  const [displayName, setDisplayName] = useState(provider?.displayName ?? PROVIDER_CATALOG.deepseek.label);
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
-  const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const credentialRequired = provider?.credentialRef == null;
 
   const changeProviderType = (nextType: ProviderType): void => {
     setProviderType(nextType);
@@ -125,263 +278,89 @@ function NewProviderForm({ onCancel, onCreated }: NewProviderFormProps): React.J
     setFeedback(null);
 
     if (PROVIDER_CATALOG[providerType].baseUrlRequired && baseUrl.trim().length === 0) {
-      setFeedback({ tone: "danger", message: "OpenAI Compatible Provider 必须填写 Base URL。" });
+      setFeedback({ tone: "danger", message: "请填写 Base URL。" });
+      return;
+    }
+    if (credentialRequired && secret.length === 0) {
+      setFeedback({ tone: "danger", message: "请填写 API Key。" });
       return;
     }
 
     setSubmitting(true);
     try {
-      const provider = await window.katarune.createProviderConfig({
-        displayName: displayName.trim(),
-        providerType,
-        baseUrl: optionalUrl(baseUrl),
-        settings: null,
-        enabled,
-      });
+      const savedProvider = editing
+        ? await window.katarune.updateProviderConfig({
+            id: provider.id,
+            displayName: displayName.trim(),
+            baseUrl: optionalUrl(baseUrl),
+            settings: provider.settings,
+            enabled: provider.enabled,
+          })
+        : await window.katarune.createProviderConfig({
+            displayName: displayName.trim(),
+            providerType,
+            baseUrl: optionalUrl(baseUrl),
+            settings: null,
+            enabled: true,
+          });
 
       if (secret.length > 0) {
-        await window.katarune.replaceProviderCredential({ providerConfigId: provider.id, secret });
+        await window.katarune.replaceProviderCredential({ providerConfigId: savedProvider.id, secret });
       }
 
-      await onCreated(provider.id);
+      await onSaved(savedProvider.id);
+      onOpenChange(false);
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法创建 Provider 配置。") });
+      setFeedback({ tone: "danger", message: errorMessage(error, editing ? "无法保存供应商。" : "无法创建供应商。") });
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={(event) => void submit(event)}>
-      <Card size="sm">
-      <CardHeader>
-        <CardTitle>添加模型供应商</CardTitle>
-        <CardDescription>连接一个 AI SDK Provider，并可选地写入安全凭据。</CardDescription>
-      </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="new-provider-type">供应商类型</Label>
-          <NativeSelect
-            id="new-provider-type"
-            className="w-full"
-            value={providerType}
-            onChange={(event) => changeProviderType(event.target.value as ProviderType)}
-          >
-            {PROVIDER_TYPES.map((type) => (
-              <NativeSelectOption key={type} value={type}>
-                {PROVIDER_CATALOG[type].label}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <p className="text-xs text-muted-foreground">{PROVIDER_CATALOG[providerType].description}</p>
-        </div>
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <form className="grid gap-5" onSubmit={(event) => void submit(event)}>
+          <DialogHeader>
+            <DialogTitle>{editing ? "编辑供应商" : "添加供应商"}</DialogTitle>
+            <DialogDescription className="sr-only">填写供应商信息</DialogDescription>
+          </DialogHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="new-provider-name">显示名称</Label>
-          <Input
-            id="new-provider-name"
-            required
-            maxLength={200}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="new-provider-url">
-            Base URL{PROVIDER_CATALOG[providerType].baseUrlRequired ? "（必填）" : "（可选）"}
-          </Label>
-          <Input
-            id="new-provider-url"
-            type="url"
-            required={PROVIDER_CATALOG[providerType].baseUrlRequired}
-            placeholder="https://api.example.com/v1"
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            spellCheck={false}
-          />
-        </div>
-
-        <div className="grid gap-2 sm:col-span-2">
-          <Label htmlFor="new-provider-secret">API Key / Token（可稍后填写）</Label>
-          <div className="flex gap-2">
-            <Input
-              id="new-provider-secret"
-              type={showSecret ? "text" : "password"}
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              autoComplete="new-password"
-              spellCheck={false}
-            />
-            <TooltipIconButton
-              tooltip={showSecret ? "隐藏凭据" : "显示凭据"}
-              className="shrink-0"
-              type="button"
-              onClick={() => setShowSecret((value) => !value)}
-            >
-              {showSecret ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}
-            </TooltipIconButton>
-          </div>
-          <p className="text-xs text-muted-foreground">凭据直接进入 Electron main process 加密，不写入 SQLite。</p>
-        </div>
-
-        <div className="flex items-center gap-3 sm:col-span-2">
-          <Switch id="new-provider-enabled" checked={enabled} onCheckedChange={setEnabled} />
-          <Label htmlFor="new-provider-enabled">启用此 Provider</Label>
-        </div>
-
-        <div className="sm:col-span-2">
-          <FeedbackMessage feedback={feedback} />
-        </div>
-      </CardContent>
-      <CardFooter className="justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>取消</Button>
-        <Button type="submit" disabled={submitting}>{submitting ? "正在创建……" : "创建 Provider"}</Button>
-      </CardFooter>
-      </Card>
-    </form>
-  );
-}
-
-interface ProviderEditorProps {
-  readonly provider: ProviderConfig;
-  readonly models: readonly ModelConfig[];
-  readonly onChanged: (preferredProviderId?: string) => Promise<void>;
-}
-
-function ProviderEditor({ provider, models, onChanged }: ProviderEditorProps): React.JSX.Element {
-  const [displayName, setDisplayName] = useState(provider.displayName);
-  const [baseUrl, setBaseUrl] = useState(provider.baseUrl ?? "");
-  const [enabled, setEnabled] = useState(provider.enabled);
-  const [secret, setSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
-
-  useEffect(() => {
-    setDisplayName(provider.displayName);
-    setBaseUrl(provider.baseUrl ?? "");
-    setEnabled(provider.enabled);
-    setSecret("");
-    setShowSecret(false);
-    setFeedback(null);
-  }, [provider]);
-
-  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    setFeedback(null);
-
-    if (PROVIDER_CATALOG[provider.providerType].baseUrlRequired && baseUrl.trim().length === 0) {
-      setFeedback({ tone: "danger", message: "OpenAI Compatible Provider 必须填写 Base URL。" });
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await window.katarune.updateProviderConfig({
-        id: provider.id,
-        displayName: displayName.trim(),
-        baseUrl: optionalUrl(baseUrl),
-        settings: provider.settings,
-        enabled,
-      });
-      if (secret.length > 0) {
-        await window.katarune.replaceProviderCredential({ providerConfigId: provider.id, secret });
-      }
-      setSecret("");
-      await onChanged(provider.id);
-      setFeedback({ tone: "success", message: "Provider 配置已保存。" });
-    } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法保存 Provider 配置。") });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const clearCredential = async (): Promise<void> => {
-    if (!window.confirm("清除后，此 Provider 将无法调用需要认证的模型。确定继续吗？")) return;
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      await window.katarune.clearProviderCredential({ id: provider.id });
-      setSecret("");
-      await onChanged(provider.id);
-      setFeedback({ tone: "success", message: "凭据已从安全存储清除。" });
-    } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法清除凭据。") });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const deleteProvider = async (): Promise<void> => {
-    if (!window.confirm(`删除“${provider.displayName}”及其全部模型配置？此操作不可撤销。`)) return;
-    setSubmitting(true);
-    setFeedback(null);
-    try {
-      await window.katarune.deleteProviderConfig({ id: provider.id });
-      await onChanged();
-    } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法删除 Provider。") });
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-4">
-      <form onSubmit={(event) => void submit(event)}>
-        <Card size="sm">
-        <CardHeader>
-          <CardTitle>{provider.displayName}</CardTitle>
-          <CardDescription>{PROVIDER_CATALOG[provider.providerType].description}</CardDescription>
-          <CardAction><StatusBadge enabled={provider.enabled} /></CardAction>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="text-sm">
-            <p className="text-muted-foreground">类型</p>
-            <p className="font-mono">{provider.providerType}</p>
+          <div className="grid gap-2">
+            <Label htmlFor="provider-type">类型 <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <NativeSelect id="provider-type" className="w-full" disabled={editing} required value={providerType} onChange={(event) => changeProviderType(event.target.value as ProviderType)}>
+              {PROVIDER_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{PROVIDER_CATALOG[type].label}</NativeSelectOption>)}
+            </NativeSelect>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor="provider-name">显示名称</Label>
-              <Input id="provider-name" required maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="provider-url">Base URL{PROVIDER_CATALOG[provider.providerType].baseUrlRequired ? "（必填）" : "（可选）"}</Label>
-              <Input id="provider-url" type="url" required={PROVIDER_CATALOG[provider.providerType].baseUrlRequired} placeholder="使用 Provider 默认端点" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} spellCheck={false} />
-            </div>
+          <div className="grid gap-2">
+            <Label htmlFor="provider-name">名称 <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Input id="provider-name" required maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </div>
 
-          <Separator />
+          <div className="grid gap-2">
+            <Label htmlFor="provider-url">Base URL{PROVIDER_CATALOG[providerType].baseUrlRequired && <> <span className="text-destructive" aria-hidden="true">*</span></>}</Label>
+            <Input id="provider-url" type="url" required={PROVIDER_CATALOG[providerType].baseUrlRequired} placeholder={PROVIDER_CATALOG[providerType].baseUrlPlaceholder} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} spellCheck={false} />
+          </div>
 
-          <div className="grid gap-3">
-            <div className="flex items-center gap-2"><KeyRoundIcon className="size-4" aria-hidden="true" /><Label htmlFor="provider-secret">安全凭据</Label></div>
-            <p className="text-xs text-muted-foreground">{provider.credentialRef === null ? "尚未保存凭据" : "凭据已由系统安全存储加密"}</p>
+          <div className="grid gap-2">
+            <Label htmlFor="provider-secret">API Key{credentialRequired && <> <span className="text-destructive" aria-hidden="true">*</span></>}</Label>
             <div className="flex gap-2">
-              <Input id="provider-secret" type={showSecret ? "text" : "password"} value={secret} placeholder={provider.credentialRef === null ? "粘贴 API Key 或 Token" : "留空表示不修改"} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" spellCheck={false} />
+              <Input id="provider-secret" type={showSecret ? "text" : "password"} required={credentialRequired} placeholder={editing && !credentialRequired ? "留空不修改" : undefined} value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" spellCheck={false} />
               <TooltipIconButton tooltip={showSecret ? "隐藏凭据" : "显示凭据"} className="shrink-0" type="button" onClick={() => setShowSecret((value) => !value)}>
                 {showSecret ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}
               </TooltipIconButton>
             </div>
-            {provider.credentialRef !== null && <Button className="w-fit" type="button" variant="destructive" size="sm" onClick={() => void clearCredential()} disabled={submitting}>清除凭据</Button>}
           </div>
 
-          <div className="flex items-center gap-3">
-            <Switch id="provider-enabled" checked={enabled} onCheckedChange={setEnabled} />
-            <Label htmlFor="provider-enabled">启用此 Provider</Label>
-          </div>
           <FeedbackMessage feedback={feedback} />
-        </CardContent>
-        <CardFooter className="justify-between gap-2">
-          <Button type="button" variant="destructive" onClick={() => void deleteProvider()} disabled={submitting}><Trash2Icon data-icon="inline-start" aria-hidden="true" />删除 Provider</Button>
-          <Button type="submit" disabled={submitting}>{submitting ? "正在保存……" : "保存更改"}</Button>
-        </CardFooter>
-        </Card>
-      </form>
-
-      <ModelSettings provider={provider} models={models} onChanged={onChanged} />
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? (editing ? "保存中……" : "创建中……") : (editing ? "保存" : "创建")}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -391,61 +370,137 @@ interface ModelSettingsProps {
   readonly onChanged: (preferredProviderId?: string) => Promise<void>;
 }
 
-function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): React.JSX.Element {
-  const [editingModelId, setEditingModelId] = useState<string | "new" | null>(null);
-  const [modelType, setModelType] = useState<ModelType>("languageModel");
-  const [modelId, setModelId] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [enabled, setEnabled] = useState(true);
+interface ModelDialogProps {
+  readonly provider: ProviderConfig;
+  readonly model?: ModelConfig | undefined;
+  readonly initialType: ModelType;
+  readonly initialModelId?: string | undefined;
+  readonly initialDisplayName?: string | undefined;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onSaved: () => Promise<void>;
+}
+
+function ModelDialog({ provider, model, initialType, initialModelId = "", initialDisplayName = "", onOpenChange, onSaved }: ModelDialogProps): React.JSX.Element {
+  const editing = model !== undefined;
+  const [modelType, setModelType] = useState(model?.modelType ?? initialType);
+  const [modelId, setModelId] = useState(model?.modelId ?? initialModelId);
+  const [displayName, setDisplayName] = useState(model?.displayName ?? initialDisplayName);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
-
-  useEffect(() => {
-    setEditingModelId(null);
-    setModelType("languageModel");
-    setModelId("");
-    setDisplayName("");
-    setEnabled(true);
-    setFeedback(null);
-  }, [provider.id]);
-
-  const beginCreate = (): void => {
-    setEditingModelId("new");
-    setModelType("languageModel");
-    setModelId("");
-    setDisplayName("");
-    setEnabled(true);
-    setFeedback(null);
-  };
-
-  const beginEdit = (model: ModelConfig): void => {
-    setEditingModelId(model.id);
-    setModelType(model.modelType);
-    setModelId(model.modelId);
-    setDisplayName(model.displayName ?? "");
-    setEnabled(model.enabled);
-    setFeedback(null);
-  };
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     setSubmitting(true);
     setFeedback(null);
     try {
-      if (editingModelId === "new") {
-        await window.katarune.createModelConfig({ providerConfigId: provider.id, modelType, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: null, enabled });
-      } else if (editingModelId !== null) {
-        const previousModel = models.find((model) => model.id === editingModelId);
-        if (previousModel === undefined) throw new Error("模型配置已不存在，请刷新后重试。");
-        await window.katarune.updateModelConfig({ id: editingModelId, modelType, modelId: modelId.trim(), displayName: displayName.trim().length === 0 ? null : displayName.trim(), settings: previousModel.settings, enabled });
+      if (editing) {
+        await window.katarune.updateModelConfig({
+          id: model.id,
+          modelType,
+          modelId: modelId.trim(),
+          displayName: displayName.trim().length === 0 ? null : displayName.trim(),
+          settings: model.settings,
+          enabled: model.enabled,
+        });
+      } else {
+        await window.katarune.createModelConfig({
+          providerConfigId: provider.id,
+          modelType,
+          modelId: modelId.trim(),
+          displayName: displayName.trim().length === 0 ? null : displayName.trim(),
+          settings: null,
+          enabled: true,
+        });
       }
-      setEditingModelId(null);
-      await onChanged(provider.id);
-      setFeedback({ tone: "success", message: "模型配置已保存。" });
+      await onSaved();
+      onOpenChange(false);
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法保存模型配置。") });
+      setFeedback({ tone: "danger", message: errorMessage(error, editing ? "无法保存模型。" : "无法添加模型。") });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <form className="grid gap-5" onSubmit={(event) => void submit(event)}>
+          <DialogHeader>
+            <DialogTitle>{editing ? "编辑模型" : "添加模型"}</DialogTitle>
+            <DialogDescription className="sr-only">填写模型信息</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label htmlFor="model-type">模型类别 <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <NativeSelect id="model-type" className="w-full" required value={modelType} onChange={(event) => setModelType(event.target.value as ModelType)}>
+              {MODEL_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{MODEL_TYPE_LABELS[type]}</NativeSelectOption>)}
+            </NativeSelect>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="model-id">厂商模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="model-name">显示名称</Label>
+            <Input id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </div>
+
+          <FeedbackMessage feedback={feedback} />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
+            <Button type="submit" disabled={submitting}>{submitting ? "保存中……" : (editing ? "保存" : "添加")}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type ModelDialogState =
+  | { readonly mode: "create"; readonly modelType: ModelType; readonly modelId: string; readonly displayName: string }
+  | { readonly mode: "edit"; readonly model: ModelConfig };
+
+function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): React.JSX.Element {
+  const [modelDialog, setModelDialog] = useState<ModelDialogState | null>(null);
+  const [category, setCategory] = useState<ModelCategory>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [discoveredModels, setDiscoveredModels] = useState<readonly DiscoveredModel[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
+
+  useEffect(() => {
+    setModelDialog(null);
+    setFeedback(null);
+    setCategory("all");
+    setSearchQuery("");
+    setDiscoveredModels([]);
+  }, [provider.id]);
+
+  const beginCreate = (): void => {
+    setModelDialog({ mode: "create", modelType: category === "all" ? "languageModel" : category, modelId: "", displayName: "" });
+    setFeedback(null);
+  };
+
+  const beginEdit = (model: ModelConfig): void => {
+    setModelDialog({ mode: "edit", model });
+    setFeedback(null);
+  };
+
+  const discoverModels = async (): Promise<void> => {
+    setDiscovering(true);
+    setFeedback(null);
+    try {
+      const result = await window.katarune.discoverProviderModels({ id: provider.id });
+      setDiscoveredModels(result.models);
+      setFeedback({ tone: "success", message: `获取到 ${result.models.length} 个模型。` });
+    } catch (error) {
+      setFeedback({ tone: "danger", message: errorMessage(error, "无法获取模型列表。") });
+    } finally {
+      setDiscovering(false);
     }
   };
 
@@ -463,70 +518,295 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
   };
 
   const deleteModel = async (model: ModelConfig): Promise<void> => {
-    if (!window.confirm(`删除模型“${model.displayName ?? model.modelId}”？`)) return;
     setSubmitting(true);
     setFeedback(null);
     try {
       await window.katarune.deleteModelConfig({ id: model.id });
-      if (editingModelId === model.id) setEditingModelId(null);
       await onChanged(provider.id);
       setFeedback({ tone: "success", message: "模型配置已删除。" });
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法删除模型配置。") });
+      throw new Error(errorMessage(error, "无法删除模型配置。"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>模型配置</CardTitle>
-        <CardDescription>模型 ID 由供应商定义；连接测试会产生一次最小的真实调用。</CardDescription>
-        <CardAction><Button variant="outline" onClick={beginCreate} disabled={submitting}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加模型</Button></CardAction>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        {models.length === 0 ? (
-          <p className="text-sm text-muted-foreground">此 Provider 还没有模型配置。</p>
-        ) : models.map((model) => (
-          <div className="flex items-center gap-3" data-testid="model-row" key={model.id}>
-            <button className="min-w-0 flex-1 text-left" type="button" onClick={() => beginEdit(model)}>
-              <span className="block truncate font-medium">{model.displayName ?? model.modelId}</span>
-              <span className="block truncate font-mono text-xs text-muted-foreground">{model.modelId} · {MODEL_TYPE_LABELS[model.modelType]}</span>
-            </button>
-            <StatusBadge enabled={model.enabled} />
-            <TooltipIconButton tooltip={model.modelType === "languageModel" ? "测试连接（可能产生费用）" : "当前仅支持语言模型连接测试"} onClick={() => void testConnection(model)} disabled={submitting || model.modelType !== "languageModel"}><RefreshCwIcon aria-hidden="true" /></TooltipIconButton>
-            <TooltipIconButton tooltip="删除模型" className="text-destructive" onClick={() => void deleteModel(model)} disabled={submitting}><Trash2Icon aria-hidden="true" /></TooltipIconButton>
+  const setModelEnabled = async (model: ModelConfig, enabled: boolean): Promise<void> => {
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      await window.katarune.updateModelConfig({
+        id: model.id,
+        modelType: model.modelType,
+        modelId: model.modelId,
+        displayName: model.displayName,
+        settings: model.settings,
+        enabled,
+      });
+      await onChanged(provider.id);
+    } catch (error) {
+      setFeedback({ tone: "danger", message: errorMessage(error, "无法更新模型启用状态。") });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const changeCategory = (value: string): void => {
+    const nextCategory = findModelCategory(value);
+    if (nextCategory !== undefined) setCategory(nextCategory);
+  };
+
+  const modelRows = (categoryValue: ModelCategory): React.JSX.Element => {
+    const visibleModels = models.filter((model) =>
+      (categoryValue === "all" || model.modelType === categoryValue) &&
+      matchesSearch(searchQuery, [
+        model.displayName,
+        model.modelId,
+      ]),
+    );
+    const configuredModelIds = new Set(models.map((model) => model.modelId));
+    const visibleDiscoveredModels = discoveredModels.filter((model) =>
+      !configuredModelIds.has(model.id) &&
+      (categoryValue === "all" || model.modelType === categoryValue) &&
+      matchesSearch(searchQuery, [
+        model.displayName,
+        model.id,
+      ]),
+    );
+
+    if (visibleModels.length === 0 && visibleDiscoveredModels.length === 0) {
+      return (
+        <div className="grid h-full min-h-40 place-items-center px-6 text-center" data-testid="model-empty-state">
+          <div className="grid gap-1">
+            <p className="font-medium">{searchQuery.trim().length > 0 ? "没有匹配的模型" : "此分类还没有模型"}</p>
+            <p className="text-sm text-muted-foreground">{searchQuery.trim().length > 0 ? "尝试显示名称或模型 ID。" : "添加或获取模型后，它会显示在这里。"}</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-2">
+        {visibleModels.map((model) => (
+          <div
+            className="group/model grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_5rem] items-center gap-3 rounded-sm px-4 text-foreground"
+            data-testid="model-row"
+            key={model.id}
+          >
+            <span className="truncate font-medium" title={model.displayName ?? model.modelId}>{model.displayName ?? model.modelId}</span>
+            <span className="truncate font-mono text-xs text-foreground" title={model.displayName !== null && model.displayName !== model.modelId ? model.modelId : undefined}>
+              {model.displayName !== null && model.displayName !== model.modelId ? model.modelId : ""}
+            </span>
+            <ModelTypeIcon type={model.modelType} />
+            <Switch
+              size="sm"
+              className="justify-self-center"
+              checked={model.enabled}
+              disabled={submitting}
+              aria-label={`${model.displayName ?? model.modelId}启用状态`}
+              onCheckedChange={(enabled) => void setModelEnabled(model, enabled)}
+            />
+            <div className="flex w-20 items-center justify-end gap-1 opacity-0 transition-opacity pointer-events-none group-hover/model:pointer-events-auto group-hover/model:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100" data-testid="model-actions">
+              <TooltipIconButton tooltip={model.modelType === "languageModel" ? "测试连接（可能产生费用）" : "当前仅支持语言模型连接测试"} onClick={() => void testConnection(model)} disabled={submitting || model.modelType !== "languageModel"}><RefreshCwIcon aria-hidden="true" /></TooltipIconButton>
+              <TooltipIconButton data-testid="edit-model" tooltip="编辑模型" onClick={() => beginEdit(model)} disabled={submitting}><PencilIcon aria-hidden="true" /></TooltipIconButton>
+              <TooltipIconButton data-testid="delete-model" tooltip="删除模型" onClick={() => setModelToDelete(model)} disabled={submitting}><Trash2Icon aria-hidden="true" /></TooltipIconButton>
+            </div>
           </div>
         ))}
-
-        {editingModelId !== null && (
-          <form className="grid gap-4" onSubmit={(event) => void submit(event)}>
-            <h3 className="font-medium">{editingModelId === "new" ? "添加模型" : "编辑模型"}</h3>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="grid gap-2">
-                <Label htmlFor="model-type">模型类别</Label>
-                <NativeSelect id="model-type" value={modelType} onChange={(event) => setModelType(event.target.value as ModelType)}>
-                  {MODEL_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{MODEL_TYPE_LABELS[type]}</NativeSelectOption>)}
-                </NativeSelect>
-              </div>
-              <div className="grid gap-2"><Label htmlFor="model-id">厂商模型 ID</Label><Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} /></div>
-              <div className="grid gap-2"><Label htmlFor="model-name">显示名称（可选）</Label><Input id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></div>
+        {visibleDiscoveredModels.map((model) => (
+          <div className="group/discovered grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_5rem] items-center gap-3 rounded-sm px-4 text-foreground" data-testid="discovered-model-row" key={model.id}>
+            <button
+              className="min-w-0 truncate cursor-pointer text-left font-medium"
+              type="button"
+              onClick={() => setModelDialog({ mode: "create", modelType: model.modelType ?? "languageModel", modelId: model.id, displayName: model.displayName ?? "" })}
+              title={model.displayName ?? model.id}
+            >
+              {model.displayName ?? model.id}
+            </button>
+            <span className="truncate font-mono text-xs text-foreground" title={model.displayName !== null && model.displayName !== model.id ? model.id : undefined}>
+              {model.displayName !== null && model.displayName !== model.id ? model.id : ""}
+            </span>
+            <ModelTypeIcon type={model.modelType} />
+            <Badge className="justify-self-center" variant="outline">未配置</Badge>
+            <div className="flex w-20 justify-end opacity-0 transition-opacity pointer-events-none group-hover/discovered:pointer-events-auto group-hover/discovered:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+              <TooltipIconButton tooltip="添加此模型" onClick={() => setModelDialog({ mode: "create", modelType: model.modelType ?? "languageModel", modelId: model.id, displayName: model.displayName ?? "" })}>
+                <PlusIcon aria-hidden="true" />
+              </TooltipIconButton>
             </div>
-            <div className="flex items-center gap-3"><Switch id="model-enabled" checked={enabled} onCheckedChange={setEnabled} /><Label htmlFor="model-enabled">在界面中启用此模型</Label></div>
-            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setEditingModelId(null)} disabled={submitting}>取消</Button><Button type="submit" disabled={submitting}>{submitting ? "正在保存……" : "保存模型"}</Button></div>
-          </form>
-        )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <Card className="min-h-[31rem] rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
+      <CardHeader className="flex flex-row items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input className="rounded-full pl-8" data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+        </div>
+        <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering}><PlusIcon aria-hidden="true" /></TooltipIconButton>
+        <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering}>
+          <DownloadIcon className={discovering ? "animate-pulse" : ""} aria-hidden="true" />
+        </TooltipIconButton>
+      </CardHeader>
+      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <FeedbackMessage feedback={feedback} />
+
+        <Tabs className="min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
+          {MODEL_CATEGORIES.map((item) => (
+            <TabsContent className="min-h-0" key={item.value} value={item.value}>
+              {modelRows(item.value)}
+            </TabsContent>
+          ))}
+          <ModelCategoryList />
+        </Tabs>
+      </CardContent>
+      </Card>
+      {modelDialog !== null && (
+        <ModelDialog
+          key={modelDialog.mode === "create" ? `new-${modelDialog.modelId}-${modelDialog.modelType}` : modelDialog.model.id}
+          provider={provider}
+          model={modelDialog.mode === "edit" ? modelDialog.model : undefined}
+          initialType={modelDialog.mode === "create" ? modelDialog.modelType : modelDialog.model.modelType}
+          initialModelId={modelDialog.mode === "create" ? modelDialog.modelId : undefined}
+          initialDisplayName={modelDialog.mode === "create" ? modelDialog.displayName : undefined}
+          onOpenChange={(open) => { if (!open) setModelDialog(null); }}
+          onSaved={async () => {
+            await onChanged(provider.id);
+            setFeedback({ tone: "success", message: "模型配置已保存。" });
+          }}
+        />
+      )}
+      <ConfirmDialog
+        open={modelToDelete !== null}
+        title="删除模型"
+        description={modelToDelete === null ? "" : `确定删除“${modelToDelete.displayName ?? modelToDelete.modelId}”吗？`}
+        confirmLabel="删除模型"
+        errorLabel="无法删除模型配置。"
+        onOpenChange={(open) => { if (!open) setModelToDelete(null); }}
+        onConfirm={async () => { if (modelToDelete !== null) await deleteModel(modelToDelete); }}
+      />
+    </>
+  );
+}
+
+function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.Element {
+  const [category, setCategory] = useState<ModelCategory>("all");
+
+  const changeCategory = (value: string): void => {
+    const nextCategory = findModelCategory(value);
+    if (nextCategory !== undefined) setCategory(nextCategory);
+  };
+
+  return (
+    <Card className="min-h-[31rem] rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
+      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Tabs className="min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
+          {MODEL_CATEGORIES.map((item) => (
+            <TabsContent className="grid min-h-80 place-items-center px-6 text-center text-muted-foreground" key={item.value} value={item.value}>
+              {message}
+            </TabsContent>
+          ))}
+          <ModelCategoryList />
+        </Tabs>
       </CardContent>
     </Card>
+  );
+}
+
+interface ModelManagementProps {
+  readonly dataState: SettingsDataState;
+  readonly selectedProviderId: string | null;
+  readonly selectedProvider: ProviderConfig | undefined;
+  readonly selectedModels: readonly ModelConfig[];
+  readonly onSelectProvider: (providerId: string) => void;
+  readonly onCreateProvider: () => void;
+  readonly onEditProvider: (providerId: string) => void;
+  readonly onDeleteProvider: (provider: ProviderConfig) => Promise<void>;
+  readonly onReload: (preferredProviderId?: string) => Promise<void>;
+}
+
+function ModelManagement({
+  dataState,
+  selectedProviderId,
+  selectedProvider,
+  selectedModels,
+  onSelectProvider,
+  onCreateProvider,
+  onEditProvider,
+  onDeleteProvider,
+  onReload,
+}: ModelManagementProps): React.JSX.Element {
+  const providers = dataState.status === "ready" ? dataState.providers : [];
+
+  return (
+    <section className="grid w-full gap-6 lg:h-full lg:grid-cols-[15rem_minmax(0,1fr)]" aria-labelledby="model-settings-title" data-testid="model-management">
+      <Card className="rounded-none border ring-0 lg:h-full" size="sm">
+        <CardHeader>
+          <CardTitle style={{ alignSelf: "center", gridRow: "span 2" }}>模型供应商</CardTitle>
+          <CardAction>
+            <TooltipIconButton className="size-8" data-testid="add-provider" tooltip="添加模型供应商" onClick={onCreateProvider}>
+              <PlusIcon aria-hidden="true" />
+            </TooltipIconButton>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex min-h-0 flex-1 flex-col" data-testid="provider-list">
+          {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">正在读取配置……</p>}
+          {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
+          {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
+          <div className="grid gap-2">
+            {providers.map((provider) => {
+              const Icon = PROVIDER_ICONS[provider.providerType];
+              const selected = provider.id === selectedProviderId;
+              return (
+                <div
+                  className={`group/provider flex h-10 min-w-0 items-center rounded-sm transition-colors ${selected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-muted"}`}
+                  data-testid="provider-row"
+                  key={provider.id}
+                >
+                  <button
+                    className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3 text-left text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    type="button"
+                    onClick={() => onSelectProvider(provider.id)}
+                  >
+                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{provider.displayName}</span>
+                  </button>
+                  <div className="flex shrink-0 gap-0.5 pr-1 opacity-0 transition-opacity group-hover/provider:opacity-100 group-focus-within/provider:opacity-100" data-testid="provider-actions">
+                    <TooltipIconButton className={`size-7 ${selected ? "hover:bg-primary-foreground/15 hover:text-primary-foreground" : ""}`} data-testid="edit-provider" tooltip="编辑供应商" onClick={() => onEditProvider(provider.id)}>
+                      <PencilIcon aria-hidden="true" />
+                    </TooltipIconButton>
+                    <TooltipIconButton className={`size-7 ${selected ? "hover:bg-primary-foreground/15 hover:text-primary-foreground" : ""}`} data-testid="delete-provider" tooltip="删除供应商" onClick={() => void onDeleteProvider(provider)}>
+                      <Trash2Icon aria-hidden="true" />
+                    </TooltipIconButton>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="min-w-0 lg:h-full">
+        <div className="sr-only" id="model-settings-title">模型设置</div>
+        {selectedProvider !== undefined ? (
+          <ModelSettings provider={selectedProvider} models={selectedModels} onChanged={onReload} />
+        ) : (
+          <EmptyModelPanel message={dataState.status === "loading" ? "正在读取模型配置……" : "选择一个 Provider，或添加新的模型供应商。"} />
+        )}
+      </div>
+    </section>
   );
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element {
   const [dataState, setDataState] = useState<SettingsDataState>({ status: "loading" });
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [creatingProvider, setCreatingProvider] = useState(false);
+  const [providerDialog, setProviderDialog] = useState<"new" | string | null>(null);
+  const [providerToDelete, setProviderToDelete] = useState<ProviderConfig | null>(null);
 
   const reload = useCallback(async (preferredProviderId?: string): Promise<void> => {
     try {
@@ -540,7 +820,6 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
         if (preferred !== null && providerResult.providerConfigs.some((provider) => provider.id === preferred)) return preferred;
         return providerResult.providerConfigs[0]?.id ?? null;
       });
-      setCreatingProvider(false);
     } catch (error) {
       setDataState({ status: "error", message: errorMessage(error, "无法读取设置。") });
     }
@@ -551,44 +830,101 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
   const selectedProvider = useMemo(() => dataState.status === "ready" ? dataState.providers.find((provider) => provider.id === selectedProviderId) : undefined, [dataState, selectedProviderId]);
   const selectedModels = useMemo(() => dataState.status === "ready" && selectedProviderId !== null ? dataState.models.filter((model) => model.providerConfigId === selectedProviderId) : [], [dataState, selectedProviderId]);
 
+  const selectProvider = (providerId: string): void => {
+    setSelectedProviderId(providerId);
+  };
+
+  const createProvider = (): void => {
+    setProviderDialog("new");
+  };
+
+  const deleteProvider = async (provider: ProviderConfig): Promise<void> => {
+    try {
+      await window.katarune.deleteProviderConfig({ id: provider.id });
+      await reload();
+    } catch (error) {
+      throw new Error(errorMessage(error, "无法删除供应商。"));
+    }
+  };
+
+  const dialogProvider = providerDialog !== null && providerDialog !== "new" && dataState.status === "ready"
+    ? dataState.providers.find((provider) => provider.id === providerDialog)
+    : undefined;
+
   return (
     <main
-      className="h-full min-h-0 overflow-hidden bg-background"
+      className="h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
       data-testid="settings-page"
       id="main-content"
     >
-      <div
-        className="grid h-full min-h-0 gap-4 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start"
+      <Tabs
+        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
+        defaultValue="general"
         data-testid="settings-workspace"
+        orientation="vertical"
       >
-            <Card className="lg:sticky lg:top-6" size="sm">
-              <CardHeader><CardTitle><span className="flex items-center gap-2"><BotIcon aria-hidden="true" />模型供应商</span></CardTitle><CardDescription>选择已有配置，或添加新的 AI SDK Provider。</CardDescription><CardAction><Button variant="outline" onClick={() => setCreatingProvider(true)}><PlusIcon data-icon="inline-start" aria-hidden="true" />添加</Button></CardAction></CardHeader>
-              <CardContent>
-                {dataState.status === "loading" && <p className="text-sm text-muted-foreground" role="status">正在读取配置……</p>}
-                {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void reload()}>重试</Button></div>}
-                {dataState.status === "ready" && dataState.providers.length === 0 && <p className="text-sm text-muted-foreground">尚未添加 Provider。</p>}
-                {dataState.status === "ready" && dataState.providers.length > 0 && (
-                  <div className="flex items-center gap-3">
-                    <NativeSelect className="w-full" value={selectedProviderId ?? ""} onChange={(event) => { setSelectedProviderId(event.target.value); setCreatingProvider(false); }}>
-                      {dataState.providers.map((provider) => <NativeSelectOption key={provider.id} value={provider.id}>{provider.displayName} · {PROVIDER_CATALOG[provider.providerType].label}</NativeSelectOption>)}
-                    </NativeSelect>
-                    {selectedProvider !== undefined && <StatusBadge enabled={selectedProvider.enabled} />}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        <aside className="min-h-0" aria-label="设置分类">
+          <TabsList className="flex-row! w-full items-stretch gap-2 bg-transparent p-0 md:flex-col!">
+            <TabsTrigger
+              className="min-h-11 w-auto! justify-center px-3 data-active:bg-primary data-active:text-primary-foreground data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-primary dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              data-testid="settings-tab-general"
+              value="general"
+            >
+              <SlidersHorizontalIcon aria-hidden="true" />
+              常规
+            </TabsTrigger>
+            <TabsTrigger
+              className="min-h-11 w-auto! justify-center px-3 data-active:bg-primary data-active:text-primary-foreground data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-primary dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              data-testid="settings-tab-models"
+              value="models"
+            >
+              <BotIcon aria-hidden="true" />
+              模型
+            </TabsTrigger>
+          </TabsList>
+        </aside>
 
-            {dataState.status === "ready" && (creatingProvider ? (
-              <NewProviderForm onCancel={() => setCreatingProvider(false)} onCreated={reload} />
-            ) : selectedProvider !== undefined ? (
-              <ProviderEditor provider={selectedProvider} models={selectedModels} onChanged={reload} />
-            ) : (
-              <Card size="sm"><CardContent className="py-6 text-center text-sm text-muted-foreground">选择一个 Provider，或添加新的模型供应商。</CardContent></Card>
-            ))}
-      </div>
+        <div className="min-h-0 md:overflow-y-auto" data-testid="settings-content">
+          <TabsContent className="h-full" value="general">
+            <ThemeSettings />
+          </TabsContent>
+          <TabsContent className="h-full" value="models">
+            <ModelManagement
+              dataState={dataState}
+              selectedModels={selectedModels}
+              selectedProvider={selectedProvider}
+              selectedProviderId={selectedProviderId}
+              onCreateProvider={createProvider}
+              onDeleteProvider={async (provider) => { setProviderToDelete(provider); }}
+              onEditProvider={setProviderDialog}
+              onReload={reload}
+              onSelectProvider={selectProvider}
+            />
+          </TabsContent>
+        </div>
+      </Tabs>
+
+      {(providerDialog === "new" || dialogProvider !== undefined) && (
+        <ProviderDialog
+          key={providerDialog}
+          provider={dialogProvider}
+          onOpenChange={(open) => { if (!open) setProviderDialog(null); }}
+          onSaved={reload}
+        />
+      )}
+
+      <ConfirmDialog
+        open={providerToDelete !== null}
+        title="删除供应商"
+        description={providerToDelete === null ? "" : `确定删除“${providerToDelete.displayName}”及其全部模型配置吗？`}
+        confirmLabel="删除供应商"
+        errorLabel="无法删除供应商。"
+        onOpenChange={(open) => { if (!open) setProviderToDelete(null); }}
+        onConfirm={async () => { if (providerToDelete !== null) await deleteProvider(providerToDelete); }}
+      />
 
       <TooltipIconButton
-        className="fixed bottom-4 left-4 z-40"
+        className="fixed bottom-4 left-4 z-40 size-8"
         data-testid="settings-back"
         tooltip="返回主页"
         onClick={onClose}

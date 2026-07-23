@@ -2,54 +2,54 @@ import type { ProviderType } from "../../../shared/ipc";
 
 interface ProviderDescriptor {
   readonly label: string;
-  readonly description: string;
   readonly baseUrlRequired: boolean;
+  readonly baseUrlPlaceholder: string;
 }
 
 export const PROVIDER_CATALOG: Readonly<Record<ProviderType, ProviderDescriptor>> = {
   gateway: {
     label: "AI Gateway",
-    description: "通过 AI SDK Gateway 访问多个模型供应商。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://ai-gateway.vercel.sh/v4/ai",
   },
   "openai-compatible": {
     label: "OpenAI Compatible",
-    description: "连接实现 OpenAI 兼容接口的本地或远程服务。",
     baseUrlRequired: true,
+    baseUrlPlaceholder: "https://api.example.com/v1",
   },
   openai: {
     label: "OpenAI",
-    description: "OpenAI 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.openai.com/v1",
   },
   anthropic: {
     label: "Anthropic",
-    description: "Anthropic Claude 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.anthropic.com/v1",
   },
   google: {
     label: "Google",
-    description: "Google Generative AI 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://generativelanguage.googleapis.com/v1beta",
   },
   deepseek: {
     label: "DeepSeek",
-    description: "DeepSeek 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.deepseek.com",
   },
   xai: {
     label: "xAI",
-    description: "xAI Grok 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.x.ai/v1",
   },
   moonshotai: {
     label: "Moonshot AI",
-    description: "Moonshot AI 官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.moonshot.ai/v1",
   },
   alibaba: {
     label: "Alibaba",
-    description: "阿里云百炼模型服务官方 Provider。",
     baseUrlRequired: false,
+    baseUrlPlaceholder: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
   },
 };
