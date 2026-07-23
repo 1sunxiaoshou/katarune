@@ -1,4 +1,5 @@
 import type { Character } from "../../../shared/ipc";
+import { getCharacterNameReading } from "./characterName";
 
 interface CharacterListProps {
   readonly characters: readonly Character[];
@@ -24,9 +25,10 @@ export function CharacterList({
       <div className="character-list-rule" aria-hidden="true" />
 
       <div className="character-list-scroll" data-testid="character-list">
-        {characters.map((character, index) => {
+        {characters.map((character) => {
           const selected = character.id === selectedId;
           const portrait = portraits.get(character.id) ?? null;
+          const reading = getCharacterNameReading(character.name);
           return (
             <button
               className="character-list-item"
@@ -46,7 +48,13 @@ export function CharacterList({
               </span>
               <span className="character-list-copy">
                 <strong>{character.name}</strong>
-                <em>Character {String(index + 1).padStart(2, "0")}</em>
+                <em
+                  data-reading-kind={reading.kind}
+                  data-testid="character-list-reading"
+                  lang={reading.kind === "pinyin" ? "zh-Latn-pinyin" : "en"}
+                >
+                  {reading.text}
+                </em>
               </span>
               <span className="character-list-spark" aria-hidden="true">✦</span>
             </button>

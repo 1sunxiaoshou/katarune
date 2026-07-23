@@ -1,3 +1,4 @@
+import "./character-fonts.css";
 import {
   ArrowLeftIcon,
   ImagePlusIcon,
@@ -11,6 +12,7 @@ import {
   type FocusEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ModelSelectorContent,
   ModelSelectorEmpty,
@@ -74,7 +76,6 @@ function CharacterEditor({
     status: "idle",
     message: "修改会在离开输入框时自动保存",
   });
-
   const availableProviderIds = useMemo(
     () => new Set(providers.filter((provider) => provider.enabled).map((provider) => provider.id)),
     [providers],
@@ -195,7 +196,6 @@ function CharacterEditor({
                 setSaveState({ status: "dirty", message: "已修改，离开输入框后保存" });
               }}
             />
-            <span className="character-name-star" aria-hidden="true">✦</span>
           </div>
           <div className="character-name-ornament" aria-hidden="true" />
         </div>
@@ -257,7 +257,7 @@ function CharacterEditor({
             <span className="character-star" aria-hidden="true">✦</span>
             系统提示词 <small>/ SYSTEM PROMPT</small>
           </label>
-          <textarea
+          <Textarea
             id="character-system-prompt"
             data-testid="character-system-prompt"
             maxLength={20_000}

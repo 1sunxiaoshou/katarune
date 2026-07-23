@@ -277,12 +277,14 @@ async function run() {
     const model = document.querySelector('[data-testid="character-model"]');
     const prompt = document.querySelector('[data-testid="character-system-prompt"]');
     const list = document.querySelector('[data-testid="character-list"]');
+    const listReading = document.querySelector('[data-testid="character-list-reading"]');
     return {
       title: page.querySelector('h1').textContent.trim(),
       name: name.value,
       model: model.getAttribute('data-model-id'),
       prompt: prompt.value,
       listCount: list.querySelectorAll('[data-testid="character-list-item"]').length,
+      listReading: listReading.textContent.trim(),
       columns: getComputedStyle(page.querySelector('.character-layout')).gridTemplateColumns.split(' ').length,
       backgroundImage: getComputedStyle(page).backgroundImage,
       backgroundMatchesBody: getComputedStyle(page).backgroundColor === getComputedStyle(document.body).backgroundColor,
@@ -293,6 +295,7 @@ async function run() {
   assert.equal(characterLayout.model, modelId);
   assert.match(characterLayout.prompt, /温柔、沉静/);
   assert.equal(characterLayout.listCount, 1);
+  assert.equal(characterLayout.listReading, "Xing Lan");
   assert.equal(characterLayout.columns, 3);
   assert.equal(characterLayout.backgroundImage, "none");
   assert.equal(characterLayout.backgroundMatchesBody, true);

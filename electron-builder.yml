@@ -16,3 +16,7 @@ files:
 extraResources:
   - from: resources/characters
     to: characters
+  - from: resources/fonts
+    to: fonts
+  - from: node_modules/@fontsource/yellowtail/LICENSE
+    to: fonts/Apache-2.0-Yellowtail.txt
