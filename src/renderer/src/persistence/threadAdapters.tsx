@@ -11,7 +11,10 @@ import type { ExportedMessageRepositoryItem } from "@assistant-ui/react";
 import { useMemo, type PropsWithChildren } from "react";
 
 class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
-  public constructor(private readonly aui: ReturnType<typeof useAui>) {}
+  public constructor(
+    private readonly aui: ReturnType<typeof useAui>,
+    private readonly characterId: string,
+  ) {}
 
   public async load(): Promise<{ messages: [] }> {
     return { messages: [] };
@@ -31,6 +34,7 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
       const { remoteId } = await this.aui.threadListItem().initialize();
       await window.katarune.appendThreadMessage({
         threadId: remoteId,
+        characterId: this.characterId,
         message: {
           id: formatAdapter.getId(item.message),
           parent_id: item.parentId,
@@ -45,7 +49,10 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
         const remoteId = getRemoteId();
         if (remoteId === undefined) return { messages: [] };
 
-        const repository = await window.katarune.loadThreadMessages({ threadId: remoteId });
+        const repository = await window.katarune.loadThreadMessages({
+          threadId: remoteId,
+          characterId: this.characterId,
+        });
         return {
           messages: repository.messages
             .filter((message) => message.format === formatAdapter.format)
@@ -64,6 +71,7 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
         if (remoteId === undefined || items.length === 0) return;
         await window.katarune.deleteThreadMessages({
           threadId: remoteId,
+          characterId: this.characterId,
           messageIds: items.map((item) => formatAdapter.getId(item.message)),
         });
       },
@@ -71,38 +79,63 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
   }
 }
 
-function ThreadPersistenceProvider({ children }: PropsWithChildren): React.JSX.Element {
-  const aui = useAui();
-  const history = useMemo(() => new KataruneThreadHistoryAdapter(aui), [aui]);
-  const adapters = useMemo(() => ({ history }), [history]);
+export function createKataruneThreadListAdapter(
+  characterId: string,
+): RemoteThreadListAdapter {
+  function ThreadPersistenceProvider({
+    children,
+  }: PropsWithChildren): React.JSX.Element {
+    const aui = useAui();
+    const history = useMemo(
+      () => new KataruneThreadHistoryAdapter(aui, characterId),
+      [aui],
+    );
+    const adapters = useMemo(() => ({ history }), [history]);
 
-  return <RuntimeAdapterProvider adapters={adapters}>{children}</RuntimeAdapterProvider>;
+    return (
+      <RuntimeAdapterProvider adapters={adapters}>
+        {children}
+      </RuntimeAdapterProvider>
+    );
+  }
+
+  return {
+    unstable_Provider: ThreadPersistenceProvider,
+    list: () => window.katarune.listThreads({ characterId }),
+    initialize: async (threadId) => {
+      const thread = await window.katarune.initializeThread({ threadId, characterId });
+      return { remoteId: thread.remoteId, externalId: undefined };
+    },
+    fetch: (threadId) => window.katarune.fetchThread({ threadId, characterId }),
+    rename: async (remoteId, newTitle) => {
+      await window.katarune.renameThread({
+        threadId: remoteId,
+        characterId,
+        title: newTitle,
+      });
+    },
+    archive: async (remoteId) => {
+      await window.katarune.setThreadStatus({
+        threadId: remoteId,
+        characterId,
+        status: "archived",
+      });
+    },
+    unarchive: async (remoteId) => {
+      await window.katarune.setThreadStatus({
+        threadId: remoteId,
+        characterId,
+        status: "regular",
+      });
+    },
+    delete: async (remoteId) => {
+      await window.katarune.deleteThread({ threadId: remoteId, characterId });
+    },
+    generateTitle: async () =>
+      new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+  };
 }
-
-export const kataruneThreadListAdapter: RemoteThreadListAdapter = {
-  unstable_Provider: ThreadPersistenceProvider,
-  list: () => window.katarune.listThreads(),
-  initialize: async (threadId) => {
-    const thread = await window.katarune.initializeThread({ threadId });
-    return { remoteId: thread.remoteId, externalId: undefined };
-  },
-  fetch: (threadId) => window.katarune.fetchThread({ threadId }),
-  rename: async (remoteId, newTitle) => {
-    await window.katarune.renameThread({ threadId: remoteId, title: newTitle });
-  },
-  archive: async (remoteId) => {
-    await window.katarune.setThreadStatus({ threadId: remoteId, status: "archived" });
-  },
-  unarchive: async (remoteId) => {
-    await window.katarune.setThreadStatus({ threadId: remoteId, status: "regular" });
-  },
-  delete: async (remoteId) => {
-    await window.katarune.deleteThread({ threadId: remoteId });
-  },
-  generateTitle: async () =>
-    new ReadableStream({
-      start(controller) {
-        controller.close();
-      },
-    }),
-};

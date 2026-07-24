@@ -3,9 +3,9 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell } from "e
 import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  appStateSchema,
   characterIdRequestSchema,
   characterPortraitImportResultSchema,
-  characterPortraitSchema,
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
   deleteThreadMessagesRequestSchema,
@@ -17,6 +17,8 @@ import {
   replaceProviderCredentialRequestSchema,
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
+  setActiveCharacterRequestSchema,
+  listThreadsRequestSchema,
   threadIdRequestSchema,
   updateProviderConfigRequestSchema,
   updateModelConfigRequestSchema,
@@ -25,10 +27,8 @@ import {
 } from "../shared/ipc";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
 import { discoverProviderModels } from "./ai/modelDiscovery";
-import {
-  createCharacterAssetStore,
-  type CharacterAssetStore,
-} from "./characters/characterAssets";
+import { registerAssetProtocol, registerAssetScheme } from "./assets/assetProtocol";
+import { createAssetService, type AssetService } from "./assets/assetService";
 import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { createCredentialStore, type CredentialStore } from "./security/credentialStore";
@@ -36,6 +36,8 @@ import { createCredentialStore, type CredentialStore } from "./security/credenti
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
 }
+
+registerAssetScheme();
 
 function getAppInfo(): AppInfo {
   return appInfoSchema.parse({
@@ -51,38 +53,46 @@ function registerIpcHandlers(
   database: DatabaseRuntime,
   aiRuntime: AiRuntime,
   credentialStore: CredentialStore,
-  characterAssets: CharacterAssetStore,
+  assetService: AssetService,
 ): void {
   ipcMain.handle(IPC_CHANNELS.getAppInfo, getAppInfo);
   ipcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
   ipcMain.handle(IPC_CHANNELS.getAiRuntimeStatus, () => aiRuntime.getStatus());
-  ipcMain.handle(IPC_CHANNELS.listThreads, () => database.listThreads());
+  ipcMain.handle(IPC_CHANNELS.getAppState, () => appStateSchema.parse(database.getAppState()));
+  ipcMain.handle(IPC_CHANNELS.setActiveCharacter, (_event, value: unknown) => {
+    const { characterId } = setActiveCharacterRequestSchema.parse(value);
+    return appStateSchema.parse(database.setActiveCharacter(characterId));
+  });
+  ipcMain.handle(IPC_CHANNELS.listThreads, (_event, value: unknown) => {
+    const { characterId } = listThreadsRequestSchema.parse(value);
+    return database.listThreads(characterId);
+  });
   ipcMain.handle(IPC_CHANNELS.initializeThread, (_event, value: unknown) => {
-    const { threadId } = threadIdRequestSchema.parse(value);
-    return database.initializeThread(threadId);
+    const { threadId, characterId } = threadIdRequestSchema.parse(value);
+    return database.initializeThread(threadId, characterId);
   });
   ipcMain.handle(IPC_CHANNELS.fetchThread, (_event, value: unknown) => {
-    const { threadId } = threadIdRequestSchema.parse(value);
-    return database.fetchThread(threadId);
+    const { threadId, characterId } = threadIdRequestSchema.parse(value);
+    return database.fetchThread(threadId, characterId);
   });
   ipcMain.handle(IPC_CHANNELS.renameThread, (_event, value: unknown) => {
-    const { threadId, title } = renameThreadRequestSchema.parse(value);
-    database.renameThread(threadId, title);
+    const { threadId, characterId, title } = renameThreadRequestSchema.parse(value);
+    database.renameThread(threadId, characterId, title);
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.setThreadStatus, (_event, value: unknown) => {
-    const { threadId, status } = setThreadStatusRequestSchema.parse(value);
-    database.setThreadStatus(threadId, status);
+    const { threadId, characterId, status } = setThreadStatusRequestSchema.parse(value);
+    database.setThreadStatus(threadId, characterId, status);
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.deleteThread, (_event, value: unknown) => {
-    const { threadId } = threadIdRequestSchema.parse(value);
-    database.deleteThread(threadId);
+    const { threadId, characterId } = threadIdRequestSchema.parse(value);
+    database.deleteThread(threadId, characterId);
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.loadThreadMessages, (_event, value: unknown) => {
-    const { threadId } = threadIdRequestSchema.parse(value);
-    return database.loadThreadMessages(threadId);
+    const { threadId, characterId } = threadIdRequestSchema.parse(value);
+    return database.loadThreadMessages(threadId, characterId);
   });
   ipcMain.handle(IPC_CHANNELS.appendThreadMessage, (_event, value: unknown) => {
     const request = appendThreadMessageRequestSchema.parse(value);
@@ -90,8 +100,8 @@ function registerIpcHandlers(
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.deleteThreadMessages, (_event, value: unknown) => {
-    const { threadId, messageIds } = deleteThreadMessagesRequestSchema.parse(value);
-    database.deleteThreadMessages(threadId, messageIds);
+    const { threadId, characterId, messageIds } = deleteThreadMessagesRequestSchema.parse(value);
+    database.deleteThreadMessages(threadId, characterId, messageIds);
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.listProviderConfigs, () => database.listProviderConfigs());
@@ -204,20 +214,9 @@ function registerIpcHandlers(
   ipcMain.handle(IPC_CHANNELS.updateCharacter, (_event, value: unknown) => {
     return database.updateCharacter(updateCharacterRequestSchema.parse(value));
   });
-  ipcMain.handle(IPC_CHANNELS.getCharacterPortrait, (_event, value: unknown) => {
-    const { id } = characterIdRequestSchema.parse(value);
-    const character = database.fetchCharacter(id);
-    return characterPortraitSchema.parse({
-      characterId: id,
-      dataUrl:
-        character.portraitAssetId === null
-          ? null
-          : characterAssets.readPortraitDataUrl(character.portraitAssetId),
-    });
-  });
   ipcMain.handle(IPC_CHANNELS.importCharacterPortrait, async (event, value: unknown) => {
     const { id } = characterIdRequestSchema.parse(value);
-    const character = database.fetchCharacter(id);
+    database.fetchCharacter(id);
     const owner = BrowserWindow.fromWebContents(event.sender);
     const selection =
       owner === null
@@ -234,23 +233,15 @@ function registerIpcHandlers(
       return characterPortraitImportResultSchema.parse({ canceled: true, character: null });
     }
 
-    const nextAssetId = characterAssets.importPortrait(selection.filePaths[0]);
+    const registration = assetService.importPortrait(selection.filePaths[0]);
+    let updated;
     try {
-      const updated = database.setCharacterPortraitAsset(id, nextAssetId);
-      const previousAssetId = character.portraitAssetId;
-      if (
-        previousAssetId !== null &&
-        !database
-          .listCharacters()
-          .characters.some((item) => item.portraitAssetId === previousAssetId)
-      ) {
-        characterAssets.deletePortrait(previousAssetId);
-      }
-      return characterPortraitImportResultSchema.parse({ canceled: false, character: updated });
+      updated = database.registerAssetAndSetCharacterPortrait(id, registration);
     } catch (error) {
-      characterAssets.deletePortrait(nextAssetId);
+      assetService.removeExact(registration.id);
       throw error;
     }
+    return characterPortraitImportResultSchema.parse({ canceled: false, character: updated });
   });
 }
 
@@ -305,7 +296,7 @@ void app.whenReady().then(() => {
     ? join(process.resourcesPath, "characters")
     : join(app.getAppPath(), "resources", "characters");
   const defaultCharacterConfig = loadDefaultCharacterConfig(characterResourcesPath);
-  const characterAssets = createCharacterAssetStore({
+  const assetService = createAssetService({
     userDataPath: app.getPath("userData"),
     characterResourcesPath,
   });
@@ -314,17 +305,7 @@ void app.whenReady().then(() => {
     appPath: app.getAppPath(),
     characterResourcesPath,
   });
-  if (
-    defaultCharacterConfig.character.portrait !== null &&
-    databaseRuntime
-      .listCharacters()
-      .characters.some(
-        (character) =>
-          character.portraitAssetId === defaultCharacterConfig.character.portrait?.assetId,
-      )
-  ) {
-    characterAssets.ensureDefaultPortrait(defaultCharacterConfig);
-  }
+  assetService.reconcile(databaseRuntime, defaultCharacterConfig);
   return Promise.all([
     createCredentialStore({
       userDataPath: app.getPath("userData"),
@@ -334,15 +315,16 @@ void app.whenReady().then(() => {
         decryptString: (value) => safeStorage.decryptStringAsync(value),
       },
     }),
-    Promise.resolve(characterAssets),
+    Promise.resolve(assetService),
   ]);
-}).then(async ([credentialStore, characterAssets]) => {
+}).then(async ([credentialStore, assetService]) => {
   if (databaseRuntime === undefined) {
     throw new Error("Database runtime was not initialized.");
   }
   Menu.setApplicationMenu(null);
   aiRuntime = await createAiRuntime({ database: databaseRuntime, credentialStore });
-  registerIpcHandlers(databaseRuntime, aiRuntime, credentialStore, characterAssets);
+  registerAssetProtocol(databaseRuntime, assetService);
+  registerIpcHandlers(databaseRuntime, aiRuntime, credentialStore, assetService);
   createMainWindow();
 
   app.on("activate", () => {

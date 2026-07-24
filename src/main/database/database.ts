@@ -8,6 +8,8 @@ import { z } from "zod";
 import {
   characterListSchema,
   characterSchema,
+  appStateSchema,
+  assetSchema,
   databaseStatusSchema,
   initializeThreadResponseSchema,
   modelConfigListSchema,
@@ -18,6 +20,8 @@ import {
   threadMessagesSchema,
   threadMetadataSchema,
   type AppendThreadMessageRequest,
+  type AppState,
+  type Asset,
   type Character,
   type CharacterList,
   type DatabaseStatus,
@@ -37,7 +41,15 @@ import {
   type UpdateModelConfigRequest,
 } from "../../shared/ipc";
 import { loadDefaultCharacterConfig } from "../characters/defaultCharacter";
-import { characters, messages, modelConfigs, providerConfigs, threads } from "./schema";
+import {
+  appState,
+  assets,
+  characters,
+  messages,
+  modelConfigs,
+  providerConfigs,
+  threads,
+} from "./schema";
 
 const VALIDATION_THREAD_ID = "p1-database-validation";
 
@@ -45,21 +57,32 @@ const persistedThreadSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
   status: z.enum(["regular", "archived"]),
+  characterId: z.string().uuid(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
 
 export interface DatabaseRuntime {
   getStatus(): DatabaseStatus;
-  listThreads(): ThreadList;
-  initializeThread(threadId: string): InitializeThreadResponse;
-  fetchThread(threadId: string): ThreadMetadata;
-  renameThread(threadId: string, title: string): void;
-  setThreadStatus(threadId: string, status: "regular" | "archived"): void;
-  deleteThread(threadId: string): void;
-  loadThreadMessages(threadId: string): ThreadMessages;
+  getAppState(): AppState;
+  setActiveCharacter(characterId: string): AppState;
+  listThreads(characterId: string): ThreadList;
+  initializeThread(threadId: string, characterId: string): InitializeThreadResponse;
+  fetchThread(threadId: string, characterId: string): ThreadMetadata;
+  renameThread(threadId: string, characterId: string, title: string): void;
+  setThreadStatus(
+    threadId: string,
+    characterId: string,
+    status: "regular" | "archived",
+  ): void;
+  deleteThread(threadId: string, characterId: string): void;
+  loadThreadMessages(threadId: string, characterId: string): ThreadMessages;
   appendThreadMessage(request: AppendThreadMessageRequest): void;
-  deleteThreadMessages(threadId: string, messageIds: readonly string[]): void;
+  deleteThreadMessages(
+    threadId: string,
+    characterId: string,
+    messageIds: readonly string[],
+  ): void;
   listProviderConfigs(): ProviderConfigList;
   createProviderConfig(request: CreateProviderConfigRequest): ProviderConfig;
   fetchProviderConfig(id: string): ProviderConfig;
@@ -74,8 +97,26 @@ export interface DatabaseRuntime {
   listCharacters(): CharacterList;
   fetchCharacter(id: string): Character;
   updateCharacter(request: UpdateCharacterRequest): Character;
-  setCharacterPortraitAsset(id: string, portraitAssetId: string): Character;
+  fetchAsset(id: string): Asset;
+  listAssets(): readonly Asset[];
+  registerAssetAndSetCharacterPortrait(
+    characterId: string,
+    asset: ReadyAssetRegistration,
+  ): Character;
+  markAssetReady(id: string, metadata: AssetMetadata): Asset;
   close(): void;
+}
+
+export interface AssetMetadata {
+  readonly mimeType: string;
+  readonly byteSize: number;
+  readonly sha256: string;
+  readonly originalName: string;
+}
+
+export interface ReadyAssetRegistration extends AssetMetadata {
+  readonly id: string;
+  readonly storageKey: string;
 }
 
 interface OpenDatabaseOptions {
@@ -118,6 +159,24 @@ export function openDatabase({
   }
   if (existingCharacterCount === 0) {
     const now = new Date();
+    const portraitAssetId = defaultCharacterConfig.character.portrait?.assetId ?? null;
+    if (portraitAssetId !== null) {
+      database
+        .insert(assets)
+        .values({
+          id: portraitAssetId,
+          storageKey: portraitAssetId,
+          status: "missing",
+          mimeType: null,
+          byteSize: null,
+          sha256: null,
+          originalName: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: assets.id })
+        .run();
+    }
     database
       .insert(characters)
       .values({
@@ -132,6 +191,27 @@ export function openDatabase({
       .run();
   }
 
+  const preferredCharacterId =
+    database
+      .select({ id: characters.id })
+      .from(characters)
+      .where(eq(characters.id, defaultCharacterConfig.character.id))
+      .get()?.id ??
+    database
+      .select({ id: characters.id })
+      .from(characters)
+      .orderBy(asc(characters.createdAt), asc(characters.id))
+      .get()?.id;
+  if (preferredCharacterId === undefined) {
+    sqlite.close();
+    throw new Error("Database validation could not resolve an active character.");
+  }
+  database
+    .insert(appState)
+    .values({ id: 1, activeCharacterId: preferredCharacterId, updatedAt: new Date() })
+    .onConflictDoNothing({ target: appState.id })
+    .run();
+
   const existingThread = database.select().from(threads).where(eq(threads.id, VALIDATION_THREAD_ID)).get();
   const validationThreadRestored = existingThread !== undefined;
 
@@ -139,6 +219,7 @@ export function openDatabase({
     const now = new Date();
     database.insert(threads).values({
       id: VALIDATION_THREAD_ID,
+      characterId: preferredCharacterId,
       title: "P1 database validation",
       createdAt: now,
       updatedAt: now,
@@ -165,8 +246,12 @@ export function openDatabase({
     }),
   );
 
-  const fetchThread = (threadId: string): ThreadMetadata => {
-    const thread = database.select().from(threads).where(eq(threads.id, threadId)).get();
+  const fetchThread = (threadId: string, characterId: string): ThreadMetadata => {
+    const thread = database
+      .select()
+      .from(threads)
+      .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
+      .get();
 
     if (thread === undefined) {
       throw new Error(`Thread "${threadId}" was not found.`);
@@ -177,6 +262,7 @@ export function openDatabase({
       status: thread.status,
       title: thread.title,
       lastMessageAt: thread.updatedAt,
+      characterId: thread.characterId,
     });
   };
 
@@ -212,14 +298,58 @@ export function openDatabase({
     return characterSchema.parse(character);
   };
 
+  const fetchAsset = (id: string): Asset => {
+    const asset = database
+      .select({
+        id: assets.id,
+        status: assets.status,
+        mimeType: assets.mimeType,
+        byteSize: assets.byteSize,
+        sha256: assets.sha256,
+        originalName: assets.originalName,
+        createdAt: assets.createdAt,
+        updatedAt: assets.updatedAt,
+      })
+      .from(assets)
+      .where(eq(assets.id, id))
+      .get();
+    if (asset === undefined) {
+      throw new Error(`Asset "${id}" was not found.`);
+    }
+    return assetSchema.parse(asset);
+  };
+
+  const getAppState = (): AppState => {
+    const state = database.select().from(appState).where(eq(appState.id, 1)).get();
+    if (state === undefined) {
+      throw new Error("Application state was not initialized.");
+    }
+    return appStateSchema.parse({ activeCharacter: fetchCharacter(state.activeCharacterId) });
+  };
+
   return {
     getStatus: () => status,
-    listThreads: () =>
+    getAppState,
+    setActiveCharacter: (characterId) => {
+      fetchCharacter(characterId);
+      database
+        .update(appState)
+        .set({ activeCharacterId: characterId, updatedAt: new Date() })
+        .where(eq(appState.id, 1))
+        .run();
+      return getAppState();
+    },
+    listThreads: (characterId) =>
       threadListSchema.parse({
         threads: database
           .select()
           .from(threads)
-          .where(ne(threads.id, VALIDATION_THREAD_ID))
+          .where(
+            and(
+              eq(threads.characterId, characterId),
+              ne(threads.id, VALIDATION_THREAD_ID),
+            ),
+          )
           .orderBy(desc(threads.updatedAt))
           .all()
           .map((thread) => ({
@@ -227,14 +357,17 @@ export function openDatabase({
             status: thread.status,
             title: thread.title,
             lastMessageAt: thread.updatedAt,
+            characterId: thread.characterId,
           })),
       }),
-    initializeThread: (threadId) => {
+    initializeThread: (threadId, characterId) => {
+      fetchCharacter(characterId);
       const now = new Date();
       database
         .insert(threads)
         .values({
           id: threadId,
+          characterId,
           title: "新对话",
           status: "regular",
           createdAt: now,
@@ -243,30 +376,36 @@ export function openDatabase({
         .onConflictDoNothing({ target: threads.id })
         .run();
 
+      fetchThread(threadId, characterId);
       return initializeThreadResponseSchema.parse({ remoteId: threadId });
     },
     fetchThread,
-    renameThread: (threadId, title) => {
+    renameThread: (threadId, characterId, title) => {
       const result = database
         .update(threads)
         .set({ title, updatedAt: new Date() })
-        .where(eq(threads.id, threadId))
+        .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
         .run();
-      if (result.changes === 0) fetchThread(threadId);
+      if (result.changes === 0) fetchThread(threadId, characterId);
     },
-    setThreadStatus: (threadId, threadStatus) => {
+    setThreadStatus: (threadId, characterId, threadStatus) => {
       const result = database
         .update(threads)
         .set({ status: threadStatus, updatedAt: new Date() })
-        .where(eq(threads.id, threadId))
+        .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
         .run();
-      if (result.changes === 0) fetchThread(threadId);
+      if (result.changes === 0) fetchThread(threadId, characterId);
     },
-    deleteThread: (threadId) => {
-      database.delete(threads).where(eq(threads.id, threadId)).run();
+    deleteThread: (threadId, characterId) => {
+      fetchThread(threadId, characterId);
+      database
+        .delete(threads)
+        .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
+        .run();
     },
-    loadThreadMessages: (threadId) =>
-      threadMessagesSchema.parse({
+    loadThreadMessages: (threadId, characterId) => {
+      fetchThread(threadId, characterId);
+      return threadMessagesSchema.parse({
         messages: database
           .select({
             id: messages.id,
@@ -278,8 +417,10 @@ export function openDatabase({
           .where(eq(messages.threadId, threadId))
           .orderBy(asc(messages.createdAt))
           .all(),
-      }),
-    appendThreadMessage: ({ threadId, message }) => {
+      });
+    },
+    appendThreadMessage: ({ threadId, characterId, message }) => {
+      fetchThread(threadId, characterId);
       database.transaction((transaction) => {
         const existingMessage = transaction
           .select({ threadId: messages.threadId })
@@ -313,14 +454,15 @@ export function openDatabase({
         const updatedThread = transaction
           .update(threads)
           .set({ updatedAt: now })
-          .where(eq(threads.id, threadId))
+          .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
           .run();
         if (updatedThread.changes === 0) {
           throw new Error(`Thread "${threadId}" was not found while appending a message.`);
         }
       });
     },
-    deleteThreadMessages: (threadId, messageIds) => {
+    deleteThreadMessages: (threadId, characterId, messageIds) => {
+      fetchThread(threadId, characterId);
       if (messageIds.length === 0) return;
       database
         .delete(messages)
@@ -470,14 +612,46 @@ export function openDatabase({
       if (result.changes === 0) fetchCharacter(id);
       return fetchCharacter(id);
     },
-    setCharacterPortraitAsset: (id, portraitAssetId) => {
+    fetchAsset,
+    listAssets: () =>
+      database
+        .select({ id: assets.id })
+        .from(assets)
+        .orderBy(asc(assets.createdAt))
+        .all()
+        .map(({ id }) => fetchAsset(id)),
+    registerAssetAndSetCharacterPortrait: (characterId, asset) => {
+      fetchCharacter(characterId);
+      const now = new Date();
+      database.transaction((transaction) => {
+        transaction
+          .insert(assets)
+          .values({
+            ...asset,
+            status: "ready",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        const result = transaction
+          .update(characters)
+          .set({ portraitAssetId: asset.id, updatedAt: now })
+          .where(eq(characters.id, characterId))
+          .run();
+        if (result.changes !== 1) {
+          throw new Error(`Character "${characterId}" was not found.`);
+        }
+      });
+      return fetchCharacter(characterId);
+    },
+    markAssetReady: (id, metadata) => {
       const result = database
-        .update(characters)
-        .set({ portraitAssetId, updatedAt: new Date() })
-        .where(eq(characters.id, id))
+        .update(assets)
+        .set({ ...metadata, status: "ready", updatedAt: new Date() })
+        .where(eq(assets.id, id))
         .run();
-      if (result.changes === 0) fetchCharacter(id);
-      return fetchCharacter(id);
+      if (result.changes === 0) fetchAsset(id);
+      return fetchAsset(id);
     },
     close: () => sqlite.close(),
   };

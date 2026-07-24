@@ -32,6 +32,8 @@ import type {
   ProviderConfig,
   UpdateCharacterRequest,
 } from "../../../shared/ipc";
+import { assetUrl } from "../../../shared/ipc";
+import { useCharacterSession } from "./CharacterSessionProvider";
 import { CharacterList } from "./CharacterList";
 
 const NO_MODEL_ID = "__katarune_no_model__";
@@ -54,7 +56,6 @@ type SaveState =
 
 interface CharacterEditorProps {
   readonly character: Character;
-  readonly portrait: string | null;
   readonly models: readonly ModelConfig[];
   readonly providers: readonly ProviderConfig[];
   readonly onCharacterUpdated: (request: UpdateCharacterRequest) => Promise<Character>;
@@ -64,13 +65,20 @@ interface CharacterEditorProps {
 
 function CharacterEditor({
   character,
-  portrait,
   models,
   providers,
   onCharacterUpdated,
   onPortraitImport,
   onOpenSettings,
 }: CharacterEditorProps): React.JSX.Element {
+  const [portraitFailed, setPortraitFailed] = useState(false);
+  useEffect(() => {
+    setPortraitFailed(false);
+  }, [character.portraitAssetId]);
+  const portrait =
+    character.portraitAssetId === null || portraitFailed
+      ? null
+      : assetUrl(character.portraitAssetId);
   const [name, setName] = useState(character.name);
   const [systemPrompt, setSystemPrompt] = useState(character.systemPrompt);
   const [saveState, setSaveState] = useState<SaveState>({
@@ -281,7 +289,13 @@ function CharacterEditor({
 
       <section className="character-art-panel" aria-label="角色立绘">
         <div className="character-art">
-          {portrait !== null && <img alt={`${character.name}的立绘`} src={portrait} />}
+          {portrait !== null && (
+            <img
+              alt={`${character.name}的立绘`}
+              src={portrait}
+              onError={() => setPortraitFailed(true)}
+            />
+          )}
         </div>
         <Button
           className="character-portrait-button"
@@ -302,21 +316,13 @@ export function CharacterPage({
   onClose,
   onOpenSettings,
 }: CharacterPageProps): React.JSX.Element {
+  const { activeCharacter, setActiveCharacter } = useCharacterSession();
   const [characters, setCharacters] = useState<readonly Character[]>([]);
   const [models, setModels] = useState<readonly ModelConfig[]>([]);
   const [providers, setProviders] = useState<readonly ProviderConfig[]>([]);
-  const [portraits, setPortraits] = useState<ReadonlyMap<string, string | null>>(new Map());
-  const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>(activeCharacter.id);
   const [error, setError] = useState<string | null>(null);
-
-  const loadPortrait = useCallback(async (characterId: string): Promise<void> => {
-    const result = await window.katarune.getCharacterPortrait({ id: characterId });
-    setPortraits((current) => {
-      const next = new Map(current);
-      next.set(characterId, result.dataUrl);
-      return next;
-    });
-  }, []);
+  const [exitError, setExitError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -325,21 +331,17 @@ export function CharacterPage({
       window.katarune.listModelConfigs(),
       window.katarune.listProviderConfigs(),
     ])
-      .then(async ([characterResult, modelResult, providerResult]) => {
+      .then(([characterResult, modelResult, providerResult]) => {
         if (!active) return;
         setCharacters(characterResult.characters);
         setModels(modelResult.modelConfigs);
         setProviders(providerResult.providerConfigs);
-        const firstCharacter = characterResult.characters[0];
-        if (firstCharacter !== undefined) setSelectedId(firstCharacter.id);
-        await Promise.all(
-          characterResult.characters.map(async (character) => {
-            const portraitResult = await window.katarune.getCharacterPortrait({ id: character.id });
-            return [character.id, portraitResult.dataUrl] as const;
-          }),
-        ).then((entries) => {
-          if (active) setPortraits(new Map(entries));
-        });
+        const activeExists = characterResult.characters.some(
+          (character) => character.id === activeCharacter.id,
+        );
+        if (!activeExists && characterResult.characters[0] !== undefined) {
+          setSelectedId(characterResult.characters[0].id);
+        }
       })
       .catch((loadError: unknown) => {
         if (active) {
@@ -349,7 +351,7 @@ export function CharacterPage({
     return () => {
       active = false;
     };
-  }, []);
+  }, [activeCharacter.id]);
 
   const selectedCharacter =
     characters.find((character) => character.id === selectedId) ?? characters[0];
@@ -374,8 +376,24 @@ export function CharacterPage({
         character.id === result.character?.id ? result.character : character,
       ),
     );
-    await loadPortrait(result.character.id);
-  }, [loadPortrait, selectedCharacter]);
+  }, [selectedCharacter]);
+
+  const leave = useCallback(
+    async (destination: "chat" | "settings"): Promise<void> => {
+      if (selectedCharacter === undefined) return;
+      setExitError(null);
+      try {
+        await setActiveCharacter(selectedCharacter.id);
+        if (destination === "chat") onClose();
+        else onOpenSettings();
+      } catch (leaveError) {
+        setExitError(
+          leaveError instanceof Error ? leaveError.message : "切换角色失败，请重试。",
+        );
+      }
+    },
+    [onClose, onOpenSettings, selectedCharacter, setActiveCharacter],
+  );
 
   return (
     <main className="character-studio" data-testid="character-page" id="main-content">
@@ -384,7 +402,7 @@ export function CharacterPage({
           className="character-back size-8 rounded-md active:scale-100"
           data-testid="character-back"
           tooltip="返回聊天"
-          onClick={onClose}
+          onClick={() => void leave("chat")}
         >
           <ArrowLeftIcon aria-hidden="true" />
         </TooltipIconButton>
@@ -419,18 +437,19 @@ export function CharacterPage({
             key={selectedCharacter.id}
             character={selectedCharacter}
             models={models}
-            portrait={portraits.get(selectedCharacter.id) ?? null}
             providers={providers}
             onCharacterUpdated={updateCharacter}
-            onOpenSettings={onOpenSettings}
+            onOpenSettings={() => void leave("settings")}
             onPortraitImport={importPortrait}
           />
           <CharacterList
             characters={characters}
-            portraits={portraits}
             selectedId={selectedCharacter.id}
             onSelect={setSelectedId}
           />
+          {exitError !== null && (
+            <p className="character-exit-error" role="alert">{exitError}</p>
+          )}
         </div>
       )}
     </main>

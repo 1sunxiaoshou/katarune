@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
@@ -17,9 +17,6 @@ const now = new Date("2026-07-19T00:00:00.000Z");
 const providerId = "d3867f4b-e85f-4ff4-ac2b-974dc39ad832";
 const modelId = "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb";
 const characterId = "00000000-0000-4000-8000-000000000001";
-const characterPortraitDataUrl = `data:image/png;base64,${readFileSync(
-  join(projectRoot, "resources", "characters", "celestial-mage-line-art.png"),
-).toString("base64")}`;
 let emptyConfigMode = false;
 let createdProviderRequest = null;
 let createdProvider = null;
@@ -27,6 +24,9 @@ let replacedCredentialRequest = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
 let updatedCharacterRequest = null;
+let renamedThreadRequest = null;
+let statusThreadRequest = null;
+let deletedThreadRequest = null;
 let character = {
   id: characterId,
   name: "星澜",
@@ -36,6 +36,39 @@ let character = {
   createdAt: now,
   updatedAt: now,
 };
+const secondCharacter = {
+  id: "00000000-0000-4000-8000-000000000003",
+  name: "月影",
+  portraitAssetId: null,
+  modelConfigId: null,
+  systemPrompt: "你是月影。",
+  createdAt: now,
+  updatedAt: now,
+};
+let activeCharacterId = characterId;
+let threads = [
+  ...Array.from({ length: 18 }, (_, index) => ({
+    remoteId: `starline-thread-${index + 1}`,
+    status: "regular",
+    title: index === 0 ? "雨停后的第一封信" : `星轨会话 ${index + 1}`,
+    lastMessageAt: new Date(now.getTime() - index * 3_600_000),
+    characterId,
+  })),
+  {
+    remoteId: "archived-starline-thread",
+    status: "archived",
+    title: "不应出现的归档会话",
+    lastMessageAt: now,
+    characterId,
+  },
+  {
+    remoteId: "second-character-visible-thread",
+    status: "regular",
+    title: "只属于月影的会话",
+    lastMessageAt: now,
+    characterId: secondCharacter.id,
+  },
+];
 
 function registerMockHandlers() {
   ipcMain.handle("app:get-info", () => ({
@@ -57,7 +90,74 @@ function registerMockHandlers() {
     configuredProviderCount: 1,
     modelCallsEnabled: true,
   }));
-  ipcMain.handle("threads:list", () => ({ threads: [] }));
+  ipcMain.handle("app-state:get", () => ({
+    activeCharacter: activeCharacterId === characterId ? character : secondCharacter,
+  }));
+  ipcMain.handle("app-state:set-active-character", (_event, request) => {
+    activeCharacterId = request.characterId;
+    return {
+      activeCharacter: activeCharacterId === characterId ? character : secondCharacter,
+    };
+  });
+  ipcMain.handle("threads:list", (_event, request) => ({
+    threads: threads.filter((thread) => thread.characterId === request.characterId),
+  }));
+  ipcMain.handle("threads:initialize", (_event, request) => {
+    if (!threads.some((thread) => thread.remoteId === request.threadId)) {
+      threads = [
+        {
+          remoteId: request.threadId,
+          status: "regular",
+          title: "新对话",
+          lastMessageAt: now,
+          characterId: request.characterId,
+        },
+        ...threads,
+      ];
+    }
+    return { remoteId: request.threadId };
+  });
+  ipcMain.handle("threads:fetch", (_event, request) => {
+    const thread = threads.find(
+      (candidate) =>
+        candidate.remoteId === request.threadId &&
+        candidate.characterId === request.characterId,
+    );
+    if (thread === undefined) throw new Error("Thread not found");
+    return thread;
+  });
+  ipcMain.handle("threads:rename", (_event, request) => {
+    renamedThreadRequest = request;
+    threads = threads.map((thread) =>
+      thread.remoteId === request.threadId &&
+      thread.characterId === request.characterId
+        ? { ...thread, title: request.title }
+        : thread,
+    );
+    return { success: true };
+  });
+  ipcMain.handle("threads:set-status", (_event, request) => {
+    statusThreadRequest = request;
+    threads = threads.map((thread) =>
+      thread.remoteId === request.threadId &&
+      thread.characterId === request.characterId
+        ? { ...thread, status: request.status }
+        : thread,
+    );
+    return { success: true };
+  });
+  ipcMain.handle("threads:delete", (_event, request) => {
+    deletedThreadRequest = request;
+    threads = threads.filter(
+      (thread) =>
+        thread.remoteId !== request.threadId ||
+        thread.characterId !== request.characterId,
+    );
+    return { success: true };
+  });
+  ipcMain.handle("thread-messages:load", () => ({ messages: [] }));
+  ipcMain.handle("thread-messages:append", () => ({ success: true }));
+  ipcMain.handle("thread-messages:delete", () => ({ success: true }));
   ipcMain.handle("provider-configs:list", () => ({
     providerConfigs: emptyConfigMode ? (createdProvider === null ? [] : [createdProvider]) : [
       {
@@ -129,16 +229,12 @@ function registerMockHandlers() {
       updatedAt: now,
     };
   });
-  ipcMain.handle("characters:list", () => ({ characters: [character] }));
+  ipcMain.handle("characters:list", () => ({ characters: [character, secondCharacter] }));
   ipcMain.handle("characters:update", (_event, request) => {
     updatedCharacterRequest = request;
     character = { ...character, ...request, updatedAt: now };
     return character;
   });
-  ipcMain.handle("characters:get-portrait", (_event, request) => ({
-    characterId: request.id,
-    dataUrl: characterPortraitDataUrl,
-  }));
   ipcMain.handle("characters:import-portrait", () => ({
     canceled: true,
     character: null,
@@ -180,6 +276,17 @@ async function clickSelector(window, selector) {
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 }
 
+async function rightClickSelector(window, selector) {
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+  })()`);
+  window.webContents.sendInputEvent({ type: "mouseMove", ...point });
+  window.webContents.sendInputEvent({ type: "mouseDown", button: "right", clickCount: 1, ...point });
+  window.webContents.sendInputEvent({ type: "mouseUp", button: "right", clickCount: 1, ...point });
+  await waitForSelector(window, '[data-testid="thread-context-menu"]');
+}
+
 async function capture(window, fileName) {
   await window.webContents.executeJavaScript(`
     document.fonts.ready.then(() => new Promise((resolve) => {
@@ -205,6 +312,7 @@ function createTestWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
 }
@@ -252,20 +360,224 @@ async function run() {
       height: Math.round(launcher.height),
       isRound: Number.parseFloat(getComputedStyle(launcherElement).borderRadius) * 2 >= Math.min(launcher.width, launcher.height),
       characterLeft: Math.round(character.left),
-      characterBottom: Math.round(window.innerHeight - character.bottom),
-      verticalGap: Math.round(launcher.top - character.bottom),
+      characterTop: Math.round(character.top),
+      characterWidthMatchesClamp:
+        Math.abs(
+          character.width -
+            (Math.min(322, Math.max(254, window.innerWidth * 0.23)) - 44),
+        ) < 1,
+      characterHeight: Math.round(character.height),
     };
   })()`);
   assert.deepEqual(launcherMetrics, {
-    left: 16,
-    bottom: 16,
+    left: 24,
+    bottom: 19,
     width: 32,
     height: 32,
     isRound: true,
-    characterLeft: 16,
-    characterBottom: 56,
-    verticalGap: 8,
+    characterLeft: 24,
+    characterTop: 24,
+    characterWidthMatchesClamp: true,
+    characterHeight: 86,
   });
+
+  await waitForSelector(window, '[data-testid="thread-starline-item"]');
+  const initialStarline = await window.webContents.executeJavaScript(`(() => {
+    const region = document.querySelector('[data-testid="thread-list-region"]');
+    const scroll = document.querySelector('[data-testid="thread-starline-scroll"]');
+    return {
+      regularCount: document.querySelectorAll('[data-testid="thread-starline-item"]').length,
+      includesArchived: region.textContent.includes('不应出现的归档会话'),
+      hasNewThread: document.querySelector('[data-testid="thread-new"]') !== null,
+      scrollable: scroll.scrollHeight > scroll.clientHeight,
+      bottomFade: document.querySelector('[data-testid="thread-fade-bottom"]').getAttribute('data-visible'),
+      settingLeftOfToggle:
+        document.querySelector('[data-testid="settings-launcher"]').getBoundingClientRect().right <=
+        document.querySelector('[data-testid="thread-list-visibility-toggle"]').getBoundingClientRect().left,
+    };
+  })()`);
+  assert.equal(initialStarline.regularCount, 18);
+  assert.equal(initialStarline.includesArchived, false);
+  assert.equal(initialStarline.hasNewThread, true);
+  assert.equal(initialStarline.scrollable, true);
+  assert.equal(initialStarline.bottomFade, "true");
+  assert.equal(initialStarline.settingLeftOfToggle, true);
+
+  const typographyRoles = await window.webContents.executeJavaScript(`(() => {
+    const fontFamily = (selector) => {
+      const element = document.querySelector(selector);
+      return element === null ? null : getComputedStyle(element).fontFamily;
+    };
+    return {
+      characterName: fontFamily('[data-testid="character-launcher"] strong'),
+      threadTitle: fontFamily('[data-testid="thread-starline-item"] .thread-starline-title'),
+      welcomeTitle: fontFamily('.aui-thread-welcome-message-inner'),
+      newThreadAction: fontFamily('[data-testid="thread-new"]'),
+    };
+  })()`);
+  assert.match(typographyRoles.characterName, /Noto Serif SC Variable/);
+  assert.match(typographyRoles.threadTitle, /Noto Serif SC Variable/);
+  assert.match(typographyRoles.welcomeTitle, /Noto Serif SC Variable/);
+  assert.doesNotMatch(typographyRoles.newThreadAction, /Noto Serif SC Variable/);
+
+  await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(1) [data-testid="thread-starline-trigger"]');
+  const activeMarker = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) [data-active], [data-testid="thread-starline-item"]:nth-child(1)[data-active]')?.textContent ?? document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) .thread-starline-marker').textContent`);
+  assert.match(activeMarker, /✦/);
+
+  await rightClickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
+  const activeAfterRightClick = await window.webContents.executeJavaScript(`(() => {
+    const items = [...document.querySelectorAll('[data-testid="thread-starline-item"]')];
+    return items.findIndex((item) => item.getAttribute('data-active') === 'true');
+  })()`);
+  assert.equal(activeAfterRightClick, 0);
+  await clickSelector(window, '[data-testid="thread-context-rename"]');
+  await waitForSelector(window, '[data-testid="thread-rename-input"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[data-testid="thread-rename-input"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '重命名后的星轨');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  })()`);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 80))`);
+  assert.equal(renamedThreadRequest.threadId, "starline-thread-2");
+  assert.equal(renamedThreadRequest.title, "重命名后的星轨");
+
+  await rightClickSelector(window, '[data-testid="thread-starline-item"]:nth-child(3) [data-testid="thread-starline-trigger"]');
+  await clickSelector(window, '[data-testid="thread-context-archive"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (!document.querySelector('[data-testid="thread-list-region"]').textContent.includes('星轨会话 3')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for archived thread to disappear'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.deepEqual(statusThreadRequest, {
+    threadId: "starline-thread-3",
+    characterId,
+    status: "archived",
+  });
+
+  await rightClickSelector(window, '[data-testid="thread-starline-item"]:nth-child(4) [data-testid="thread-starline-trigger"]');
+  await clickSelector(window, '[data-testid="thread-context-delete"]');
+  await waitForSelector(window, '[data-testid="confirm-dialog"]');
+  const deleteThreadText = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="confirm-dialog"]').innerText`);
+  assert.match(deleteThreadText, /不可恢复/);
+  await clickSelector(window, '[data-testid="confirm-dialog-confirm"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 80))`);
+  assert.equal(deletedThreadRequest.threadId, "starline-thread-5");
+
+  await window.webContents.executeJavaScript(`(() => {
+    const scroll = document.querySelector('[data-testid="thread-starline-scroll"]');
+    scroll.scrollTop = scroll.scrollHeight;
+    scroll.dispatchEvent(new Event('scroll'));
+  })()`);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const scrolledFades = await window.webContents.executeJavaScript(`({
+    top: document.querySelector('[data-testid="thread-fade-top"]').getAttribute('data-visible'),
+    bottom: document.querySelector('[data-testid="thread-fade-bottom"]').getAttribute('data-visible'),
+  })`);
+  assert.deepEqual(scrolledFades, { top: "true", bottom: "false" });
+
+  await clickSelector(window, '[data-testid="thread-list-visibility-toggle"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 260))`);
+  const collapsedState = await window.webContents.executeJavaScript(`(() => {
+    const region = document.querySelector('[data-testid="thread-list-region"]');
+    return {
+      ariaHidden: region.getAttribute('aria-hidden'),
+      inert: region.inert,
+      hiddenClass: region.classList.contains('is-hidden'),
+      transitionDuration: getComputedStyle(region).transitionDuration,
+      stored: localStorage.getItem('katarune.threadListCollapsed'),
+      sidebarWidth: Math.round(document.querySelector('.chat-sidebar').getBoundingClientRect().width),
+      viewportWidth: window.innerWidth,
+    };
+  })()`);
+  assert.deepEqual(collapsedState, {
+    ariaHidden: "true",
+    inert: true,
+    hiddenClass: true,
+    transitionDuration: collapsedState.transitionDuration,
+    stored: "true",
+    sidebarWidth: collapsedState.sidebarWidth,
+    viewportWidth: collapsedState.viewportWidth,
+  });
+  assert.equal(
+    collapsedState.sidebarWidth,
+    Math.round(
+      Math.min(322, Math.max(254, collapsedState.viewportWidth * 0.23)),
+    ),
+  );
+  assert.ok(
+    collapsedState.transitionDuration.includes("0.22s") ||
+      collapsedState.transitionDuration === "0s",
+  );
+
+  window.reload();
+  await waitForSelector(window, '[data-testid="thread-list-region"][data-hidden="true"]');
+  await clickSelector(window, '[data-testid="thread-list-visibility-toggle"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 230))`);
+  const expandedState = await window.webContents.executeJavaScript(`(() => {
+    const region = document.querySelector('[data-testid="thread-list-region"]');
+    return {
+      ariaHidden: region.getAttribute('aria-hidden'),
+      inert: region.inert,
+      stored: localStorage.getItem('katarune.threadListCollapsed'),
+    };
+  })()`);
+  assert.deepEqual(expandedState, {
+    ariaHidden: "false",
+    inert: false,
+    stored: "false",
+  });
+
+  window.setContentSize(760, 520);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const minimumLayout = await window.webContents.executeJavaScript(`(() => ({
+    documentScrollWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    sidebarWidth: Math.round(document.querySelector('.chat-sidebar').getBoundingClientRect().width),
+    mainWidth: Math.round(document.querySelector('.chat-main').getBoundingClientRect().width),
+  }))()`);
+  assert.deepEqual(minimumLayout, {
+    documentScrollWidth: 760,
+    viewportWidth: 760,
+    sidebarWidth: 258,
+    mainWidth: 502,
+  });
+  window.setContentSize(1080, 720);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const standardLayout = await window.webContents.executeJavaScript(`(() => ({
+    documentScrollWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    mainWidth: Math.round(document.querySelector('.chat-main').getBoundingClientRect().width),
+  }))()`);
+  assert.equal(standardLayout.documentScrollWidth, standardLayout.viewportWidth);
+  assert.ok(standardLayout.mainWidth > 700);
+  window.setContentSize(1280, 900);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const starlineScreenshot = await capture(window, "thread-starline-light.png");
+  const darkStarlineMetrics = await window.webContents.executeJavaScript(`(async () => {
+    document.documentElement.classList.add('dark');
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const sidebar = document.querySelector('.chat-sidebar').getBoundingClientRect();
+    const main = document.querySelector('.chat-main').getBoundingClientRect();
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth === window.innerWidth,
+      sharesBackground:
+        getComputedStyle(document.querySelector('.chat-sidebar')).backgroundColor ===
+        getComputedStyle(document.body).backgroundColor,
+      fillsViewport: Math.round(sidebar.width + main.width) === window.innerWidth,
+    };
+  })()`);
+  assert.deepEqual(darkStarlineMetrics, {
+    noHorizontalOverflow: true,
+    sharesBackground: true,
+    fillsViewport: true,
+  });
+  const darkStarlineScreenshot = await capture(window, "thread-starline-dark.png");
+  await window.webContents.executeJavaScript(`document.documentElement.classList.remove('dark')`);
 
   console.log("UI smoke: opening character management");
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-launcher"]').click()`);
@@ -296,7 +608,7 @@ async function run() {
   assert.equal(characterLayout.name, "星澜");
   assert.equal(characterLayout.model, modelId);
   assert.match(characterLayout.prompt, /温柔、沉静/);
-  assert.equal(characterLayout.listCount, 1);
+  assert.equal(characterLayout.listCount, 2);
   assert.equal(characterLayout.listReading, "Xing Lan");
   assert.equal(characterLayout.columns, 3);
   assert.equal(characterLayout.backgroundImage, "none");
@@ -334,8 +646,33 @@ async function run() {
   await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 50))`);
   assert.deepEqual(updatedCharacterRequest, { id: characterId, name: "星澜·测试" });
   const characterScreenshot = await capture(window, "character-gallery.png");
+  await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="character-list-item"]')[1].click()`);
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-back"]').click()`);
   await waitForSelector(window, '[data-testid="settings-launcher"]');
+  assert.equal(activeCharacterId, secondCharacter.id);
+  const activeCardName = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="character-launcher"] strong').textContent`,
+  );
+  assert.equal(activeCardName, "月影");
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      const region = document.querySelector('[data-testid="thread-list-region"]');
+      if (region?.textContent.includes('只属于月影的会话')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for character-scoped threads'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  const switchedCharacterThreads = await window.webContents.executeJavaScript(`(() => ({
+    count: document.querySelectorAll('[data-testid="thread-starline-item"]').length,
+    text: document.querySelector('[data-testid="thread-list-region"]').textContent,
+    activeCount: document.querySelectorAll('[data-testid="thread-starline-item"][data-active="true"]').length,
+  }))()`);
+  assert.equal(switchedCharacterThreads.count, 1);
+  assert.match(switchedCharacterThreads.text, /只属于月影的会话/);
+  assert.doesNotMatch(switchedCharacterThreads.text, /雨停后的第一封信/);
+  assert.equal(switchedCharacterThreads.activeCount, 0);
 
   console.log("UI smoke: opening settings");
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
@@ -505,7 +842,16 @@ async function run() {
   const modelSwitchUnchecked = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-row"] [data-slot="switch"]').hasAttribute('data-unchecked')`);
   assert.equal(modelSwitchUnchecked, true);
   await hoverSelector(window, '[data-testid="model-search"]');
-  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 200))`);
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 1000;
+    const check = () => {
+      const opacity = getComputedStyle(document.querySelector('[data-testid="model-actions"]')).opacity;
+      if (opacity === "0") return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for model actions to hide'));
+      requestAnimationFrame(check);
+    };
+    check();
+  })`);
   const modelActionsAfterToggle = await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector('[data-testid="model-actions"]')).opacity`);
   assert.equal(modelActionsAfterToggle, "0");
   const modelToolbar = await window.webContents.executeJavaScript(`(() => {
@@ -842,7 +1188,7 @@ async function run() {
   emptyWindow.destroy();
   window.destroy();
 
-  console.log(JSON.stringify({ characterScreenshot, modelScreenshot, emptyScreenshot, providerDialogScreenshot, hoverScreenshot }));
+  console.log(JSON.stringify({ starlineScreenshot, darkStarlineScreenshot, characterScreenshot, modelScreenshot, emptyScreenshot, providerDialogScreenshot, hoverScreenshot }));
 }
 
 console.log("UI smoke: waiting for Electron");

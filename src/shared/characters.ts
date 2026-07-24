@@ -28,11 +28,6 @@ export const updateCharacterRequestSchema = z.strictObject({
   systemPrompt: z.optional(systemPromptSchema),
 });
 
-export const characterPortraitSchema = z.strictObject({
-  characterId: z.uuid(),
-  dataUrl: z.nullable(z.string().check(z.maxLength(15_000_000))),
-});
-
 export const characterPortraitImportResultSchema = z.strictObject({
   canceled: z.boolean(),
   character: z.nullable(characterSchema),
@@ -58,7 +53,6 @@ export type Character = Readonly<z.infer<typeof characterSchema>>;
 export type CharacterList = Readonly<z.infer<typeof characterListSchema>>;
 export type CharacterIdRequest = Readonly<z.infer<typeof characterIdRequestSchema>>;
 export type UpdateCharacterRequest = Readonly<z.infer<typeof updateCharacterRequestSchema>>;
-export type CharacterPortrait = Readonly<z.infer<typeof characterPortraitSchema>>;
 export type CharacterPortraitImportResult = Readonly<
   z.infer<typeof characterPortraitImportResultSchema>
 >;

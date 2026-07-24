@@ -3,6 +3,8 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  appStateSchema,
+  assetSchema,
   characterListSchema,
   defaultCharacterConfigSchema,
   createProviderConfigRequestSchema,
@@ -15,6 +17,9 @@ import {
   providerConfigSchema,
   replaceProviderCredentialRequestSchema,
   threadListSchema,
+  listThreadsRequestSchema,
+  threadIdRequestSchema,
+  setActiveCharacterRequestSchema,
   threadMessagesSchema,
   updateCharacterRequestSchema,
 } from "../src/shared/ipc";
@@ -59,6 +64,7 @@ describe("shared IPC contracts", () => {
             status: "regular",
             title: "新对话",
             lastMessageAt: new Date("2026-07-19T00:00:00.000Z"),
+            characterId: "00000000-0000-4000-8000-000000000001",
           },
         ],
       }),
@@ -77,12 +83,58 @@ describe("shared IPC contracts", () => {
     expect(
       appendThreadMessageRequestSchema.parse({
         threadId: "thread-1",
+        characterId: "00000000-0000-4000-8000-000000000001",
         message: storedMessage,
       }),
     ).toMatchObject({ message: { format: "ai-sdk/v6" } });
     expect(threadMessagesSchema.parse({ messages: [storedMessage] })).toMatchObject({
       messages: [{ id: "message-1", parent_id: null }],
     });
+  });
+
+  it("validates role-scoped thread requests, app state, and asset completeness", () => {
+    const characterId = "00000000-0000-4000-8000-000000000001";
+    expect(listThreadsRequestSchema.parse({ characterId })).toEqual({ characterId });
+    expect(threadIdRequestSchema.parse({ threadId: "thread-1", characterId })).toEqual({
+      threadId: "thread-1",
+      characterId,
+    });
+    expect(setActiveCharacterRequestSchema.parse({ characterId })).toEqual({ characterId });
+
+    const activeCharacter = {
+      id: characterId,
+      name: "星澜",
+      portraitAssetId: "00000000-0000-4000-8000-000000000002",
+      modelConfigId: null,
+      systemPrompt: "你是星澜。",
+      createdAt: new Date("2026-07-23T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T00:00:00.000Z"),
+    };
+    expect(appStateSchema.parse({ activeCharacter })).toEqual({ activeCharacter });
+    expect(
+      assetSchema.parse({
+        id: activeCharacter.portraitAssetId,
+        status: "ready",
+        mimeType: "image/png",
+        byteSize: 128,
+        sha256: "a".repeat(64),
+        originalName: "portrait.png",
+        createdAt: activeCharacter.createdAt,
+        updatedAt: activeCharacter.updatedAt,
+      }),
+    ).toMatchObject({ status: "ready", mimeType: "image/png" });
+    expect(
+      assetSchema.safeParse({
+        id: activeCharacter.portraitAssetId,
+        status: "ready",
+        mimeType: null,
+        byteSize: null,
+        sha256: null,
+        originalName: null,
+        createdAt: activeCharacter.createdAt,
+        updatedAt: activeCharacter.updatedAt,
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts non-secret Provider factory configuration", () => {

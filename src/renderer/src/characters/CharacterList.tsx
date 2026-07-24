@@ -1,16 +1,14 @@
 import type { Character } from "../../../shared/ipc";
-import { getCharacterNameReading } from "./characterName";
+import { CharacterCard } from "./CharacterCard";
 
 interface CharacterListProps {
   readonly characters: readonly Character[];
-  readonly portraits: ReadonlyMap<string, string | null>;
   readonly selectedId: string;
   readonly onSelect: (id: string) => void;
 }
 
 export function CharacterList({
   characters,
-  portraits,
   selectedId,
   onSelect,
 }: CharacterListProps): React.JSX.Element {
@@ -25,41 +23,14 @@ export function CharacterList({
       <div className="character-list-rule" aria-hidden="true" />
 
       <div className="character-list-scroll" data-testid="character-list">
-        {characters.map((character) => {
-          const selected = character.id === selectedId;
-          const portrait = portraits.get(character.id) ?? null;
-          const reading = getCharacterNameReading(character.name);
-          return (
-            <button
-              className="character-list-item"
-              data-selected={selected}
-              data-testid="character-list-item"
-              key={character.id}
-              type="button"
-              onClick={() => onSelect(character.id)}
-            >
-              {selected && <span className="character-list-pointer" aria-hidden="true">◆</span>}
-              <span className="character-list-portrait">
-                {portrait === null ? (
-                  <span className="character-list-placeholder" aria-hidden="true">✦</span>
-                ) : (
-                  <img alt="" src={portrait} />
-                )}
-              </span>
-              <span className="character-list-copy">
-                <strong>{character.name}</strong>
-                <em
-                  data-reading-kind={reading.kind}
-                  data-testid="character-list-reading"
-                  lang={reading.kind === "pinyin" ? "zh-Latn-pinyin" : "en"}
-                >
-                  {reading.text}
-                </em>
-              </span>
-              <span className="character-list-spark" aria-hidden="true">✦</span>
-            </button>
-          );
-        })}
+        {characters.map((character) => (
+          <CharacterCard
+            character={character}
+            key={character.id}
+            selected={character.id === selectedId}
+            onSelect={() => onSelect(character.id)}
+          />
+        ))}
       </div>
     </aside>
   );

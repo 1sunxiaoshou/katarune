@@ -1,9 +1,9 @@
 import * as z from "zod/mini";
 import {
+  characterSchema,
   type Character,
   type CharacterIdRequest,
   type CharacterList,
-  type CharacterPortrait,
   type CharacterPortraitImportResult,
   type UpdateCharacterRequest,
 } from "./characters";
@@ -14,7 +14,6 @@ export {
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitImportResultSchema,
-  characterPortraitSchema,
   characterSchema,
   defaultCharacterConfigSchema,
   updateCharacterRequestSchema,
@@ -23,11 +22,12 @@ export type {
   Character,
   CharacterIdRequest,
   CharacterList,
-  CharacterPortrait,
   CharacterPortraitImportResult,
   DefaultCharacterConfig,
   UpdateCharacterRequest,
 } from "./characters";
+export { assetSchema, ASSET_STATUSES, assetUrl } from "./assets";
+export type { Asset, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
 export { PROVIDER_TYPES } from "./providers";
@@ -37,6 +37,8 @@ export const IPC_CHANNELS = {
   getAppInfo: "app:get-info",
   getDatabaseStatus: "database:get-status",
   getAiRuntimeStatus: "ai:get-runtime-status",
+  getAppState: "app-state:get",
+  setActiveCharacter: "app-state:set-active-character",
   listThreads: "threads:list",
   initializeThread: "threads:initialize",
   fetchThread: "threads:fetch",
@@ -63,7 +65,6 @@ export const IPC_CHANNELS = {
   listCharacters: "characters:list",
   updateCharacter: "characters:update",
   importCharacterPortrait: "characters:import-portrait",
-  getCharacterPortrait: "characters:get-portrait",
 } as const;
 
 const nonEmptyStringSchema = z.string().check(z.minLength(1));
@@ -93,6 +94,11 @@ export const aiRuntimeStatusSchema = z.strictObject({
 
 export const threadIdRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
+});
+
+export const listThreadsRequestSchema = z.strictObject({
+  characterId: z.uuid(),
 });
 
 export const threadMetadataSchema = z.strictObject({
@@ -100,6 +106,7 @@ export const threadMetadataSchema = z.strictObject({
   status: z.enum(["regular", "archived"]),
   title: nonEmptyStringSchema,
   lastMessageAt: z.date(),
+  characterId: z.uuid(),
 });
 
 export const threadListSchema = z.strictObject({
@@ -112,11 +119,13 @@ export const initializeThreadResponseSchema = z.strictObject({
 
 export const renameThreadRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
   title: nonEmptyStringSchema,
 });
 
 export const setThreadStatusRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
   status: z.enum(["regular", "archived"]),
 });
 
@@ -133,12 +142,22 @@ export const threadMessagesSchema = z.strictObject({
 
 export const appendThreadMessageRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
   message: storedMessageSchema,
 });
 
 export const deleteThreadMessagesRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
   messageIds: z.array(nonEmptyStringSchema).check(z.minLength(1)),
+});
+
+export const appStateSchema = z.strictObject({
+  activeCharacter: characterSchema,
+});
+
+export const setActiveCharacterRequestSchema = z.strictObject({
+  characterId: z.uuid(),
 });
 
 export const operationSuccessSchema = z.strictObject({
@@ -270,6 +289,7 @@ export type AppInfo = Readonly<z.infer<typeof appInfoSchema>>;
 export type DatabaseStatus = Readonly<z.infer<typeof databaseStatusSchema>>;
 export type AiRuntimeStatus = Readonly<z.infer<typeof aiRuntimeStatusSchema>>;
 export type ThreadIdRequest = Readonly<z.infer<typeof threadIdRequestSchema>>;
+export type ListThreadsRequest = Readonly<z.infer<typeof listThreadsRequestSchema>>;
 export type ThreadMetadata = Readonly<z.infer<typeof threadMetadataSchema>>;
 export type ThreadList = Readonly<z.infer<typeof threadListSchema>>;
 export type InitializeThreadResponse = Readonly<z.infer<typeof initializeThreadResponseSchema>>;
@@ -279,6 +299,10 @@ export type StoredMessage = Readonly<z.infer<typeof storedMessageSchema>>;
 export type ThreadMessages = Readonly<z.infer<typeof threadMessagesSchema>>;
 export type AppendThreadMessageRequest = Readonly<z.infer<typeof appendThreadMessageRequestSchema>>;
 export type DeleteThreadMessagesRequest = Readonly<z.infer<typeof deleteThreadMessagesRequestSchema>>;
+export type AppState = Readonly<z.infer<typeof appStateSchema>>;
+export type SetActiveCharacterRequest = Readonly<
+  z.infer<typeof setActiveCharacterRequestSchema>
+>;
 export type OperationSuccess = Readonly<z.infer<typeof operationSuccessSchema>>;
 export type ProviderSettings = Readonly<z.infer<typeof providerSettingsSchema>>;
 export type ProviderConfig = Readonly<z.infer<typeof providerConfigSchema>>;
@@ -303,7 +327,9 @@ export interface KataruneApi {
   getAppInfo(): Promise<AppInfo>;
   getDatabaseStatus(): Promise<DatabaseStatus>;
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;
-  listThreads(): Promise<ThreadList>;
+  getAppState(): Promise<AppState>;
+  setActiveCharacter(request: SetActiveCharacterRequest): Promise<AppState>;
+  listThreads(request: ListThreadsRequest): Promise<ThreadList>;
   initializeThread(request: ThreadIdRequest): Promise<InitializeThreadResponse>;
   fetchThread(request: ThreadIdRequest): Promise<ThreadMetadata>;
   renameThread(request: RenameThreadRequest): Promise<OperationSuccess>;
@@ -331,5 +357,4 @@ export interface KataruneApi {
   importCharacterPortrait(
     request: CharacterIdRequest,
   ): Promise<CharacterPortraitImportResult>;
-  getCharacterPortrait(request: CharacterIdRequest): Promise<CharacterPortrait>;
 }

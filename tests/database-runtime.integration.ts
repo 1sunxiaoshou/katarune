@@ -6,6 +6,8 @@ import BetterSqlite3 from "better-sqlite3";
 import { openDatabase, type DatabaseRuntime } from "../src/main/database/database";
 
 const threadId = "restart-recovery-thread";
+const secondThreadId = "second-character-thread";
+const secondCharacterId = "33333333-3333-4333-8333-333333333333";
 const message = {
   id: "restart-recovery-message",
   parent_id: null,
@@ -32,8 +34,10 @@ const modelConfigRequest = {
 
 const userDataPath = mkdtempSync(join(tmpdir(), "katarune-database-test-"));
 const legacyUserDataPath = mkdtempSync(join(tmpdir(), "katarune-legacy-database-test-"));
+const jumpUserDataPath = mkdtempSync(join(tmpdir(), "katarune-jump-database-test-"));
 let runtime: DatabaseRuntime | undefined;
 let legacyRuntime: DatabaseRuntime | undefined;
+let jumpRuntime: DatabaseRuntime | undefined;
 
 function createLegacyProviderIdentityDatabase(): void {
   const sqlite = new BetterSqlite3(join(legacyUserDataPath, "katarune.sqlite"));
@@ -99,10 +103,45 @@ function createLegacyProviderIdentityDatabase(): void {
   }
 }
 
+function createCharacterlessThreadDatabaseAtMigrationSix(): void {
+  const sqlite = new BetterSqlite3(join(jumpUserDataPath, "katarune.sqlite"));
+  try {
+    for (const migration of [
+      "0000_dapper_mother_askani.sql",
+      "0001_pink_ma_gnuci.sql",
+      "0002_material_callisto.sql",
+      "0003_harsh_ultimatum.sql",
+      "0004_chilly_night_nurse.sql",
+      "0005_harsh_fallen_one.sql",
+      "0006_tired_lake.sql",
+    ]) {
+      sqlite.exec(readFileSync(join(process.cwd(), "drizzle", migration), "utf8"));
+    }
+    sqlite.exec(`
+      CREATE TABLE "__drizzle_migrations" (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric
+      );
+    `);
+    sqlite
+      .prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)')
+      .run("migration-six", 1784802064304);
+    sqlite
+      .prepare(
+        "INSERT INTO threads (id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("orphaned-legacy-thread", "跳跃升级线程", "regular", Date.now(), Date.now());
+  } finally {
+    sqlite.close();
+  }
+}
+
 try {
   runtime = openDatabase({ userDataPath, appPath: process.cwd() });
-  runtime.initializeThread(threadId);
-  runtime.appendThreadMessage({ threadId, message });
+  const initialCharacterId = runtime.getAppState().activeCharacter.id;
+  runtime.initializeThread(threadId, initialCharacterId);
+  runtime.appendThreadMessage({ threadId, characterId: initialCharacterId, message });
   const providerConfig = runtime.createProviderConfig(providerConfigRequest);
   const duplicateProviderConfig = runtime.createProviderConfig(providerConfigRequest);
   assert.notEqual(duplicateProviderConfig.id, providerConfig.id);
@@ -133,15 +172,76 @@ try {
   runtime.close();
   runtime = undefined;
 
+  const setupSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
+  try {
+    setupSqlite.pragma("foreign_keys = ON");
+    setupSqlite
+      .prepare(`
+        INSERT INTO characters (
+          id, name, portrait_asset_id, model_config_id, system_prompt, created_at, updated_at
+        ) VALUES (?, ?, NULL, NULL, ?, ?, ?)
+      `)
+      .run(secondCharacterId, "月影", "你是月影。", Date.now(), Date.now());
+  } finally {
+    setupSqlite.close();
+  }
+
   runtime = openDatabase({ userDataPath, appPath: process.cwd() });
-  assert.equal(runtime.fetchThread(threadId).remoteId, threadId);
-  assert.deepEqual(runtime.loadThreadMessages(threadId).messages, [message]);
+  const restoredCharacterId = runtime.getAppState().activeCharacter.id;
+  assert.equal(runtime.fetchThread(threadId, restoredCharacterId).remoteId, threadId);
+  assert.deepEqual(runtime.loadThreadMessages(threadId, restoredCharacterId).messages, [message]);
   assert.deepEqual(runtime.fetchProviderConfig(providerConfig.id), providerConfig);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, [providerConfig]);
   assert.deepEqual(runtime.fetchModelConfig(modelConfig.id), modelConfig);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, [modelConfig]);
   assert.deepEqual(runtime.fetchCharacter(updatedCharacter.id), updatedCharacter);
   assert.equal(runtime.listCharacters().characters[0]?.name, "数据库中的星澜");
+  assert.equal(runtime.getAppState().activeCharacter.id, restoredCharacterId);
+  runtime.initializeThread(secondThreadId, secondCharacterId);
+  assert.deepEqual(
+    runtime.listThreads(restoredCharacterId).threads.map((thread) => thread.remoteId),
+    [threadId],
+  );
+  assert.deepEqual(
+    runtime.listThreads(secondCharacterId).threads.map((thread) => thread.remoteId),
+    [secondThreadId],
+  );
+  assert.throws(
+    () => runtime?.fetchThread(secondThreadId, restoredCharacterId),
+    /not found/,
+  );
+  runtime.setActiveCharacter(secondCharacterId);
+  runtime.close();
+  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
+  runtime.setThreadStatus(threadId, restoredCharacterId, "archived");
+  assert.equal(
+    runtime.fetchThread(threadId, restoredCharacterId).status,
+    "archived",
+  );
+  assert.deepEqual(
+    runtime.listThreads(restoredCharacterId).threads.map((thread) => ({
+      id: thread.remoteId,
+      status: thread.status,
+    })),
+    [{ id: threadId, status: "archived" }],
+  );
+  assert.deepEqual(
+    runtime.listThreads(secondCharacterId).threads.map((thread) => thread.remoteId),
+    [secondThreadId],
+  );
+  runtime.close();
+  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  assert.equal(
+    runtime.fetchThread(threadId, restoredCharacterId).status,
+    "archived",
+    "归档状态应跨重启恢复",
+  );
+  runtime.setThreadStatus(threadId, restoredCharacterId, "regular");
+  assert.equal(
+    runtime.fetchThread(threadId, restoredCharacterId).status,
+    "regular",
+  );
 
   const credentialReference = "safe-storage/12345678-1234-4123-8123-123456789abc";
   const providerWithCredential = runtime.setProviderCredentialReference(
@@ -173,8 +273,11 @@ try {
   assert.equal(updatedProviderConfig.credentialRef, credentialReference);
   assert.equal(updatedProviderConfig.enabled, false);
 
-  runtime.deleteThread(threadId);
-  assert.deepEqual(runtime.loadThreadMessages(threadId).messages, []);
+  runtime.deleteThread(threadId, restoredCharacterId);
+  assert.throws(
+    () => runtime?.loadThreadMessages(threadId, restoredCharacterId),
+    /not found/,
+  );
   runtime.deleteProviderConfig(providerConfig.id);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, []);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, []);
@@ -183,6 +286,33 @@ try {
     modelConfig.id,
     "角色应保留已失效的模型引用，供 UI 显示不可用状态",
   );
+  runtime.deleteThread(secondThreadId, secondCharacterId);
+  runtime.close();
+  runtime = undefined;
+
+  const constrainedSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
+  try {
+    constrainedSqlite.pragma("foreign_keys = ON");
+    assert.throws(
+      () =>
+        constrainedSqlite
+          .prepare("DELETE FROM characters WHERE id = ?")
+          .run(secondCharacterId),
+      /FOREIGN KEY constraint failed/,
+      "active_character_id must restrict deleting the selected character",
+    );
+    assert.throws(
+      () =>
+        constrainedSqlite
+          .prepare("DELETE FROM assets WHERE id = ?")
+          .run("00000000-0000-4000-8000-000000000002"),
+      /FOREIGN KEY constraint failed/,
+      "portrait_asset_id must restrict deleting an attached asset",
+    );
+    assert.deepEqual(constrainedSqlite.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    constrainedSqlite.close();
+  }
 
   createLegacyProviderIdentityDatabase();
   legacyRuntime = openDatabase({ userDataPath: legacyUserDataPath, appPath: process.cwd() });
@@ -212,12 +342,38 @@ try {
     migratedSqlite.close();
   }
 
+  createCharacterlessThreadDatabaseAtMigrationSix();
+  jumpRuntime = openDatabase({ userDataPath: jumpUserDataPath, appPath: process.cwd() });
+  const bootstrappedCharacter = jumpRuntime.getAppState().activeCharacter;
+  assert.equal(bootstrappedCharacter.id, "00000000-0000-4000-8000-000000000001");
+  assert.equal(
+    jumpRuntime.fetchThread("orphaned-legacy-thread", bootstrappedCharacter.id).characterId,
+    bootstrappedCharacter.id,
+  );
+  assert.equal(
+    jumpRuntime.fetchAsset("00000000-0000-4000-8000-000000000002").status,
+    "missing",
+  );
+  jumpRuntime.close();
+  jumpRuntime = undefined;
+
+  const jumpSqlite = new BetterSqlite3(join(jumpUserDataPath, "katarune.sqlite"), {
+    readonly: true,
+  });
+  try {
+    assert.deepEqual(jumpSqlite.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    jumpSqlite.close();
+  }
+
   console.log(
     "SQLite thread, message, Provider/model/character config, and legacy migration recovery passed.",
   );
 } finally {
   runtime?.close();
   legacyRuntime?.close();
+  jumpRuntime?.close();
   rmSync(userDataPath, { recursive: true, force: true });
   rmSync(legacyUserDataPath, { recursive: true, force: true });
+  rmSync(jumpUserDataPath, { recursive: true, force: true });
 }

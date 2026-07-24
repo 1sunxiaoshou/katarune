@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-verify/
 out/
 build/
 coverage/
@@ -31,3 +32,4 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+.playwright-cli/
