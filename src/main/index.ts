@@ -5,9 +5,12 @@ import {
   appInfoSchema,
   appStateSchema,
   characterIdRequestSchema,
+  characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
+  createCharacterRequestSchema,
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
+  deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
   IPC_CHANNELS,
   modelConfigIdRequestSchema,
@@ -211,12 +214,19 @@ function registerIpcHandlers(
     return aiRuntime.testConnection(id);
   });
   ipcMain.handle(IPC_CHANNELS.listCharacters, () => database.listCharacters());
+  ipcMain.handle(IPC_CHANNELS.createCharacter, (_event, value: unknown) =>
+    database.createCharacter(createCharacterRequestSchema.parse(value)),
+  );
+  ipcMain.handle(IPC_CHANNELS.deleteCharacter, (_event, value: unknown) => {
+    const { id } = characterIdRequestSchema.parse(value);
+    return deleteCharacterResultSchema.parse(database.deleteCharacter(id));
+  });
   ipcMain.handle(IPC_CHANNELS.updateCharacter, (_event, value: unknown) => {
     return database.updateCharacter(updateCharacterRequestSchema.parse(value));
   });
   ipcMain.handle(IPC_CHANNELS.importCharacterPortrait, async (event, value: unknown) => {
-    const { id } = characterIdRequestSchema.parse(value);
-    database.fetchCharacter(id);
+    const request = characterPortraitImportRequestSchema.parse(value);
+    if (request.mode === "existing") database.fetchCharacter(request.id);
     const owner = BrowserWindow.fromWebContents(event.sender);
     const selection =
       owner === null
@@ -236,7 +246,10 @@ function registerIpcHandlers(
     const registration = assetService.importPortrait(selection.filePaths[0]);
     let updated;
     try {
-      updated = database.registerAssetAndSetCharacterPortrait(id, registration);
+      updated =
+        request.mode === "existing"
+          ? database.registerAssetAndSetCharacterPortrait(request.id, registration)
+          : database.createCharacter(request.character, registration);
     } catch (error) {
       assetService.removeExact(registration.id);
       throw error;

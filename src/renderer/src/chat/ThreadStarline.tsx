@@ -4,7 +4,6 @@ import {
   useAuiState,
   useThreadListItemRuntime,
 } from "@assistant-ui/react";
-import { ContextMenu } from "@base-ui/react/context-menu";
 import { ArchiveIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
@@ -15,6 +14,11 @@ import {
 } from "react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  AppContextMenu,
+  AppContextMenuItem,
+  AppContextMenuSeparator,
+} from "@/components/app-context-menu";
 import { formatThreadTime } from "./threadTime";
 import { normalizeThreadTitle } from "./threadSidebarState";
 
@@ -143,84 +147,77 @@ function ThreadStarlineItem({
       data-testid="thread-starline-item"
       render={<li />}
     >
-      <ContextMenu.Root>
-        <ContextMenu.Trigger className="thread-starline-context-trigger">
-          {editing ? (
-            <div className="thread-starline-row" data-editing="true">
-              <span className="thread-starline-marker" aria-hidden="true">
-                {active ? "✦" : ""}
-              </span>
-              <input
-                ref={renameInput}
-                className="thread-starline-rename"
-                data-testid="thread-rename-input"
-                aria-label="重命名会话"
-                disabled={pending}
-                value={draft}
-                onBlur={() => void saveRename()}
-                onChange={(event) => setDraft(event.currentTarget.value)}
-                onKeyDown={handleRenameKeyDown}
-              />
-            </div>
-          ) : (
-            <ThreadListItemPrimitive.Trigger
-              className="thread-starline-row"
-              data-testid="thread-starline-trigger"
-              title={title ?? "未命名会话"}
-            >
-              <span className="thread-starline-marker" aria-hidden="true">
-                {active ? "✦" : ""}
-              </span>
-              <span className="thread-starline-copy">
-                <span className="thread-starline-title">
-                  <ThreadListItemPrimitive.Title fallback="未命名会话" />
+      <AppContextMenu
+        popupTestId="thread-context-menu"
+        triggerClassName="thread-starline-context-trigger"
+        trigger={
+          <>
+            {editing ? (
+              <div className="thread-starline-row" data-editing="true">
+                <span className="thread-starline-marker" aria-hidden="true">
+                  {active ? "✦" : ""}
                 </span>
-                <time dateTime={lastMessageAt?.toISOString()}>
-                  {formatThreadTime(lastMessageAt, now)}
-                </time>
-              </span>
-            </ThreadListItemPrimitive.Trigger>
-          )}
-        </ContextMenu.Trigger>
-
-        <ContextMenu.Portal>
-          <ContextMenu.Positioner className="z-50" sideOffset={5}>
-            <ContextMenu.Popup
-              className="thread-context-menu"
-              data-testid="thread-context-menu"
-            >
-              <ContextMenu.Item
-                className="thread-context-menu-item"
-                data-testid="thread-context-rename"
-                disabled={pending}
-                onClick={beginRename}
+                <input
+                  ref={renameInput}
+                  className="thread-starline-rename"
+                  data-testid="thread-rename-input"
+                  aria-label="重命名会话"
+                  disabled={pending}
+                  value={draft}
+                  onBlur={() => void saveRename()}
+                  onChange={(event) => setDraft(event.currentTarget.value)}
+                  onKeyDown={handleRenameKeyDown}
+                />
+              </div>
+            ) : (
+              <ThreadListItemPrimitive.Trigger
+                className="thread-starline-row"
+                data-testid="thread-starline-trigger"
+                title={title ?? "未命名会话"}
               >
-                <PencilIcon aria-hidden="true" />
-                重命名
-              </ContextMenu.Item>
-              <ContextMenu.Item
-                className="thread-context-menu-item"
-                data-testid="thread-context-archive"
-                disabled={pending}
-                onClick={() => void archive()}
-              >
-                <ArchiveIcon aria-hidden="true" />
-                归档
-              </ContextMenu.Item>
-              <ContextMenu.Separator className="thread-context-menu-separator" />
-              <ContextMenu.Item
-                className="thread-context-menu-item thread-context-menu-danger"
-                data-testid="thread-context-delete"
-                disabled={pending}
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2Icon aria-hidden="true" />
-                删除
-              </ContextMenu.Item>
-            </ContextMenu.Popup>
-          </ContextMenu.Positioner>
-        </ContextMenu.Portal>
-      </ContextMenu.Root>
+                <span className="thread-starline-marker" aria-hidden="true">
+                  {active ? "✦" : ""}
+                </span>
+                <span className="thread-starline-copy">
+                  <span className="thread-starline-title">
+                    <ThreadListItemPrimitive.Title fallback="未命名会话" />
+                  </span>
+                  <time dateTime={lastMessageAt?.toISOString()}>
+                    {formatThreadTime(lastMessageAt, now)}
+                  </time>
+                </span>
+              </ThreadListItemPrimitive.Trigger>
+            )}
+          </>
+        }
+      >
+        <AppContextMenuItem
+          data-testid="thread-context-rename"
+          disabled={pending}
+          onClick={beginRename}
+        >
+          <PencilIcon aria-hidden="true" />
+          重命名
+        </AppContextMenuItem>
+        <AppContextMenuItem
+          data-testid="thread-context-archive"
+          disabled={pending}
+          onClick={() => void archive()}
+        >
+          <ArchiveIcon aria-hidden="true" />
+          归档
+        </AppContextMenuItem>
+        <AppContextMenuSeparator />
+        <AppContextMenuItem
+          danger
+          data-testid="thread-context-delete"
+          disabled={pending}
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2Icon aria-hidden="true" />
+          删除
+        </AppContextMenuItem>
+      </AppContextMenu>
 
       <ConfirmDialog
         open={deleteOpen}

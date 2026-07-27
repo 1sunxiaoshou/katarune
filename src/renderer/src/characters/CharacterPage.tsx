@@ -8,11 +8,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FocusEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import {
   ModelSelectorContent,
@@ -28,6 +30,7 @@ import {
 import { ProviderLogo } from "@/components/provider-logo";
 import type {
   Character,
+  CreateCharacterRequest,
   ModelConfig,
   ProviderConfig,
   UpdateCharacterRequest,
@@ -37,6 +40,7 @@ import { useCharacterSession } from "./CharacterSessionProvider";
 import { CharacterList } from "./CharacterList";
 
 const NO_MODEL_ID = "__katarune_no_model__";
+const NEW_CHARACTER_NAME = "未命名角色";
 const NO_MODEL_OPTION: ModelOption = {
   id: NO_MODEL_ID,
   name: "暂不选择模型",
@@ -45,6 +49,29 @@ const NO_MODEL_OPTION: ModelOption = {
 interface CharacterPageProps {
   readonly onClose: () => void;
   readonly onOpenSettings: () => void;
+}
+
+interface CharacterDeleteCandidate {
+  readonly character: Character;
+  readonly draft: boolean;
+  readonly threadCount: number;
+}
+
+function draftRequest(character: Character): CreateCharacterRequest {
+  return {
+    name: character.name.trim() || NEW_CHARACTER_NAME,
+    modelConfigId: character.modelConfigId,
+    systemPrompt: character.systemPrompt,
+  };
+}
+
+function draftHasChanges(character: Character): boolean {
+  const request = draftRequest(character);
+  return (
+    request.name !== NEW_CHARACTER_NAME ||
+    request.modelConfigId !== null ||
+    request.systemPrompt !== ""
+  );
 }
 
 type SaveState =
@@ -56,21 +83,30 @@ type SaveState =
 
 interface CharacterEditorProps {
   readonly character: Character;
+  readonly draft: boolean;
+  readonly focusName: boolean;
   readonly models: readonly ModelConfig[];
+  readonly onFocusNameHandled: () => void;
   readonly providers: readonly ProviderConfig[];
   readonly onCharacterUpdated: (request: UpdateCharacterRequest) => Promise<Character>;
+  readonly onDraftUpdated: (request: Partial<CreateCharacterRequest>) => void;
   readonly onPortraitImport: () => Promise<void>;
   readonly onOpenSettings: () => void;
 }
 
 function CharacterEditor({
   character,
+  draft,
+  focusName,
   models,
+  onFocusNameHandled,
   providers,
   onCharacterUpdated,
+  onDraftUpdated,
   onPortraitImport,
   onOpenSettings,
 }: CharacterEditorProps): React.JSX.Element {
+  const nameInput = useRef<HTMLInputElement>(null);
   const [portraitFailed, setPortraitFailed] = useState(false);
   useEffect(() => {
     setPortraitFailed(false);
@@ -83,8 +119,19 @@ function CharacterEditor({
   const [systemPrompt, setSystemPrompt] = useState(character.systemPrompt);
   const [saveState, setSaveState] = useState<SaveState>({
     status: "idle",
-    message: "修改会在离开输入框时自动保存",
+    message: draft
+      ? "未修改的草稿会在离开角色时丢弃"
+      : "修改会在离开输入框时自动保存",
   });
+  useEffect(() => {
+    if (!focusName) return;
+    const frame = requestAnimationFrame(() => {
+      nameInput.current?.focus();
+      nameInput.current?.select();
+      onFocusNameHandled();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusName, onFocusNameHandled]);
   const availableProviderIds = useMemo(
     () => new Set(providers.filter((provider) => provider.enabled).map((provider) => provider.id)),
     [providers],
@@ -105,6 +152,22 @@ function CharacterEditor({
 
   const persist = useCallback(
     async (request: UpdateCharacterRequest): Promise<void> => {
+      if (draft) {
+        onDraftUpdated({
+          ...(request.name === undefined ? {} : { name: request.name }),
+          ...(request.modelConfigId === undefined
+            ? {}
+            : { modelConfigId: request.modelConfigId }),
+          ...(request.systemPrompt === undefined
+            ? {}
+            : { systemPrompt: request.systemPrompt }),
+        });
+        setSaveState({
+          status: "dirty",
+          message: "草稿将在离开角色时保存",
+        });
+        return;
+      }
       setSaveState({ status: "saving", message: "正在保存…" });
       try {
         await onCharacterUpdated(request);
@@ -116,13 +179,15 @@ function CharacterEditor({
         });
       }
     },
-    [onCharacterUpdated],
+    [draft, onCharacterUpdated, onDraftUpdated],
   );
 
   const saveName = (event: FocusEvent<HTMLInputElement>): void => {
     const normalized = event.currentTarget.value.trim();
     if (normalized.length === 0) {
-      setName(character.name);
+      const fallbackName = draft ? NEW_CHARACTER_NAME : character.name;
+      setName(fallbackName);
+      if (draft) onDraftUpdated({ name: fallbackName });
       setSaveState({ status: "error", message: "角色名称不能为空。" });
       return;
     }
@@ -195,6 +260,7 @@ function CharacterEditor({
           <label htmlFor="character-name">名称 / NAME</label>
           <div className="character-name-editor">
             <input
+              ref={nameInput}
               id="character-name"
               data-testid="character-name"
               maxLength={50}
@@ -202,7 +268,11 @@ function CharacterEditor({
               onBlur={saveName}
               onChange={(event) => {
                 setName(event.target.value);
-                setSaveState({ status: "dirty", message: "已修改，离开输入框后保存" });
+                if (draft) onDraftUpdated({ name: event.target.value });
+                setSaveState({
+                  status: "dirty",
+                  message: draft ? "草稿将在离开角色时保存" : "已修改，离开输入框后保存",
+                });
               }}
             />
           </div>
@@ -274,7 +344,11 @@ function CharacterEditor({
             onBlur={saveSystemPrompt}
             onChange={(event) => {
               setSystemPrompt(event.target.value);
-              setSaveState({ status: "dirty", message: "已修改，离开输入框后保存" });
+              if (draft) onDraftUpdated({ systemPrompt: event.target.value });
+              setSaveState({
+                status: "dirty",
+                message: draft ? "草稿将在离开角色时保存" : "已修改，离开输入框后保存",
+              });
             }}
           />
         </div>
@@ -316,11 +390,21 @@ export function CharacterPage({
   onClose,
   onOpenSettings,
 }: CharacterPageProps): React.JSX.Element {
-  const { activeCharacter, setActiveCharacter } = useCharacterSession();
+  const {
+    activeCharacter,
+    deleteCharacter: deleteCharacterSession,
+    setActiveCharacter,
+  } = useCharacterSession();
   const [characters, setCharacters] = useState<readonly Character[]>([]);
+  const [draftCharacter, setDraftCharacter] = useState<Character | null>(null);
+  const [draftOriginId, setDraftOriginId] = useState<string | null>(null);
   const [models, setModels] = useState<readonly ModelConfig[]>([]);
   const [providers, setProviders] = useState<readonly ProviderConfig[]>([]);
   const [selectedId, setSelectedId] = useState<string>(activeCharacter.id);
+  const [focusNameId, setFocusNameId] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] =
+    useState<CharacterDeleteCandidate | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exitError, setExitError] = useState<string | null>(null);
 
@@ -353,8 +437,149 @@ export function CharacterPage({
     };
   }, [activeCharacter.id]);
 
+  const characterEntries = useMemo(
+    () => (draftCharacter === null ? characters : [draftCharacter, ...characters]),
+    [characters, draftCharacter],
+  );
   const selectedCharacter =
-    characters.find((character) => character.id === selectedId) ?? characters[0];
+    characterEntries.find((character) => character.id === selectedId) ??
+    characterEntries[0];
+
+  const createCharacterDraft = useCallback((): void => {
+    if (draftCharacter !== null) return;
+    const now = new Date();
+    const draft: Character = {
+      id: crypto.randomUUID(),
+      name: NEW_CHARACTER_NAME,
+      portraitAssetId: null,
+      modelConfigId: null,
+      systemPrompt: "",
+      createdAt: now,
+      updatedAt: now,
+    };
+    setActionError(null);
+    setDraftOriginId(selectedCharacter?.id ?? activeCharacter.id);
+    setDraftCharacter(draft);
+    setSelectedId(draft.id);
+    setFocusNameId(draft.id);
+  }, [activeCharacter.id, draftCharacter, selectedCharacter?.id]);
+
+  const updateDraftCharacter = useCallback(
+    (request: Partial<CreateCharacterRequest>): void => {
+      setDraftCharacter((current) =>
+        current === null
+          ? null
+          : { ...current, ...request, updatedAt: new Date() },
+      );
+    },
+    [],
+  );
+
+  const finalizeDraft = useCallback(async (): Promise<string> => {
+    if (draftCharacter === null) return selectedId;
+    const fallbackId = draftOriginId ?? activeCharacter.id;
+    if (!draftHasChanges(draftCharacter)) {
+      setDraftCharacter(null);
+      setDraftOriginId(null);
+      setFocusNameId(null);
+      setSelectedId(fallbackId);
+      return fallbackId;
+    }
+
+    const created = await window.katarune.createCharacter(
+      draftRequest(draftCharacter),
+    );
+    setCharacters((current) => [created, ...current]);
+    setDraftCharacter(null);
+    setDraftOriginId(null);
+    setFocusNameId(null);
+    setSelectedId(created.id);
+    return created.id;
+  }, [
+    activeCharacter.id,
+    draftCharacter,
+    draftOriginId,
+    selectedId,
+  ]);
+
+  const selectCharacter = useCallback(
+    async (id: string): Promise<void> => {
+      if (id === selectedId) return;
+      setActionError(null);
+      try {
+        if (draftCharacter !== null && selectedId === draftCharacter.id) {
+          await finalizeDraft();
+        }
+        setSelectedId(id);
+      } catch (selectError) {
+        setActionError(
+          selectError instanceof Error
+            ? selectError.message
+            : "保存角色草稿失败，请重试。",
+        );
+      }
+    },
+    [draftCharacter, finalizeDraft, selectedId],
+  );
+
+  const requestCharacterDelete = useCallback(
+    async (character: Character): Promise<void> => {
+      if (characterEntries.length <= 1) return;
+      setActionError(null);
+      if (draftCharacter?.id === character.id) {
+        setDeleteCandidate({ character, draft: true, threadCount: 0 });
+        return;
+      }
+      try {
+        const result = await window.katarune.listThreads({
+          characterId: character.id,
+        });
+        setDeleteCandidate({
+          character,
+          draft: false,
+          threadCount: result.threads.length,
+        });
+      } catch (listError) {
+        setActionError(
+          listError instanceof Error
+            ? listError.message
+            : "无法读取角色的会话数量，请重试。",
+        );
+      }
+    },
+    [characterEntries.length, draftCharacter?.id],
+  );
+
+  const confirmCharacterDelete = useCallback(async (): Promise<void> => {
+    if (deleteCandidate === null) return;
+    const deletedId = deleteCandidate.character.id;
+    if (deleteCandidate.draft) {
+      const fallbackId = draftOriginId ?? activeCharacter.id;
+      setDraftCharacter(null);
+      setDraftOriginId(null);
+      setSelectedId(fallbackId);
+      setFocusNameId(null);
+      setActionError(null);
+      return;
+    }
+    const result = await deleteCharacterSession(deletedId);
+    setCharacters((current) =>
+      current.filter((character) => character.id !== deletedId),
+    );
+    setDraftOriginId((current) =>
+      current === deletedId ? result.replacementCharacter.id : current,
+    );
+    setSelectedId((current) =>
+      current === deletedId ? result.replacementCharacter.id : current,
+    );
+    setFocusNameId((current) => (current === deletedId ? null : current));
+    setActionError(null);
+  }, [
+    activeCharacter.id,
+    deleteCandidate,
+    deleteCharacterSession,
+    draftOriginId,
+  ]);
 
   const updateCharacter = useCallback(
     async (request: UpdateCharacterRequest): Promise<Character> => {
@@ -369,21 +594,39 @@ export function CharacterPage({
 
   const importPortrait = useCallback(async (): Promise<void> => {
     if (selectedCharacter === undefined) return;
-    const result = await window.katarune.importCharacterPortrait({ id: selectedCharacter.id });
-    if (result.canceled || result.character === null) return;
-    setCharacters((current) =>
-      current.map((character) =>
-        character.id === result.character?.id ? result.character : character,
-      ),
+    const selectedIsDraft = draftCharacter?.id === selectedCharacter.id;
+    const result = await window.katarune.importCharacterPortrait(
+      selectedIsDraft
+        ? { mode: "draft", character: draftRequest(selectedCharacter) }
+        : { mode: "existing", id: selectedCharacter.id },
     );
-  }, [selectedCharacter]);
+    if (result.canceled || result.character === null) return;
+    const importedCharacter = result.character;
+    if (selectedIsDraft) {
+      setCharacters((current) => [importedCharacter, ...current]);
+      setDraftCharacter(null);
+      setDraftOriginId(null);
+      setSelectedId(importedCharacter.id);
+      setFocusNameId(null);
+    } else {
+      setCharacters((current) =>
+        current.map((character) =>
+          character.id === importedCharacter.id ? importedCharacter : character,
+        ),
+      );
+    }
+  }, [draftCharacter?.id, selectedCharacter]);
 
   const leave = useCallback(
     async (destination: "chat" | "settings"): Promise<void> => {
       if (selectedCharacter === undefined) return;
       setExitError(null);
       try {
-        await setActiveCharacter(selectedCharacter.id);
+        const characterId =
+          draftCharacter !== null && selectedCharacter.id === draftCharacter.id
+            ? await finalizeDraft()
+            : selectedCharacter.id;
+        await setActiveCharacter(characterId);
         if (destination === "chat") onClose();
         else onOpenSettings();
       } catch (leaveError) {
@@ -392,7 +635,14 @@ export function CharacterPage({
         );
       }
     },
-    [onClose, onOpenSettings, selectedCharacter, setActiveCharacter],
+    [
+      draftCharacter,
+      finalizeDraft,
+      onClose,
+      onOpenSettings,
+      selectedCharacter,
+      setActiveCharacter,
+    ],
   );
 
   return (
@@ -416,11 +666,13 @@ export function CharacterPage({
             : String(
                 Math.max(
                   1,
-                  characters.findIndex((character) => character.id === selectedCharacter.id) + 1,
+                  characterEntries.findIndex(
+                    (character) => character.id === selectedCharacter.id,
+                  ) + 1,
                 ),
               ).padStart(2, "0")}
           {" / "}
-          {String(characters.length).padStart(2, "0")}
+          {String(characterEntries.length).padStart(2, "0")}
         </span>
       </header>
 
@@ -436,22 +688,56 @@ export function CharacterPage({
           <CharacterEditor
             key={selectedCharacter.id}
             character={selectedCharacter}
+            draft={draftCharacter?.id === selectedCharacter.id}
+            focusName={focusNameId === selectedCharacter.id}
             models={models}
+            onFocusNameHandled={() => setFocusNameId(null)}
             providers={providers}
             onCharacterUpdated={updateCharacter}
+            onDraftUpdated={updateDraftCharacter}
             onOpenSettings={() => void leave("settings")}
             onPortraitImport={importPortrait}
           />
           <CharacterList
-            characters={characters}
+            characters={characterEntries}
+            creating={draftCharacter !== null}
+            isDeleteDisabled={(character) =>
+              draftCharacter?.id !== character.id && characters.length <= 1
+            }
+            onCreate={createCharacterDraft}
+            onDeleteRequest={(character) => void requestCharacterDelete(character)}
             selectedId={selectedCharacter.id}
-            onSelect={setSelectedId}
+            scrollToId={focusNameId}
+            onSelect={(id) => void selectCharacter(id)}
           />
+          {actionError !== null && (
+            <p className="character-exit-error" role="alert">{actionError}</p>
+          )}
           {exitError !== null && (
             <p className="character-exit-error" role="alert">{exitError}</p>
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={deleteCandidate !== null}
+        title={
+          deleteCandidate === null
+            ? "删除这个角色？"
+            : `删除「${deleteCandidate.character.name}」？`
+        }
+        description={
+          deleteCandidate === null
+            ? ""
+            : `该角色、${deleteCandidate.threadCount} 个会话及其中的全部消息会被永久删除，此操作不可恢复。`
+        }
+        confirmLabel="删除角色"
+        pendingLabel="正在删除……"
+        errorLabel="删除角色失败，请重试。"
+        onOpenChange={(open) => {
+          if (!open) setDeleteCandidate(null);
+        }}
+        onConfirm={confirmCharacterDelete}
+      />
     </main>
   );
 }

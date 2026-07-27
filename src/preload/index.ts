@@ -6,11 +6,14 @@ import {
   appStateSchema,
   characterIdRequestSchema,
   characterListSchema,
+  characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
   characterSchema,
+  createCharacterRequestSchema,
   createProviderConfigRequestSchema,
   discoveredModelListSchema,
   databaseStatusSchema,
+  deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
   initializeThreadResponseSchema,
   listThreadsRequestSchema,
@@ -37,8 +40,10 @@ import {
   updateCharacterRequestSchema,
   type AppendThreadMessageRequest,
   type CharacterIdRequest,
+  type CharacterPortraitImportRequest,
   type ListThreadsRequest,
   type CreateProviderConfigRequest,
+  type CreateCharacterRequest,
   type CreateModelConfigRequest,
   type DeleteThreadMessagesRequest,
   type KataruneApi,
@@ -208,17 +213,29 @@ const api: KataruneApi = Object.freeze({
       modelConfigIdRequestSchema.parse(request),
     ),
   listCharacters: () => invokeValidated(IPC_CHANNELS.listCharacters, characterListSchema),
+  createCharacter: (request: CreateCharacterRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.createCharacter,
+      characterSchema,
+      createCharacterRequestSchema.parse(request),
+    ),
+  deleteCharacter: (request: CharacterIdRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.deleteCharacter,
+      deleteCharacterResultSchema,
+      characterIdRequestSchema.parse(request),
+    ),
   updateCharacter: (request: UpdateCharacterRequest) =>
     invokeValidated(
       IPC_CHANNELS.updateCharacter,
       characterSchema,
       updateCharacterRequestSchema.parse(request),
     ),
-  importCharacterPortrait: (request: CharacterIdRequest) =>
+  importCharacterPortrait: (request: CharacterPortraitImportRequest) =>
     invokeValidated(
       IPC_CHANNELS.importCharacterPortrait,
       characterPortraitImportResultSchema,
-      characterIdRequestSchema.parse(request),
+      characterPortraitImportRequestSchema.parse(request),
     ),
 });
 

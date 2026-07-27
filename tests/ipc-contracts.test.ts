@@ -5,7 +5,11 @@ import {
   appInfoSchema,
   appStateSchema,
   assetSchema,
+  characterIdRequestSchema,
   characterListSchema,
+  characterPortraitImportRequestSchema,
+  createCharacterRequestSchema,
+  deleteCharacterResultSchema,
   defaultCharacterConfigSchema,
   createProviderConfigRequestSchema,
   databaseStatusSchema,
@@ -243,6 +247,49 @@ describe("shared IPC contracts", () => {
         systemPrompt: "更新后的提示词",
       }),
     ).toMatchObject({ systemPrompt: "更新后的提示词" });
+    expect(
+      createCharacterRequestSchema.parse({
+        name: "流萤",
+        modelConfigId: null,
+        systemPrompt: "",
+      }),
+    ).toEqual({ name: "流萤", modelConfigId: null, systemPrompt: "" });
+    expect(
+      characterPortraitImportRequestSchema.parse({
+        mode: "draft",
+        character: {
+          name: "流萤",
+          modelConfigId: null,
+          systemPrompt: "",
+        },
+      }),
+    ).toMatchObject({ mode: "draft", character: { name: "流萤" } });
+
+    const replacementCharacter = {
+      id: "00000000-0000-4000-8000-000000000003",
+      name: "未命名角色",
+      portraitAssetId: null,
+      modelConfigId: null,
+      systemPrompt: "",
+      createdAt: new Date("2026-07-24T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-24T00:00:00.000Z"),
+    };
+    expect(
+      deleteCharacterResultSchema.parse({
+        deletedCharacterId: "00000000-0000-4000-8000-000000000001",
+        deletedThreadCount: 2,
+        replacementCharacter,
+        activeCharacter: replacementCharacter,
+      }),
+    ).toMatchObject({
+      deletedThreadCount: 2,
+      replacementCharacter: { name: "未命名角色" },
+    });
+    expect(
+      characterIdRequestSchema.parse({
+        id: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).toEqual({ id: "00000000-0000-4000-8000-000000000001" });
   });
 
   it("accepts a sanitized discovered model list", () => {
@@ -279,7 +326,14 @@ describe("shared IPC contracts", () => {
     ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
     ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
     ["blank character name", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "" }],
+    ["blank created character name", createCharacterRequestSchema, { name: "", modelConfigId: null, systemPrompt: "" }],
     ["unknown character field", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "星澜", providerId: "secret" }],
+    ["invalid deleted thread count", deleteCharacterResultSchema, {
+      deletedCharacterId: "00000000-0000-4000-8000-000000000001",
+      deletedThreadCount: -1,
+      replacementCharacter: {},
+      activeCharacter: {},
+    }],
   ])("rejects %s", (_name, schema, value) => {
     expect(schema.safeParse(value).success).toBe(false);
   });

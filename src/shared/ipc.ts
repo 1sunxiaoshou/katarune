@@ -4,7 +4,10 @@ import {
   type Character,
   type CharacterIdRequest,
   type CharacterList,
+  type CharacterPortraitImportRequest,
   type CharacterPortraitImportResult,
+  type CreateCharacterRequest,
+  type DeleteCharacterResult,
   type UpdateCharacterRequest,
 } from "./characters";
 import { MODEL_TYPES } from "./models";
@@ -13,8 +16,11 @@ import { PROVIDER_TYPES } from "./providers";
 export {
   characterIdRequestSchema,
   characterListSchema,
+  characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
   characterSchema,
+  createCharacterRequestSchema,
+  deleteCharacterResultSchema,
   defaultCharacterConfigSchema,
   updateCharacterRequestSchema,
 } from "./characters";
@@ -22,7 +28,10 @@ export type {
   Character,
   CharacterIdRequest,
   CharacterList,
+  CharacterPortraitImportRequest,
   CharacterPortraitImportResult,
+  CreateCharacterRequest,
+  DeleteCharacterResult,
   DefaultCharacterConfig,
   UpdateCharacterRequest,
 } from "./characters";
@@ -63,6 +72,8 @@ export const IPC_CHANNELS = {
   discoverProviderModels: "model-configs:discover",
   testModelConnection: "model-configs:test-connection",
   listCharacters: "characters:list",
+  createCharacter: "characters:create",
+  deleteCharacter: "characters:delete",
   updateCharacter: "characters:update",
   importCharacterPortrait: "characters:import-portrait",
 } as const;
@@ -353,8 +364,10 @@ export interface KataruneApi {
   discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
   listCharacters(): Promise<CharacterList>;
+  createCharacter(request: CreateCharacterRequest): Promise<Character>;
+  deleteCharacter(request: CharacterIdRequest): Promise<DeleteCharacterResult>;
   updateCharacter(request: UpdateCharacterRequest): Promise<Character>;
   importCharacterPortrait(
-    request: CharacterIdRequest,
+    request: CharacterPortraitImportRequest,
   ): Promise<CharacterPortraitImportResult>;
 }

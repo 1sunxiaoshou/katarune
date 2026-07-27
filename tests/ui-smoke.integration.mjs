@@ -24,6 +24,9 @@ let replacedCredentialRequest = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
 let updatedCharacterRequest = null;
+let createdCharacterCount = 0;
+let createdCharacterRequest = null;
+let deletedCharacterRequest = null;
 let renamedThreadRequest = null;
 let statusThreadRequest = null;
 let deletedThreadRequest = null;
@@ -45,6 +48,7 @@ const secondCharacter = {
   createdAt: now,
   updatedAt: now,
 };
+let characters = [character, secondCharacter];
 let activeCharacterId = characterId;
 let threads = [
   ...Array.from({ length: 18 }, (_, index) => ({
@@ -91,12 +95,12 @@ function registerMockHandlers() {
     modelCallsEnabled: true,
   }));
   ipcMain.handle("app-state:get", () => ({
-    activeCharacter: activeCharacterId === characterId ? character : secondCharacter,
+    activeCharacter: characters.find((candidate) => candidate.id === activeCharacterId),
   }));
   ipcMain.handle("app-state:set-active-character", (_event, request) => {
     activeCharacterId = request.characterId;
     return {
-      activeCharacter: activeCharacterId === characterId ? character : secondCharacter,
+      activeCharacter: characters.find((candidate) => candidate.id === activeCharacterId),
     };
   });
   ipcMain.handle("threads:list", (_event, request) => ({
@@ -229,11 +233,52 @@ function registerMockHandlers() {
       updatedAt: now,
     };
   });
-  ipcMain.handle("characters:list", () => ({ characters: [character, secondCharacter] }));
+  ipcMain.handle("characters:list", () => ({ characters }));
+  ipcMain.handle("characters:create", (_event, request) => {
+    createdCharacterCount += 1;
+    createdCharacterRequest = request;
+    const created = {
+      id: `00000000-0000-4000-8000-${String(createdCharacterCount + 3).padStart(12, "0")}`,
+      name: request.name,
+      portraitAssetId: null,
+      modelConfigId: request.modelConfigId,
+      systemPrompt: request.systemPrompt,
+      createdAt: new Date(now.getTime() + createdCharacterCount),
+      updatedAt: new Date(now.getTime() + createdCharacterCount),
+    };
+    characters = [created, ...characters];
+    return created;
+  });
+  ipcMain.handle("characters:delete", (_event, request) => {
+    deletedCharacterRequest = request;
+    const deletedIndex = characters.findIndex((candidate) => candidate.id === request.id);
+    const replacementCharacter =
+      characters[deletedIndex + 1] ?? characters[deletedIndex - 1];
+    const deletedThreads = threads.filter((thread) => thread.characterId === request.id);
+    threads = threads.filter((thread) => thread.characterId !== request.id);
+    characters = characters.filter((candidate) => candidate.id !== request.id);
+    if (activeCharacterId === request.id) activeCharacterId = replacementCharacter.id;
+    return {
+      deletedCharacterId: request.id,
+      deletedThreadCount: deletedThreads.length,
+      replacementCharacter,
+      activeCharacter: characters.find(
+        (candidate) => candidate.id === activeCharacterId,
+      ),
+    };
+  });
   ipcMain.handle("characters:update", (_event, request) => {
     updatedCharacterRequest = request;
-    character = { ...character, ...request, updatedAt: now };
-    return character;
+    const updated = {
+      ...characters.find((candidate) => candidate.id === request.id),
+      ...request,
+      updatedAt: now,
+    };
+    characters = characters.map((candidate) =>
+      candidate.id === request.id ? updated : candidate,
+    );
+    if (request.id === characterId) character = updated;
+    return updated;
   });
   ipcMain.handle("characters:import-portrait", () => ({
     canceled: true,
@@ -276,7 +321,11 @@ async function clickSelector(window, selector) {
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 }
 
-async function rightClickSelector(window, selector) {
+async function rightClickSelector(
+  window,
+  selector,
+  menuSelector = '[data-testid="thread-context-menu"]',
+) {
   const point = await window.webContents.executeJavaScript(`(() => {
     const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
     return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
@@ -284,7 +333,21 @@ async function rightClickSelector(window, selector) {
   window.webContents.sendInputEvent({ type: "mouseMove", ...point });
   window.webContents.sendInputEvent({ type: "mouseDown", button: "right", clickCount: 1, ...point });
   window.webContents.sendInputEvent({ type: "mouseUp", button: "right", clickCount: 1, ...point });
-  await waitForSelector(window, '[data-testid="thread-context-menu"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  )`);
+  await window.webContents.executeJavaScript(`(() => {
+    if (document.querySelector(${JSON.stringify(menuSelector)}) !== null) return;
+    document.querySelector(${JSON.stringify(selector)}).dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: ${point.x},
+        clientY: ${point.y},
+      }),
+    );
+  })()`);
+  await waitForSelector(window, menuSelector);
 }
 
 async function capture(window, fileName) {
@@ -646,7 +709,182 @@ async function run() {
   await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 50))`);
   assert.deepEqual(updatedCharacterRequest, { id: characterId, name: "星澜·测试" });
   const characterScreenshot = await capture(window, "character-gallery.png");
-  await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="character-list-item"]')[1].click()`);
+
+  const characterCreateButton = await window.webContents.executeJavaScript(`(() => {
+    const button = document.querySelector('[data-testid="character-create"]');
+    return {
+      ariaLabel: button.getAttribute('aria-label'),
+      hasIcon: button.querySelector('svg') !== null,
+      visibleText: [...button.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent.trim())
+        .filter(Boolean),
+    };
+  })()`);
+  assert.deepEqual(characterCreateButton, {
+    ariaLabel: "新增角色",
+    hasIcon: true,
+    visibleText: [],
+  });
+  await clickSelector(window, '[data-testid="character-create"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelectorAll('[data-testid="character-list-item"]').length === 3) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for character creation'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  const createdCharacterUi = await window.webContents.executeJavaScript(`(() => {
+    const name = document.querySelector('[data-testid="character-name"]');
+    return {
+      name: name.value,
+      modelId: document.querySelector('[data-testid="character-model"]').getAttribute('data-model-id'),
+      prompt: document.querySelector('[data-testid="character-system-prompt"]').value,
+      focused: document.activeElement === name,
+      selection: [name.selectionStart, name.selectionEnd],
+      dialogOpen: document.querySelector('[data-testid="confirm-dialog"]') !== null,
+      selectedIndex: [...document.querySelectorAll('[data-testid="character-list-item"]')]
+        .findIndex((item) => item.getAttribute('data-selected') === 'true'),
+    };
+  })()`);
+  assert.deepEqual(createdCharacterUi, {
+    name: "未命名角色",
+    modelId: "",
+    prompt: "",
+    focused: true,
+    selection: [0, 5],
+    dialogOpen: false,
+    selectedIndex: 0,
+  });
+  assert.equal(createdCharacterCount, 0, "未离开新角色前不应写入数据库");
+
+  await window.webContents.executeJavaScript(
+    `document.querySelectorAll('[data-testid="character-list-item"]')[2].click()`,
+  );
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (
+        document.querySelectorAll('[data-testid="character-list-item"]').length === 2 &&
+        document.querySelector('[data-testid="character-name"]').value === '月影'
+      ) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for unchanged draft discard'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(createdCharacterCount, 0, "无改动草稿离开时应直接丢弃");
+
+  await clickSelector(window, '[data-testid="character-create"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[data-testid="character-name"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '流萤');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await window.webContents.executeJavaScript(
+    `document.querySelectorAll('[data-testid="character-list-item"]')[1].click()`,
+  );
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (
+        document.querySelectorAll('[data-testid="character-list-item"]').length === 3 &&
+        document.querySelector('[data-testid="character-name"]').value === '星澜·测试'
+      ) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for changed draft persistence'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(createdCharacterCount, 1);
+  assert.deepEqual(createdCharacterRequest, {
+    name: "流萤",
+    modelConfigId: null,
+    systemPrompt: "",
+  });
+  const createdCharacterId = characters[0].id;
+
+  await rightClickSelector(
+    window,
+    `[data-character-id="${createdCharacterId}"] [data-testid="character-list-item"]`,
+    '[data-testid="character-context-menu"]',
+  );
+  const characterContextMenu = await window.webContents.executeJavaScript(`(() => ({
+    selectedName: document.querySelector('[data-testid="character-name"]').value,
+    characterClass: document.querySelector('[data-testid="character-context-menu"]').className,
+    threadClass: 'thread-context-menu',
+    dangerClass: document.querySelector('[data-testid="character-context-delete"]').className,
+  }))()`);
+  assert.equal(characterContextMenu.selectedName, "星澜·测试");
+  assert.match(characterContextMenu.characterClass, /thread-context-menu/);
+  assert.match(characterContextMenu.dangerClass, /thread-context-menu-danger/);
+  await clickSelector(window, '[data-testid="character-context-delete"]');
+  await waitForSelector(window, '[data-testid="confirm-dialog"]');
+  const cancelDeleteText = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="confirm-dialog"]').innerText`,
+  );
+  assert.match(cancelDeleteText, /删除「流萤」[\s\S]*0 个会话[\s\S]*不可恢复/);
+  await clickSelector(window, '[data-testid="confirm-dialog-cancel"]');
+
+  await rightClickSelector(
+    window,
+    `[data-character-id="${createdCharacterId}"] [data-testid="character-list-item"]`,
+    '[data-testid="character-context-menu"]',
+  );
+  await clickSelector(window, '[data-testid="character-context-delete"]');
+  await waitForSelector(window, '[data-testid="confirm-dialog"]');
+  const createdDeleteText = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="confirm-dialog"]').innerText`,
+  );
+  assert.match(createdDeleteText, /0 个会话/);
+  await clickSelector(window, '[data-testid="confirm-dialog-confirm"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelectorAll('[data-testid="character-list-item"]').length === 2) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for new character deletion'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(deletedCharacterRequest.id, createdCharacterId);
+  const selectionAfterDelete = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="character-name"]').value`,
+  );
+  assert.equal(selectionAfterDelete, "星澜·测试");
+
+  await rightClickSelector(
+    window,
+    `[data-character-id="${characterId}"] [data-testid="character-list-item"]`,
+    '[data-testid="character-context-menu"]',
+  );
+  await clickSelector(window, '[data-testid="character-context-delete"]');
+  await waitForSelector(window, '[data-testid="confirm-dialog"]');
+  await clickSelector(window, '[data-testid="confirm-dialog-confirm"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelectorAll('[data-testid="character-list-item"]').length === 1) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for active character deletion'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(activeCharacterId, secondCharacter.id);
+  await rightClickSelector(
+    window,
+    '[data-testid="character-list-item"]',
+    '[data-testid="character-context-menu"]',
+  );
+  const onlyCharacterDeleteDisabled = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="character-context-delete"]').hasAttribute('data-disabled')`,
+  );
+  assert.equal(onlyCharacterDeleteDisabled, true);
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "ESC" });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "ESC" });
+
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-back"]').click()`);
   await waitForSelector(window, '[data-testid="settings-launcher"]');
   assert.equal(activeCharacterId, secondCharacter.id);

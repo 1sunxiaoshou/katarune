@@ -35,9 +35,11 @@ const modelConfigRequest = {
 const userDataPath = mkdtempSync(join(tmpdir(), "katarune-database-test-"));
 const legacyUserDataPath = mkdtempSync(join(tmpdir(), "katarune-legacy-database-test-"));
 const jumpUserDataPath = mkdtempSync(join(tmpdir(), "katarune-jump-database-test-"));
+const deletionUserDataPath = mkdtempSync(join(tmpdir(), "katarune-character-delete-test-"));
 let runtime: DatabaseRuntime | undefined;
 let legacyRuntime: DatabaseRuntime | undefined;
 let jumpRuntime: DatabaseRuntime | undefined;
+let deletionRuntime: DatabaseRuntime | undefined;
 
 function createLegacyProviderIdentityDatabase(): void {
   const sqlite = new BetterSqlite3(join(legacyUserDataPath, "katarune.sqlite"));
@@ -195,7 +197,12 @@ try {
   assert.deepEqual(runtime.fetchModelConfig(modelConfig.id), modelConfig);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, [modelConfig]);
   assert.deepEqual(runtime.fetchCharacter(updatedCharacter.id), updatedCharacter);
-  assert.equal(runtime.listCharacters().characters[0]?.name, "数据库中的星澜");
+  assert.equal(
+    runtime
+      .listCharacters()
+      .characters.find((candidate) => candidate.id === updatedCharacter.id)?.name,
+    "数据库中的星澜",
+  );
   assert.equal(runtime.getAppState().activeCharacter.id, restoredCharacterId);
   runtime.initializeThread(secondThreadId, secondCharacterId);
   assert.deepEqual(
@@ -366,6 +373,105 @@ try {
     jumpSqlite.close();
   }
 
+  deletionRuntime = openDatabase({
+    userDataPath: deletionUserDataPath,
+    appPath: process.cwd(),
+  });
+  const deletionDefault = deletionRuntime.getAppState().activeCharacter;
+  assert.throws(
+    () => deletionRuntime?.deleteCharacter(deletionDefault.id),
+    /至少需要保留一个角色/,
+  );
+  assert.equal(
+    deletionRuntime.getAppState().activeCharacter.id,
+    deletionDefault.id,
+    "拒绝删除唯一角色后应保持活动角色",
+  );
+  assert.equal(deletionRuntime.listCharacters().characters.length, 1);
+
+  const createdCharacter = deletionRuntime.createCharacter({
+    name: "未命名角色",
+    modelConfigId: null,
+    systemPrompt: "",
+  });
+  assert.equal(createdCharacter.name, "未命名角色");
+  assert.equal(createdCharacter.modelConfigId, null);
+  assert.equal(createdCharacter.portraitAssetId, null);
+  assert.equal(createdCharacter.systemPrompt, "");
+  const secondCreatedCharacter = deletionRuntime.createCharacter({
+    name: "未命名角色",
+    modelConfigId: null,
+    systemPrompt: "",
+  });
+  assert.deepEqual(
+    deletionRuntime.listCharacters().characters.map((character) => character.id),
+    [secondCreatedCharacter.id, createdCharacter.id, deletionDefault.id],
+    "快速连续创建仍应稳定插入角色列表顶部",
+  );
+
+  const nonActiveThreadId = "non-active-character-thread";
+  deletionRuntime.initializeThread(nonActiveThreadId, secondCreatedCharacter.id);
+  deletionRuntime.appendThreadMessage({
+    threadId: nonActiveThreadId,
+    characterId: secondCreatedCharacter.id,
+    message: { ...message, id: "non-active-character-message" },
+  });
+  const nonActiveDelete = deletionRuntime.deleteCharacter(secondCreatedCharacter.id);
+  assert.equal(nonActiveDelete.deletedThreadCount, 1);
+  assert.equal(nonActiveDelete.replacementCharacter.id, createdCharacter.id);
+  assert.equal(nonActiveDelete.activeCharacter.id, deletionDefault.id);
+  assert.throws(
+    () => deletionRuntime?.loadThreadMessages(nonActiveThreadId, secondCreatedCharacter.id),
+    /not found/,
+  );
+
+  const regularDeleteThreadId = "active-character-regular-thread";
+  const archivedDeleteThreadId = "active-character-archived-thread";
+  deletionRuntime.initializeThread(regularDeleteThreadId, deletionDefault.id);
+  deletionRuntime.initializeThread(archivedDeleteThreadId, deletionDefault.id);
+  deletionRuntime.setThreadStatus(archivedDeleteThreadId, deletionDefault.id, "archived");
+  deletionRuntime.appendThreadMessage({
+    threadId: regularDeleteThreadId,
+    characterId: deletionDefault.id,
+    message: { ...message, id: "active-character-message" },
+  });
+  const activeDelete = deletionRuntime.deleteCharacter(deletionDefault.id);
+  assert.equal(activeDelete.deletedThreadCount, 2);
+  assert.equal(activeDelete.replacementCharacter.id, createdCharacter.id);
+  assert.equal(activeDelete.activeCharacter.id, createdCharacter.id);
+  assert.equal(deletionRuntime.getAppState().activeCharacter.id, createdCharacter.id);
+  assert.throws(() => deletionRuntime?.fetchCharacter(deletionDefault.id), /not found/);
+  assert.throws(
+    () => deletionRuntime?.loadThreadMessages(regularDeleteThreadId, deletionDefault.id),
+    /not found/,
+  );
+  assert.equal(
+    deletionRuntime.fetchAsset("00000000-0000-4000-8000-000000000002").id,
+    "00000000-0000-4000-8000-000000000002",
+    "删除角色后应保留其立绘资产记录",
+  );
+  deletionRuntime.close();
+  deletionRuntime = undefined;
+  const deletionSqlite = new BetterSqlite3(
+    join(deletionUserDataPath, "katarune.sqlite"),
+    { readonly: true },
+  );
+  try {
+    const deletedMessageCount = deletionSqlite
+      .prepare<[string, string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM messages WHERE id IN (?, ?)",
+      )
+      .get("non-active-character-message", "active-character-message");
+    assert.equal(
+      deletedMessageCount?.count,
+      0,
+      "删除角色时线程消息应通过外键级联清理",
+    );
+    assert.deepEqual(deletionSqlite.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    deletionSqlite.close();
+  }
+
   console.log(
     "SQLite thread, message, Provider/model/character config, and legacy migration recovery passed.",
   );
@@ -373,7 +479,9 @@ try {
   runtime?.close();
   legacyRuntime?.close();
   jumpRuntime?.close();
+  deletionRuntime?.close();
   rmSync(userDataPath, { recursive: true, force: true });
   rmSync(legacyUserDataPath, { recursive: true, force: true });
   rmSync(jumpUserDataPath, { recursive: true, force: true });
+  rmSync(deletionUserDataPath, { recursive: true, force: true });
 }

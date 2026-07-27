@@ -7,11 +7,12 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { Character } from "../../../shared/ipc";
+import type { Character, DeleteCharacterResult } from "../../../shared/ipc";
 import { Button } from "@/components/ui/button";
 
 interface CharacterSession {
   readonly activeCharacter: Character;
+  readonly deleteCharacter: (characterId: string) => Promise<DeleteCharacterResult>;
   readonly setActiveCharacter: (characterId: string) => Promise<Character>;
 }
 
@@ -50,12 +51,18 @@ export function CharacterSessionProvider({
     return state.activeCharacter;
   }, []);
 
+  const deleteCharacter = useCallback(async (characterId: string) => {
+    const result = await window.katarune.deleteCharacter({ id: characterId });
+    setActiveCharacterState(result.activeCharacter);
+    return result;
+  }, []);
+
   const value = useMemo(
     () =>
       activeCharacter === null
         ? null
-        : { activeCharacter, setActiveCharacter },
-    [activeCharacter, setActiveCharacter],
+        : { activeCharacter, deleteCharacter, setActiveCharacter },
+    [activeCharacter, deleteCharacter, setActiveCharacter],
   );
 
   if (error !== null) {
