@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>言奏 · 会话星轨原型</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #fbfbfa;
+        --ink: #222220;
+        --ink-soft: #696862;
+        --ink-faint: #a3a19a;
+        --line: #d9d7d0;
+        --line-strong: #b8b5ad;
+        --menu: rgba(255, 255, 253, 0.96);
+        --danger: #a6423b;
+        --shadow: 0 18px 54px rgba(33, 31, 27, 0.12);
+        --serif: "Noto Serif SC", "Songti SC", "STSong", serif;
+        --sans: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+      }
+
+      button,
+      input {
+        color: inherit;
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+      }
+
+      .app {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+      }
+
+      .rail {
+        position: relative;
+        display: flex;
+        flex: 0 1 clamp(210px, 23vw, 322px);
+        flex-direction: column;
+        width: clamp(210px, 23vw, 322px);
+        min-width: 0;
+        min-height: 0;
+        padding: 24px 20px 18px 24px;
+        border-right: 1px solid rgba(34, 34, 32, 0.08);
+        background: transparent;
+      }
+
+      .character-card {
+        display: grid;
+        flex: 0 0 auto;
+        grid-template-columns: 70px minmax(0, 1fr) 20px;
+        align-items: center;
+        min-height: 86px;
+        padding: 0;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .portrait {
+        position: relative;
+        width: 62px;
+        height: 76px;
+        overflow: hidden;
+      }
+
+      .portrait::before,
+      .portrait::after {
+        position: absolute;
+        z-index: 1;
+        content: "";
+        pointer-events: none;
+      }
+
+      .portrait::before {
+        inset: 4px 2px 2px 6px;
+        border: 1px solid rgba(34, 34, 32, 0.24);
+        clip-path: polygon(0 0, 80% 0, 100% 18%, 100% 100%, 15% 100%, 0 85%);
+      }
+
+      .portrait::after {
+        top: 0;
+        right: 0;
+        width: 16px;
+        height: 16px;
+        border-top: 1px solid rgba(34, 34, 32, 0.4);
+        transform: rotate(45deg) translate(5px, -7px);
+      }
+
+      .portrait img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center 18%;
+        filter: grayscale(1) contrast(0.92);
+        opacity: 0.78;
+      }
+
+      .character-copy {
+        min-width: 0;
+        padding-left: 2px;
+      }
+
+      .character-name {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      .character-reading {
+        margin: 4px 0 0;
+        color: var(--ink-faint);
+        font-family: Georgia, serif;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .character-star {
+        align-self: start;
+        margin-top: 19px;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
+      .new-thread {
+        display: grid;
+        flex: 0 0 auto;
+        grid-template-columns: 30px minmax(0, 1fr);
+        align-items: center;
+        width: 100%;
+        margin: 18px 0 12px;
+        padding: 10px 0;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .new-thread-mark {
+        display: grid;
+        width: 18px;
+        height: 18px;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        color: var(--ink-soft);
+        font-size: 15px;
+        font-weight: 300;
+        line-height: 1;
+        transition:
+          transform 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .new-thread:hover .new-thread-mark,
+      .new-thread:focus-visible .new-thread-mark {
+        border-color: var(--ink);
+        transform: rotate(90deg);
+      }
+
+      .new-thread-label {
+        font-size: 13px;
+        letter-spacing: 0.04em;
+      }
+
+      .thread-tools {
+        position: relative;
+        flex: 1 1 0;
+        min-height: 0;
+      }
+
+      .thread-tools-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        height: 100%;
+        min-height: 0;
+        flex-direction: column;
+        opacity: 1;
+        visibility: visible;
+        transition:
+          opacity 220ms ease,
+          visibility 0s linear;
+      }
+
+      .thread-tools-content.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+        visibility: hidden;
+        transition:
+          opacity 220ms ease,
+          visibility 0s linear 220ms;
+      }
+
+      .timeline-shell {
+        position: relative;
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+        pointer-events: auto;
+      }
+
+      .timeline {
+        position: relative;
+        height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+        outline: none;
+      }
+
+      .timeline::-webkit-scrollbar {
+        display: none;
+      }
+
+      .timeline-list {
+        position: relative;
+        display: grid;
+        gap: 2px;
+        min-height: 100%;
+        margin: 0;
+        padding: 18px 2px 24px 0;
+        list-style: none;
+      }
+
+      .timeline-list::before {
+        position: absolute;
+        top: 28px;
+        bottom: 34px;
+        left: 8px;
+        width: 1px;
+        background: linear-gradient(
+          to bottom,
+          transparent 0,
+          var(--line) 24px,
+          var(--line) calc(100% - 24px),
+          transparent 100%
+        );
+        content: "";
+      }
+
+      .thread-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        min-height: 56px;
+        margin: 0;
+      }
+
+      .thread-button {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: 30px minmax(0, 1fr);
+        align-items: center;
+        width: 100%;
+        min-width: 0;
+        padding: 6px 0;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .thread-marker {
+        position: relative;
+        z-index: 2;
+        display: grid;
+        width: 17px;
+        height: 22px;
+        place-items: center;
+        color: var(--line-strong);
+      }
+
+      .thread-marker::before {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 0 4px var(--paper);
+        content: "";
+        transition:
+          width 160ms ease,
+          height 160ms ease,
+          color 160ms ease;
+      }
+
+      .thread-copy {
+        min-width: 0;
+        padding-right: 9px;
+        transform: translateX(0);
+        transition: transform 180ms ease;
+      }
+
+      .thread-title {
+        display: block;
+        overflow: hidden;
+        color: var(--ink-soft);
+        font-family: var(--serif);
+        font-size: 14px;
+        font-weight: 450;
+        letter-spacing: 0.025em;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        transition:
+          color 180ms ease,
+          font-weight 180ms ease;
+      }
+
+      .thread-meta {
+        display: block;
+        margin-top: 3px;
+        color: var(--ink-faint);
+        font-size: 9px;
+        letter-spacing: 0.12em;
+        line-height: 1.3;
+        text-transform: uppercase;
+      }
+
+      .thread-button:hover .thread-copy,
+      .thread-button:focus-visible .thread-copy {
+        transform: translateX(3px);
+      }
+
+      .thread-button:hover .thread-title,
+      .thread-button:focus-visible .thread-title {
+        color: var(--ink);
+      }
+
+      .thread-button:focus-visible {
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -2px;
+      }
+
+      .thread-row.is-active .thread-marker {
+        color: var(--ink);
+      }
+
+      .thread-row.is-active .thread-marker::before {
+        width: auto;
+        height: auto;
+        background: var(--paper);
+        border-radius: 0;
+        box-shadow: 0 0 0 4px var(--paper);
+        content: "✦";
+        font-family: Georgia, serif;
+        font-size: 18px;
+        line-height: 1;
+        animation: star-arrive 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      .thread-row.is-active .thread-title {
+        color: var(--ink);
+        font-weight: 650;
+      }
+
+      .thread-row.is-active .thread-meta {
+        color: var(--ink-soft);
+      }
+
+      .rename-input {
+        width: 100%;
+        min-width: 0;
+        padding: 1px 0 3px;
+        border: 0;
+        border-bottom: 1px solid var(--ink);
+        outline: none;
+        background: transparent;
+        font-family: var(--serif);
+        font-size: 14px;
+      }
+
+      .timeline-fade {
+        position: absolute;
+        z-index: 5;
+        right: 0;
+        left: 0;
+        height: 58px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease;
+      }
+
+      .timeline-fade.top {
+        top: 0;
+        background: linear-gradient(to bottom, var(--paper) 8%, transparent);
+      }
+
+      .timeline-fade.bottom {
+        bottom: 0;
+        background: linear-gradient(to top, var(--paper) 8%, transparent);
+      }
+
+      .timeline-shell.can-scroll-up .timeline-fade.top,
+      .timeline-shell.can-scroll-down .timeline-fade.bottom {
+        opacity: 1;
+      }
+
+      .rail-footer {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: flex-start;
+        min-height: 42px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(34, 34, 32, 0.08);
+      }
+
+      .footer-actions {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .settings-button,
+      .thread-visibility-toggle {
+        padding: 6px 0;
+        background: transparent;
+        color: var(--ink-faint);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        cursor: pointer;
+        transition: color 160ms ease;
+      }
+
+      .settings-button:hover,
+      .settings-button:focus-visible,
+      .thread-visibility-toggle:hover,
+      .thread-visibility-toggle:focus-visible {
+        color: var(--ink);
+      }
+
+      .thread-visibility-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .visibility-glyph {
+        display: inline-block;
+        font-size: 12px;
+        line-height: 1;
+        transform: rotate(0);
+        transition:
+          opacity 180ms ease,
+          transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      .thread-visibility-toggle[aria-expanded="false"] .visibility-glyph {
+        opacity: 0.7;
+        transform: rotate(180deg);
+      }
+
+      .stage {
+        position: relative;
+        display: grid;
+        flex: 1 1 0;
+        min-width: 0;
+        grid-template-rows: auto 1fr auto;
+        padding: 30px clamp(30px, 5vw, 72px) 34px;
+        overflow: hidden;
+      }
+
+      .stage::before {
+        position: absolute;
+        top: 0;
+        right: 8%;
+        width: 34%;
+        height: 42%;
+        border: 1px solid rgba(34, 34, 32, 0.04);
+        border-top: 0;
+        content: "";
+        transform: skewX(-15deg);
+        pointer-events: none;
+      }
+
+      .stage-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      .stage-kicker {
+        margin: 0;
+        color: var(--ink-faint);
+        font-family: Georgia, serif;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+
+      .stage-date {
+        color: var(--ink-faint);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+      }
+
+      .conversation {
+        display: grid;
+        place-items: center;
+      }
+
+      .conversation-copy {
+        width: min(560px, 80%);
+        margin-top: -4vh;
+        text-align: center;
+      }
+
+      .conversation-mark {
+        display: block;
+        margin-bottom: 18px;
+        color: var(--line-strong);
+        font-family: Georgia, serif;
+        font-size: 20px;
+      }
+
+      .conversation-title {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: clamp(22px, 2.5vw, 34px);
+        font-weight: 500;
+        letter-spacing: 0.08em;
+      }
+
+      .conversation-note {
+        margin: 12px auto 0;
+        color: var(--ink-faint);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 14px;
+        width: min(760px, 100%);
+        margin: 0 auto;
+        padding: 12px 0 8px;
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .composer-placeholder {
+        color: var(--ink-faint);
+        font-family: var(--serif);
+        font-size: 14px;
+      }
+
+      .composer-send {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        background: transparent;
+        color: var(--ink-soft);
+        cursor: pointer;
+      }
+
+      .context-menu {
+        position: fixed;
+        z-index: 20;
+        display: none;
+        width: 154px;
+        padding: 6px;
+        border: 1px solid rgba(34, 34, 32, 0.12);
+        background: var(--menu);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .context-menu.is-open {
+        display: block;
+        animation: menu-in 120ms ease-out;
+      }
+
+      .menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 8px 9px;
+        background: transparent;
+        color: var(--ink-soft);
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .menu-item:hover,
+      .menu-item:focus-visible {
+        background: rgba(34, 34, 32, 0.05);
+        color: var(--ink);
+        outline: none;
+      }
+
+      .menu-item.danger {
+        color: var(--danger);
+      }
+
+      .menu-key {
+        color: var(--ink-faint);
+        font-size: 9px;
+      }
+
+      .menu-separator {
+        height: 1px;
+        margin: 5px 4px;
+        background: rgba(34, 34, 32, 0.09);
+      }
+
+      .dialog-backdrop {
+        position: fixed;
+        z-index: 30;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: rgba(251, 251, 250, 0.58);
+        backdrop-filter: blur(5px);
+      }
+
+      .dialog-backdrop.is-open {
+        display: grid;
+      }
+
+      .dialog {
+        width: min(350px, calc(100vw - 40px));
+        padding: 26px 28px 22px;
+        border: 1px solid rgba(34, 34, 32, 0.13);
+        background: var(--menu);
+        box-shadow: var(--shadow);
+      }
+
+      .dialog h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .dialog p {
+        margin: 10px 0 22px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        line-height: 1.7;
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 18px;
+      }
+
+      .dialog-actions button {
+        padding: 5px 0;
+        background: transparent;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .dialog-actions .confirm {
+        color: var(--danger);
+      }
+
+      .toast {
+        position: fixed;
+        z-index: 40;
+        right: 28px;
+        bottom: 28px;
+        padding: 9px 13px;
+        border: 1px solid rgba(34, 34, 32, 0.1);
+        background: var(--menu);
+        box-shadow: 0 8px 28px rgba(33, 31, 27, 0.08);
+        color: var(--ink-soft);
+        font-size: 11px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(5px);
+        transition:
+          opacity 160ms ease,
+          transform 160ms ease;
+      }
+
+      .toast.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @keyframes star-arrive {
+        from {
+          opacity: 0;
+          transform: scale(0.6) rotate(-25deg);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) rotate(0);
+        }
+      }
+
+      @keyframes menu-in {
+        from {
+          opacity: 0;
+          transform: translateY(-3px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-height: 620px) {
+        .rail {
+          padding-top: 14px;
+        }
+
+        .character-card {
+          min-height: 72px;
+        }
+
+        .portrait {
+          height: 66px;
+        }
+
+        .new-thread {
+          margin-top: 8px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .rail {
+          flex-basis: clamp(210px, 34vw, 260px);
+          width: clamp(210px, 34vw, 260px);
+          padding-right: 14px;
+          padding-left: 16px;
+        }
+
+        .stage {
+          padding-right: 24px;
+          padding-left: 24px;
+        }
+
+        .stage-kicker,
+        .stage-date {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="rail" aria-label="角色与会话">
+        <button class="character-card" type="button" aria-label="编辑角色：星澜">
+          <span class="portrait">
+            <img
+              src="../../resources/characters/celestial-mage-line-art.png"
+              alt=""
+              onerror="this.style.display='none'"
+            />
+          </span>
+          <span class="character-copy">
+            <span class="character-name">星澜</span>
+            <span class="character-reading">Xing Lan</span>
+          </span>
+          <span class="character-star" aria-hidden="true">✦</span>
+        </button>
+
+        <section class="thread-tools" id="thread-tools" aria-label="会话功能区">
+          <div class="thread-tools-content" id="thread-tools-content">
+            <button class="new-thread" id="new-thread" type="button">
+              <span class="new-thread-mark" aria-hidden="true">+</span>
+              <span class="new-thread-label">新对话</span>
+            </button>
+
+            <section class="timeline-shell" id="timeline-shell" aria-label="会话列表">
+              <div class="timeline-fade top" aria-hidden="true"></div>
+              <div class="timeline" id="timeline" tabindex="-1">
+                <ol class="timeline-list" id="timeline-list"></ol>
+              </div>
+              <div class="timeline-fade bottom" aria-hidden="true"></div>
+            </section>
+
+          </div>
+        </section>
+
+        <footer class="rail-footer">
+          <span class="footer-actions">
+            <button class="settings-button" type="button">设置</button>
+            <button
+              class="thread-visibility-toggle"
+              id="thread-visibility-toggle"
+              type="button"
+              aria-controls="thread-tools"
+              aria-expanded="true"
+              aria-label="隐藏会话功能区"
+            >
+              <span class="visibility-glyph" aria-hidden="true">⌃</span>
+              <span id="thread-visibility-label">收起</span>
+            </button>
+          </span>
+        </footer>
+      </aside>
+
+      <section class="stage" aria-label="聊天内容">
+        <header class="stage-head">
+          <p class="stage-kicker">Katarune / Xing Lan</p>
+          <span class="stage-date" id="stage-date">CURRENT THREAD</span>
+        </header>
+        <div class="conversation">
+          <div class="conversation-copy">
+            <span class="conversation-mark" aria-hidden="true">✦</span>
+            <h1 class="conversation-title" id="conversation-title">关于潮汐与旧梦</h1>
+            <p class="conversation-note" id="conversation-note">
+              当前会话绑定到星澜。切换左侧星轨不会改变其他会话的角色归属。
+            </p>
+          </div>
+        </div>
+        <div class="composer" aria-label="消息输入框">
+          <span class="composer-placeholder">写下想对星澜说的话……</span>
+          <button class="composer-send" type="button" aria-label="发送">↗</button>
+        </div>
+      </section>
+    </main>
+
+    <div class="context-menu" id="context-menu" role="menu" aria-hidden="true"></div>
+
+    <div class="dialog-backdrop" id="dialog-backdrop" aria-hidden="true">
+      <section
+        class="dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title"
+        aria-describedby="dialog-copy"
+      >
+        <h2 id="dialog-title">删除这段会话？</h2>
+        <p id="dialog-copy">删除后无法恢复。角色与其他会话不会受到影响。</p>
+        <div class="dialog-actions">
+          <button id="cancel-delete" type="button">取消</button>
+          <button class="confirm" id="confirm-delete" type="button">删除</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const threads = [
+        { id: "t1", title: "关于潮汐与旧梦", meta: "刚刚", archived: false },
+        { id: "t2", title: "银杏叶落下之前", meta: "今天 18:24", archived: false },
+        { id: "t3", title: "给明天的旅行清单", meta: "星期四", archived: false },
+        { id: "t4", title: "那本没有结局的书", meta: "7 月 21 日", archived: false },
+        { id: "t5", title: "雨夜电台与一首旧歌", meta: "7 月 18 日", archived: false },
+        { id: "t6", title: "如何给星星命名", meta: "7 月 12 日", archived: false },
+        { id: "t7", title: "午后三点的来信", meta: "7 月 08 日", archived: false },
+        { id: "t8", title: "在城市醒来之前", meta: "6 月 29 日", archived: false },
+        { id: "t9", title: "月光下的观测笔记", meta: "6 月 16 日", archived: false },
+        { id: "t10", title: "海风经过旧站台", meta: "6 月 02 日", archived: false },
+        { id: "t11", title: "玻璃瓶里的夏天", meta: "5 月 24 日", archived: false },
+        { id: "t12", title: "凌晨四点的微光", meta: "5 月 11 日", archived: false },
+        { id: "t13", title: "关于云层的约定", meta: "4 月 28 日", archived: false },
+        { id: "t14", title: "沿着北斗星回家", meta: "4 月 03 日", archived: false },
+        { id: "t15", title: "没有寄出的明信片", meta: "3 月 19 日", archived: false },
+        { id: "t16", title: "第一次见到星澜", meta: "2 月 27 日", archived: true },
+      ];
+
+      const timeline = document.querySelector("#timeline");
+      const timelineShell = document.querySelector("#timeline-shell");
+      const timelineList = document.querySelector("#timeline-list");
+      const threadTools = document.querySelector("#thread-tools");
+      const threadToolsContent = document.querySelector("#thread-tools-content");
+      const contextMenu = document.querySelector("#context-menu");
+      const threadVisibilityToggle = document.querySelector("#thread-visibility-toggle");
+      const threadVisibilityLabel = document.querySelector("#thread-visibility-label");
+      const dialogBackdrop = document.querySelector("#dialog-backdrop");
+      const conversationTitle = document.querySelector("#conversation-title");
+      const conversationNote = document.querySelector("#conversation-note");
+      const stageDate = document.querySelector("#stage-date");
+      const toast = document.querySelector("#toast");
+
+      let activeId = "t1";
+      let menuThreadId = null;
+      let pendingDeleteId = null;
+      let toastTimer = null;
+      let threadsHidden = false;
+
+      function visibleThreads() {
+        return threads.filter((thread) => !thread.archived);
+      }
+
+      function escapeText(value) {
+        const node = document.createElement("span");
+        node.textContent = value;
+        return node.innerHTML;
+      }
+
+      function renderThreads() {
+        const visible = visibleThreads();
+        timelineList.innerHTML = visible
+          .map(
+            (thread) => `
+              <li class="thread-row ${thread.id === activeId ? "is-active" : ""}" data-id="${thread.id}">
+                <button
+                  class="thread-button"
+                  type="button"
+                  aria-current="${thread.id === activeId ? "true" : "false"}"
+                  aria-label="${escapeText(thread.title)}，${escapeText(thread.meta)}"
+                >
+                  <span class="thread-marker" aria-hidden="true"></span>
+                  <span class="thread-copy">
+                    <span class="thread-title">${escapeText(thread.title)}</span>
+                    <span class="thread-meta">${escapeText(thread.meta)}</span>
+                  </span>
+                </button>
+              </li>
+            `,
+          )
+          .join("");
+
+        if (!visible.length) {
+          timelineList.innerHTML =
+            '<li class="thread-row"><div class="thread-button"><span class="thread-marker"></span><span class="thread-copy"><span class="thread-title">这里还没有会话</span><span class="thread-meta">EMPTY</span></span></div></li>';
+        }
+
+        requestAnimationFrame(updateFade);
+      }
+
+      function updateFade() {
+        if (threadsHidden) {
+          timelineShell.classList.remove("can-scroll-up", "can-scroll-down");
+          return;
+        }
+
+        const overflow = timeline.scrollHeight > timeline.clientHeight + 1;
+        timelineShell.classList.toggle("can-scroll-up", overflow && timeline.scrollTop > 2);
+        timelineShell.classList.toggle(
+          "can-scroll-down",
+          overflow && timeline.scrollTop + timeline.clientHeight < timeline.scrollHeight - 2,
+        );
+      }
+
+      function updateVisibilityControl(hidden) {
+        threadVisibilityToggle.setAttribute("aria-expanded", String(!hidden));
+        threadVisibilityToggle.setAttribute(
+          "aria-label",
+          hidden ? "显示会话功能区" : "隐藏会话功能区",
+        );
+        threadVisibilityLabel.textContent = hidden ? "展开" : "收起";
+      }
+
+      function setThreadsHidden(hidden, announce = true) {
+        if (hidden === threadsHidden) return;
+        closeMenu();
+
+        if (hidden && threadTools.contains(document.activeElement)) {
+          threadVisibilityToggle.focus();
+        }
+
+        threadsHidden = hidden;
+        threadToolsContent.classList.toggle("is-hidden", hidden);
+        threadTools.setAttribute("aria-hidden", String(hidden));
+        threadTools.inert = hidden;
+        updateVisibilityControl(hidden);
+        window.setTimeout(updateFade, 230);
+        if (announce) showToast(hidden ? "会话已隐藏" : "会话已展开");
+      }
+
+      function selectThread(id) {
+        const thread = threads.find((item) => item.id === id);
+        if (!thread) return;
+        activeId = id;
+        conversationTitle.textContent = thread.title;
+        conversationNote.textContent =
+          "当前会话绑定到星澜。切换左侧星轨不会改变其他会话的角色归属。";
+        stageDate.textContent = thread.meta.toUpperCase();
+        renderThreads();
+      }
+
+      function closeMenu() {
+        contextMenu.classList.remove("is-open");
+        contextMenu.setAttribute("aria-hidden", "true");
+        menuThreadId = null;
+      }
+
+      function openMenu(threadId, x, y) {
+        const thread = threads.find((item) => item.id === threadId);
+        if (!thread) return;
+
+        menuThreadId = threadId;
+        contextMenu.innerHTML = `
+          <button class="menu-item" type="button" role="menuitem" data-action="rename">
+            <span>重命名</span><span class="menu-key">Enter</span>
+          </button>
+          <button class="menu-item" type="button" role="menuitem" data-action="archive">归档</button>
+          <div class="menu-separator" role="separator"></div>
+          <button class="menu-item danger" type="button" role="menuitem" data-action="delete">删除</button>
+        `;
+
+        contextMenu.classList.add("is-open");
+        contextMenu.setAttribute("aria-hidden", "false");
+
+        const menuRect = contextMenu.getBoundingClientRect();
+        const left = Math.min(x, window.innerWidth - menuRect.width - 10);
+        const top = Math.min(y, window.innerHeight - menuRect.height - 10);
+        contextMenu.style.left = `${Math.max(10, left)}px`;
+        contextMenu.style.top = `${Math.max(10, top)}px`;
+        contextMenu.querySelector(".menu-item")?.focus();
+      }
+
+      function beginRename(id) {
+        const thread = threads.find((item) => item.id === id);
+        const row = timelineList.querySelector(`[data-id="${id}"]`);
+        const copy = row?.querySelector(".thread-copy");
+        if (!thread || !copy) return;
+
+        copy.innerHTML = `<input class="rename-input" aria-label="会话名称" maxlength="36" value="${escapeText(thread.title)}" />`;
+        const input = copy.querySelector("input");
+        input.focus();
+        input.select();
+
+        const finish = (save) => {
+          if (save && input.value.trim()) {
+            thread.title = input.value.trim();
+            if (activeId === id) conversationTitle.textContent = thread.title;
+            showToast("会话名称已更新");
+          }
+          renderThreads();
+        };
+
+        input.addEventListener("click", (event) => event.stopPropagation());
+        input.addEventListener("keydown", (event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") finish(true);
+          if (event.key === "Escape") finish(false);
+        });
+        input.addEventListener("blur", () => finish(true), { once: true });
+      }
+
+      function archiveThread(id) {
+        const thread = threads.find((item) => item.id === id);
+        if (!thread) return;
+        thread.archived = true;
+        if (activeId === id) {
+          const next = threads.find((item) => !item.archived);
+          if (next) selectThread(next.id);
+        }
+        renderThreads();
+        showToast("会话已归档");
+      }
+
+      function askDelete(id) {
+        pendingDeleteId = id;
+        dialogBackdrop.classList.add("is-open");
+        dialogBackdrop.setAttribute("aria-hidden", "false");
+        document.querySelector("#cancel-delete").focus();
+      }
+
+      function deleteThread() {
+        const index = threads.findIndex((item) => item.id === pendingDeleteId);
+        if (index < 0) return closeDialog();
+        const deletingActive = threads[index].id === activeId;
+        threads.splice(index, 1);
+        if (deletingActive) {
+          activeId = threads.find((item) => !item.archived)?.id ?? null;
+          const next = threads.find((item) => item.id === activeId);
+          conversationTitle.textContent = next?.title ?? "开始一段新对话";
+          conversationNote.textContent = next
+            ? "当前会话绑定到星澜。"
+            : "这里会成为星澜的一段全新记忆。";
+        }
+        closeDialog();
+        renderThreads();
+        showToast("会话已删除");
+      }
+
+      function closeDialog() {
+        pendingDeleteId = null;
+        dialogBackdrop.classList.remove("is-open");
+        dialogBackdrop.setAttribute("aria-hidden", "true");
+      }
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        toast.textContent = message;
+        toast.classList.add("is-visible");
+        toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 1800);
+      }
+
+      timelineList.addEventListener("click", (event) => {
+        if (event.target.closest(".rename-input")) return;
+        const row = event.target.closest(".thread-row[data-id]");
+        if (row) selectThread(row.dataset.id);
+      });
+
+      timelineList.addEventListener("contextmenu", (event) => {
+        const row = event.target.closest(".thread-row[data-id]");
+        if (!row) return;
+        event.preventDefault();
+        openMenu(row.dataset.id, event.clientX, event.clientY);
+      });
+
+      timelineList.addEventListener("keydown", (event) => {
+        if (!(event.shiftKey && event.key === "F10") && event.key !== "ContextMenu") return;
+        const row = event.target.closest(".thread-row[data-id]");
+        if (!row) return;
+        event.preventDefault();
+        const rect = row.getBoundingClientRect();
+        openMenu(row.dataset.id, rect.left + 34, rect.top + rect.height / 2);
+      });
+
+      contextMenu.addEventListener("click", (event) => {
+        const action = event.target.closest("[data-action]")?.dataset.action;
+        const id = menuThreadId;
+        closeMenu();
+        if (!id) return;
+        if (action === "rename") beginRename(id);
+        if (action === "archive") archiveThread(id);
+        if (action === "delete") askDelete(id);
+      });
+
+      document.addEventListener("pointerdown", (event) => {
+        if (!contextMenu.contains(event.target)) closeMenu();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeMenu();
+          closeDialog();
+        }
+      });
+
+      timeline.addEventListener("scroll", updateFade, { passive: true });
+      window.addEventListener("resize", updateFade);
+      threadVisibilityToggle.addEventListener("click", () => {
+        setThreadsHidden(!threadsHidden);
+      });
+
+      document.querySelector("#new-thread").addEventListener("click", () => {
+        const id = `t${Date.now()}`;
+        threads.unshift({ id, title: "未命名的新对话", meta: "刚刚", archived: false });
+        activeId = id;
+        conversationTitle.textContent = "今天想聊些什么？";
+        conversationNote.textContent = "这会成为星澜的一段全新记忆。";
+        stageDate.textContent = "NEW THREAD";
+        timeline.scrollTop = 0;
+        renderThreads();
+        if (threadsHidden) {
+          showToast("已开始新对话");
+        } else {
+          requestAnimationFrame(() => beginRename(id));
+        }
+      });
+
+      document.querySelector("#cancel-delete").addEventListener("click", closeDialog);
+      document.querySelector("#confirm-delete").addEventListener("click", deleteThread);
+      dialogBackdrop.addEventListener("pointerdown", (event) => {
+        if (event.target === dialogBackdrop) closeDialog();
+      });
+
+      renderThreads();
+    </script>
+  </body>
+</html>

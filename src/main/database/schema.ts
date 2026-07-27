@@ -1,33 +1,30 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ModelSettings } from "../../shared/ipc";
 import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
 
-export const threads = sqliteTable("threads", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  status: text("status", { enum: ["regular", "archived"] })
-    .notNull()
-    .default("regular"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
-
-export const messages = sqliteTable(
-  "messages",
+export const assets = sqliteTable(
+  "assets",
   {
     id: text("id").primaryKey(),
-    threadId: text("thread_id")
-      .notNull()
-      .references(() => threads.id, { onDelete: "cascade" }),
-    parentId: text("parent_id"),
-    format: text("format").notNull(),
-    content: text("content", { mode: "json" })
-      .$type<Record<string, unknown>>()
-      .notNull(),
+    storageKey: text("storage_key").notNull(),
+    status: text("status", { enum: ["ready", "missing"] }).notNull(),
+    mimeType: text("mime_type"),
+    byteSize: integer("byte_size"),
+    sha256: text("sha256"),
+    originalName: text("original_name"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [index("messages_thread_created_at_idx").on(table.threadId, table.createdAt)],
+  (table) => [
+    uniqueIndex("assets_storage_key_unique").on(table.storageKey),
+    check("assets_status_check", sql`${table.status} in ('ready', 'missing')`),
+    check(
+      "assets_ready_metadata_check",
+      sql`(${table.status} = 'ready' and ${table.mimeType} is not null and ${table.byteSize} is not null and ${table.sha256} is not null and ${table.originalName} is not null) or (${table.status} = 'missing' and ${table.mimeType} is null and ${table.byteSize} is null and ${table.sha256} is null and ${table.originalName} is null)`,
+    ),
+  ],
 );
 
 export const providerConfigs = sqliteTable("provider_configs", {
@@ -65,4 +62,72 @@ export const modelConfigs = sqliteTable(
       table.modelId,
     ),
   ],
+);
+
+export const characters = sqliteTable(
+  "characters",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    portraitAssetId: text("portrait_asset_id").references(() => assets.id, {
+      onDelete: "restrict",
+    }),
+    modelConfigId: text("model_config_id"),
+    systemPrompt: text("system_prompt").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("characters_created_at_idx").on(table.createdAt)],
+);
+
+export const threads = sqliteTable(
+  "threads",
+  {
+    id: text("id").primaryKey(),
+    characterId: text("character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    status: text("status", { enum: ["regular", "archived"] })
+      .notNull()
+      .default("regular"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    index("threads_character_status_updated_at_idx").on(
+      table.characterId,
+      table.status,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const appState = sqliteTable(
+  "app_state",
+  {
+    id: integer("id").primaryKey(),
+    activeCharacterId: text("active_character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "restrict" }),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [check("app_state_singleton_check", sql`${table.id} = 1`)],
+);
+
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    parentId: text("parent_id"),
+    format: text("format").notNull(),
+    content: text("content", { mode: "json" })
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("messages_thread_created_at_idx").on(table.threadId, table.createdAt)],
 );

@@ -43,6 +43,20 @@
       "when": 1784724964274,
       "tag": "0005_harsh_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784802064304,
+      "tag": "0006_tired_lake",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784864546069,
+      "tag": "0007_hesitant_amazoness",
+      "breakpoints": true
     }
   ]
 }

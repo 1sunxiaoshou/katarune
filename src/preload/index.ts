@@ -3,11 +3,20 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  appStateSchema,
+  characterIdRequestSchema,
+  characterListSchema,
+  characterPortraitImportRequestSchema,
+  characterPortraitImportResultSchema,
+  characterSchema,
+  createCharacterRequestSchema,
   createProviderConfigRequestSchema,
   discoveredModelListSchema,
   databaseStatusSchema,
+  deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
   initializeThreadResponseSchema,
+  listThreadsRequestSchema,
   IPC_CHANNELS,
   createModelConfigRequestSchema,
   modelConfigIdRequestSchema,
@@ -21,14 +30,20 @@ import {
   replaceProviderCredentialRequestSchema,
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
+  setActiveCharacterRequestSchema,
   threadIdRequestSchema,
   threadListSchema,
   threadMessagesSchema,
   threadMetadataSchema,
   updateProviderConfigRequestSchema,
   updateModelConfigRequestSchema,
+  updateCharacterRequestSchema,
   type AppendThreadMessageRequest,
+  type CharacterIdRequest,
+  type CharacterPortraitImportRequest,
+  type ListThreadsRequest,
   type CreateProviderConfigRequest,
+  type CreateCharacterRequest,
   type CreateModelConfigRequest,
   type DeleteThreadMessagesRequest,
   type KataruneApi,
@@ -37,9 +52,11 @@ import {
   type ModelConfigIdRequest,
   type RenameThreadRequest,
   type SetThreadStatusRequest,
+  type SetActiveCharacterRequest,
   type ThreadIdRequest,
   type UpdateProviderConfigRequest,
   type UpdateModelConfigRequest,
+  type UpdateCharacterRequest,
 } from "../shared/ipc";
 
 interface RuntimeSchema<T> {
@@ -59,7 +76,19 @@ const api: KataruneApi = Object.freeze({
   getAppInfo: () => invokeValidated(IPC_CHANNELS.getAppInfo, appInfoSchema),
   getDatabaseStatus: () => invokeValidated(IPC_CHANNELS.getDatabaseStatus, databaseStatusSchema),
   getAiRuntimeStatus: () => invokeValidated(IPC_CHANNELS.getAiRuntimeStatus, aiRuntimeStatusSchema),
-  listThreads: () => invokeValidated(IPC_CHANNELS.listThreads, threadListSchema),
+  getAppState: () => invokeValidated(IPC_CHANNELS.getAppState, appStateSchema),
+  setActiveCharacter: (request: SetActiveCharacterRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.setActiveCharacter,
+      appStateSchema,
+      setActiveCharacterRequestSchema.parse(request),
+    ),
+  listThreads: (request: ListThreadsRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.listThreads,
+      threadListSchema,
+      listThreadsRequestSchema.parse(request),
+    ),
   initializeThread: (request: ThreadIdRequest) =>
     invokeValidated(
       IPC_CHANNELS.initializeThread,
@@ -182,6 +211,31 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.testModelConnection,
       modelConnectionTestResultSchema,
       modelConfigIdRequestSchema.parse(request),
+    ),
+  listCharacters: () => invokeValidated(IPC_CHANNELS.listCharacters, characterListSchema),
+  createCharacter: (request: CreateCharacterRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.createCharacter,
+      characterSchema,
+      createCharacterRequestSchema.parse(request),
+    ),
+  deleteCharacter: (request: CharacterIdRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.deleteCharacter,
+      deleteCharacterResultSchema,
+      characterIdRequestSchema.parse(request),
+    ),
+  updateCharacter: (request: UpdateCharacterRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.updateCharacter,
+      characterSchema,
+      updateCharacterRequestSchema.parse(request),
+    ),
+  importCharacterPortrait: (request: CharacterPortraitImportRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.importCharacterPortrait,
+      characterPortraitImportResultSchema,
+      characterPortraitImportRequestSchema.parse(request),
     ),
 });
 

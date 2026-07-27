@@ -184,7 +184,7 @@ const ThreadScrollToBottom: FC = () => {
 const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
-      <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
+      <h1 className="aui-thread-welcome-message-inner role-serif-title fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-2xl font-semibold duration-200">
         How can I help you today?
       </h1>
     </div>
@@ -320,7 +320,7 @@ const AssistantMessage: FC = () => {
                 );
               }
               case "text":
-                return <MarkdownText />;
+                return <MarkdownText className="role-narrative-content" />;
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":

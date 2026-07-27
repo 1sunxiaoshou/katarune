@@ -1,0 +1,9 @@
+@import "@fontsource-variable/cormorant-garamond";
+
+@font-face {
+  font-family: "Yellowtail";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/yellowtail/files/yellowtail-latin-400-normal.woff2") format("woff2");
+}

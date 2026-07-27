@@ -1,0 +1,210 @@
+import { createHash, randomUUID } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+import { basename, extname, join, resolve, sep } from "node:path";
+import type { DefaultCharacterConfig } from "../../shared/characters";
+import type {
+  AssetMetadata,
+  DatabaseRuntime,
+  ReadyAssetRegistration,
+} from "../database/database";
+
+const MAX_PORTRAIT_BYTES = 10 * 1024 * 1024;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PORTRAIT_MIME_BY_EXTENSION = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+} as const;
+
+type PortraitMime = (typeof PORTRAIT_MIME_BY_EXTENSION)[keyof typeof PORTRAIT_MIME_BY_EXTENSION];
+
+export interface AssetService {
+  importPortrait(sourcePath: string): ReadyAssetRegistration;
+  removeExact(assetId: string): void;
+  resolveManagedPath(assetId: string): string;
+  reconcile(database: DatabaseRuntime, config: DefaultCharacterConfig): void;
+}
+
+interface CreateAssetServiceOptions {
+  readonly userDataPath: string;
+  readonly characterResourcesPath: string;
+}
+
+function expectedMime(filePath: string): PortraitMime {
+  const extension = extname(filePath).toLocaleLowerCase();
+  const mime = PORTRAIT_MIME_BY_EXTENSION[
+    extension as keyof typeof PORTRAIT_MIME_BY_EXTENSION
+  ];
+  if (mime === undefined) {
+    throw new Error("仅支持 PNG、JPEG 和 WebP 立绘。");
+  }
+  return mime;
+}
+
+function detectedMime(content: Buffer): PortraitMime | null {
+  if (
+    content.length >= 8 &&
+    content.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    return "image/png";
+  }
+  if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    content.length >= 12 &&
+    content.subarray(0, 4).toString("ascii") === "RIFF" &&
+    content.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function inspectPortrait(filePath: string, originalName: string): AssetMetadata {
+  const mimeType = expectedMime(originalName);
+  const byteSize = statSync(filePath).size;
+  if (byteSize > MAX_PORTRAIT_BYTES) {
+    throw new Error("立绘文件不能超过 10 MiB。");
+  }
+  const content = readFileSync(filePath);
+  if (detectedMime(content) !== mimeType) {
+    throw new Error("立绘扩展名与文件内容不一致。");
+  }
+  return {
+    mimeType,
+    byteSize,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    originalName,
+  };
+}
+
+function inspectStoredPortrait(filePath: string, assetId: string): AssetMetadata {
+  const content = readFileSync(filePath);
+  const mimeType = detectedMime(content);
+  if (mimeType === null) {
+    throw new Error("托管资产不是受支持的立绘文件。");
+  }
+  if (content.byteLength > MAX_PORTRAIT_BYTES) {
+    throw new Error("立绘文件不能超过 10 MiB。");
+  }
+  const extension =
+    mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+  return {
+    mimeType,
+    byteSize: content.byteLength,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    originalName: `recovered-${assetId}.${extension}`,
+  };
+}
+
+export function createAssetService({
+  userDataPath,
+  characterResourcesPath,
+}: CreateAssetServiceOptions): AssetService {
+  const assetDirectory = resolve(userDataPath, "assets");
+  const stagingDirectory = resolve(userDataPath, "asset-staging");
+  const legacyDirectory = resolve(userDataPath, "character-assets");
+  mkdirSync(assetDirectory, { recursive: true });
+  mkdirSync(stagingDirectory, { recursive: true });
+
+  const resolveManagedPath = (assetId: string): string => {
+    if (!UUID_PATTERN.test(assetId)) {
+      throw new Error("Invalid asset ID.");
+    }
+    const path = resolve(assetDirectory, assetId);
+    if (!path.startsWith(`${assetDirectory}${sep}`)) {
+      throw new Error("Asset path escaped the managed directory.");
+    }
+    return path;
+  };
+
+  const moveIntoStore = (
+    sourcePath: string,
+    assetId: string,
+    originalName: string,
+  ): ReadyAssetRegistration => {
+    const stagingPath = resolve(stagingDirectory, `${assetId}.tmp`);
+    const finalPath = resolveManagedPath(assetId);
+    try {
+      copyFileSync(sourcePath, stagingPath);
+      const metadata = inspectPortrait(stagingPath, originalName);
+      renameSync(stagingPath, finalPath);
+      return { id: assetId, storageKey: assetId, ...metadata };
+    } catch (error) {
+      if (existsSync(stagingPath)) unlinkSync(stagingPath);
+      throw error;
+    }
+  };
+
+  return {
+    importPortrait: (sourcePath) => {
+      const originalName = basename(sourcePath);
+      expectedMime(originalName);
+      return moveIntoStore(sourcePath, randomUUID(), originalName);
+    },
+    removeExact: (assetId) => {
+      const path = resolveManagedPath(assetId);
+      if (existsSync(path)) unlinkSync(path);
+    },
+    resolveManagedPath,
+    reconcile: (database, config) => {
+      for (const asset of database.listAssets()) {
+        if (asset.status === "ready") continue;
+        const finalPath = resolveManagedPath(asset.id);
+        let originalName: string | undefined;
+
+        if (existsSync(finalPath)) {
+          const bundledPortrait = config.character.portrait;
+          originalName =
+            bundledPortrait?.assetId === asset.id ? bundledPortrait.file : undefined;
+          if (originalName === undefined) {
+            database.markAssetReady(asset.id, inspectStoredPortrait(finalPath, asset.id));
+            continue;
+          }
+        } else {
+          const bundledPortrait = config.character.portrait;
+          if (bundledPortrait?.assetId === asset.id) {
+            const bundledPath = join(characterResourcesPath, bundledPortrait.file);
+            if (basename(bundledPortrait.file) !== bundledPortrait.file) {
+              throw new Error("Invalid bundled portrait path.");
+            }
+            if (existsSync(bundledPath)) {
+              const registration = moveIntoStore(
+                bundledPath,
+                asset.id,
+                bundledPortrait.file,
+              );
+              database.markAssetReady(asset.id, registration);
+              continue;
+            }
+          }
+
+          for (const extension of Object.keys(PORTRAIT_MIME_BY_EXTENSION)) {
+            const legacyPath = join(legacyDirectory, `${asset.id}${extension}`);
+            if (!existsSync(legacyPath)) continue;
+            const metadata = inspectPortrait(legacyPath, basename(legacyPath));
+            renameSync(legacyPath, finalPath);
+            database.markAssetReady(asset.id, metadata);
+            originalName = undefined;
+            break;
+          }
+        }
+
+        if (originalName !== undefined) {
+          database.markAssetReady(asset.id, inspectPortrait(finalPath, originalName));
+        }
+      }
+    },
+  };
+}

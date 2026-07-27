@@ -1,8 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/noto-serif-sc";
 import { App } from "./App";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KataruneAssistantRuntimeProvider } from "./KataruneAssistantRuntimeProvider";
+import { CharacterSessionProvider } from "./characters/CharacterSessionProvider";
 import { initializeTheme } from "./theme";
 import "./styles.css";
 
@@ -17,9 +19,11 @@ initializeTheme();
 createRoot(rootElement).render(
   <StrictMode>
     <TooltipProvider>
-      <KataruneAssistantRuntimeProvider>
-        <App />
-      </KataruneAssistantRuntimeProvider>
+      <CharacterSessionProvider>
+        <KataruneAssistantRuntimeProvider>
+          <App />
+        </KataruneAssistantRuntimeProvider>
+      </CharacterSessionProvider>
     </TooltipProvider>
   </StrictMode>,
 );

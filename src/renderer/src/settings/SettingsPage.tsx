@@ -1,34 +1,28 @@
+import "../characters/character-fonts.css";
 import {
   ArrowUpDownIcon,
   ArrowLeftIcon,
   AudioLinesIcon,
   BinaryIcon,
   BotIcon,
-  BrainIcon,
   CheckCircle2Icon,
   CircleHelpIcon,
-  CloudIcon,
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
-  HexagonIcon,
   ImageIcon,
   MessageSquareTextIcon,
   MoonIcon,
-  NetworkIcon,
-  OrbitIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   SlidersHorizontalIcon,
-  SparklesIcon,
   SunIcon,
   Trash2Icon,
   TriangleAlertIcon,
   VideoIcon,
   Volume2Icon,
-  WavesIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
@@ -57,6 +51,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ProviderLogo } from "@/components/provider-logo";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import {
   MODEL_TYPES,
@@ -94,18 +89,6 @@ const MODEL_CATEGORIES: ReadonlyArray<{
   { value: "rerankingModel", label: "重排序" },
   { value: "videoModel", label: "视频" },
 ];
-
-const PROVIDER_ICONS: Readonly<Record<ProviderType, LucideIcon>> = {
-  gateway: HexagonIcon,
-  "openai-compatible": NetworkIcon,
-  openai: SparklesIcon,
-  anthropic: BrainIcon,
-  google: SearchIcon,
-  deepseek: WavesIcon,
-  xai: OrbitIcon,
-  moonshotai: MoonIcon,
-  alibaba: CloudIcon,
-};
 
 const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
   languageModel: MessageSquareTextIcon,
@@ -759,7 +742,6 @@ function ModelManagement({
           {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
           <div className="grid gap-2">
             {providers.map((provider) => {
-              const Icon = PROVIDER_ICONS[provider.providerType];
               const selected = provider.id === selectedProviderId;
               return (
                 <div
@@ -772,7 +754,10 @@ function ModelManagement({
                     type="button"
                     onClick={() => onSelectProvider(provider.id)}
                   >
-                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                    <ProviderLogo
+                      className="size-4 shrink-0"
+                      providerType={provider.providerType}
+                    />
                     <span className="min-w-0 flex-1 truncate">{provider.displayName}</span>
                   </button>
                   <div className="flex shrink-0 gap-0.5 pr-1 opacity-0 transition-opacity group-hover/provider:opacity-100 group-focus-within/provider:opacity-100" data-testid="provider-actions">
@@ -853,12 +838,27 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
 
   return (
     <main
-      className="h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
+      className="relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
       data-testid="settings-page"
       id="main-content"
     >
+      <header className="settings-header">
+        <TooltipIconButton
+          className="settings-back size-8 rounded-md active:scale-100"
+          data-testid="settings-back"
+          tooltip="返回聊天"
+          onClick={onClose}
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+        </TooltipIconButton>
+        <span className="settings-header-star" aria-hidden="true">✦</span>
+        <h1>设置</h1>
+        <span>SETTINGS</span>
+        <div className="settings-header-line" aria-hidden="true" />
+      </header>
+
       <Tabs
-        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
+        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
         defaultValue="general"
         data-testid="settings-workspace"
         orientation="vertical"
@@ -923,14 +923,6 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
         onConfirm={async () => { if (providerToDelete !== null) await deleteProvider(providerToDelete); }}
       />
 
-      <TooltipIconButton
-        className="fixed bottom-4 left-4 z-40 size-8"
-        data-testid="settings-back"
-        tooltip="返回主页"
-        onClick={onClose}
-      >
-        <ArrowLeftIcon aria-hidden="true" />
-      </TooltipIconButton>
     </main>
   );
 }
