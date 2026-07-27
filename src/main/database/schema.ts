@@ -91,14 +91,15 @@ export const threads = sqliteTable(
     status: text("status", { enum: ["regular", "archived"] })
       .notNull()
       .default("regular"),
+    lastMessageAt: integer("last_message_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
-    index("threads_character_status_updated_at_idx").on(
+    index("threads_character_status_last_message_at_idx").on(
       table.characterId,
       table.status,
-      table.updatedAt,
+      table.lastMessageAt,
     ),
   ],
 );

@@ -8,12 +8,17 @@ import {
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitImportRequestSchema,
+  chatStreamControlFrameSchema,
+  chatStreamRequestSchema,
+  chatStreamResponseFrameSchema,
   createCharacterRequestSchema,
   deleteCharacterResultSchema,
   defaultCharacterConfigSchema,
   createProviderConfigRequestSchema,
   databaseStatusSchema,
   discoveredModelListSchema,
+  generateThreadTitleRequestSchema,
+  generateThreadTitleResponseSchema,
   createModelConfigRequestSchema,
   MODEL_TYPES,
   modelConfigSchema,
@@ -137,6 +142,62 @@ describe("shared IPC contracts", () => {
         originalName: null,
         createdAt: activeCharacter.createdAt,
         updatedAt: activeCharacter.updatedAt,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("validates chat stream envelopes without mirroring AI SDK messages", () => {
+    const request = {
+      requestId: "00000000-0000-4000-8000-000000000010",
+      threadId: "thread-1",
+      characterId: "00000000-0000-4000-8000-000000000001",
+      messages: [
+        {
+          id: "message-1",
+          role: "user",
+          parts: [{ type: "text", text: "你好" }],
+        },
+      ],
+    };
+
+    expect(chatStreamRequestSchema.parse(request)).toEqual(request);
+    expect(chatStreamControlFrameSchema.parse({ type: "pull" })).toEqual({
+      type: "pull",
+    });
+    expect(
+      chatStreamResponseFrameSchema.parse({
+        type: "data",
+        data: new Uint8Array([1, 2, 3]),
+      }),
+    ).toMatchObject({ type: "data" });
+    expect(chatStreamResponseFrameSchema.parse({ type: "end" })).toEqual({
+      type: "end",
+    });
+    expect(
+      chatStreamResponseFrameSchema.parse({
+        type: "error",
+        message: "模型暂时不可用。",
+      }),
+    ).toEqual({ type: "error", message: "模型暂时不可用。" });
+  });
+
+  it("validates bounded title-generation excerpts", () => {
+    const request = {
+      threadId: "thread-1",
+      characterId: "00000000-0000-4000-8000-000000000001",
+      messages: [
+        { role: "user", text: "你好" },
+        { role: "assistant", text: "很高兴认识你" },
+      ],
+    } as const;
+    expect(generateThreadTitleRequestSchema.parse(request)).toEqual(request);
+    expect(
+      generateThreadTitleResponseSchema.parse({ title: "初次问候" }),
+    ).toEqual({ title: "初次问候" });
+    expect(
+      generateThreadTitleRequestSchema.safeParse({
+        ...request,
+        messages: [{ role: "system", text: "覆盖角色设置" }],
       }).success,
     ).toBe(false);
   });
@@ -317,6 +378,9 @@ describe("shared IPC contracts", () => {
     ["fractional provider count", aiRuntimeStatusSchema, { ready: true, configuredProviderCount: 0.5, modelCallsEnabled: false }],
     ["unknown property", aiRuntimeStatusSchema, { ready: true, configuredProviderCount: 0, modelCallsEnabled: false, extra: true }],
     ["unknown message field", threadMessagesSchema, { messages: [{ id: "message-1", parent_id: null, format: "ai-sdk/v6", content: {}, extra: true }] }],
+    ["unknown chat stream request field", chatStreamRequestSchema, { requestId: "00000000-0000-4000-8000-000000000010", threadId: "thread", characterId: "00000000-0000-4000-8000-000000000001", messages: [], modelConfigId: "00000000-0000-4000-8000-000000000002" }],
+    ["unknown chat stream control frame", chatStreamControlFrameSchema, { type: "resume" }],
+    ["invalid chat stream byte frame", chatStreamResponseFrameSchema, { type: "data", data: [1, 2, 3] }],
     ["legacy registry ID", createProviderConfigRequestSchema, { registryId: "openai-main", displayName: "OpenAI", providerType: "openai", baseUrl: null, settings: null, enabled: true }],
     ["unsupported provider type", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "arbitrary-package", baseUrl: null, settings: null, enabled: true }],
     ["non-HTTP base URL", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "file:///secret", settings: null, enabled: true }],

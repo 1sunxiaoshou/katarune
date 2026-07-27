@@ -57,6 +57,13 @@
       "when": 1784864546069,
       "tag": "0007_hesitant_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785150266440,
+      "tag": "0008_conscious_sauron",
+      "breakpoints": true
     }
   ]
 }

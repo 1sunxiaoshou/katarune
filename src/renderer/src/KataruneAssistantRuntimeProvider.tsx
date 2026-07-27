@@ -1,29 +1,82 @@
 import { AssistantRuntimeProvider, useRemoteThreadListRuntime } from "@assistant-ui/react";
 import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
-import { useEffect, useMemo, useRef, type PropsWithChildren } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type PropsWithChildren,
+} from "react";
+import type { Character } from "../../shared/ipc";
 import { useCharacterSession } from "./characters/CharacterSessionProvider";
+import { KataruneChatTransport } from "./chat/KataruneChatTransport";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
 
-export function KataruneAssistantRuntimeProvider({ children }: PropsWithChildren): React.JSX.Element {
-  const { activeCharacter } = useCharacterSession();
+const CharacterRuntimeConfigContext = createContext<Character | null>(null);
+
+function useCharacterRuntimeConfig(): Character {
+  const character = useContext(CharacterRuntimeConfigContext);
+  if (character === null) {
+    throw new Error("CharacterRuntimeConfigContext is missing.");
+  }
+  return character;
+}
+
+function ThreadRuntimeHook() {
+  const character = useCharacterRuntimeConfig();
+  const transport = useMemo(
+    () => new KataruneChatTransport(character.id),
+    [character.id],
+  );
+  return useChatRuntime({
+    transport,
+    isSendDisabled: character.modelConfigId === null,
+  });
+}
+
+interface CharacterRuntimeHostProps extends PropsWithChildren {
+  readonly active: boolean;
+  readonly character: Character;
+}
+
+function CharacterRuntimeHost({
+  active,
+  character,
+  children,
+}: CharacterRuntimeHostProps): React.JSX.Element {
   const adapter = useMemo(
-    () => createKataruneThreadListAdapter(activeCharacter.id),
-    [activeCharacter.id],
+    () => createKataruneThreadListAdapter(character.id),
+    [character.id],
   );
   const runtime = useRemoteThreadListRuntime({
     adapter,
-    runtimeHook: () => useChatRuntime({ isSendDisabled: true }),
+    runtimeHook: ThreadRuntimeHook,
   });
-  const previousCharacterId = useRef(activeCharacter.id);
 
-  useEffect(() => {
-    if (previousCharacterId.current === activeCharacter.id) return;
-    previousCharacterId.current = activeCharacter.id;
-    if (runtime.thread.getState().isRunning) {
-      runtime.thread.cancelRun();
-    }
-    runtime.threads.switchToNewThread();
-  }, [activeCharacter.id, runtime]);
+  return (
+    <CharacterRuntimeConfigContext.Provider value={character}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        {active ? children : null}
+      </AssistantRuntimeProvider>
+    </CharacterRuntimeConfigContext.Provider>
+  );
+}
 
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+export function KataruneAssistantRuntimePool({
+  children,
+}: PropsWithChildren): React.JSX.Element {
+  const { activeCharacter, visitedCharacters } = useCharacterSession();
+
+  return (
+    <>
+      {[...visitedCharacters.values()].map((character) => (
+        <CharacterRuntimeHost
+          active={character.id === activeCharacter.id}
+          character={character}
+          key={character.id}
+        >
+          {children}
+        </CharacterRuntimeHost>
+      ))}
+    </>
+  );
 }
