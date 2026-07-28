@@ -1,5 +1,7 @@
 import { MockLanguageModelV4 } from "ai/test";
+import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
 import {
   createChatService,
@@ -97,7 +99,14 @@ describe("chat service", () => {
     const aiRuntime: ChatServiceAiRuntime = {
       resolveLanguageModel: vi.fn(() => model),
     };
-    const service = createChatService({ database, aiRuntime });
+    const service = createChatService({
+      database,
+      aiRuntime,
+      environmentSource: {
+        now: () => new Date("2026-07-28T01:00:00.000Z"),
+        timeZone: () => "America/Los_Angeles",
+      },
+    });
 
     const response = await service.createResponse(request, new AbortController().signal);
     const streamText = await response.text();
@@ -107,11 +116,17 @@ describe("chat service", () => {
     expect(database.fetchThread).toHaveBeenCalledWith(request.threadId, characterId);
     expect(aiRuntime.resolveLanguageModel).toHaveBeenCalledWith(modelConfigId);
     expect(JSON.stringify(prompt)).toContain("只回答确定性测试内容。");
-    expect(model.doStreamCalls[0]?.tools).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "get_current_time" }),
-      ]),
+    expect(JSON.stringify(prompt)).toContain("Current date: 2026-07-27");
+    expect(JSON.stringify(prompt)).toContain(
+      "Time zone: America/Los_Angeles",
     );
+    expect(JSON.stringify(prompt)).not.toContain("2026-07-28T01:00:00");
+    expect(model.doStreamCalls[0]?.tools).toEqual([
+      expect.objectContaining({
+        name: "get_current_time",
+        type: "function",
+      }),
+    ]);
   });
 
   it("uploads validated renderer tools as non-executable AI SDK tools", async () => {
@@ -162,6 +177,15 @@ describe("chat service", () => {
 
   it("executes a trusted tool and continues the agent loop", async () => {
     let callCount = 0;
+    const toolkit = {
+      tools: vi.fn(async () => ({
+        read_test_value: tool({
+          description: "Read a deterministic test value.",
+          inputSchema: z.object({}),
+          execute: async () => ({ value: "received" }),
+        }),
+      })),
+    };
     const model = new MockLanguageModelV4({
       doStream: async () => {
         callCount += 1;
@@ -171,8 +195,8 @@ describe("chat service", () => {
               if (callCount === 1) {
                 controller.enqueue({
                   type: "tool-call",
-                  toolCallId: "time-call-1",
-                  toolName: "get_current_time",
+                  toolCallId: "test-call-1",
+                  toolName: "read_test_value",
                   input: "{}",
                 });
                 controller.enqueue({
@@ -227,6 +251,7 @@ describe("chat service", () => {
     const service = createChatService({
       database: createDatabase(),
       aiRuntime: { resolveLanguageModel: () => model },
+      toolkit,
     });
 
     const response = await service.createResponse(
@@ -236,9 +261,9 @@ describe("chat service", () => {
     const streamText = await response.text();
 
     expect(callCount).toBe(2);
-    expect(streamText).toContain("get_current_time");
+    expect(streamText).toContain("read_test_value");
     expect(streamText).toContain("Time received");
-    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("timeZone");
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("received");
   });
 
   it("rejects renderer-injected system messages", async () => {

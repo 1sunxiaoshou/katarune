@@ -19,19 +19,62 @@ export interface KataruneAiToolkitToolsOptions
   readonly providerContext?: ProviderToolContext;
 }
 
+function currentLocalTime() {
+  const now = new Date();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    calendar: "gregory",
+    numberingSystem: "latn",
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+
+  const part = (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.find((candidate) => candidate.type === type)?.value;
+    if (value === undefined) {
+      throw new Error(`Unable to resolve current time part "${type}".`);
+    }
+    return value;
+  };
+
+  const localTimeAsUtc = Date.UTC(
+    Number(part("year")),
+    Number(part("month")) - 1,
+    Number(part("day")),
+    Number(part("hour")),
+    Number(part("minute")),
+    Number(part("second")),
+  );
+  const currentSecond = Math.floor(now.getTime() / 1_000) * 1_000;
+  const offsetMinutes = Math.round(
+    (localTimeAsUtc - currentSecond) / 60_000,
+  );
+  const offsetSign = offsetMinutes < 0 ? "-" : "+";
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const utcOffset = `${offsetSign}${String(Math.floor(absoluteOffset / 60)).padStart(2, "0")}:${String(absoluteOffset % 60).padStart(2, "0")}`;
+
+  return {
+    localDateTime: `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}:${part("second")}${utcOffset}`,
+    timeZone,
+  };
+}
+
 const kataruneToolkitDefinition = defineToolkit({
   get_current_time: {
     description:
-      "Get the current date, time, and IANA time zone from the user's device.",
+      "Get the exact current local date, time, UTC offset, and IANA time zone from the user's device. Call this whenever the answer depends on the current clock time; do not infer it from an earlier result.",
     parameters: {
       type: "object",
       properties: {},
       additionalProperties: false,
     },
-    execute: async () => ({
-      iso: new Date().toISOString(),
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }),
+    execute: async () => currentLocalTime(),
   },
 });
 

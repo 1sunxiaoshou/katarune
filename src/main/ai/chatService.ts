@@ -7,6 +7,7 @@ import {
 } from "ai";
 import type { FrontendTools as AISDKFrontendTools } from "@assistant-ui/react-ai-sdk";
 import type { ToolJSONSchema } from "assistant-stream";
+import { z } from "zod";
 import type {
   ChatStreamRequest,
   GenerateThreadTitleRequest,
@@ -26,6 +27,11 @@ export type ChatServiceDatabase = Pick<
 >;
 export type ChatServiceAiRuntime = Pick<AiRuntime, "resolveLanguageModel">;
 
+interface ChatEnvironmentSource {
+  now(): Date;
+  timeZone(): string;
+}
+
 export interface ChatService {
   createResponse(
     request: ChatStreamRequest,
@@ -41,12 +47,37 @@ interface CreateChatServiceOptions {
   readonly aiRuntime: ChatServiceAiRuntime;
   readonly createAgent?: typeof createCharacterAgent;
   readonly createTitleAgent?: typeof createCharacterTitleAgent;
+  readonly environmentSource?: ChatEnvironmentSource;
   readonly toolkit?: {
     tools(options?: KataruneAiToolkitToolsOptions): Promise<ToolSet>;
   };
 }
 
 class PublicChatError extends Error {}
+
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const chatCallOptionsSchema = z.object({
+  currentDate: z.iso.date(),
+  timeZone: z
+    .string()
+    .min(1)
+    .refine(isValidTimeZone, "Invalid IANA time zone."),
+});
+
+type ChatCallOptions = z.infer<typeof chatCallOptionsSchema>;
+
+const systemChatEnvironmentSource: ChatEnvironmentSource = {
+  now: () => new Date(),
+  timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+};
 
 function toAISDKFrontendTools(
   frontendTools: ChatStreamRequest["frontendTools"],
@@ -69,11 +100,20 @@ function createCharacterAgent(
   character: Character,
   model: LanguageModel,
   tools: ToolSet,
-): ToolLoopAgent {
-  return new ToolLoopAgent({
+): ToolLoopAgent<ChatCallOptions, ToolSet> {
+  return new ToolLoopAgent<ChatCallOptions, ToolSet>({
     id: `character-${character.id}`,
     model,
     instructions: character.systemPrompt,
+    callOptionsSchema: chatCallOptionsSchema,
+    prepareCall: ({ options, ...settings }) => ({
+      ...settings,
+      instructions: [
+        character.systemPrompt,
+        `Current date: ${options.currentDate}`,
+        `Time zone: ${options.timeZone}`,
+      ].join("\n"),
+    }),
     tools,
     stopWhen: stepCountIs(8),
   });
@@ -102,6 +142,35 @@ function containsSystemMessage(messages: readonly unknown[]): boolean {
       "role" in message &&
       message.role === "system",
   );
+}
+
+function resolveChatCallOptions(
+  environmentSource: ChatEnvironmentSource,
+): ChatCallOptions {
+  const timeZone = new Intl.DateTimeFormat("en-US", {
+    timeZone: environmentSource.timeZone(),
+  }).resolvedOptions().timeZone;
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    calendar: "gregory",
+    numberingSystem: "latn",
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(environmentSource.now());
+
+  const readPart = (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = dateParts.find((part) => part.type === type)?.value;
+    if (value === undefined) {
+      throw new Error(`Unable to resolve environment date part "${type}".`);
+    }
+    return value;
+  };
+
+  return {
+    currentDate: `${readPart("year")}-${readPart("month")}-${readPart("day")}`,
+    timeZone,
+  };
 }
 
 function fallbackThreadTitle(request: GenerateThreadTitleRequest): string {
@@ -141,6 +210,7 @@ export function createChatService({
   aiRuntime,
   createAgent = createCharacterAgent,
   createTitleAgent = createCharacterTitleAgent,
+  environmentSource = systemChatEnvironmentSource,
   toolkit = kataruneAiToolkit,
 }: CreateChatServiceOptions): ChatService {
   return {
@@ -175,6 +245,7 @@ export function createChatService({
       return createAgentUIStreamResponse({
         agent,
         uiMessages: request.messages,
+        options: resolveChatCallOptions(environmentSource),
         abortSignal,
         onError: sanitizeChatError,
       });

@@ -1,5 +1,5 @@
 import type { FrontendTools } from "@assistant-ui/react-ai-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   kataruneAiToolkit,
   type ProviderToolContext,
@@ -20,7 +20,7 @@ const rendererTools: FrontendTools = {
 };
 
 describe("Katarune AI toolkit", () => {
-  it("merges trusted main tools with renderer-executed frontend tools", async () => {
+  it("merges the trusted time tool with renderer-executed frontend tools", async () => {
     const tools = await kataruneAiToolkit.tools({ frontend: rendererTools });
 
     expect(Object.keys(tools)).toEqual(
@@ -30,7 +30,47 @@ describe("Katarune AI toolkit", () => {
     expect(tools.show_location?.execute).toBeUndefined();
   });
 
-  it("rejects a frontend name collision with a trusted tool", async () => {
+  it("returns the exact current local time with its UTC offset and IANA time zone", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-07-28T07:32:18.000Z");
+      vi.setSystemTime(now);
+      const tools = await kataruneAiToolkit.tools();
+      const execute = tools.get_current_time?.execute;
+
+      expect(execute).toBeTypeOf("function");
+      if (execute === undefined) throw new Error("Time tool is not executable.");
+
+      const result = await execute(
+        {},
+        {
+          toolCallId: "time-call",
+          messages: [],
+          context: undefined,
+        },
+      );
+
+      expect(result).toEqual({
+        localDateTime: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/,
+        ),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("localDateTime" in result) ||
+        typeof result.localDateTime !== "string"
+      ) {
+        throw new Error("Time tool returned an invalid result.");
+      }
+      expect(Date.parse(result.localDateTime)).toBe(now.getTime());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects a frontend name collision with the trusted time tool", async () => {
     await expect(
       kataruneAiToolkit.tools({
         frontend: {
