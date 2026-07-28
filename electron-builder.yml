@@ -1,7 +1,7 @@
 # P1 prototype identifier; replace after the distribution identity is decided.
 appId: app.katarune.prototype
 productName: Katarune
-icon: icon.png
+icon: katarune-logo.png
 asar: true
 npmRebuild: true
 asarUnpack:

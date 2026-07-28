@@ -53,7 +53,7 @@ describe("generic asset service and protocol", () => {
       characterResourcesPath: resourcesPath,
     });
     const registration = service.importPortrait(
-      join(resourcesPath, "celestial-mage-line-art.png"),
+      join(resourcesPath, "sunohara-kokona.png"),
     );
 
     expect(registration.mimeType).toBe("image/png");
@@ -83,7 +83,7 @@ describe("generic asset service and protocol", () => {
     const legacyDirectory = join(userDataPath, "character-assets");
     mkdirSync(legacyDirectory);
     copyFileSync(
-      join(resourcesPath, "celestial-mage-line-art.png"),
+      join(resourcesPath, "sunohara-kokona.png"),
       join(legacyDirectory, `${assetId}.png`),
     );
     const missingId = "00000000-0000-4000-8000-000000000004";
@@ -138,7 +138,7 @@ describe("generic asset service and protocol", () => {
       characterResourcesPath: join(process.cwd(), "resources", "characters"),
     });
     const imported = service.importPortrait(
-      join(process.cwd(), "resources", "characters", "celestial-mage-line-art.png"),
+      join(process.cwd(), "resources", "characters", "sunohara-kokona.png"),
     );
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
