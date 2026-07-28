@@ -12,16 +12,29 @@ import { Button } from "@/components/ui/button";
 
 interface CharacterSession {
   readonly activeCharacter: Character;
+  readonly visitedCharacters: ReadonlyMap<string, Character>;
   readonly deleteCharacter: (characterId: string) => Promise<DeleteCharacterResult>;
   readonly setActiveCharacter: (characterId: string) => Promise<Character>;
 }
 
 const CharacterSessionContext = createContext<CharacterSession | null>(null);
 
+function upsertCharacter(
+  characters: ReadonlyMap<string, Character>,
+  character: Character,
+): ReadonlyMap<string, Character> {
+  const nextCharacters = new Map(characters);
+  nextCharacters.set(character.id, character);
+  return nextCharacters;
+}
+
 export function CharacterSessionProvider({
   children,
 }: PropsWithChildren): React.JSX.Element {
   const [activeCharacter, setActiveCharacterState] = useState<Character | null>(null);
+  const [visitedCharacters, setVisitedCharacters] = useState<
+    ReadonlyMap<string, Character>
+  >(new Map());
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -31,7 +44,12 @@ export function CharacterSessionProvider({
     void window.katarune
       .getAppState()
       .then((state) => {
-        if (active) setActiveCharacterState(state.activeCharacter);
+        if (active) {
+          setActiveCharacterState(state.activeCharacter);
+          setVisitedCharacters((current) =>
+            upsertCharacter(current, state.activeCharacter),
+          );
+        }
       })
       .catch((loadError: unknown) => {
         if (active) {
@@ -48,12 +66,22 @@ export function CharacterSessionProvider({
   const setActiveCharacter = useCallback(async (characterId: string) => {
     const state = await window.katarune.setActiveCharacter({ characterId });
     setActiveCharacterState(state.activeCharacter);
+    setVisitedCharacters((current) =>
+      upsertCharacter(current, state.activeCharacter),
+    );
     return state.activeCharacter;
   }, []);
 
   const deleteCharacter = useCallback(async (characterId: string) => {
     const result = await window.katarune.deleteCharacter({ id: characterId });
     setActiveCharacterState(result.activeCharacter);
+    setVisitedCharacters((current) => {
+      const nextCharacters = new Map(current);
+      nextCharacters.delete(result.deletedCharacterId);
+      nextCharacters.set(result.replacementCharacter.id, result.replacementCharacter);
+      nextCharacters.set(result.activeCharacter.id, result.activeCharacter);
+      return nextCharacters;
+    });
     return result;
   }, []);
 
@@ -61,8 +89,18 @@ export function CharacterSessionProvider({
     () =>
       activeCharacter === null
         ? null
-        : { activeCharacter, deleteCharacter, setActiveCharacter },
-    [activeCharacter, deleteCharacter, setActiveCharacter],
+        : {
+            activeCharacter,
+            visitedCharacters,
+            deleteCharacter,
+            setActiveCharacter,
+          },
+    [
+      activeCharacter,
+      deleteCharacter,
+      setActiveCharacter,
+      visitedCharacters,
+    ],
   );
 
   if (error !== null) {

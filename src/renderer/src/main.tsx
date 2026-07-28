@@ -4,7 +4,6 @@ import "@fontsource-variable/noto-sans-sc";
 import "@fontsource-variable/noto-serif-sc";
 import { App } from "./App";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { KataruneAssistantRuntimeProvider } from "./KataruneAssistantRuntimeProvider";
 import { CharacterSessionProvider } from "./characters/CharacterSessionProvider";
 import { initializeTheme } from "./theme";
 import "./styles.css";
@@ -21,9 +20,7 @@ createRoot(rootElement).render(
   <StrictMode>
     <TooltipProvider>
       <CharacterSessionProvider>
-        <KataruneAssistantRuntimeProvider>
-          <App />
-        </KataruneAssistantRuntimeProvider>
+        <App />
       </CharacterSessionProvider>
     </TooltipProvider>
   </StrictMode>,

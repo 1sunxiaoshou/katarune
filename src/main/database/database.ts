@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
-import { and, asc, count, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { z } from "zod";
@@ -61,6 +61,7 @@ const persistedThreadSchema = z.object({
   title: z.string(),
   status: z.enum(["regular", "archived"]),
   characterId: z.string().uuid(),
+  lastMessageAt: z.date().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 });
@@ -269,7 +270,7 @@ export function openDatabase({
       remoteId: thread.id,
       status: thread.status,
       title: thread.title,
-      lastMessageAt: thread.updatedAt,
+      lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
       characterId: thread.characterId,
     });
   };
@@ -358,13 +359,17 @@ export function openDatabase({
               ne(threads.id, VALIDATION_THREAD_ID),
             ),
           )
-          .orderBy(desc(threads.updatedAt))
+          .orderBy(
+            desc(sql`coalesce(${threads.lastMessageAt}, ${threads.createdAt})`),
+            desc(threads.createdAt),
+            desc(threads.id),
+          )
           .all()
           .map((thread) => ({
             remoteId: thread.id,
             status: thread.status,
             title: thread.title,
-            lastMessageAt: thread.updatedAt,
+            lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
             characterId: thread.characterId,
           })),
       }),
@@ -378,6 +383,7 @@ export function openDatabase({
           characterId,
           title: "新对话",
           status: "regular",
+          lastMessageAt: now,
           createdAt: now,
           updatedAt: now,
         })
@@ -461,7 +467,7 @@ export function openDatabase({
           .run();
         const updatedThread = transaction
           .update(threads)
-          .set({ updatedAt: now })
+          .set({ lastMessageAt: now, updatedAt: now })
           .where(and(eq(threads.id, threadId), eq(threads.characterId, characterId)))
           .run();
         if (updatedThread.changes === 0) {

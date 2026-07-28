@@ -51,12 +51,14 @@ export const IPC_CHANNELS = {
   listThreads: "threads:list",
   initializeThread: "threads:initialize",
   fetchThread: "threads:fetch",
+  generateThreadTitle: "threads:generate-title",
   renameThread: "threads:rename",
   setThreadStatus: "threads:set-status",
   deleteThread: "threads:delete",
   loadThreadMessages: "thread-messages:load",
   appendThreadMessage: "thread-messages:append",
   deleteThreadMessages: "thread-messages:delete",
+  startChatStream: "chat-stream:start",
   listProviderConfigs: "provider-configs:list",
   createProviderConfig: "provider-configs:create",
   fetchProviderConfig: "provider-configs:fetch",
@@ -128,6 +130,21 @@ export const initializeThreadResponseSchema = z.strictObject({
   remoteId: nonEmptyStringSchema,
 });
 
+export const threadTitleMessageSchema = z.strictObject({
+  role: z.enum(["user", "assistant"]),
+  text: z.string().check(z.minLength(1), z.maxLength(2000)),
+});
+
+export const generateThreadTitleRequestSchema = z.strictObject({
+  threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
+  messages: z.array(threadTitleMessageSchema).check(z.minLength(1), z.maxLength(12)),
+});
+
+export const generateThreadTitleResponseSchema = z.strictObject({
+  title: boundedStringSchema,
+});
+
 export const renameThreadRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
   characterId: z.uuid(),
@@ -162,6 +179,30 @@ export const deleteThreadMessagesRequestSchema = z.strictObject({
   characterId: z.uuid(),
   messageIds: z.array(nonEmptyStringSchema).check(z.minLength(1)),
 });
+
+export const chatStreamRequestSchema = z.strictObject({
+  requestId: z.uuid(),
+  threadId: nonEmptyStringSchema,
+  characterId: z.uuid(),
+  messages: z.array(z.unknown()).check(z.maxLength(1000)),
+});
+
+export const chatStreamControlFrameSchema = z.union([
+  z.strictObject({ type: z.literal("pull") }),
+  z.strictObject({ type: z.literal("cancel") }),
+]);
+
+export const chatStreamResponseFrameSchema = z.union([
+  z.strictObject({
+    type: z.literal("data"),
+    data: z.instanceof(Uint8Array),
+  }),
+  z.strictObject({ type: z.literal("end") }),
+  z.strictObject({
+    type: z.literal("error"),
+    message: z.string().check(z.minLength(1), z.maxLength(1000)),
+  }),
+]);
 
 export const appStateSchema = z.strictObject({
   activeCharacter: characterSchema,
@@ -304,12 +345,23 @@ export type ListThreadsRequest = Readonly<z.infer<typeof listThreadsRequestSchem
 export type ThreadMetadata = Readonly<z.infer<typeof threadMetadataSchema>>;
 export type ThreadList = Readonly<z.infer<typeof threadListSchema>>;
 export type InitializeThreadResponse = Readonly<z.infer<typeof initializeThreadResponseSchema>>;
+export type ThreadTitleMessage = Readonly<z.infer<typeof threadTitleMessageSchema>>;
+export type GenerateThreadTitleRequest = Readonly<
+  z.infer<typeof generateThreadTitleRequestSchema>
+>;
+export type GenerateThreadTitleResponse = Readonly<
+  z.infer<typeof generateThreadTitleResponseSchema>
+>;
 export type RenameThreadRequest = Readonly<z.infer<typeof renameThreadRequestSchema>>;
 export type SetThreadStatusRequest = Readonly<z.infer<typeof setThreadStatusRequestSchema>>;
 export type StoredMessage = Readonly<z.infer<typeof storedMessageSchema>>;
 export type ThreadMessages = Readonly<z.infer<typeof threadMessagesSchema>>;
 export type AppendThreadMessageRequest = Readonly<z.infer<typeof appendThreadMessageRequestSchema>>;
 export type DeleteThreadMessagesRequest = Readonly<z.infer<typeof deleteThreadMessagesRequestSchema>>;
+export type ChatStreamRequest = Readonly<z.infer<typeof chatStreamRequestSchema>>;
+export type ChatStreamControlFrame = Readonly<z.infer<typeof chatStreamControlFrameSchema>>;
+export type ChatStreamResponseFrame = Readonly<z.infer<typeof chatStreamResponseFrameSchema>>;
+export type ChatStreamFrameListener = (frame: ChatStreamResponseFrame) => void;
 export type AppState = Readonly<z.infer<typeof appStateSchema>>;
 export type SetActiveCharacterRequest = Readonly<
   z.infer<typeof setActiveCharacterRequestSchema>
@@ -343,12 +395,18 @@ export interface KataruneApi {
   listThreads(request: ListThreadsRequest): Promise<ThreadList>;
   initializeThread(request: ThreadIdRequest): Promise<InitializeThreadResponse>;
   fetchThread(request: ThreadIdRequest): Promise<ThreadMetadata>;
+  generateThreadTitle(
+    request: GenerateThreadTitleRequest,
+  ): Promise<GenerateThreadTitleResponse>;
   renameThread(request: RenameThreadRequest): Promise<OperationSuccess>;
   setThreadStatus(request: SetThreadStatusRequest): Promise<OperationSuccess>;
   deleteThread(request: ThreadIdRequest): Promise<OperationSuccess>;
   loadThreadMessages(request: ThreadIdRequest): Promise<ThreadMessages>;
   appendThreadMessage(request: AppendThreadMessageRequest): Promise<OperationSuccess>;
   deleteThreadMessages(request: DeleteThreadMessagesRequest): Promise<OperationSuccess>;
+  startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;
+  pullChatStream(requestId: string): void;
+  cancelChatStream(requestId: string): void;
   listProviderConfigs(): Promise<ProviderConfigList>;
   createProviderConfig(request: CreateProviderConfigRequest): Promise<ProviderConfig>;
   fetchProviderConfig(request: ProviderConfigIdRequest): Promise<ProviderConfig>;

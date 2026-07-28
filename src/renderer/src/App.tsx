@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { ChatPage } from "./chat/ChatPage";
+import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
 
 const SettingsPage = lazy(async () => {
   const settingsModule = await import("./settings/SettingsPage");
@@ -16,6 +17,14 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="h-dvh overflow-hidden">
+      <KataruneAssistantRuntimePool>
+        {activeView === "chat" ? (
+          <ChatPage
+            onOpenCharacters={() => setActiveView("characters")}
+            onOpenSettings={() => setActiveView("settings")}
+          />
+        ) : null}
+      </KataruneAssistantRuntimePool>
       {activeView === "settings" ? (
         <Suspense
           fallback={
@@ -39,12 +48,7 @@ export function App(): React.JSX.Element {
             onOpenSettings={() => setActiveView("settings")}
           />
         </Suspense>
-      ) : (
-        <ChatPage
-          onOpenCharacters={() => setActiveView("characters")}
-          onOpenSettings={() => setActiveView("settings")}
-        />
-      )}
+      ) : null}
     </div>
   );
 }

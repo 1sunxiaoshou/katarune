@@ -9,9 +9,13 @@ import {
   characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
   characterSchema,
+  chatStreamRequestSchema,
+  chatStreamResponseFrameSchema,
   createCharacterRequestSchema,
   createProviderConfigRequestSchema,
   discoveredModelListSchema,
+  generateThreadTitleRequestSchema,
+  generateThreadTitleResponseSchema,
   databaseStatusSchema,
   deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
@@ -41,11 +45,14 @@ import {
   type AppendThreadMessageRequest,
   type CharacterIdRequest,
   type CharacterPortraitImportRequest,
+  type ChatStreamFrameListener,
+  type ChatStreamRequest,
   type ListThreadsRequest,
   type CreateProviderConfigRequest,
   type CreateCharacterRequest,
   type CreateModelConfigRequest,
   type DeleteThreadMessagesRequest,
+  type GenerateThreadTitleRequest,
   type KataruneApi,
   type ProviderConfigIdRequest,
   type ReplaceProviderCredentialRequest,
@@ -70,6 +77,15 @@ async function invokeValidated<T>(
 ): Promise<T> {
   const value: unknown = await ipcRenderer.invoke(channel, ...args);
   return schema.parse(value);
+}
+
+const chatStreamPorts = new Map<string, MessagePort>();
+
+function closeChatStreamPort(requestId: string): void {
+  const port = chatStreamPorts.get(requestId);
+  if (port === undefined) return;
+  chatStreamPorts.delete(requestId);
+  port.close();
 }
 
 const api: KataruneApi = Object.freeze({
@@ -100,6 +116,12 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.fetchThread,
       threadMetadataSchema,
       threadIdRequestSchema.parse(request),
+    ),
+  generateThreadTitle: (request: GenerateThreadTitleRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.generateThreadTitle,
+      generateThreadTitleResponseSchema,
+      generateThreadTitleRequestSchema.parse(request),
     ),
   renameThread: (request: RenameThreadRequest) =>
     invokeValidated(
@@ -137,6 +159,60 @@ const api: KataruneApi = Object.freeze({
       operationSuccessSchema,
       deleteThreadMessagesRequestSchema.parse(request),
     ),
+  startChatStream: (
+    request: ChatStreamRequest,
+    listener: ChatStreamFrameListener,
+  ) => {
+    const parsedRequest = chatStreamRequestSchema.parse(request);
+    closeChatStreamPort(parsedRequest.requestId);
+
+    const channel = new MessageChannel();
+    chatStreamPorts.set(parsedRequest.requestId, channel.port1);
+    channel.port1.onmessage = (event: MessageEvent<unknown>) => {
+      let frame;
+      try {
+        frame = chatStreamResponseFrameSchema.parse(event.data);
+      } catch {
+        listener({
+          type: "error",
+          message: "聊天流返回了无效数据。",
+        });
+        closeChatStreamPort(parsedRequest.requestId);
+        return;
+      }
+      try {
+        listener(frame);
+      } catch {
+        closeChatStreamPort(parsedRequest.requestId);
+      } finally {
+        if (frame.type !== "data") {
+          closeChatStreamPort(parsedRequest.requestId);
+        }
+      }
+    };
+    channel.port1.onmessageerror = () => {
+      listener({
+        type: "error",
+        message: "聊天流数据无法读取。",
+      });
+      closeChatStreamPort(parsedRequest.requestId);
+    };
+    channel.port1.start();
+    ipcRenderer.postMessage(
+      IPC_CHANNELS.startChatStream,
+      parsedRequest,
+      [channel.port2],
+    );
+  },
+  pullChatStream: (requestId: string) => {
+    chatStreamPorts.get(requestId)?.postMessage({ type: "pull" });
+  },
+  cancelChatStream: (requestId: string) => {
+    const port = chatStreamPorts.get(requestId);
+    if (port === undefined) return;
+    port.postMessage({ type: "cancel" });
+    closeChatStreamPort(requestId);
+  },
   listProviderConfigs: () =>
     invokeValidated(IPC_CHANNELS.listProviderConfigs, providerConfigListSchema),
   createProviderConfig: (request: CreateProviderConfigRequest) =>

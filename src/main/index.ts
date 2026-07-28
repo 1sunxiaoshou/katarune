@@ -7,6 +7,8 @@ import {
   characterIdRequestSchema,
   characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
+  chatStreamRequestSchema,
+  chatStreamResponseFrameSchema,
   createCharacterRequestSchema,
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
@@ -15,6 +17,8 @@ import {
   IPC_CHANNELS,
   modelConfigIdRequestSchema,
   discoveredModelListSchema,
+  generateThreadTitleRequestSchema,
+  generateThreadTitleResponseSchema,
   operationSuccessSchema,
   providerConfigIdRequestSchema,
   replaceProviderCredentialRequestSchema,
@@ -29,6 +33,8 @@ import {
   type AppInfo,
 } from "../shared/ipc";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
+import { createChatService } from "./ai/chatService";
+import { ChatStreamRegistry, startChatStream } from "./ai/chatStream";
 import { discoverProviderModels } from "./ai/modelDiscovery";
 import { registerAssetProtocol, registerAssetScheme } from "./assets/assetProtocol";
 import { createAssetService, type AssetService } from "./assets/assetService";
@@ -58,6 +64,9 @@ function registerIpcHandlers(
   credentialStore: CredentialStore,
   assetService: AssetService,
 ): void {
+  const chatService = createChatService({ database, aiRuntime });
+  const chatStreams = new ChatStreamRegistry();
+
   ipcMain.handle(IPC_CHANNELS.getAppInfo, getAppInfo);
   ipcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
   ipcMain.handle(IPC_CHANNELS.getAiRuntimeStatus, () => aiRuntime.getStatus());
@@ -78,6 +87,12 @@ function registerIpcHandlers(
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     return database.fetchThread(threadId, characterId);
   });
+  ipcMain.handle(IPC_CHANNELS.generateThreadTitle, async (_event, value: unknown) => {
+    const request = generateThreadTitleRequestSchema.parse(value);
+    return generateThreadTitleResponseSchema.parse(
+      await chatService.generateTitle(request),
+    );
+  });
   ipcMain.handle(IPC_CHANNELS.renameThread, (_event, value: unknown) => {
     const { threadId, characterId, title } = renameThreadRequestSchema.parse(value);
     database.renameThread(threadId, characterId, title);
@@ -90,6 +105,7 @@ function registerIpcHandlers(
   });
   ipcMain.handle(IPC_CHANNELS.deleteThread, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
+    chatStreams.cancelThread(characterId, threadId);
     database.deleteThread(threadId, characterId);
     return operationSuccessSchema.parse({ success: true });
   });
@@ -106,6 +122,48 @@ function registerIpcHandlers(
     const { threadId, characterId, messageIds } = deleteThreadMessagesRequestSchema.parse(value);
     database.deleteThreadMessages(threadId, characterId, messageIds);
     return operationSuccessSchema.parse({ success: true });
+  });
+  ipcMain.on(IPC_CHANNELS.startChatStream, (event, value: unknown) => {
+    const port = event.ports[0];
+    if (port === undefined) return;
+
+    const request = chatStreamRequestSchema.safeParse(value);
+    if (!request.success) {
+      port.start();
+      port.postMessage(
+        chatStreamResponseFrameSchema.parse({
+          type: "error",
+          message: "聊天请求无效。",
+        }),
+      );
+      port.close();
+      return;
+    }
+
+    const senderId = event.sender.id;
+    let unregisterStream = (): void => undefined;
+    let streamClosed = false;
+    const handleSenderDestroyed = (): void => chatStreams.cancelSender(senderId);
+    const closeStream = startChatStream({
+      chatService,
+      request: request.data,
+      port,
+      onClose: () => {
+        streamClosed = true;
+        unregisterStream();
+        event.sender.removeListener("destroyed", handleSenderDestroyed);
+      },
+    });
+    if (!streamClosed) {
+      unregisterStream = chatStreams.register({
+        senderId,
+        requestId: request.data.requestId,
+        characterId: request.data.characterId,
+        threadId: request.data.threadId,
+        close: closeStream,
+      });
+      event.sender.once("destroyed", handleSenderDestroyed);
+    }
   });
   ipcMain.handle(IPC_CHANNELS.listProviderConfigs, () => database.listProviderConfigs());
   ipcMain.handle(IPC_CHANNELS.createProviderConfig, async (_event, value: unknown) => {
@@ -219,6 +277,7 @@ function registerIpcHandlers(
   );
   ipcMain.handle(IPC_CHANNELS.deleteCharacter, (_event, value: unknown) => {
     const { id } = characterIdRequestSchema.parse(value);
+    chatStreams.cancelCharacter(id);
     return deleteCharacterResultSchema.parse(database.deleteCharacter(id));
   });
   ipcMain.handle(IPC_CHANNELS.updateCharacter, (_event, value: unknown) => {

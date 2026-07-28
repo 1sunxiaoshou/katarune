@@ -204,6 +204,40 @@ try {
     "数据库中的星澜",
   );
   assert.equal(runtime.getAppState().activeCharacter.id, restoredCharacterId);
+  const initialLastMessageAt = runtime.fetchThread(
+    threadId,
+    restoredCharacterId,
+  ).lastMessageAt;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  runtime.renameThread(threadId, restoredCharacterId, "不会改变消息排序");
+  assert.equal(
+    runtime.fetchThread(threadId, restoredCharacterId).lastMessageAt.getTime(),
+    initialLastMessageAt.getTime(),
+    "重命名不应改变最近消息时间",
+  );
+
+  const orderingThreadId = "newer-message-ordering-thread";
+  runtime.initializeThread(orderingThreadId, restoredCharacterId);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  runtime.appendThreadMessage({
+    threadId: orderingThreadId,
+    characterId: restoredCharacterId,
+    message: { ...message, id: "newer-message-ordering-message" },
+  });
+  assert.equal(
+    runtime.listThreads(restoredCharacterId).threads[0]?.remoteId,
+    orderingThreadId,
+    "会话应按最近消息活动排序",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  runtime.renameThread(threadId, restoredCharacterId, "重命名仍不置顶");
+  assert.equal(
+    runtime.listThreads(restoredCharacterId).threads[0]?.remoteId,
+    orderingThreadId,
+    "旧会话重命名后不应抢占最近消息会话的位置",
+  );
+  runtime.deleteThread(orderingThreadId, restoredCharacterId);
+
   runtime.initializeThread(secondThreadId, secondCharacterId);
   assert.deepEqual(
     runtime.listThreads(restoredCharacterId).threads.map((thread) => thread.remoteId),

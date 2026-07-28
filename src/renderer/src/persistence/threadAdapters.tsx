@@ -5,10 +5,38 @@ import {
   type MessageFormatItem,
   type RemoteThreadListAdapter,
   type ThreadHistoryAdapter,
+  type ThreadMessage,
   useAui,
 } from "@assistant-ui/react";
 import type { ExportedMessageRepositoryItem } from "@assistant-ui/react";
+import { createAssistantStream } from "assistant-stream";
 import { useMemo, type PropsWithChildren } from "react";
+
+function createTitleStream(title?: string) {
+  return createAssistantStream((controller) => {
+    if (title !== undefined) controller.appendText(title);
+  });
+}
+
+function toThreadTitleMessages(messages: readonly ThreadMessage[]) {
+  return messages
+    .filter(
+      (message): message is ThreadMessage & { role: "user" | "assistant" } =>
+        message.role === "user" || message.role === "assistant",
+    )
+    .map((message) => ({
+      role: message.role,
+      text: message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 2000),
+    }))
+    .filter((message) => message.text.length > 0)
+    .slice(0, 12);
+}
 
 class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
   public constructor(
@@ -42,6 +70,11 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
           content: formatAdapter.encode(item),
         },
       });
+      try {
+        await this.aui.threads().reload();
+      } catch {
+        // The message is already durable; a later list load can recover metadata.
+      }
     };
 
     return {
@@ -131,11 +164,19 @@ export function createKataruneThreadListAdapter(
     delete: async (remoteId) => {
       await window.katarune.deleteThread({ threadId: remoteId, characterId });
     },
-    generateTitle: async () =>
-      new ReadableStream({
-        start(controller) {
-          controller.close();
-        },
-      }),
+    generateTitle: async (remoteId, messages) => {
+      const titleMessages = toThreadTitleMessages(messages);
+      if (titleMessages.length === 0) return createTitleStream();
+      try {
+        const { title } = await window.katarune.generateThreadTitle({
+          threadId: remoteId,
+          characterId,
+          messages: titleMessages,
+        });
+        return createTitleStream(title);
+      } catch {
+        return createTitleStream();
+      }
+    },
   };
 }

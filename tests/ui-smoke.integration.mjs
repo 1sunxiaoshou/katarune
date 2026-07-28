@@ -4,6 +4,10 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+} from "ai";
 
 const projectRoot = process.cwd();
 const userDataPath = join(projectRoot, ".test-dist", "ui-user-data");
@@ -28,6 +32,7 @@ let createdCharacterCount = 0;
 let createdCharacterRequest = null;
 let deletedCharacterRequest = null;
 let renamedThreadRequest = null;
+let generatedThreadTitleRequest = null;
 let statusThreadRequest = null;
 let deletedThreadRequest = null;
 let character = {
@@ -73,6 +78,17 @@ let threads = [
     characterId: secondCharacter.id,
   },
 ];
+const storedMessages = new Map();
+let activeChatStreamCount = 0;
+let maximumConcurrentChatStreams = 0;
+let maximumConcurrentChatCharacters = 0;
+const activeChatStreamsByCharacter = new Map();
+let releaseFirstChatStream;
+let releaseCrossCharacterStream;
+
+function messageKey(threadId, characterId) {
+  return `${characterId}:${threadId}`;
+}
 
 function registerMockHandlers() {
   ipcMain.handle("app:get-info", () => ({
@@ -130,6 +146,17 @@ function registerMockHandlers() {
     if (thread === undefined) throw new Error("Thread not found");
     return thread;
   });
+  ipcMain.handle("threads:generate-title", (_event, request) => {
+    generatedThreadTitleRequest = request;
+    const title = `星光下的${request.messages[0]?.text.slice(0, 12) ?? "新对话"}`;
+    threads = threads.map((thread) =>
+      thread.remoteId === request.threadId &&
+      thread.characterId === request.characterId
+        ? { ...thread, title }
+        : thread,
+    );
+    return { title };
+  });
   ipcMain.handle("threads:rename", (_event, request) => {
     renamedThreadRequest = request;
     threads = threads.map((thread) =>
@@ -159,9 +186,148 @@ function registerMockHandlers() {
     );
     return { success: true };
   });
-  ipcMain.handle("thread-messages:load", () => ({ messages: [] }));
-  ipcMain.handle("thread-messages:append", () => ({ success: true }));
-  ipcMain.handle("thread-messages:delete", () => ({ success: true }));
+  ipcMain.handle("thread-messages:load", (_event, request) => ({
+    messages: storedMessages.get(messageKey(request.threadId, request.characterId)) ?? [],
+  }));
+  ipcMain.handle("thread-messages:append", (_event, request) => {
+    const key = messageKey(request.threadId, request.characterId);
+    const messages = storedMessages.get(key) ?? [];
+    const nextMessages = messages.filter(
+      (message) => message.id !== request.message.id,
+    );
+    nextMessages.push(request.message);
+    storedMessages.set(key, nextMessages);
+    threads = threads.map((thread) =>
+      thread.remoteId === request.threadId &&
+      thread.characterId === request.characterId
+        ? { ...thread, lastMessageAt: new Date() }
+        : thread,
+    );
+    return { success: true };
+  });
+  ipcMain.handle("thread-messages:delete", (_event, request) => {
+    const key = messageKey(request.threadId, request.characterId);
+    const deletedIds = new Set(request.messageIds);
+    storedMessages.set(
+      key,
+      (storedMessages.get(key) ?? []).filter(
+        (message) => !deletedIds.has(message.id),
+      ),
+    );
+    return { success: true };
+  });
+  ipcMain.on("chat-stream:start", (event, request) => {
+    const port = event.ports[0];
+    if (port === undefined) return;
+    activeChatStreamCount += 1;
+    activeChatStreamsByCharacter.set(
+      request.characterId,
+      (activeChatStreamsByCharacter.get(request.characterId) ?? 0) + 1,
+    );
+    maximumConcurrentChatStreams = Math.max(
+      maximumConcurrentChatStreams,
+      activeChatStreamCount,
+    );
+    maximumConcurrentChatCharacters = Math.max(
+      maximumConcurrentChatCharacters,
+      activeChatStreamsByCharacter.size,
+    );
+
+    const stream = createUIMessageStream({
+      originalMessages: request.messages,
+      execute: async ({ writer }) => {
+        const serializedMessages = JSON.stringify(request.messages);
+        const isSecondCharacter = request.characterId === secondCharacter.id;
+        const isCrossCharacterRun = serializedMessages.includes("跨角色");
+        writer.write({ type: "text-start", id: "mock-text" });
+        writer.write({
+          type: "text-delta",
+          id: "mock-text",
+          delta: isSecondCharacter ? "月光已经" : "星光已经",
+        });
+        if (
+          request.characterId === characterId &&
+          serializedMessages.includes("请保持跨角色后台生成")
+        ) {
+          await new Promise((resolve) => {
+            releaseCrossCharacterStream = resolve;
+          });
+        } else if (request.threadId === "starline-thread-1") {
+          await new Promise((resolve) => {
+            releaseFirstChatStream = resolve;
+          });
+        } else if (request.threadId === "starline-thread-2") {
+          releaseFirstChatStream?.();
+          releaseFirstChatStream = undefined;
+        }
+        if (isSecondCharacter) {
+          releaseCrossCharacterStream?.();
+          releaseCrossCharacterStream = undefined;
+        }
+        writer.write({
+          type: "text-delta",
+          id: "mock-text",
+          delta: `${isCrossCharacterRun ? "跨角色" : ""}抵达：${request.threadId}。`,
+        });
+        writer.write({ type: "text-end", id: "mock-text" });
+      },
+    });
+    const response = createUIMessageStreamResponse({ stream });
+    const reader = response.body.getReader();
+    let pulls = 0;
+    let reading = false;
+    let closed = false;
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      activeChatStreamCount -= 1;
+      const characterStreamCount =
+        (activeChatStreamsByCharacter.get(request.characterId) ?? 1) - 1;
+      if (characterStreamCount === 0) {
+        activeChatStreamsByCharacter.delete(request.characterId);
+      } else {
+        activeChatStreamsByCharacter.set(
+          request.characterId,
+          characterStreamCount,
+        );
+      }
+      void reader.cancel();
+      port.close();
+    };
+    const drain = async () => {
+      if (reading || closed) return;
+      reading = true;
+      try {
+        while (pulls > 0 && !closed) {
+          pulls -= 1;
+          const result = await reader.read();
+          if (result.done) {
+            port.postMessage({ type: "end" });
+            close();
+            return;
+          }
+          port.postMessage({ type: "data", data: result.value });
+        }
+      } finally {
+        reading = false;
+        if (pulls > 0 && !closed) void drain();
+      }
+    };
+
+    port.on("message", ({ data }) => {
+      if (data?.type === "cancel") {
+        close();
+        return;
+      }
+      if (data?.type === "pull") {
+        pulls += 1;
+        void drain();
+      }
+    });
+    port.on("close", close);
+    port.start();
+  });
   ipcMain.handle("provider-configs:list", () => ({
     providerConfigs: emptyConfigMode ? (createdProvider === null ? [] : [createdProvider]) : [
       {
@@ -319,6 +485,17 @@ async function clickSelector(window, selector) {
   window.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...point });
   window.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...point });
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+}
+
+async function switchCharacterFromChat(window, characterId) {
+  await clickSelector(window, '[data-testid="character-launcher"]');
+  await waitForSelector(window, '[data-testid="character-page"]');
+  await clickSelector(
+    window,
+    `[data-character-id="${characterId}"] [data-testid="character-list-item"]`,
+  );
+  await clickSelector(window, '[data-testid="character-back"]');
+  await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
 }
 
 async function rightClickSelector(
@@ -487,6 +664,223 @@ async function run() {
   const activeMarker = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) [data-active], [data-testid="thread-starline-item"]:nth-child(1)[data-active]')?.textContent ?? document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) .thread-starline-marker').textContent`);
   assert.match(activeMarker, /✦/);
 
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.aui-composer-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请确认星光是否抵达');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await clickSelector(window, 'button[aria-label="Send message"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('星光已经')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for first thread stream'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+
+  await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.aui-composer-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请同时确认另一条星轨');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await clickSelector(window, 'button[aria-label="Send message"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('星光已经抵达：starline-thread-2。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for second thread stream'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.ok(maximumConcurrentChatStreams >= 2);
+
+  await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(1) [data-testid="thread-starline-trigger"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('星光已经抵达：starline-thread-1。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for restored first thread stream'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+
+  const firstPersistedChatKey = messageKey("starline-thread-1", characterId);
+  const secondPersistedChatKey = messageKey("starline-thread-2", characterId);
+  const persistenceDeadline = Date.now() + 5000;
+  while (
+    (storedMessages.get(firstPersistedChatKey)?.length ?? 0) < 2 ||
+    (storedMessages.get(secondPersistedChatKey)?.length ?? 0) < 2
+  ) {
+    if (Date.now() > persistenceDeadline) {
+      throw new Error("Timed out waiting for concurrent messages to persist");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(
+    storedMessages
+      .get(firstPersistedChatKey)
+      .some((message) =>
+        JSON.stringify(message.content).includes(
+          "星光已经抵达：starline-thread-1。",
+        ),
+      ),
+  );
+  assert.ok(
+    storedMessages
+      .get(secondPersistedChatKey)
+      .some((message) =>
+        JSON.stringify(message.content).includes(
+          "星光已经抵达：starline-thread-2。",
+        ),
+      ),
+  );
+
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.aui-composer-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请保持跨角色后台生成');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await clickSelector(window, 'button[aria-label="Send message"]');
+  const crossCharacterStartDeadline = Date.now() + 5000;
+  while (releaseCrossCharacterStream === undefined) {
+    if (Date.now() > crossCharacterStartDeadline) {
+      throw new Error("Timed out waiting for background character stream");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  await switchCharacterFromChat(window, secondCharacter.id);
+  await clickSelector(
+    window,
+    '[data-testid="thread-starline-item"] [data-testid="thread-starline-trigger"]',
+  );
+  const unconfiguredCharacterComposer = await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.aui-composer-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请启动月影跨角色回复');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return {
+      viewportCount: document.querySelectorAll('[data-slot="aui_thread-viewport"]').length,
+      sendDisabled: document.querySelector('button[aria-label="Send message"]').disabled,
+      threadCount: document.querySelectorAll('[data-testid="thread-starline-item"]').length,
+    };
+  })()`);
+  assert.deepEqual(unconfiguredCharacterComposer, {
+    viewportCount: 1,
+    sendDisabled: true,
+    threadCount: 1,
+  });
+
+  await clickSelector(window, '[data-testid="character-launcher"]');
+  await waitForSelector(window, '[data-testid="character-page"]');
+  await clickSelector(window, '[data-testid="character-model"]');
+  await waitForSelector(window, '[data-slot="model-selector-content"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const item = [...document.querySelectorAll('[data-slot="model-selector-item"]')]
+      .find((candidate) => candidate.textContent.includes('DeepSeek Chat'));
+    if (item === undefined) throw new Error('DeepSeek model option was not found');
+    item.click();
+  })()`);
+  const modelBindingDeadline = Date.now() + 5000;
+  while (
+    updatedCharacterRequest?.id !== secondCharacter.id ||
+    updatedCharacterRequest?.modelConfigId !== modelId
+  ) {
+    if (Date.now() > modelBindingDeadline) {
+      throw new Error("Timed out waiting for character model binding");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await clickSelector(window, '[data-testid="character-back"]');
+  await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
+  const configuredCharacterComposer = await window.webContents.executeJavaScript(`(() => ({
+    viewportCount: document.querySelectorAll('[data-slot="aui_thread-viewport"]').length,
+    input: document.querySelector('.aui-composer-input').value,
+    sendDisabled: document.querySelector('button[aria-label="Send message"]').disabled,
+    activeThreadCount: document.querySelectorAll('[data-testid="thread-starline-item"][data-active="true"]').length,
+  }))()`);
+  assert.deepEqual(configuredCharacterComposer, {
+    viewportCount: 1,
+    input: "请启动月影跨角色回复",
+    sendDisabled: false,
+    activeThreadCount: 1,
+  });
+
+  await clickSelector(window, 'button[aria-label="Send message"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('月光已经跨角色抵达：second-character-visible-thread。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for second character stream'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.ok(maximumConcurrentChatCharacters >= 2);
+
+  await switchCharacterFromChat(window, characterId);
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('星光已经跨角色抵达：starline-thread-1。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for restored background character stream'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  const restoredFirstCharacterThread = await window.webContents.executeJavaScript(`(() => ({
+    viewportCount: document.querySelectorAll('[data-slot="aui_thread-viewport"]').length,
+    activeThreadCount: document.querySelectorAll('[data-testid="thread-starline-item"][data-active="true"]').length,
+  }))()`);
+  assert.deepEqual(restoredFirstCharacterThread, {
+    viewportCount: 1,
+    activeThreadCount: 1,
+  });
+
+  await switchCharacterFromChat(window, secondCharacter.id);
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('月光已经跨角色抵达：second-character-visible-thread。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for restored second character runtime'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  await switchCharacterFromChat(window, characterId);
+
+  const crossCharacterFirstKey = messageKey("starline-thread-1", characterId);
+  const crossCharacterSecondKey = messageKey(
+    "second-character-visible-thread",
+    secondCharacter.id,
+  );
+  const crossCharacterPersistenceDeadline = Date.now() + 5000;
+  while (
+    !storedMessages
+      .get(crossCharacterFirstKey)
+      ?.some((message) =>
+        JSON.stringify(message.content).includes(
+          "星光已经跨角色抵达：starline-thread-1。",
+        ),
+      ) ||
+    !storedMessages
+      .get(crossCharacterSecondKey)
+      ?.some((message) =>
+        JSON.stringify(message.content).includes(
+          "月光已经跨角色抵达：second-character-visible-thread。",
+        ),
+      )
+  ) {
+    if (Date.now() > crossCharacterPersistenceDeadline) {
+      throw new Error("Timed out waiting for cross-character persistence");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
   await rightClickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
   const activeAfterRightClick = await window.webContents.executeJavaScript(`(() => {
     const items = [...document.querySelectorAll('[data-testid="thread-starline-item"]')];
@@ -594,6 +988,16 @@ async function run() {
     inert: false,
     stored: "false",
   });
+  await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(1) [data-testid="thread-starline-trigger"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('星光已经抵达：starline-thread-1。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for restored assistant reply'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
 
   window.setContentSize(760, 520);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
@@ -911,6 +1315,41 @@ async function run() {
   assert.match(switchedCharacterThreads.text, /只属于月影的会话/);
   assert.doesNotMatch(switchedCharacterThreads.text, /雨停后的第一封信/);
   assert.equal(switchedCharacterThreads.activeCount, 0);
+  await clickSelector(
+    window,
+    '[data-testid="thread-starline-item"] [data-testid="thread-starline-trigger"]',
+  );
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-slot="aui_thread-viewport"]').textContent.includes('月光已经跨角色抵达：second-character-visible-thread。')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for reloaded second character history'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+
+  await clickSelector(window, '[data-testid="thread-new"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('.aui-composer-input');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请为月下新谈命名');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await clickSelector(window, 'button[aria-label="Send message"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-testid="thread-list-region"]')?.textContent.includes('星光下的请为月下新谈命名')) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for generated thread title'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(generatedThreadTitleRequest.characterId, secondCharacter.id);
+  assert.deepEqual(generatedThreadTitleRequest.messages[0], {
+    role: "user",
+    text: "请为月下新谈命名",
+  });
 
   console.log("UI smoke: opening settings");
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
