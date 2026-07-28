@@ -265,7 +265,9 @@ function createMainWindow(): BrowserWindow {
     minWidth: 760,
     minHeight: 520,
     show: false,
-    icon: join(__dirname, "../renderer/logo.png"),
+    icon: app.isPackaged
+      ? join(__dirname, "../renderer/katarune-logo.png")
+      : join(app.getAppPath(), "resources", "katarune-logo.png"),
     backgroundColor: "#10131a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),

@@ -214,32 +214,32 @@ describe("shared IPC contracts", () => {
         version: 1,
         character: {
           id: "00000000-0000-4000-8000-000000000001",
-          name: "星澜",
+          name: "春原心奈",
           modelConfigId: null,
-          systemPrompt: "你是星澜。",
+          systemPrompt: "你是春原心奈。",
           portrait: {
             assetId: "00000000-0000-4000-8000-000000000002",
-            file: "celestial-mage-line-art.png",
+            file: "sunohara-kokona.png",
           },
         },
       }),
-    ).toMatchObject({ character: { name: "星澜" } });
+    ).toMatchObject({ character: { name: "春原心奈" } });
 
     expect(
       characterListSchema.parse({
         characters: [
           {
             id: "00000000-0000-4000-8000-000000000001",
-            name: "星澜",
+            name: "春原心奈",
             portraitAssetId: "00000000-0000-4000-8000-000000000002",
             modelConfigId: null,
-            systemPrompt: "你是星澜。",
+            systemPrompt: "你是春原心奈。",
             createdAt: new Date("2026-07-23T00:00:00.000Z"),
             updatedAt: new Date("2026-07-23T00:00:00.000Z"),
           },
         ],
       }),
-    ).toMatchObject({ characters: [{ name: "星澜" }] });
+    ).toMatchObject({ characters: [{ name: "春原心奈" }] });
 
     expect(
       updateCharacterRequestSchema.parse({
