@@ -36,6 +36,7 @@ import { createAiRuntime, type AiRuntime } from "./ai/runtime";
 import { createChatService } from "./ai/chatService";
 import { ChatStreamRegistry, startChatStream } from "./ai/chatStream";
 import { discoverProviderModels } from "./ai/modelDiscovery";
+import { kataruneAiToolkit } from "./ai/toolkit";
 import { registerAssetProtocol, registerAssetScheme } from "./assets/assetProtocol";
 import { createAssetService, type AssetService } from "./assets/assetService";
 import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
@@ -412,6 +413,9 @@ void app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
+  void kataruneAiToolkit.close().catch((error: unknown) => {
+    console.error("Failed to close the AI toolkit.", error);
+  });
   databaseRuntime?.close();
   databaseRuntime = undefined;
 });

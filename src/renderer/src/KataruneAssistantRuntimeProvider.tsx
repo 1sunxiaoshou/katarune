@@ -1,6 +1,10 @@
 import { AssistantRuntimeProvider, useRemoteThreadListRuntime } from "@assistant-ui/react";
 import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import {
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  lastAssistantMessageIsCompleteWithToolCalls,
+} from "ai";
+import {
   createContext,
   useContext,
   useMemo,
@@ -30,6 +34,9 @@ function ThreadRuntimeHook() {
   return useChatRuntime({
     transport,
     isSendDisabled: character.modelConfigId === null,
+    sendAutomaticallyWhen: (options) =>
+      lastAssistantMessageIsCompleteWithToolCalls(options) ||
+      lastAssistantMessageIsCompleteWithApprovalResponses(options),
   });
 }
 

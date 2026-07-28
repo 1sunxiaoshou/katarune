@@ -1,9 +1,11 @@
 import { AssistantChatTransport } from "@assistant-ui/react-ai-sdk";
 import type { UIMessage } from "ai";
+import type { FrontendTools } from "../../../shared/ipc";
 
 interface PreparedChatRequest {
   readonly id: string;
   readonly messages: unknown[];
+  readonly tools: FrontendTools;
 }
 
 function parsePreparedRequest(body: BodyInit | null | undefined): PreparedChatRequest {
@@ -19,12 +21,20 @@ function parsePreparedRequest(body: BodyInit | null | undefined): PreparedChatRe
     typeof value.id !== "string" ||
     value.id.length === 0 ||
     !("messages" in value) ||
-    !Array.isArray(value.messages)
+    !Array.isArray(value.messages) ||
+    !("tools" in value) ||
+    typeof value.tools !== "object" ||
+    value.tools === null ||
+    Array.isArray(value.tools)
   ) {
-    throw new Error("聊天请求缺少线程或消息。");
+    throw new Error("聊天请求缺少线程、消息或前端工具定义。");
   }
 
-  return { id: value.id, messages: value.messages };
+  return {
+    id: value.id,
+    messages: value.messages,
+    tools: value.tools as FrontendTools,
+  };
 }
 
 export class KataruneChatTransport extends AssistantChatTransport<UIMessage> {
@@ -64,6 +74,7 @@ export class KataruneChatTransport extends AssistantChatTransport<UIMessage> {
                 threadId: prepared.id,
                 characterId,
                 messages: prepared.messages,
+                frontendTools: prepared.tools,
               },
               (frame) => {
                 if (finished) return;

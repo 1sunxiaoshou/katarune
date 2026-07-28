@@ -19,6 +19,7 @@ type ProviderRegistry = ReturnType<
   typeof createProviderRegistry<Record<string, RegistryProvider>, ":">
 >;
 type ConnectionProbe = (model: LanguageModel) => Promise<void>;
+export type ResolvedLanguageModel = Exclude<LanguageModel, string>;
 
 export type AiRuntimeDatabase = Pick<
   DatabaseRuntime,
@@ -29,7 +30,7 @@ export interface AiRuntime {
   readonly registry: ProviderRegistry;
   getStatus(): AiRuntimeStatus;
   reload(): Promise<void>;
-  resolveLanguageModel(modelConfigId: string): LanguageModel;
+  resolveLanguageModel(modelConfigId: string): ResolvedLanguageModel;
   testConnection(modelConfigId: string): Promise<ModelConnectionTestResult>;
 }
 
@@ -94,7 +95,9 @@ export async function createAiRuntime({
     });
   };
 
-  const resolveLanguageModel = (modelConfigId: string): LanguageModel => {
+  const resolveLanguageModel = (
+    modelConfigId: string,
+  ): ResolvedLanguageModel => {
     const modelConfig = database.fetchModelConfig(modelConfigId);
     if (!modelConfig.enabled) {
       throw new Error(`Model config "${modelConfigId}" is disabled.`);

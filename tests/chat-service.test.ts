@@ -14,6 +14,7 @@ const request: ChatStreamRequest = {
   requestId: "00000000-0000-4000-8000-000000000003",
   threadId: "thread-1",
   characterId,
+  frontendTools: {},
   messages: [
     {
       id: "message-1",
@@ -106,6 +107,138 @@ describe("chat service", () => {
     expect(database.fetchThread).toHaveBeenCalledWith(request.threadId, characterId);
     expect(aiRuntime.resolveLanguageModel).toHaveBeenCalledWith(modelConfigId);
     expect(JSON.stringify(prompt)).toContain("只回答确定性测试内容。");
+    expect(model.doStreamCalls[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "get_current_time" }),
+      ]),
+    );
+  });
+
+  it("uploads validated renderer tools as non-executable AI SDK tools", async () => {
+    const model = createModel(() => undefined);
+    const toolkit = {
+      tools: vi.fn(async () => ({})),
+    };
+    const service = createChatService({
+      database: createDatabase(),
+      aiRuntime: { resolveLanguageModel: () => model },
+      toolkit,
+    });
+
+    await (
+      await service.createResponse(
+        {
+          ...request,
+          frontendTools: {
+            show_location: {
+              description: "Show a location.",
+              parameters: {
+                type: "object",
+                properties: { name: { type: "string" } },
+              },
+            },
+          },
+        },
+        new AbortController().signal,
+      )
+    ).text();
+
+    expect(toolkit.tools).toHaveBeenCalledWith({
+      frontend: {
+        show_location: {
+          description: "Show a location.",
+          parameters: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        },
+      },
+      providerContext: {
+        provider: model.provider,
+        modelId: model.modelId,
+      },
+    });
+  });
+
+  it("executes a trusted tool and continues the agent loop", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        callCount += 1;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              if (callCount === 1) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "time-call-1",
+                  toolName: "get_current_time",
+                  input: "{}",
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "tool-calls", raw: undefined },
+                  usage: {
+                    inputTokens: {
+                      total: 1,
+                      noCache: 1,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
+                    outputTokens: {
+                      total: 1,
+                      text: undefined,
+                      reasoning: undefined,
+                    },
+                  },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-2" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text-2",
+                  delta: "Time received",
+                });
+                controller.enqueue({ type: "text-end", id: "text-2" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: undefined },
+                  usage: {
+                    inputTokens: {
+                      total: 1,
+                      noCache: 1,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
+                    outputTokens: {
+                      total: 2,
+                      text: 2,
+                      reasoning: undefined,
+                    },
+                  },
+                });
+              }
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    const service = createChatService({
+      database: createDatabase(),
+      aiRuntime: { resolveLanguageModel: () => model },
+    });
+
+    const response = await service.createResponse(
+      request,
+      new AbortController().signal,
+    );
+    const streamText = await response.text();
+
+    expect(callCount).toBe(2);
+    expect(streamText).toContain("get_current_time");
+    expect(streamText).toContain("Time received");
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("timeZone");
   });
 
   it("rejects renderer-injected system messages", async () => {
