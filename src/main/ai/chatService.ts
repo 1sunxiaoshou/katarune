@@ -1,8 +1,12 @@
 import {
+  stepCountIs,
   ToolLoopAgent,
   createAgentUIStreamResponse,
   type LanguageModel,
+  type ToolSet,
 } from "ai";
+import type { FrontendTools as AISDKFrontendTools } from "@assistant-ui/react-ai-sdk";
+import type { ToolJSONSchema } from "assistant-stream";
 import type {
   ChatStreamRequest,
   GenerateThreadTitleRequest,
@@ -10,7 +14,11 @@ import type {
 } from "../../shared/ipc";
 import type { Character } from "../../shared/characters";
 import type { DatabaseRuntime } from "../database/database";
-import type { AiRuntime } from "./runtime";
+import type { AiRuntime, ResolvedLanguageModel } from "./runtime";
+import {
+  kataruneAiToolkit,
+  type KataruneAiToolkitToolsOptions,
+} from "./toolkit";
 
 export type ChatServiceDatabase = Pick<
   DatabaseRuntime,
@@ -33,15 +41,41 @@ interface CreateChatServiceOptions {
   readonly aiRuntime: ChatServiceAiRuntime;
   readonly createAgent?: typeof createCharacterAgent;
   readonly createTitleAgent?: typeof createCharacterTitleAgent;
+  readonly toolkit?: {
+    tools(options?: KataruneAiToolkitToolsOptions): Promise<ToolSet>;
+  };
 }
 
 class PublicChatError extends Error {}
 
-function createCharacterAgent(character: Character, model: LanguageModel): ToolLoopAgent {
+function toAISDKFrontendTools(
+  frontendTools: ChatStreamRequest["frontendTools"],
+): AISDKFrontendTools {
+  return Object.fromEntries(
+    Object.entries(frontendTools).map(([name, frontendTool]) => [
+      name,
+      {
+        ...(frontendTool.description !== undefined && {
+          description: frontendTool.description,
+        }),
+        parameters:
+          frontendTool.parameters as ToolJSONSchema["parameters"],
+      },
+    ]),
+  );
+}
+
+function createCharacterAgent(
+  character: Character,
+  model: LanguageModel,
+  tools: ToolSet,
+): ToolLoopAgent {
   return new ToolLoopAgent({
     id: `character-${character.id}`,
     model,
     instructions: character.systemPrompt,
+    tools,
+    stopWhen: stepCountIs(8),
   });
 }
 
@@ -107,6 +141,7 @@ export function createChatService({
   aiRuntime,
   createAgent = createCharacterAgent,
   createTitleAgent = createCharacterTitleAgent,
+  toolkit = kataruneAiToolkit,
 }: CreateChatServiceOptions): ChatService {
   return {
     createResponse: async (request, abortSignal) => {
@@ -120,7 +155,7 @@ export function createChatService({
         throw new PublicChatError("会话消息包含不允许的系统消息。");
       }
 
-      let model: LanguageModel;
+      let model: ResolvedLanguageModel;
       try {
         model = aiRuntime.resolveLanguageModel(character.modelConfigId);
       } catch {
@@ -129,7 +164,14 @@ export function createChatService({
         );
       }
 
-      const agent = createAgent(character, model);
+      const tools = await toolkit.tools({
+        frontend: toAISDKFrontendTools(request.frontendTools),
+        providerContext: {
+          provider: model.provider,
+          modelId: model.modelId,
+        },
+      });
+      const agent = createAgent(character, model, tools);
       return createAgentUIStreamResponse({
         agent,
         uiMessages: request.messages,

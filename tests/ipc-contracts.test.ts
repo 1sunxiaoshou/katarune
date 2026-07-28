@@ -151,6 +151,18 @@ describe("shared IPC contracts", () => {
       requestId: "00000000-0000-4000-8000-000000000010",
       threadId: "thread-1",
       characterId: "00000000-0000-4000-8000-000000000001",
+      frontendTools: {
+        show_location: {
+          description: "Show a location in the renderer.",
+          parameters: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+            },
+            required: ["name"],
+          },
+        },
+      },
       messages: [
         {
           id: "message-1",
@@ -161,6 +173,16 @@ describe("shared IPC contracts", () => {
     };
 
     expect(chatStreamRequestSchema.parse(request)).toEqual(request);
+    expect(
+      chatStreamRequestSchema.safeParse({
+        ...request,
+        frontendTools: {
+          "invalid tool name": {
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      }).success,
+    ).toBe(false);
     expect(chatStreamControlFrameSchema.parse({ type: "pull" })).toEqual({
       type: "pull",
     });

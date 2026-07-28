@@ -180,11 +180,29 @@ export const deleteThreadMessagesRequestSchema = z.strictObject({
   messageIds: z.array(nonEmptyStringSchema).check(z.minLength(1)),
 });
 
+const frontendToolNameSchema = z
+  .string()
+  .check(z.minLength(1), z.maxLength(64), z.regex(/^[A-Za-z0-9_-]+$/));
+
+export const frontendToolSchema = z.strictObject({
+  description: z.optional(z.string().check(z.maxLength(1000))),
+  parameters: z.record(z.string(), z.unknown()),
+});
+
+export const frontendToolsSchema = z
+  .record(frontendToolNameSchema, frontendToolSchema)
+  .check(
+    z.refine((tools) => Object.keys(tools).length <= 64, {
+      error: "A chat request can expose at most 64 frontend tools.",
+    }),
+  );
+
 export const chatStreamRequestSchema = z.strictObject({
   requestId: z.uuid(),
   threadId: nonEmptyStringSchema,
   characterId: z.uuid(),
   messages: z.array(z.unknown()).check(z.maxLength(1000)),
+  frontendTools: frontendToolsSchema,
 });
 
 export const chatStreamControlFrameSchema = z.union([
@@ -358,6 +376,8 @@ export type StoredMessage = Readonly<z.infer<typeof storedMessageSchema>>;
 export type ThreadMessages = Readonly<z.infer<typeof threadMessagesSchema>>;
 export type AppendThreadMessageRequest = Readonly<z.infer<typeof appendThreadMessageRequestSchema>>;
 export type DeleteThreadMessagesRequest = Readonly<z.infer<typeof deleteThreadMessagesRequestSchema>>;
+export type FrontendTool = Readonly<z.infer<typeof frontendToolSchema>>;
+export type FrontendTools = Readonly<z.infer<typeof frontendToolsSchema>>;
 export type ChatStreamRequest = Readonly<z.infer<typeof chatStreamRequestSchema>>;
 export type ChatStreamControlFrame = Readonly<z.infer<typeof chatStreamControlFrameSchema>>;
 export type ChatStreamResponseFrame = Readonly<z.infer<typeof chatStreamResponseFrameSchema>>;
