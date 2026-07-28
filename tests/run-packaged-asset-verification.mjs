@@ -109,7 +109,7 @@ try {
       };
     })()`,
   );
-  assert.equal(result.activeCharacter, "星澜");
+  assert.equal(result.activeCharacter, "春原心奈");
   assert.match(result.imageSource, /^katarune-asset:\/\/asset\/[0-9a-f-]+$/);
   assert.ok(result.imageWidth > 0);
   console.log("Packaged default portrait loaded through katarune-asset.");

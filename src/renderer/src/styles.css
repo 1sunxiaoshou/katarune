@@ -64,6 +64,7 @@
 
 :root {
   --radius: 0.625rem;
+  --font-chat-body: "Noto Sans SC Variable", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   --font-role-serif: "Noto Serif SC Variable", "Songti SC", serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -1051,6 +1052,12 @@
 .role-serif-title,
 .role-narrative-content {
   font-family: var(--font-role-serif);
+}
+
+.chat-message-body {
+  font-family: var(--font-chat-body);
+  font-size: 14px;
+  line-height: 1.75;
 }
 
 .thread-starline-state {

@@ -162,7 +162,7 @@ try {
   );
   const defaultCharacter = runtime.listCharacters().characters[0];
   assert.ok(defaultCharacter);
-  assert.equal(defaultCharacter.name, "星澜");
+  assert.equal(defaultCharacter.name, "春原心奈");
   assert.equal(defaultCharacter.modelConfigId, null);
   const updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
