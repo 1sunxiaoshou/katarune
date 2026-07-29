@@ -28,6 +28,7 @@ import {
   type ModelOption,
 } from "@/components/model-selector";
 import { ProviderLogo } from "@/components/provider-logo";
+import { notify } from "../notifications";
 import type {
   Character,
   CreateCharacterRequest,
@@ -404,9 +405,7 @@ export function CharacterPage({
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] =
     useState<CharacterDeleteCandidate | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [exitError, setExitError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -457,7 +456,6 @@ export function CharacterPage({
       createdAt: now,
       updatedAt: now,
     };
-    setActionError(null);
     setDraftOriginId(selectedCharacter?.id ?? activeCharacter.id);
     setDraftCharacter(draft);
     setSelectedId(draft.id);
@@ -505,18 +503,20 @@ export function CharacterPage({
   const selectCharacter = useCallback(
     async (id: string): Promise<void> => {
       if (id === selectedId) return;
-      setActionError(null);
       try {
         if (draftCharacter !== null && selectedId === draftCharacter.id) {
           await finalizeDraft();
         }
         setSelectedId(id);
       } catch (selectError) {
-        setActionError(
-          selectError instanceof Error
+        notify({
+          channel: "toast",
+          level: "error",
+          message: selectError instanceof Error
             ? selectError.message
             : "保存角色草稿失败，请重试。",
-        );
+          dedupeKey: "character-draft-save",
+        });
       }
     },
     [draftCharacter, finalizeDraft, selectedId],
@@ -525,7 +525,6 @@ export function CharacterPage({
   const requestCharacterDelete = useCallback(
     async (character: Character): Promise<void> => {
       if (characterEntries.length <= 1) return;
-      setActionError(null);
       if (draftCharacter?.id === character.id) {
         setDeleteCandidate({ character, draft: true, threadCount: 0 });
         return;
@@ -540,11 +539,14 @@ export function CharacterPage({
           threadCount: result.threads.length,
         });
       } catch (listError) {
-        setActionError(
-          listError instanceof Error
+        notify({
+          channel: "toast",
+          level: "error",
+          message: listError instanceof Error
             ? listError.message
             : "无法读取角色的会话数量，请重试。",
-        );
+          dedupeKey: `character-delete-preflight:${character.id}`,
+        });
       }
     },
     [characterEntries.length, draftCharacter?.id],
@@ -559,7 +561,11 @@ export function CharacterPage({
       setDraftOriginId(null);
       setSelectedId(fallbackId);
       setFocusNameId(null);
-      setActionError(null);
+      notify({
+        level: "success",
+        message: "角色草稿已删除。",
+        dedupeKey: `character-deleted:${deletedId}`,
+      });
       return;
     }
     const result = await deleteCharacterSession(deletedId);
@@ -573,7 +579,11 @@ export function CharacterPage({
       current === deletedId ? result.replacementCharacter.id : current,
     );
     setFocusNameId((current) => (current === deletedId ? null : current));
-    setActionError(null);
+    notify({
+      level: "success",
+      message: "角色已删除。",
+      dedupeKey: `character-deleted:${deletedId}`,
+    });
   }, [
     activeCharacter.id,
     deleteCandidate,
@@ -595,32 +605,47 @@ export function CharacterPage({
   const importPortrait = useCallback(async (): Promise<void> => {
     if (selectedCharacter === undefined) return;
     const selectedIsDraft = draftCharacter?.id === selectedCharacter.id;
-    const result = await window.katarune.importCharacterPortrait(
-      selectedIsDraft
-        ? { mode: "draft", character: draftRequest(selectedCharacter) }
-        : { mode: "existing", id: selectedCharacter.id },
-    );
-    if (result.canceled || result.character === null) return;
-    const importedCharacter = result.character;
-    if (selectedIsDraft) {
-      setCharacters((current) => [importedCharacter, ...current]);
-      setDraftCharacter(null);
-      setDraftOriginId(null);
-      setSelectedId(importedCharacter.id);
-      setFocusNameId(null);
-    } else {
-      setCharacters((current) =>
-        current.map((character) =>
-          character.id === importedCharacter.id ? importedCharacter : character,
-        ),
+    try {
+      const result = await window.katarune.importCharacterPortrait(
+        selectedIsDraft
+          ? { mode: "draft", character: draftRequest(selectedCharacter) }
+          : { mode: "existing", id: selectedCharacter.id },
       );
+      if (result.canceled || result.character === null) return;
+      const importedCharacter = result.character;
+      if (selectedIsDraft) {
+        setCharacters((current) => [importedCharacter, ...current]);
+        setDraftCharacter(null);
+        setDraftOriginId(null);
+        setSelectedId(importedCharacter.id);
+        setFocusNameId(null);
+      } else {
+        setCharacters((current) =>
+          current.map((character) =>
+            character.id === importedCharacter.id ? importedCharacter : character,
+          ),
+        );
+      }
+      notify({
+        level: "success",
+        message: "角色立绘已更新。",
+        dedupeKey: `character-portrait:${importedCharacter.id}`,
+      });
+    } catch (portraitError) {
+      notify({
+        channel: "toast",
+        level: "error",
+        message: portraitError instanceof Error
+          ? portraitError.message
+          : "导入角色立绘失败，请重试。",
+        dedupeKey: `character-portrait:${selectedCharacter.id}`,
+      });
     }
   }, [draftCharacter?.id, selectedCharacter]);
 
   const leave = useCallback(
     async (destination: "chat" | "settings"): Promise<void> => {
       if (selectedCharacter === undefined) return;
-      setExitError(null);
       try {
         const characterId =
           draftCharacter !== null && selectedCharacter.id === draftCharacter.id
@@ -630,9 +655,12 @@ export function CharacterPage({
         if (destination === "chat") onClose();
         else onOpenSettings();
       } catch (leaveError) {
-        setExitError(
-          leaveError instanceof Error ? leaveError.message : "切换角色失败，请重试。",
-        );
+        notify({
+          channel: "toast",
+          level: "error",
+          message: leaveError instanceof Error ? leaveError.message : "切换角色失败，请重试。",
+          dedupeKey: "character-leave",
+        });
       }
     },
     [
@@ -710,12 +738,6 @@ export function CharacterPage({
             scrollToId={focusNameId}
             onSelect={(id) => void selectCharacter(id)}
           />
-          {actionError !== null && (
-            <p className="character-exit-error" role="alert">{actionError}</p>
-          )}
-          {exitError !== null && (
-            <p className="character-exit-error" role="alert">{exitError}</p>
-          )}
         </div>
       )}
       <ConfirmDialog

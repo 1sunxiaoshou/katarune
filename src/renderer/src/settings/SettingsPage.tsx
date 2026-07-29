@@ -5,7 +5,7 @@ import {
   AudioLinesIcon,
   BinaryIcon,
   BotIcon,
-  CheckCircle2Icon,
+  CheckIcon,
   CircleHelpIcon,
   DownloadIcon,
   EyeIcon,
@@ -20,13 +20,11 @@ import {
   SlidersHorizontalIcon,
   SunIcon,
   Trash2Icon,
-  TriangleAlertIcon,
   VideoIcon,
   Volume2Icon,
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -52,6 +50,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProviderLogo } from "@/components/provider-logo";
+import {
+  clearNotificationScope,
+  InlineNotificationOutlet,
+  notify,
+} from "../notifications";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import {
   MODEL_TYPES,
@@ -124,11 +127,6 @@ type SettingsDataState =
       readonly models: readonly ModelConfig[];
     };
 
-interface Feedback {
-  readonly tone: "success" | "danger" | "warning";
-  readonly message: string;
-}
-
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -142,25 +140,6 @@ function ModelTypeIcon({ type }: { readonly type: ModelType | null }): React.JSX
   const Icon = type === null ? CircleHelpIcon : MODEL_TYPE_ICONS[type];
   const label = type === null ? "类型未识别" : MODEL_TYPE_LABELS[type];
   return <span className="inline-flex justify-center text-foreground" data-testid="model-type-icon" role="img" aria-label={label} title={label}><Icon className="size-4" aria-hidden="true" /></span>;
-}
-
-function FeedbackMessage({ feedback }: { readonly feedback: Feedback | null }): React.JSX.Element | null {
-  if (feedback === null) return null;
-
-  const Icon = feedback.tone === "success" ? CheckCircle2Icon : TriangleAlertIcon;
-  return (
-    <div
-      className={
-        feedback.tone === "danger"
-          ? "flex gap-2 text-sm text-destructive"
-          : "flex gap-2 text-sm text-muted-foreground"
-      }
-      role={feedback.tone === "danger" ? "alert" : "status"}
-    >
-      <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span>{feedback.message}</span>
-    </div>
-  );
 }
 
 function ThemeSettings(): React.JSX.Element {
@@ -238,6 +217,9 @@ interface ProviderDialogProps {
   readonly onSaved: (providerId: string) => Promise<void>;
 }
 
+const PROVIDER_DIALOG_NOTIFICATION_SCOPE = "settings.provider-dialog";
+const MODEL_DIALOG_NOTIFICATION_SCOPE = "settings.model-dialog";
+
 function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps): React.JSX.Element {
   const editing = provider !== undefined;
   const [providerType, setProviderType] = useState<ProviderType>(provider?.providerType ?? "deepseek");
@@ -246,26 +228,39 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
   const credentialRequired = provider?.credentialRef == null;
+
+  useEffect(() => () => {
+    clearNotificationScope(PROVIDER_DIALOG_NOTIFICATION_SCOPE);
+  }, []);
 
   const changeProviderType = (nextType: ProviderType): void => {
     setProviderType(nextType);
     setDisplayName(PROVIDER_CATALOG[nextType].label);
     setBaseUrl("");
-    setFeedback(null);
+    clearNotificationScope(PROVIDER_DIALOG_NOTIFICATION_SCOPE);
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    setFeedback(null);
+    clearNotificationScope(PROVIDER_DIALOG_NOTIFICATION_SCOPE);
 
     if (PROVIDER_CATALOG[providerType].baseUrlRequired && baseUrl.trim().length === 0) {
-      setFeedback({ tone: "danger", message: "请填写 Base URL。" });
+      notify({
+        channel: "inline",
+        scope: PROVIDER_DIALOG_NOTIFICATION_SCOPE,
+        level: "error",
+        message: "请填写 Base URL。",
+      });
       return;
     }
     if (credentialRequired && secret.length === 0) {
-      setFeedback({ tone: "danger", message: "请填写 API Key。" });
+      notify({
+        channel: "inline",
+        scope: PROVIDER_DIALOG_NOTIFICATION_SCOPE,
+        level: "error",
+        message: "请填写 API Key。",
+      });
       return;
     }
 
@@ -292,9 +287,19 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
       }
 
       await onSaved(savedProvider.id);
+      notify({
+        level: "success",
+        message: "供应商配置已保存。",
+        dedupeKey: `provider-saved:${savedProvider.id}`,
+      });
       onOpenChange(false);
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, editing ? "无法保存供应商。" : "无法创建供应商。") });
+      notify({
+        channel: "inline",
+        scope: PROVIDER_DIALOG_NOTIFICATION_SCOPE,
+        level: "error",
+        message: errorMessage(error, editing ? "无法保存供应商。" : "无法创建供应商。"),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -336,7 +341,7 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
             </div>
           </div>
 
-          <FeedbackMessage feedback={feedback} />
+          <InlineNotificationOutlet scope={PROVIDER_DIALOG_NOTIFICATION_SCOPE} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
             <Button type="submit" disabled={submitting}>{submitting ? (editing ? "保存中……" : "创建中……") : (editing ? "保存" : "创建")}</Button>
@@ -356,7 +361,7 @@ interface ModelSettingsProps {
 interface ModelDialogProps {
   readonly provider: ProviderConfig;
   readonly model?: ModelConfig | undefined;
-  readonly initialType: ModelType;
+  readonly initialType: ModelType | null;
   readonly initialModelId?: string | undefined;
   readonly initialDisplayName?: string | undefined;
   readonly onOpenChange: (open: boolean) => void;
@@ -365,16 +370,28 @@ interface ModelDialogProps {
 
 function ModelDialog({ provider, model, initialType, initialModelId = "", initialDisplayName = "", onOpenChange, onSaved }: ModelDialogProps): React.JSX.Element {
   const editing = model !== undefined;
-  const [modelType, setModelType] = useState(model?.modelType ?? initialType);
+  const [modelType, setModelType] = useState<ModelType | null>(model?.modelType ?? initialType);
   const [modelId, setModelId] = useState(model?.modelId ?? initialModelId);
   const [displayName, setDisplayName] = useState(model?.displayName ?? initialDisplayName);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  useEffect(() => () => {
+    clearNotificationScope(MODEL_DIALOG_NOTIFICATION_SCOPE);
+  }, []);
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
+    if (modelType === null) {
+      notify({
+        channel: "inline",
+        scope: MODEL_DIALOG_NOTIFICATION_SCOPE,
+        level: "error",
+        message: "请选择模型类别。",
+      });
+      return;
+    }
     setSubmitting(true);
-    setFeedback(null);
+    clearNotificationScope(MODEL_DIALOG_NOTIFICATION_SCOPE);
     try {
       if (editing) {
         await window.katarune.updateModelConfig({
@@ -396,9 +413,19 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
         });
       }
       await onSaved();
+      notify({
+        level: "success",
+        message: "模型配置已保存。",
+        dedupeKey: `model-saved:${provider.id}:${modelId.trim()}`,
+      });
       onOpenChange(false);
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, editing ? "无法保存模型。" : "无法添加模型。") });
+      notify({
+        channel: "inline",
+        scope: MODEL_DIALOG_NOTIFICATION_SCOPE,
+        level: "error",
+        message: errorMessage(error, editing ? "无法保存模型。" : "无法添加模型。"),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -415,7 +442,8 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
 
           <div className="grid gap-2">
             <Label htmlFor="model-type">模型类别 <span className="text-destructive" aria-hidden="true">*</span></Label>
-            <NativeSelect id="model-type" className="w-full" required value={modelType} onChange={(event) => setModelType(event.target.value as ModelType)}>
+            <NativeSelect id="model-type" className="w-full" required value={modelType ?? ""} onChange={(event) => setModelType(event.target.value.length === 0 ? null : event.target.value as ModelType)}>
+              {modelType === null && <NativeSelectOption value="">请选择模型类别</NativeSelectOption>}
               {MODEL_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{MODEL_TYPE_LABELS[type]}</NativeSelectOption>)}
             </NativeSelect>
           </div>
@@ -430,7 +458,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
             <Input id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </div>
 
-          <FeedbackMessage feedback={feedback} />
+          <InlineNotificationOutlet scope={MODEL_DIALOG_NOTIFICATION_SCOPE} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
             <Button type="submit" disabled={submitting}>{submitting ? "保存中……" : (editing ? "保存" : "添加")}</Button>
@@ -442,59 +470,129 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
 }
 
 type ModelDialogState =
-  | { readonly mode: "create"; readonly modelType: ModelType; readonly modelId: string; readonly displayName: string }
+  | { readonly mode: "create"; readonly modelType: ModelType | null; readonly modelId: string; readonly displayName: string }
   | { readonly mode: "edit"; readonly model: ModelConfig };
+
+type QuickAddState = {
+  readonly modelId: string;
+  readonly status: "saving" | "saved";
+};
 
 function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): React.JSX.Element {
   const [modelDialog, setModelDialog] = useState<ModelDialogState | null>(null);
+  const [quickAddState, setQuickAddState] = useState<QuickAddState | null>(null);
   const [category, setCategory] = useState<ModelCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [discoveredModels, setDiscoveredModels] = useState<readonly DiscoveredModel[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
+  const notificationKeyPrefix = `settings.models:${provider.id}`;
 
   useEffect(() => {
     setModelDialog(null);
-    setFeedback(null);
     setCategory("all");
     setSearchQuery("");
     setDiscoveredModels([]);
+    setQuickAddState(null);
   }, [provider.id]);
 
   const beginCreate = (): void => {
-    setModelDialog({ mode: "create", modelType: category === "all" ? "languageModel" : category, modelId: "", displayName: "" });
-    setFeedback(null);
+    setModelDialog({ mode: "create", modelType: category === "all" ? null : category, modelId: "", displayName: "" });
   };
 
   const beginEdit = (model: ModelConfig): void => {
     setModelDialog({ mode: "edit", model });
-    setFeedback(null);
   };
 
   const discoverModels = async (): Promise<void> => {
     setDiscovering(true);
-    setFeedback(null);
     try {
       const result = await window.katarune.discoverProviderModels({ id: provider.id });
       setDiscoveredModels(result.models);
-      setFeedback({ tone: "success", message: `获取到 ${result.models.length} 个模型。` });
+      notify({
+        channel: "toast",
+        level: result.warning === null ? "success" : "warning",
+        message: result.warning ?? `获取到 ${result.models.length} 个模型。`,
+        dedupeKey: `${notificationKeyPrefix}:discovery`,
+      });
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法获取模型列表。") });
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(error, "无法获取模型列表。"),
+        dedupeKey: `${notificationKeyPrefix}:discovery`,
+      });
     } finally {
       setDiscovering(false);
     }
   };
 
+  const addDiscoveredModel = async (model: DiscoveredModel): Promise<void> => {
+    if (model.modelType === null) {
+      setModelDialog({
+        mode: "create",
+        modelType: null,
+        modelId: model.id,
+        displayName: model.displayName ?? "",
+      });
+      return;
+    }
+
+    setQuickAddState({ modelId: model.id, status: "saving" });
+    try {
+      await window.katarune.createModelConfig({
+        providerConfigId: provider.id,
+        modelType: model.modelType,
+        modelId: model.id,
+        displayName: model.displayName,
+        settings: null,
+        enabled: true,
+      });
+      setQuickAddState({ modelId: model.id, status: "saved" });
+      const successDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300;
+      await new Promise((resolve) => window.setTimeout(resolve, successDelay));
+      await onChanged(provider.id);
+      notify({
+        level: "success",
+        message: "模型配置已保存。",
+        dedupeKey: `model-saved:${provider.id}:${model.id}`,
+      });
+    } catch (error) {
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(error, "无法添加模型。"),
+        dedupeKey: `${notificationKeyPrefix}:quick-add`,
+      });
+    } finally {
+      setQuickAddState(null);
+    }
+  };
+
   const testConnection = async (model: ModelConfig): Promise<void> => {
     setSubmitting(true);
-    setFeedback({ tone: "warning", message: `正在使用 ${model.displayName ?? model.modelId} 发起最小模型调用……` });
+    notify({
+      channel: "toast",
+      level: "loading",
+      message: `正在使用 ${model.displayName ?? model.modelId} 发起最小模型调用……`,
+      dedupeKey: `${notificationKeyPrefix}:connection`,
+    });
     try {
       const result = await window.katarune.testModelConnection({ id: model.id });
-      setFeedback({ tone: result.success ? "success" : "danger", message: `${result.message}（${result.latencyMs} ms）` });
+      notify({
+        channel: "toast",
+        level: result.success ? "success" : "error",
+        message: `${result.message}（${result.latencyMs} ms）`,
+        dedupeKey: `${notificationKeyPrefix}:connection`,
+      });
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "连接测试失败。") });
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(error, "连接测试失败。"),
+        dedupeKey: `${notificationKeyPrefix}:connection`,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -502,11 +600,14 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
 
   const deleteModel = async (model: ModelConfig): Promise<void> => {
     setSubmitting(true);
-    setFeedback(null);
     try {
       await window.katarune.deleteModelConfig({ id: model.id });
       await onChanged(provider.id);
-      setFeedback({ tone: "success", message: "模型配置已删除。" });
+      notify({
+        level: "success",
+        message: "模型配置已删除。",
+        dedupeKey: `model-deleted:${model.id}`,
+      });
     } catch (error) {
       throw new Error(errorMessage(error, "无法删除模型配置。"));
     } finally {
@@ -516,7 +617,6 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
 
   const setModelEnabled = async (model: ModelConfig, enabled: boolean): Promise<void> => {
     setSubmitting(true);
-    setFeedback(null);
     try {
       await window.katarune.updateModelConfig({
         id: model.id,
@@ -528,7 +628,12 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
       });
       await onChanged(provider.id);
     } catch (error) {
-      setFeedback({ tone: "danger", message: errorMessage(error, "无法更新模型启用状态。") });
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(error, "无法更新模型启用状态。"),
+        dedupeKey: `${notificationKeyPrefix}:enabled`,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -597,23 +702,44 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
           </div>
         ))}
         {visibleDiscoveredModels.map((model) => (
-          <div className="group/discovered grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_5rem] items-center gap-3 rounded-sm px-4 text-foreground" data-testid="discovered-model-row" key={model.id}>
+          <div className="group/discovered grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_5rem] items-center gap-3 rounded-sm px-4" data-testid="discovered-model-row" key={model.id}>
             <button
-              className="min-w-0 truncate cursor-pointer text-left font-medium"
+              className={`min-w-0 cursor-pointer truncate text-left font-medium transition-colors duration-200 motion-reduce:transition-none ${
+                quickAddState?.modelId === model.id && quickAddState.status === "saved"
+                  ? "text-foreground"
+                  : "text-muted-foreground"
+              }`}
               type="button"
-              onClick={() => setModelDialog({ mode: "create", modelType: model.modelType ?? "languageModel", modelId: model.id, displayName: model.displayName ?? "" })}
+              onClick={() => {
+                setModelDialog({ mode: "create", modelType: model.modelType, modelId: model.id, displayName: model.displayName ?? "" });
+              }}
               title={model.displayName ?? model.id}
             >
               {model.displayName ?? model.id}
             </button>
-            <span className="truncate font-mono text-xs text-foreground" title={model.displayName !== null && model.displayName !== model.id ? model.id : undefined}>
+            <span
+              className={`truncate font-mono text-xs transition-colors duration-200 motion-reduce:transition-none ${
+                quickAddState?.modelId === model.id && quickAddState.status === "saved"
+                  ? "text-foreground"
+                  : "text-muted-foreground"
+              }`}
+              title={model.displayName !== null && model.displayName !== model.id ? model.id : undefined}
+            >
               {model.displayName !== null && model.displayName !== model.id ? model.id : ""}
             </span>
             <ModelTypeIcon type={model.modelType} />
-            <Badge className="justify-self-center" variant="outline">未配置</Badge>
+            <span aria-hidden="true" />
             <div className="flex w-20 justify-end opacity-0 transition-opacity pointer-events-none group-hover/discovered:pointer-events-auto group-hover/discovered:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
-              <TooltipIconButton tooltip="添加此模型" onClick={() => setModelDialog({ mode: "create", modelType: model.modelType ?? "languageModel", modelId: model.id, displayName: model.displayName ?? "" })}>
-                <PlusIcon aria-hidden="true" />
+              <TooltipIconButton
+                className={quickAddState?.modelId === model.id && quickAddState.status === "saved" ? "text-foreground disabled:opacity-100" : undefined}
+                data-testid="quick-add-model"
+                tooltip={model.modelType === null ? "选择类别并添加" : quickAddState?.modelId === model.id && quickAddState.status === "saved" ? "已添加" : "添加此模型"}
+                disabled={submitting || discovering || quickAddState !== null}
+                onClick={() => void addDiscoveredModel(model)}
+              >
+                {quickAddState?.modelId === model.id && quickAddState.status === "saved"
+                  ? <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out motion-reduce:animate-none" aria-hidden="true" />
+                  : <PlusIcon className={quickAddState?.modelId === model.id ? "animate-pulse motion-reduce:animate-none" : ""} aria-hidden="true" />}
               </TooltipIconButton>
             </div>
           </div>
@@ -630,14 +756,12 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input className="rounded-full pl-8" data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
         </div>
-        <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering}><PlusIcon aria-hidden="true" /></TooltipIconButton>
-        <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering}>
+        <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering || quickAddState !== null}><PlusIcon aria-hidden="true" /></TooltipIconButton>
+        <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering || quickAddState !== null}>
           <DownloadIcon className={discovering ? "animate-pulse" : ""} aria-hidden="true" />
         </TooltipIconButton>
       </CardHeader>
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        <FeedbackMessage feedback={feedback} />
-
         <Tabs className="min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
             <TabsContent className="min-h-0" key={item.value} value={item.value}>
@@ -650,7 +774,7 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
       </Card>
       {modelDialog !== null && (
         <ModelDialog
-          key={modelDialog.mode === "create" ? `new-${modelDialog.modelId}-${modelDialog.modelType}` : modelDialog.model.id}
+          key={modelDialog.mode === "create" ? `new-${modelDialog.modelId}-${modelDialog.modelType ?? "unknown"}` : modelDialog.model.id}
           provider={provider}
           model={modelDialog.mode === "edit" ? modelDialog.model : undefined}
           initialType={modelDialog.mode === "create" ? modelDialog.modelType : modelDialog.model.modelType}
@@ -659,7 +783,6 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
           onOpenChange={(open) => { if (!open) setModelDialog(null); }}
           onSaved={async () => {
             await onChanged(provider.id);
-            setFeedback({ tone: "success", message: "模型配置已保存。" });
           }}
         />
       )}
@@ -827,6 +950,11 @@ export function SettingsPage({ onClose }: SettingsPageProps): React.JSX.Element 
     try {
       await window.katarune.deleteProviderConfig({ id: provider.id });
       await reload();
+      notify({
+        level: "success",
+        message: "供应商配置已删除。",
+        dedupeKey: `provider-deleted:${provider.id}`,
+      });
     } catch (error) {
       throw new Error(errorMessage(error, "无法删除供应商。"));
     }

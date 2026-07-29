@@ -5,6 +5,7 @@ import "@fontsource-variable/noto-serif-sc";
 import { App } from "./App";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CharacterSessionProvider } from "./characters/CharacterSessionProvider";
+import { NotificationProvider } from "./notifications";
 import { initializeTheme } from "./theme";
 import "./styles.css";
 
@@ -19,9 +20,11 @@ initializeTheme();
 createRoot(rootElement).render(
   <StrictMode>
     <TooltipProvider>
-      <CharacterSessionProvider>
-        <App />
-      </CharacterSessionProvider>
+      <NotificationProvider>
+        <CharacterSessionProvider>
+          <App />
+        </CharacterSessionProvider>
+      </NotificationProvider>
     </TooltipProvider>
   </StrictMode>,
 );
