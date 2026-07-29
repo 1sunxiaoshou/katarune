@@ -160,6 +160,15 @@ try {
       }),
     /already exists/,
   );
+  assert.throws(
+    () => runtime?.createModelConfig({
+      providerConfigId: providerConfig.id,
+      ...modelConfigRequest,
+      modelType: "embeddingModel",
+    }),
+    /already exists/,
+    "同一 Provider 下的 modelId 只能配置一次",
+  );
   const defaultCharacter = runtime.listCharacters().characters[0];
   assert.ok(defaultCharacter);
   assert.equal(defaultCharacter.name, "春原心奈");

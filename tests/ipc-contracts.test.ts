@@ -377,7 +377,14 @@ describe("shared IPC contracts", () => {
 
   it("accepts a sanitized discovered model list", () => {
     expect(discoveredModelListSchema.parse({
-      models: [{ id: "provider/model", displayName: "Model", owner: "provider", description: null, modelType: "languageModel" }],
+      models: [{
+        id: "provider/model",
+        displayName: "Model",
+        modelType: "languageModel",
+        typeSource: "litellm-snapshot",
+      }],
+      source: "provider",
+      warning: null,
     })).toMatchObject({ models: [{ id: "provider/model", modelType: "languageModel" }] });
   });
 

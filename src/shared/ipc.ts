@@ -317,13 +317,14 @@ export const modelConfigListSchema = z.strictObject({
 export const discoveredModelSchema = z.strictObject({
   id: providerModelIdSchema,
   displayName: z.nullable(z.string().check(z.minLength(1), z.maxLength(500))),
-  owner: z.nullable(boundedStringSchema),
-  description: z.nullable(z.string().check(z.minLength(1), z.maxLength(4000))),
   modelType: z.nullable(modelTypeSchema),
+  typeSource: z.nullable(z.enum(["gateway", "litellm-snapshot", "litellm-api"])),
 });
 
 export const discoveredModelListSchema = z.strictObject({
   models: z.array(discoveredModelSchema).check(z.maxLength(5000)),
+  source: z.enum(["provider", "litellm-snapshot", "litellm-api"]),
+  warning: z.nullable(z.string().check(z.minLength(1), z.maxLength(1000))),
 });
 
 export const modelConfigIdRequestSchema = z.strictObject({
