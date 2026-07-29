@@ -25,6 +25,8 @@ let emptyConfigMode = false;
 let createdProviderRequest = null;
 let createdProvider = null;
 let replacedCredentialRequest = null;
+let createdModelRequest = null;
+let createdModel = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
 let updatedCharacterRequest = null;
@@ -380,13 +382,26 @@ function registerMockHandlers() {
         createdAt: now,
         updatedAt: now,
       },
+      ...(createdModel === null ? [] : [createdModel]),
     ],
   }));
   ipcMain.handle("model-configs:discover", () => ({
     models: [
-      { id: "deepseek-chat", displayName: "DeepSeek Chat", owner: "deepseek", description: null, modelType: "languageModel" },
-      { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro", owner: "deepseek", description: "Reasoning model", modelType: "languageModel" },
+      {
+        id: "deepseek-chat",
+        displayName: "DeepSeek Chat",
+        modelType: "languageModel",
+        typeSource: "litellm-snapshot",
+      },
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        modelType: "languageModel",
+        typeSource: "litellm-snapshot",
+      },
     ],
+    source: "provider",
+    warning: null,
   }));
   ipcMain.handle("model-configs:update", (_event, request) => {
     updatedModelRequest = request;
@@ -398,6 +413,16 @@ function registerMockHandlers() {
       createdAt: now,
       updatedAt: now,
     };
+  });
+  ipcMain.handle("model-configs:create", (_event, request) => {
+    createdModelRequest = request;
+    createdModel = {
+      id: "3cab15e0-e330-4f78-80b9-8ebc99c919bd",
+      ...request,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return createdModel;
   });
   ipcMain.handle("characters:list", () => ({ characters }));
   ipcMain.handle("characters:create", (_event, request) => {
@@ -459,6 +484,25 @@ async function waitForSelector(window, selector) {
       const deadline = Date.now() + 5000;
       const check = () => {
         if (document.querySelector(${JSON.stringify(selector)}) !== null) return resolve(true);
+        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(timeoutMessage)}));
+        setTimeout(check, 25);
+      };
+      check();
+    })
+  `);
+}
+
+async function waitForToastMessage(window, message) {
+  const timeoutMessage = `Timed out waiting for toast: ${message}`;
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 5000;
+      const check = () => {
+        const matched = Array.from(
+          document.querySelectorAll('[data-testid="notification-toast"]'),
+          (element) => element.textContent,
+        ).some((text) => text.includes(${JSON.stringify(message)}));
+        if (matched) return resolve(true);
         if (Date.now() > deadline) return reject(new Error(${JSON.stringify(timeoutMessage)}));
         setTimeout(check, 25);
       };
@@ -601,11 +645,6 @@ async function run() {
       isRound: Number.parseFloat(getComputedStyle(launcherElement).borderRadius) * 2 >= Math.min(launcher.width, launcher.height),
       characterLeft: Math.round(character.left),
       characterTop: Math.round(character.top),
-      characterWidthMatchesClamp:
-        Math.abs(
-          character.width -
-            (Math.min(322, Math.max(254, window.innerWidth * 0.23)) - 44),
-        ) < 1,
       characterHeight: Math.round(character.height),
     };
   })()`);
@@ -617,7 +656,6 @@ async function run() {
     isRound: true,
     characterLeft: 24,
     characterTop: 24,
-    characterWidthMatchesClamp: true,
     characterHeight: 86,
   });
 
@@ -915,6 +953,7 @@ async function run() {
     characterId,
     status: "archived",
   });
+  await waitForToastMessage(window, "会话已归档。");
 
   await rightClickSelector(window, '[data-testid="thread-starline-item"]:nth-child(4) [data-testid="thread-starline-trigger"]');
   await clickSelector(window, '[data-testid="thread-context-delete"]');
@@ -924,6 +963,7 @@ async function run() {
   await clickSelector(window, '[data-testid="confirm-dialog-confirm"]');
   await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 80))`);
   assert.equal(deletedThreadRequest.threadId, "starline-thread-5");
+  await waitForToastMessage(window, "会话已删除。");
 
   await window.webContents.executeJavaScript(`(() => {
     const scroll = document.querySelector('[data-testid="thread-starline-scroll"]');
@@ -1254,6 +1294,7 @@ async function run() {
     check();
   })`);
   assert.equal(deletedCharacterRequest.id, createdCharacterId);
+  await waitForToastMessage(window, "角色已删除。");
   const selectionAfterDelete = await window.webContents.executeJavaScript(
     `document.querySelector('[data-testid="character-name"]').value`,
   );
@@ -1611,8 +1652,30 @@ async function run() {
   await waitForSelector(window, '[data-testid="discovered-model-row"]');
   const discoveredCount = await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="discovered-model-row"]').length`);
   assert.equal(discoveredCount, 1);
+  const discoveryFeedback = await window.webContents.executeJavaScript(`({
+    toastMessages: Array.from(document.querySelectorAll('[data-testid="notification-toast"]'), (element) => element.textContent),
+    inlineMessages: Array.from(document.querySelectorAll('[data-notification-scope]'), (element) => element.textContent),
+    modelAreaInlineCount: document.querySelectorAll('[data-notification-scope^="settings.models:"]').length,
+  })`);
+  assert.equal(discoveryFeedback.toastMessages.some((message) => message.includes("获取到 1 个模型。")), true);
+  assert.equal(discoveryFeedback.inlineMessages.some((message) => message.includes("获取到 1 个模型。")), false);
+  assert.equal(discoveryFeedback.modelAreaInlineCount, 0);
   const categoryColumns = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-type-icon"]'), (element) => Math.round(element.getBoundingClientRect().left))`);
   assert.equal(new Set(categoryColumns).size, 1);
+  const discoveredRowStyle = await window.webContents.executeJavaScript(`(() => {
+    const configuredName = document.querySelector('[data-testid="model-row"] > :first-child');
+    const discoveredRow = document.querySelector('[data-testid="discovered-model-row"]');
+    const discoveredName = discoveredRow.firstElementChild;
+    return {
+      containsUnconfiguredLabel: discoveredRow.textContent.includes("未配置"),
+      usesMutedName: getComputedStyle(discoveredName).color !== getComputedStyle(configuredName).color,
+      configuredColumns: getComputedStyle(document.querySelector('[data-testid="model-row"]')).gridTemplateColumns,
+      discoveredColumns: getComputedStyle(discoveredRow).gridTemplateColumns,
+    };
+  })()`);
+  assert.equal(discoveredRowStyle.containsUnconfiguredLabel, false);
+  assert.equal(discoveredRowStyle.usesMutedName, true);
+  assert.equal(discoveredRowStyle.discoveredColumns, discoveredRowStyle.configuredColumns);
   await window.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('[data-testid="model-search"]');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'deepseek-v4-pro');
@@ -1716,11 +1779,44 @@ async function run() {
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="add-model"]').click()`);
   await waitForSelector(window, "#model-type");
-  const addModelDialogText = await window.webContents.executeJavaScript(`document.querySelector('#model-type').closest('[data-slot="dialog-content"]').innerText`);
-  assert.match(addModelDialogText, /添加模型[\s\S]*模型类别[\s\S]*厂商模型 ID[\s\S]*显示名称/);
-  assert.doesNotMatch(addModelDialogText, /启用模型/);
+  const addModelDialog = await window.webContents.executeJavaScript(`(() => {
+    const select = document.querySelector("#model-type");
+    return {
+      text: select.closest('[data-slot="dialog-content"]').innerText,
+      value: select.value,
+      required: select.required,
+    };
+  })()`);
+  assert.match(addModelDialog.text, /添加模型[\s\S]*模型类别[\s\S]*厂商模型 ID[\s\S]*显示名称/);
+  assert.doesNotMatch(addModelDialog.text, /启用模型/);
+  assert.equal(addModelDialog.value, "");
+  assert.equal(addModelDialog.required, true);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="dialog-content"] button')).find((button) => button.textContent.trim() === "取消").click()`);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="quick-add-model"]').click()`);
+  await waitForSelector(window, '[data-testid="notification-toast"]');
+  const quickAddResult = await window.webContents.executeJavaScript(`(() => {
+    const toast = document.querySelector('[data-testid="notification-toast"]');
+    const viewport = document.querySelector('[data-testid="notification-viewport"]').getBoundingClientRect();
+    return {
+      message: toast.textContent,
+      level: toast.dataset.level,
+      rightInset: Math.round(window.innerWidth - viewport.right),
+      topInset: Math.round(viewport.top),
+      modelRows: document.querySelectorAll('[data-testid="model-row"]').length,
+      discoveredRows: document.querySelectorAll('[data-testid="discovered-model-row"]').length,
+    };
+  })()`);
+  assert.equal(createdModelRequest.modelType, "languageModel");
+  assert.equal(createdModelRequest.modelId, "deepseek-v4-pro");
+  assert.match(quickAddResult.message, /模型配置已保存/);
+  assert.equal(quickAddResult.level, "success");
+  assert.deepEqual(
+    { rightInset: quickAddResult.rightInset, topInset: quickAddResult.topInset },
+    { rightInset: 16, topInset: 16 },
+  );
+  assert.equal(quickAddResult.modelRows, 2);
+  assert.equal(quickAddResult.discoveredRows, 0);
   const modelScreenshot = await capture(window, "model-settings.png");
 
   const themeMetrics = await window.webContents.executeJavaScript(`(() => {

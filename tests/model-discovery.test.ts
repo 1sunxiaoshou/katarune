@@ -28,48 +28,213 @@ describe("Provider model discovery", () => {
       return Response.json({ data: [{ id: "deepseek-v4-pro", owned_by: "deepseek" }] });
     });
 
-    await expect(discoverProviderModels(provider({}), "secret-key", fetchImplementation)).resolves.toEqual({
-      models: [{ id: "deepseek-v4-pro", displayName: null, owner: "deepseek", description: null, modelType: null }],
+    const result = await discoverProviderModels(provider({}), "secret-key", fetchImplementation);
+    expect(result).toMatchObject({
+      source: "provider",
+      warning: null,
+      models: [{
+        id: "deepseek-v4-pro",
+        modelType: "languageModel",
+        typeSource: "litellm-snapshot",
+      }],
     });
   });
 
-  it("maps Google model capabilities and sends its key in a header", async () => {
+  it("uses a preset provider identity to enrich models returned by a custom Base URL", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://deepseek-proxy.example/v1/models");
+      return Response.json({ data: [{ id: "deepseek-v4-pro" }] });
+    });
+
+    const result = await discoverProviderModels(provider({
+      baseUrl: "https://deepseek-proxy.example/v1",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "deepseek-v4-pro",
+      modelType: "languageModel",
+      typeSource: "litellm-snapshot",
+    });
+  });
+
+  it("prefers a recognized custom Base URL identity over the selected preset provider", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://api.deepseek.com/models");
+      return Response.json({ data: [{ id: "deepseek-v4-pro" }] });
+    });
+
+    const result = await discoverProviderModels(provider({
+      providerType: "openai",
+      baseUrl: "https://api.deepseek.com/",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "deepseek-v4-pro",
+      modelType: "languageModel",
+      typeSource: "litellm-snapshot",
+    });
+  });
+
+  it("falls back from a recognized custom Base URL identity to the selected preset provider", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://api.openai.com/v1/models");
+      return Response.json({ data: [{ id: "deepseek-v4-pro" }] });
+    });
+
+    const result = await discoverProviderModels(provider({
+      baseUrl: "https://api.openai.com/v1",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "deepseek-v4-pro",
+      modelType: "languageModel",
+      typeSource: "litellm-snapshot",
+    });
+  });
+
+  it("uses a recognized Base URL identity for OpenAI-compatible providers", async () => {
+    const fetchImplementation = vi.fn(async () =>
+      Response.json({ data: [{ id: "deepseek-v4-pro" }] }));
+
+    const result = await discoverProviderModels(provider({
+      providerType: "openai-compatible",
+      baseUrl: "https://api.deepseek.com",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "deepseek-v4-pro",
+      modelType: "languageModel",
+      typeSource: "litellm-snapshot",
+    });
+  });
+
+  it("uses the online LiteLLM catalog when the bundled snapshot has no matching model", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).includes("raw.githubusercontent.com/BerriAI/litellm")) {
+        return Response.json({
+          "brand-new-gemini": {
+            litellm_provider: "gemini",
+            mode: "embedding",
+            supported_endpoints: ["/v1/embeddings"],
+            max_input_tokens: 32000,
+          },
+        });
+      }
+      return Response.json({ models: [{ name: "models/brand-new-gemini" }] });
+    });
+    const result = await discoverProviderModels(provider({
+      providerType: "google",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "brand-new-gemini",
+      modelType: "embeddingModel",
+      typeSource: "litellm-api",
+    });
+  });
+
+  it("uses LiteLLM types instead of Google method declarations", async () => {
     const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
       expect(new Headers(init?.headers).get("x-goog-api-key")).toBe("google-key");
       return Response.json({
         models: [
-          { name: "models/gemini-test", baseModelId: "gemini-test", displayName: "Gemini Test", supportedGenerationMethods: ["generateContent"] },
-          { name: "models/gemini-embed", supportedGenerationMethods: ["embedContent"] },
+          { name: "models/gemini-2.5-pro", baseModelId: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", supportedGenerationMethods: ["embedContent"] },
+          { name: "models/text-embedding-004", supportedGenerationMethods: ["generateContent"] },
         ],
       });
     });
 
     const result = await discoverProviderModels(provider({ providerType: "google" }), "google-key", fetchImplementation);
     expect(result.models).toMatchObject([
-      { id: "gemini-embed", modelType: "embeddingModel" },
-      { id: "gemini-test", displayName: "Gemini Test", modelType: "languageModel" },
+      {
+        id: "gemini-2.5-pro",
+        modelType: "languageModel",
+        typeSource: "litellm-snapshot",
+      },
+      {
+        id: "text-embedding-004",
+        modelType: "embeddingModel",
+        typeSource: "litellm-snapshot",
+      },
     ]);
   });
 
-  it("uses the installed Gateway Provider discovery API and preserves model metadata", async () => {
+  it("uses the installed Gateway Provider discovery API and its model type", async () => {
     const fetchImplementation = vi.fn(async (input: string | URL | Request) => {
       expect(String(input)).toBe("https://ai-gateway.vercel.sh/v4/ai/config");
       return Response.json({
         models: [{
-          id: "openai/test-model",
+          id: "openai/gpt-4o",
           name: "Test Model",
           description: "For tests",
           pricing: null,
-          specification: { specificationVersion: "v4", provider: "openai", modelId: "test-model" },
-          modelType: "language",
+          specification: { specificationVersion: "v4", provider: "openai", modelId: "gpt-4o" },
+          modelType: "embedding",
         }],
       });
     });
 
-    await expect(discoverProviderModels(provider({ providerType: "gateway" }), "gateway-key", fetchImplementation)).resolves.toEqual({
-      models: [{ id: "openai/test-model", displayName: "Test Model", owner: "openai", description: "For tests", modelType: "languageModel" }],
+    await expect(discoverProviderModels(provider({ providerType: "gateway" }), "gateway-key", fetchImplementation)).resolves.toMatchObject({
+      source: "provider",
+      warning: null,
+      models: [{
+        id: "openai/gpt-4o",
+        displayName: "Test Model",
+        modelType: "embeddingModel",
+        typeSource: "gateway",
+      }],
     });
+  });
+
+  it("does not use provider endpoint metadata as the final model type", async () => {
+    const fetchImplementation = vi.fn(async () => Response.json({
+      data: [{
+        id: "multi-purpose",
+        supported_endpoint_types: ["chat.completions", "embeddings"],
+      }],
+    }));
+    const result = await discoverProviderModels(provider({
+      providerType: "openai-compatible",
+      baseUrl: "https://unknown.example/v1",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      modelType: null,
+      typeSource: null,
+    });
+  });
+
+  it("resolves a model type without knowing the upstream provider when LiteLLM entries agree", async () => {
+    const fetchImplementation = vi.fn(async () => Response.json({ data: [{ id: "gpt-4o" }] }));
+    const result = await discoverProviderModels(provider({
+      providerType: "openai-compatible",
+      baseUrl: "https://unknown.example/v1",
+    }), "key", fetchImplementation);
+    expect(result.models[0]).toMatchObject({
+      id: "gpt-4o",
+      modelType: "languageModel",
+      typeSource: "litellm-snapshot",
+    });
+  });
+
+  it("falls back to the bundled catalog when the provider endpoint is unsupported", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 404 }));
+    const result = await discoverProviderModels(provider({}), "key", fetchImplementation);
+    expect(result.source).toBe("litellm-snapshot");
+    expect(result.warning).toContain("HTTP 404");
+    expect(result.models.some((model) => model.id === "deepseek-v4-pro")).toBe(true);
+    expect(result.models.every((model) => model.modelType === "languageModel")).toBe(true);
+  });
+
+  it("does not replace a custom Base URL inventory with the preset provider catalog", async () => {
+    const fetchImplementation = vi.fn(async () => new Response(null, { status: 404 }));
+    await expect(discoverProviderModels(provider({
+      baseUrl: "https://deepseek-proxy.example/v1",
+    }), "key", fetchImplementation)).rejects.toThrow(
+      "自定义 Base URL 的实际可用模型不能由供应商完整目录代替",
+    );
+  });
+
+  it("does not replace the live Gateway inventory with a static catalog on transient failure", async () => {
+    const fetchImplementation = vi.fn(async () => new Response("temporary", { status: 500 }));
+    await expect(
+      discoverProviderModels(provider({ providerType: "gateway" }), "key", fetchImplementation),
+    ).rejects.toThrow("无法确认当前可用模型");
   });
 
   it("returns a bounded error without including response content", async () => {

@@ -19,6 +19,7 @@ import {
   AppContextMenuItem,
   AppContextMenuSeparator,
 } from "@/components/app-context-menu";
+import { notify } from "../notifications";
 import { formatThreadTime } from "./threadTime";
 import { normalizeThreadTitle } from "./threadSidebarState";
 
@@ -34,12 +35,10 @@ function errorMessage(cause: unknown, fallback: string): string {
 
 interface ThreadStarlineItemProps {
   readonly now: Date;
-  readonly onError: (message: string | null) => void;
 }
 
 function ThreadStarlineItem({
   now,
-  onError,
 }: ThreadStarlineItemProps): React.JSX.Element {
   const runtime = useThreadListItemRuntime();
   const title = useAuiState((state) => state.threadListItem.title);
@@ -71,7 +70,6 @@ function ThreadStarlineItem({
     cancelledRename.current = false;
     setDraft(title ?? "");
     setEditing(true);
-    onError(null);
   };
 
   const saveRename = async (): Promise<void> => {
@@ -88,12 +86,16 @@ function ThreadStarlineItem({
     }
 
     setPending(true);
-    onError(null);
     try {
       await runtime.rename(nextTitle);
       setEditing(false);
     } catch (cause) {
-      onError(errorMessage(cause, "重命名失败，请重试。"));
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(cause, "重命名失败，请重试。"),
+        dedupeKey: `thread-rename:${threadId}`,
+      });
       requestAnimationFrame(() => {
         renameInput.current?.focus();
         renameInput.current?.select();
@@ -114,30 +116,27 @@ function ThreadStarlineItem({
       cancelledRename.current = true;
       setDraft(title ?? "");
       setEditing(false);
-      onError(null);
     }
   };
 
   const archive = async (): Promise<void> => {
     setPending(true);
-    onError(null);
     try {
       await runtime.archive();
     } catch (cause) {
-      onError(errorMessage(cause, "归档失败，请重试。"));
+      notify({
+        channel: "toast",
+        level: "error",
+        message: errorMessage(cause, "归档失败，请重试。"),
+        dedupeKey: `thread-archive:${threadId}`,
+      });
     } finally {
       setPending(false);
     }
   };
 
   const deleteThread = async (): Promise<void> => {
-    onError(null);
-    try {
-      await runtime.delete();
-    } catch (cause) {
-      onError(errorMessage(cause, "删除失败，请重试。"));
-      throw cause;
-    }
+    await runtime.delete();
   };
 
   return (
@@ -239,7 +238,6 @@ export function ThreadStarline({
   const scrollElement = useRef<HTMLDivElement>(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const threadIds = useAuiState((state) => state.threads.threadIds);
   const loading = useAuiState((state) => state.threads.isLoading);
@@ -267,7 +265,9 @@ export function ThreadStarline({
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+    };
   }, []);
 
   return (
@@ -275,19 +275,12 @@ export function ThreadStarline({
       <ThreadListPrimitive.New
         className="thread-starline-new"
         data-testid="thread-new"
-        onClick={() => setError(null)}
       >
         <span className="thread-starline-new-icon" aria-hidden="true">
           <PlusIcon />
         </span>
         <span>新对话</span>
       </ThreadListPrimitive.New>
-
-      {error !== null && (
-        <p className="thread-starline-error" role="alert">
-          {error}
-        </p>
-      )}
 
       <div className="thread-starline-scroll-frame">
         <div
@@ -312,7 +305,7 @@ export function ThreadStarline({
           )}
           <ol className="thread-starline-list">
             <ThreadListPrimitive.Items>
-              {() => <ThreadStarlineItem now={now} onError={setError} />}
+              {() => <ThreadStarlineItem now={now} />}
             </ThreadListPrimitive.Items>
           </ol>
         </div>

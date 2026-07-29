@@ -13,6 +13,7 @@
     "prestart": "npm run electron:install",
     "start": "electron-vite preview",
     "db:generate": "drizzle-kit generate",
+    "models:snapshot": "node scripts/update-model-catalog-snapshot.mjs",
     "test": "vitest run",
     "test:ai:deepseek": "node tests/run-deepseek-live.mjs",
     "test:credentials": "node tests/run-credential-integration.mjs",

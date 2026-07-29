@@ -12,6 +12,8 @@ import type { ExportedMessageRepositoryItem } from "@assistant-ui/react";
 import { createAssistantStream } from "assistant-stream";
 import { useMemo, type PropsWithChildren } from "react";
 
+import { notify } from "../notifications";
+
 function createTitleStream(title?: string) {
   return createAssistantStream((controller) => {
     if (title !== undefined) controller.appendText(title);
@@ -153,6 +155,11 @@ export function createKataruneThreadListAdapter(
         characterId,
         status: "archived",
       });
+      notify({
+        level: "success",
+        message: "会话已归档。",
+        dedupeKey: `thread-archive:${remoteId}`,
+      });
     },
     unarchive: async (remoteId) => {
       await window.katarune.setThreadStatus({
@@ -163,6 +170,11 @@ export function createKataruneThreadListAdapter(
     },
     delete: async (remoteId) => {
       await window.katarune.deleteThread({ threadId: remoteId, characterId });
+      notify({
+        level: "success",
+        message: "会话已删除。",
+        dedupeKey: `thread-deleted:${remoteId}`,
+      });
     },
     generateTitle: async (remoteId, messages) => {
       const titleMessages = toThreadTitleMessages(messages);
