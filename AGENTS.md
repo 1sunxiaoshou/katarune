@@ -18,7 +18,7 @@ ATRI Chat 是参考实现、行为基准、资产和迁移数据来源，不是�
 
 ## 当前阶段
 
-项目已经完成 P1 技术验证基线，准备进入 P2 最小垂直闭环。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流和 Windows unpacked 产物验证。真实模型 Provider、main process 与 renderer 之间的流传输、Windows 安装包格式、签名与更新配置、长期记忆系统和最终分发方案仍待验证或决定。VRM 仍是目标能力，但当前原型暂缓实现，先独立调查技术路线。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
+项目已经完成 P1 技术验证基线。P2 已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用和可恢复会话，当前只剩首个 TTS Provider；角色与资产管理、多会话等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、Electron 集成测试和 Windows x64 unpacked 产物验证。Windows 安装包格式、签名与更新配置、通用附件发送、长期记忆系统和最终分发方案仍待验证或决定。VRM 仍是目标能力，但当前原型暂缓实现，先独立调查技术路线。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
 
 ## Agent Skills
 
