@@ -3,7 +3,16 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
+import {
+  validateModelSettings,
+  validateProviderSettings,
+} from "../src/main/ai/providerDefinitions";
 import { openDatabase, type DatabaseRuntime } from "../src/main/database/database";
+
+const settingsValidator = {
+  validateModelSettings,
+  validateProviderSettings,
+};
 
 const threadId = "restart-recovery-thread";
 const secondThreadId = "second-character-thread";
@@ -140,7 +149,11 @@ function createCharacterlessThreadDatabaseAtMigrationSix(): void {
 }
 
 try {
-  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  runtime = openDatabase({
+    userDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({ threadId, characterId: initialCharacterId, message });
@@ -254,7 +267,11 @@ try {
     setupSqlite.close();
   }
 
-  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  runtime = openDatabase({
+    userDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
   assert.equal(runtime.fetchThread(threadId, restoredCharacterId).remoteId, threadId);
   assert.deepEqual(runtime.loadThreadMessages(threadId, restoredCharacterId).messages, [message]);
@@ -323,7 +340,11 @@ try {
   );
   runtime.setActiveCharacter(secondCharacterId);
   runtime.close();
-  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  runtime = openDatabase({
+    userDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
   runtime.setThreadStatus(threadId, restoredCharacterId, "archived");
   assert.equal(
@@ -342,7 +363,11 @@ try {
     [secondThreadId],
   );
   runtime.close();
-  runtime = openDatabase({ userDataPath, appPath: process.cwd() });
+  runtime = openDatabase({
+    userDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   assert.equal(
     runtime.fetchThread(threadId, restoredCharacterId).status,
     "archived",
@@ -432,7 +457,11 @@ try {
   }
 
   createLegacyProviderIdentityDatabase();
-  legacyRuntime = openDatabase({ userDataPath: legacyUserDataPath, appPath: process.cwd() });
+  legacyRuntime = openDatabase({
+    userDataPath: legacyUserDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   const migratedProvider = legacyRuntime.fetchProviderConfig(
     "11111111-1111-4111-8111-111111111111",
   );
@@ -460,7 +489,11 @@ try {
   }
 
   createCharacterlessThreadDatabaseAtMigrationSix();
-  jumpRuntime = openDatabase({ userDataPath: jumpUserDataPath, appPath: process.cwd() });
+  jumpRuntime = openDatabase({
+    userDataPath: jumpUserDataPath,
+    appPath: process.cwd(),
+    settingsValidator,
+  });
   const bootstrappedCharacter = jumpRuntime.getAppState().activeCharacter;
   assert.equal(bootstrappedCharacter.id, "00000000-0000-4000-8000-000000000001");
   assert.equal(
@@ -486,6 +519,7 @@ try {
   deletionRuntime = openDatabase({
     userDataPath: deletionUserDataPath,
     appPath: process.cwd(),
+    settingsValidator,
   });
   const deletionDefault = deletionRuntime.getAppState().activeCharacter;
   assert.throws(
