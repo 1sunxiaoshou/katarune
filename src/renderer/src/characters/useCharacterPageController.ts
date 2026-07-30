@@ -4,12 +4,14 @@ import {
   useMemo,
   useState,
 } from "react";
-import type {
-  Character,
-  CreateCharacterRequest,
-  ModelConfig,
-  ProviderConfig,
-  UpdateCharacterRequest,
+import {
+  DEFAULT_PORTRAIT_FRAMING,
+  type Character,
+  type CreateCharacterRequest,
+  type ModelConfig,
+  type PortraitFraming,
+  type ProviderConfig,
+  type UpdateCharacterRequest,
 } from "../../../shared/ipc";
 import { notify } from "../notifications";
 import {
@@ -111,6 +113,9 @@ export function useCharacterPageController({
       id: crypto.randomUUID(),
       name: NEW_CHARACTER_NAME,
       portraitAssetId: null,
+      portraitFocusX: DEFAULT_PORTRAIT_FRAMING.focusX,
+      portraitFocusY: DEFAULT_PORTRAIT_FRAMING.focusY,
+      portraitZoom: DEFAULT_PORTRAIT_FRAMING.zoom,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,
@@ -163,8 +168,8 @@ export function useCharacterPageController({
   ]);
 
   const selectCharacter = useCallback(
-    async (id: string): Promise<void> => {
-      if (id === selectedId) return;
+    async (id: string): Promise<boolean> => {
+      if (id === selectedId) return true;
       try {
         if (
           draftCharacter !== null &&
@@ -173,6 +178,7 @@ export function useCharacterPageController({
           await finalizeDraft();
         }
         setSelectedId(id);
+        return true;
       } catch (selectError) {
         notify({
           channel: "toast",
@@ -183,6 +189,7 @@ export function useCharacterPageController({
               : "保存角色草稿失败，请重试。",
           dedupeKey: "character-draft-save",
         });
+        return false;
       }
     },
     [draftCharacter, finalizeDraft, selectedId],
@@ -282,53 +289,57 @@ export function useCharacterPageController({
     [],
   );
 
-  const importPortrait = useCallback(async (): Promise<void> => {
-    if (selectedCharacter === undefined) return;
-    const selectedIsDraft =
-      draftCharacter?.id === selectedCharacter.id;
-    try {
-      const result = await window.katarune.importCharacterPortrait(
+  const commitPortrait = useCallback(
+    async (
+      characterId: string,
+      stageId: string | null,
+      framing: PortraitFraming,
+    ): Promise<Character> => {
+      const target = characterEntries.find(
+        (character) => character.id === characterId,
+      );
+      if (target === undefined) throw new Error("角色不存在。");
+      const selectedIsDraft = draftCharacter?.id === characterId;
+      if (selectedIsDraft && stageId === null) {
+        throw new Error("新角色需要先选择立绘。");
+      }
+      const updated = await window.katarune.commitCharacterPortrait(
         selectedIsDraft
           ? {
               mode: "draft",
-              character: draftRequest(selectedCharacter),
+              character: draftRequest(target),
+              stageId: stageId as string,
+              framing,
             }
-          : { mode: "existing", id: selectedCharacter.id },
+          : {
+              mode: "existing",
+              id: characterId,
+              stageId,
+              framing,
+            },
       );
-      if (result.canceled || result.character === null) return;
-      const importedCharacter = result.character;
       if (selectedIsDraft) {
-        setCharacters((current) => [importedCharacter, ...current]);
+        setCharacters((current) => [updated, ...current]);
         setDraftCharacter(null);
         setDraftOriginId(null);
-        setSelectedId(importedCharacter.id);
+        setSelectedId(updated.id);
         setFocusNameId(null);
       } else {
         setCharacters((current) =>
           current.map((character) =>
-            character.id === importedCharacter.id
-              ? importedCharacter
-              : character,
+            character.id === updated.id ? updated : character,
           ),
         );
       }
       notify({
         level: "success",
-        message: "角色立绘已更新。",
-        dedupeKey: `character-portrait:${importedCharacter.id}`,
+        message: "卡片立绘已保存。",
+        dedupeKey: `character-portrait:${updated.id}`,
       });
-    } catch (portraitError) {
-      notify({
-        channel: "toast",
-        level: "error",
-        message:
-          portraitError instanceof Error
-            ? portraitError.message
-            : "导入角色立绘失败，请重试。",
-        dedupeKey: `character-portrait:${selectedCharacter.id}`,
-      });
-    }
-  }, [draftCharacter?.id, selectedCharacter]);
+      return updated;
+    },
+    [characterEntries, draftCharacter?.id],
+  );
 
   const leave = useCallback(
     async (destination: "chat" | "settings"): Promise<void> => {
@@ -374,7 +385,7 @@ export function useCharacterPageController({
     draftCharacter,
     error,
     focusNameId,
-    importPortrait,
+    commitPortrait,
     leave,
     models,
     providers,

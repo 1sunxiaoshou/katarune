@@ -7,8 +7,9 @@ import {
   availableSpeechModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
-  characterPortraitImportRequestSchema,
-  characterPortraitImportResultSchema,
+  characterPortraitCommitRequestSchema,
+  characterPortraitStageIdRequestSchema,
+  characterPortraitStageResultSchema,
   characterSchema,
   chatStreamRequestSchema,
   chatStreamResponseFrameSchema,
@@ -48,7 +49,8 @@ import {
   updateCharacterRequestSchema,
   type AppendThreadMessageRequest,
   type CharacterIdRequest,
-  type CharacterPortraitImportRequest,
+  type CharacterPortraitCommitRequest,
+  type CharacterPortraitStageIdRequest,
   type ChatStreamFrameListener,
   type ChatStreamRequest,
   type ListThreadsRequest,
@@ -330,11 +332,24 @@ const api: KataruneApi = Object.freeze({
       characterSchema,
       updateCharacterRequestSchema.parse(request),
     ),
-  importCharacterPortrait: (request: CharacterPortraitImportRequest) =>
+  stageCharacterPortrait: () =>
     invokeValidated(
-      IPC_CHANNELS.importCharacterPortrait,
-      characterPortraitImportResultSchema,
-      characterPortraitImportRequestSchema.parse(request),
+      IPC_CHANNELS.stageCharacterPortrait,
+      characterPortraitStageResultSchema,
+    ),
+  commitCharacterPortrait: (request: CharacterPortraitCommitRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.commitCharacterPortrait,
+      characterSchema,
+      characterPortraitCommitRequestSchema.parse(request),
+    ),
+  discardCharacterPortraitStage: (
+    request: CharacterPortraitStageIdRequest,
+  ) =>
+    invokeValidated(
+      IPC_CHANNELS.discardCharacterPortraitStage,
+      operationSuccessSchema,
+      characterPortraitStageIdRequestSchema.parse(request),
     ),
 });
 

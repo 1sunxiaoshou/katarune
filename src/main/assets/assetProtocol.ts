@@ -43,12 +43,32 @@ export function handleAssetRequest(
   }
   const assetId = url.pathname.slice(1);
   if (
-    url.hostname !== "asset" ||
+    (url.hostname !== "asset" && url.hostname !== "staged") ||
     url.search !== "" ||
     url.hash !== "" ||
     !UUID_PATTERN.test(assetId)
   ) {
     return response(400);
+  }
+
+  if (url.hostname === "staged") {
+    let staged;
+    try {
+      staged = assetService.resolveStagedPortrait(assetId);
+    } catch {
+      return response(404);
+    }
+    const headers = {
+      "Cache-Control": "no-store",
+      "Content-Length": String(staged.byteSize),
+      "Content-Type": staged.mimeType,
+      "X-Content-Type-Options": "nosniff",
+    };
+    return response(
+      200,
+      request.method === "HEAD" ? null : readFileSync(staged.path),
+      headers,
+    );
   }
 
   let asset;

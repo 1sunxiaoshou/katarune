@@ -1,15 +1,27 @@
 import "./character-fonts.css";
 import { ArrowLeftIcon } from "lucide-react";
+import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
+import type {
+  Character,
+  StagedCharacterPortrait,
+} from "../../../shared/ipc";
+import { notify } from "../notifications";
 import { CharacterEditor } from "./CharacterEditor";
 import { CharacterList } from "./CharacterList";
+import { PortraitFramingDialog } from "./PortraitFramingDialog";
 import { useCharacterPageController } from "./useCharacterPageController";
 
 interface CharacterPageProps {
   readonly onClose: () => void;
   readonly onOpenSettings: () => void;
+}
+
+interface PortraitEditorState {
+  readonly character: Character;
+  readonly stage: StagedCharacterPortrait | null;
 }
 
 export function CharacterPage({
@@ -21,6 +33,30 @@ export function CharacterPage({
     onOpenSettings,
   });
   const selectedCharacter = controller.selectedCharacter;
+  const [portraitEditor, setPortraitEditor] =
+    useState<PortraitEditorState | null>(null);
+
+  const openPortraitEditor = async (character: Character): Promise<void> => {
+    const selected = await controller.selectCharacter(character.id);
+    if (!selected) return;
+    if (character.portraitAssetId !== null) {
+      setPortraitEditor({ character, stage: null });
+      return;
+    }
+    try {
+      const result = await window.katarune.stageCharacterPortrait();
+      if (result.canceled || result.stage === null) return;
+      setPortraitEditor({ character, stage: result.stage });
+    } catch (error) {
+      notify({
+        channel: "toast",
+        level: "error",
+        message:
+          error instanceof Error ? error.message : "导入角色立绘失败，请重试。",
+        dedupeKey: `character-portrait-stage:${character.id}`,
+      });
+    }
+  };
 
   return (
     <main
@@ -89,7 +125,7 @@ export function CharacterPage({
             onCharacterUpdated={controller.updateCharacter}
             onDraftUpdated={controller.updateDraftCharacter}
             onOpenSettings={() => void controller.leave("settings")}
-            onPortraitImport={controller.importPortrait}
+            onPortraitEdit={() => openPortraitEditor(selectedCharacter)}
           />
           <CharacterList
             characters={controller.characterEntries}
@@ -102,6 +138,7 @@ export function CharacterPage({
             onDeleteRequest={(character) =>
               void controller.requestCharacterDelete(character)
             }
+            onPortraitEdit={openPortraitEditor}
             selectedId={selectedCharacter.id}
             scrollToId={controller.focusNameId}
             onSelect={(id) => void controller.selectCharacter(id)}
@@ -128,6 +165,22 @@ export function CharacterPage({
         }}
         onConfirm={controller.confirmCharacterDelete}
       />
+      {portraitEditor !== null && (
+        <PortraitFramingDialog
+          character={portraitEditor.character}
+          initialStage={portraitEditor.stage}
+          onCommitted={(stageId, framing) =>
+            controller.commitPortrait(
+              portraitEditor.character.id,
+              stageId,
+              framing,
+            )
+          }
+          onOpenChange={(open) => {
+            if (!open) setPortraitEditor(null);
+          }}
+        />
+      )}
     </main>
   );
 }

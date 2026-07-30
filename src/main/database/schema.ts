@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  check,
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import type { ModelSettings } from "../../shared/ipc";
 import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
@@ -72,6 +80,9 @@ export const characters = sqliteTable(
     portraitAssetId: text("portrait_asset_id").references(() => assets.id, {
       onDelete: "restrict",
     }),
+    portraitFocusX: real("portrait_focus_x").notNull().default(0.5),
+    portraitFocusY: real("portrait_focus_y").notNull().default(0),
+    portraitZoom: real("portrait_zoom").notNull().default(1),
     modelConfigId: text("model_config_id"),
     speechModelConfigId: text("speech_model_config_id"),
     speechVoice: text("speech_voice"),
@@ -79,7 +90,21 @@ export const characters = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [index("characters_created_at_idx").on(table.createdAt)],
+  (table) => [
+    index("characters_created_at_idx").on(table.createdAt),
+    check(
+      "characters_portrait_focus_x_check",
+      sql`${table.portraitFocusX} >= 0 and ${table.portraitFocusX} <= 1`,
+    ),
+    check(
+      "characters_portrait_focus_y_check",
+      sql`${table.portraitFocusY} >= 0 and ${table.portraitFocusY} <= 1`,
+    ),
+    check(
+      "characters_portrait_zoom_check",
+      sql`${table.portraitZoom} >= 1 and ${table.portraitZoom} <= 3`,
+    ),
+  ],
 );
 
 export const threads = sqliteTable(
