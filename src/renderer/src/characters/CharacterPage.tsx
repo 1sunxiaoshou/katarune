@@ -38,11 +38,7 @@ import type {
   UpdateCharacterRequest,
 } from "../../../shared/ipc";
 import { assetUrl } from "../../../shared/ipc";
-import {
-  getProviderCapabilities,
-  providerCredentialIsAvailable,
-  providerSupportsModelType,
-} from "../../../shared/providers";
+import { getProviderCapabilities } from "../../../shared/providers";
 import { useCharacterSession } from "./CharacterSessionProvider";
 import { CharacterList } from "./CharacterList";
 
@@ -109,6 +105,7 @@ type SaveState =
   | { readonly status: "error"; readonly message: string };
 
 interface CharacterEditorProps {
+  readonly availableSpeechModelIds: ReadonlySet<string>;
   readonly character: Character;
   readonly draft: boolean;
   readonly focusName: boolean;
@@ -122,6 +119,7 @@ interface CharacterEditorProps {
 }
 
 function CharacterEditor({
+  availableSpeechModelIds,
   character,
   draft,
   focusName,
@@ -201,35 +199,14 @@ function CharacterEditor({
   const currentModelAvailable =
     character.modelConfigId === null ||
     availableModels.some((model) => model.id === character.modelConfigId);
-  const availableSpeechProviderIds = useMemo(
-    () =>
-      new Set(
-        providers
-          .filter(
-            (provider) =>
-              provider.enabled &&
-              providerCredentialIsAvailable(
-                provider.providerType,
-                provider.credentialRef,
-              ) &&
-              providerSupportsModelType(
-                provider.providerType,
-                "speechModel",
-              ),
-          )
-          .map((provider) => provider.id),
-      ),
-    [providers],
-  );
   const availableSpeechModels = useMemo(
     () =>
       models.filter(
         (model) =>
-          model.enabled &&
           model.modelType === "speechModel" &&
-          availableSpeechProviderIds.has(model.providerConfigId),
+          availableSpeechModelIds.has(model.id),
       ),
-    [availableSpeechProviderIds, models],
+    [availableSpeechModelIds, models],
   );
   const currentSpeechModelAvailable =
     character.speechModelConfigId === null ||
@@ -347,7 +324,11 @@ function CharacterEditor({
   );
   const groupedSpeechModels = useMemo(() => {
     return providers
-      .filter((provider) => availableSpeechProviderIds.has(provider.id))
+      .filter((provider) =>
+        availableSpeechModels.some(
+          (model) => model.providerConfigId === provider.id,
+        ),
+      )
       .map((provider) => ({
         provider,
         options: availableSpeechModels
@@ -372,11 +353,7 @@ function CharacterEditor({
           ),
       }))
       .filter((group) => group.options.length > 0);
-  }, [
-    availableSpeechModels,
-    availableSpeechProviderIds,
-    providers,
-  ]);
+  }, [availableSpeechModels, providers]);
   const unavailableSpeechModelOption = useMemo<ModelOption | null>(
     () =>
       !currentSpeechModelAvailable && character.speechModelConfigId !== null
@@ -662,6 +639,9 @@ export function CharacterPage({
   const [draftOriginId, setDraftOriginId] = useState<string | null>(null);
   const [models, setModels] = useState<readonly ModelConfig[]>([]);
   const [providers, setProviders] = useState<readonly ProviderConfig[]>([]);
+  const [availableSpeechModelIds, setAvailableSpeechModelIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
   const [selectedId, setSelectedId] = useState<string>(activeCharacter.id);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] =
@@ -674,12 +654,14 @@ export function CharacterPage({
       window.katarune.listCharacters(),
       window.katarune.listModelConfigs(),
       window.katarune.listProviderConfigs(),
+      window.katarune.listAvailableSpeechModels(),
     ])
-      .then(([characterResult, modelResult, providerResult]) => {
+      .then(([characterResult, modelResult, providerResult, speechModels]) => {
         if (!active) return;
         setCharacters(characterResult.characters);
         setModels(modelResult.modelConfigs);
         setProviders(providerResult.providerConfigs);
+        setAvailableSpeechModelIds(new Set(speechModels.modelConfigIds));
         const activeExists = characterResult.characters.some(
           (character) => character.id === activeCharacter.id,
         );
@@ -978,6 +960,7 @@ export function CharacterPage({
         <div className="character-layout">
           <CharacterEditor
             key={selectedCharacter.id}
+            availableSpeechModelIds={availableSpeechModelIds}
             character={selectedCharacter}
             draft={draftCharacter?.id === selectedCharacter.id}
             focusName={focusNameId === selectedCharacter.id}

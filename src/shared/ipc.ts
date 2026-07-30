@@ -71,6 +71,7 @@ export const IPC_CHANNELS = {
   appendThreadMessage: "thread-messages:append",
   deleteThreadMessages: "thread-messages:delete",
   startChatStream: "chat-stream:start",
+  listAvailableSpeechModels: "speech:list-available-models",
   generateSpeech: "speech:generate",
   cancelSpeech: "speech:cancel",
   listProviderConfigs: "provider-configs:list",
@@ -419,6 +420,10 @@ export const modelConnectionTestResultSchema = z.strictObject({
   message: z.string().check(z.minLength(1), z.maxLength(1000)),
 });
 
+export const availableSpeechModelListSchema = z.strictObject({
+  modelConfigIds: z.array(z.uuid()).check(z.maxLength(10_000)),
+});
+
 export const speechGenerateRequestSchema = z.strictObject({
   requestId: z.uuid(),
   characterId: z.uuid(),
@@ -518,6 +523,9 @@ export type ModelConfigIdRequest = Readonly<z.infer<typeof modelConfigIdRequestS
 export type CreateModelConfigRequest = Readonly<z.infer<typeof createModelConfigRequestSchema>>;
 export type UpdateModelConfigRequest = Readonly<z.infer<typeof updateModelConfigRequestSchema>>;
 export type ModelConnectionTestResult = Readonly<z.infer<typeof modelConnectionTestResultSchema>>;
+export type AvailableSpeechModelList = Readonly<
+  z.infer<typeof availableSpeechModelListSchema>
+>;
 export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateRequestSchema>>;
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
@@ -543,6 +551,7 @@ export interface KataruneApi {
   startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;
   pullChatStream(requestId: string): void;
   cancelChatStream(requestId: string): void;
+  listAvailableSpeechModels(): Promise<AvailableSpeechModelList>;
   generateSpeech(request: SpeechGenerateRequest): Promise<SpeechGenerateResponse>;
   cancelSpeech(request: SpeechCancelRequest): void;
   listProviderConfigs(): Promise<ProviderConfigList>;

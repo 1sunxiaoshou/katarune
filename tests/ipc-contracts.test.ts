@@ -5,6 +5,7 @@ import {
   appInfoSchema,
   appStateSchema,
   assetSchema,
+  availableSpeechModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitImportRequestSchema,
@@ -469,6 +470,13 @@ describe("shared IPC contracts", () => {
   it("validates speech requests and discriminated responses", () => {
     const requestId = "00000000-0000-4000-8000-000000000010";
     const characterId = "00000000-0000-4000-8000-000000000001";
+    expect(
+      availableSpeechModelListSchema.parse({
+        modelConfigIds: ["00000000-0000-4000-8000-000000000020"],
+      }),
+    ).toEqual({
+      modelConfigIds: ["00000000-0000-4000-8000-000000000020"],
+    });
     expect(
       speechGenerateRequestSchema.parse({
         requestId,

@@ -54,6 +54,7 @@ export interface AiRuntime {
   readonly registry: ProviderRegistry;
   getStatus(): AiRuntimeStatus;
   reload(): Promise<void>;
+  listAvailableSpeechModelConfigIds(): readonly string[];
   resolveLanguageModel(modelConfigId: string): ResolvedLanguageModel;
   resolveSpeechModel(modelConfigId: string): ResolvedSpeechModel;
   testConnection(modelConfigId: string): Promise<ModelConnectionTestResult>;
@@ -243,6 +244,23 @@ export async function createAiRuntime({
     },
     getStatus: () => status,
     reload,
+    listAvailableSpeechModelConfigIds: () =>
+      database
+        .listModelConfigs()
+        .modelConfigs.filter(
+          (modelConfig) =>
+            modelConfig.enabled &&
+            modelConfig.modelType === "speechModel",
+        )
+        .filter((modelConfig) => {
+          try {
+            resolveSpeechModel(modelConfig.id);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .map((modelConfig) => modelConfig.id),
     resolveLanguageModel,
     resolveSpeechModel,
     testConnection: async (modelConfigId) => {

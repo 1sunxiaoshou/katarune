@@ -4,6 +4,7 @@ import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
   appStateSchema,
+  availableSpeechModelListSchema,
   characterIdRequestSchema,
   characterPortraitImportRequestSchema,
   characterPortraitImportResultSchema,
@@ -178,6 +179,11 @@ function registerIpcHandlers(
       event.sender.once("destroyed", handleSenderDestroyed);
     }
   });
+  ipcMain.handle(IPC_CHANNELS.listAvailableSpeechModels, () =>
+    availableSpeechModelListSchema.parse({
+      modelConfigIds: aiRuntime.listAvailableSpeechModelConfigIds(),
+    }),
+  );
   ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
     const request = speechGenerateRequestSchema.parse(value);
     const abortController = new AbortController();

@@ -245,6 +245,9 @@ describe("configured Provider runtime", () => {
         mediaType: "audio/wav",
       },
     });
+    expect(runtime.listAvailableSpeechModelConfigIds()).toEqual([
+      modelConfigId,
+    ]);
     await expect(runtime.testConnection(modelConfigId)).resolves.toMatchObject({
       success: true,
     });
@@ -271,5 +274,6 @@ describe("configured Provider runtime", () => {
     expect(() => runtime.resolveSpeechModel(modelConfigId)).toThrow(
       /no speechModel Adapter/,
     );
+    expect(runtime.listAvailableSpeechModelConfigIds()).toEqual([]);
   });
 });

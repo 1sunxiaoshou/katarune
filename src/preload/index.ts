@@ -4,6 +4,7 @@ import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
   appStateSchema,
+  availableSpeechModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitImportRequestSchema,
@@ -218,6 +219,11 @@ const api: KataruneApi = Object.freeze({
     port.postMessage({ type: "cancel" });
     closeChatStreamPort(requestId);
   },
+  listAvailableSpeechModels: () =>
+    invokeValidated(
+      IPC_CHANNELS.listAvailableSpeechModels,
+      availableSpeechModelListSchema,
+    ),
   generateSpeech: (request: SpeechGenerateRequest) =>
     invokeValidated(
       IPC_CHANNELS.generateSpeech,
