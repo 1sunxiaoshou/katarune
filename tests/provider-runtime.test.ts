@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { PROVIDER_TYPES, type ModelConfig, type ProviderConfig } from "../src/shared/ipc";
 import { createConfiguredProvider } from "../src/main/ai/providerFactory";
+import {
+  PROVIDER_DEFINITIONS,
+  validateModelSettings,
+  validateProviderSettings,
+} from "../src/main/ai/providerDefinitions";
 import { createAiRuntime, type AiRuntimeDatabase } from "../src/main/ai/runtime";
+import {
+  getProviderCapabilities,
+  providerCredentialIsAvailable,
+  providerSupportsModelType,
+} from "../src/shared/providers";
 import type { CredentialStore } from "../src/main/security/credentialStore";
 
 const providerConfigId = "d3867f4b-e85f-4ff4-ac2b-974dc39ad832";
@@ -60,6 +70,50 @@ const credentialStore: CredentialStore = {
 };
 
 describe("configured Provider runtime", () => {
+  it("keeps shared metadata and main definitions exhaustive", () => {
+    expect(Object.keys(PROVIDER_DEFINITIONS).sort()).toEqual(
+      [...PROVIDER_TYPES].sort(),
+    );
+    expect(getProviderCapabilities("openai").speech).toMatchObject({
+      defaultVoice: "alloy",
+      preferredOutput: { format: "wav", mediaType: "audio/wav" },
+    });
+    expect(providerSupportsModelType("openai", "speechModel")).toBe(true);
+    expect(providerSupportsModelType("anthropic", "speechModel")).toBe(false);
+    expect(providerCredentialIsAvailable("openai", null)).toBe(false);
+    expect(providerCredentialIsAvailable("openai-compatible", null)).toBe(true);
+  });
+
+  it("delegates bounded settings to Provider and capability schemas", () => {
+    expect(() =>
+      validateProviderSettings("openai-compatible", {
+        supportsStructuredOutputs: true,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateProviderSettings("openai-compatible", {
+        apiKey: "must-not-be-persisted",
+      }),
+    ).toThrow();
+    expect(() =>
+      validateModelSettings("openai", "languageModel", {
+        temperature: 0.2,
+        topP: 0.9,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateModelSettings("openai", "languageModel", { topP: 2 }),
+    ).toThrow();
+    expect(() =>
+      validateModelSettings("openai", "speechModel", {
+        temperature: 0.2,
+      }),
+    ).toThrow();
+    expect(() =>
+      validateModelSettings("anthropic", "speechModel", null),
+    ).not.toThrow();
+  });
+
   it.each(PROVIDER_TYPES)("constructs the official %s Provider factory", (providerType) => {
     const provider = createConfiguredProvider(providerConfig(providerType), "test-api-key");
     expect(provider.specificationVersion).toMatch(/^v[34]$/);
@@ -105,6 +159,45 @@ describe("configured Provider runtime", () => {
     });
   });
 
+  it("keeps persisted invalid settings unavailable without rewriting records", async () => {
+    const provider = providerConfig("openai", {
+      settings: { unknownProviderOption: true },
+    });
+    const database = runtimeDatabase(provider);
+    const runtime = await createAiRuntime({
+      database,
+      credentialStore,
+    });
+
+    expect(runtime.getStatus()).toMatchObject({
+      configuredProviderCount: 0,
+      modelCallsEnabled: false,
+    });
+    expect(database.fetchProviderConfig(provider.id).settings).toEqual({
+      unknownProviderOption: true,
+    });
+  });
+
+  it("rejects invalid persisted model settings at resolution time", async () => {
+    const provider = providerConfig("openai-compatible");
+    const invalidModel = {
+      ...modelConfig,
+      settings: { topP: 2 },
+    } satisfies ModelConfig;
+    const baseDatabase = runtimeDatabase(provider);
+    const runtime = await createAiRuntime({
+      database: {
+        ...baseDatabase,
+        listModelConfigs: () => ({ modelConfigs: [invalidModel] }),
+        fetchModelConfig: () => invalidModel,
+      },
+      credentialStore,
+    });
+
+    expect(runtime.getStatus().modelCallsEnabled).toBe(false);
+    expect(() => runtime.resolveLanguageModel(modelConfigId)).toThrow();
+  });
+
   it("does not resolve a non-language model as a language model", async () => {
     const provider = providerConfig("openai-compatible");
     const embeddingConfig: ModelConfig = { ...modelConfig, modelType: "embeddingModel" };
@@ -120,5 +213,63 @@ describe("configured Provider runtime", () => {
 
     expect(runtime.getStatus().modelCallsEnabled).toBe(false);
     expect(() => runtime.resolveLanguageModel(modelConfigId)).toThrow(/embeddingModel/);
+  });
+
+  it("resolves and probes an enabled OpenAI speech model", async () => {
+    const provider = providerConfig("openai");
+    const speechConfig: ModelConfig = {
+      ...modelConfig,
+      modelType: "speechModel",
+      modelId: "gpt-4o-mini-tts",
+      settings: null,
+    };
+    const baseDatabase = runtimeDatabase(provider);
+    let probeCount = 0;
+    const runtime = await createAiRuntime({
+      database: {
+        ...baseDatabase,
+        listModelConfigs: () => ({ modelConfigs: [speechConfig] }),
+        fetchModelConfig: () => speechConfig,
+      },
+      credentialStore,
+      speechConnectionProbe: async () => {
+        probeCount += 1;
+      },
+    });
+
+    expect(runtime.resolveSpeechModel(modelConfigId)).toMatchObject({
+      model: { modelId: "gpt-4o-mini-tts" },
+      output: {
+        requestFormat: "wav",
+        format: "wav",
+        mediaType: "audio/wav",
+      },
+    });
+    await expect(runtime.testConnection(modelConfigId)).resolves.toMatchObject({
+      success: true,
+    });
+    expect(probeCount).toBe(1);
+  });
+
+  it("rejects speech models when the Provider Definition has no speech Adapter", async () => {
+    const provider = providerConfig("anthropic");
+    const speechConfig: ModelConfig = {
+      ...modelConfig,
+      modelType: "speechModel",
+      settings: null,
+    };
+    const baseDatabase = runtimeDatabase(provider);
+    const runtime = await createAiRuntime({
+      database: {
+        ...baseDatabase,
+        listModelConfigs: () => ({ modelConfigs: [speechConfig] }),
+        fetchModelConfig: () => speechConfig,
+      },
+      credentialStore,
+    });
+
+    expect(() => runtime.resolveSpeechModel(modelConfigId)).toThrow(
+      /no speechModel Adapter/,
+    );
   });
 });

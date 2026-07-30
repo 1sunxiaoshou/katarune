@@ -73,6 +73,8 @@ export const characters = sqliteTable(
       onDelete: "restrict",
     }),
     modelConfigId: text("model_config_id"),
+    speechModelConfigId: text("speech_model_config_id"),
+    speechVoice: text("speech_voice"),
     systemPrompt: text("system_prompt").notNull().default(""),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),

@@ -29,6 +29,9 @@ import {
   listThreadsRequestSchema,
   threadIdRequestSchema,
   setActiveCharacterRequestSchema,
+  speechCancelRequestSchema,
+  speechGenerateRequestSchema,
+  speechGenerateResponseSchema,
   threadMessagesSchema,
   updateCharacterRequestSchema,
 } from "../src/shared/ipc";
@@ -115,6 +118,8 @@ describe("shared IPC contracts", () => {
       name: "星澜",
       portraitAssetId: "00000000-0000-4000-8000-000000000002",
       modelConfigId: null,
+      speechModelConfigId: null,
+      speechVoice: null,
       systemPrompt: "你是星澜。",
       createdAt: new Date("2026-07-23T00:00:00.000Z"),
       updatedAt: new Date("2026-07-23T00:00:00.000Z"),
@@ -291,6 +296,52 @@ describe("shared IPC contracts", () => {
     ).toMatchObject({ modelType: "languageModel", modelId: "vendor/model-name", enabled: true });
   });
 
+  it("keeps Provider and model settings as bounded JSON at the IPC edge", () => {
+    const providerRequest = {
+      displayName: "可扩展供应商",
+      providerType: "openai-compatible",
+      baseUrl: "http://127.0.0.1:1234/v1",
+      settings: {
+        vendorOption: {
+          mode: "native",
+          values: [1, true, null],
+        },
+      },
+      enabled: true,
+    } as const;
+    expect(createProviderConfigRequestSchema.parse(providerRequest)).toEqual(
+      providerRequest,
+    );
+    expect(
+      createModelConfigRequestSchema.safeParse({
+        providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
+        modelType: "speechModel",
+        modelId: "vendor-speech",
+        displayName: null,
+        settings: { vendorOption: "adapter-owned" },
+        enabled: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      createProviderConfigRequestSchema.safeParse({
+        ...providerRequest,
+        settings: { value: "x".repeat(65_536) },
+      }).success,
+    ).toBe(false);
+    expect(
+      createProviderConfigRequestSchema.safeParse({
+        ...providerRequest,
+        settings: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      createProviderConfigRequestSchema.safeParse({
+        ...providerRequest,
+        settings: { value: Number.POSITIVE_INFINITY },
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts default and persisted character configuration", () => {
     expect(
       defaultCharacterConfigSchema.parse({
@@ -316,6 +367,8 @@ describe("shared IPC contracts", () => {
             name: "春原心奈",
             portraitAssetId: "00000000-0000-4000-8000-000000000002",
             modelConfigId: null,
+            speechModelConfigId: null,
+            speechVoice: null,
             systemPrompt: "你是春原心奈。",
             createdAt: new Date("2026-07-23T00:00:00.000Z"),
             updatedAt: new Date("2026-07-23T00:00:00.000Z"),
@@ -334,15 +387,25 @@ describe("shared IPC contracts", () => {
       createCharacterRequestSchema.parse({
         name: "流萤",
         modelConfigId: null,
+        speechModelConfigId: null,
+        speechVoice: null,
         systemPrompt: "",
       }),
-    ).toEqual({ name: "流萤", modelConfigId: null, systemPrompt: "" });
+    ).toEqual({
+      name: "流萤",
+      modelConfigId: null,
+      speechModelConfigId: null,
+      speechVoice: null,
+      systemPrompt: "",
+    });
     expect(
       characterPortraitImportRequestSchema.parse({
         mode: "draft",
         character: {
           name: "流萤",
           modelConfigId: null,
+          speechModelConfigId: null,
+          speechVoice: null,
           systemPrompt: "",
         },
       }),
@@ -353,6 +416,8 @@ describe("shared IPC contracts", () => {
       name: "未命名角色",
       portraitAssetId: null,
       modelConfigId: null,
+      speechModelConfigId: null,
+      speechVoice: null,
       systemPrompt: "",
       createdAt: new Date("2026-07-24T00:00:00.000Z"),
       updatedAt: new Date("2026-07-24T00:00:00.000Z"),
@@ -401,6 +466,69 @@ describe("shared IPC contracts", () => {
     ).toBe(modelType);
   });
 
+  it("validates speech requests and discriminated responses", () => {
+    const requestId = "00000000-0000-4000-8000-000000000010";
+    const characterId = "00000000-0000-4000-8000-000000000001";
+    expect(
+      speechGenerateRequestSchema.parse({
+        requestId,
+        characterId,
+        text: "需要朗读的文字",
+      }),
+    ).toMatchObject({ requestId, characterId });
+    expect(speechCancelRequestSchema.parse({ requestId })).toEqual({ requestId });
+    expect(
+      speechGenerateResponseSchema.parse({
+        status: "success",
+        requestId,
+        audio: new Uint8Array([0x49, 0x44, 0x33]),
+        format: "mp3",
+        mediaType: "audio/mpeg",
+        cacheHit: false,
+      }),
+    ).toMatchObject({ status: "success", cacheHit: false });
+    expect(
+      speechGenerateResponseSchema.safeParse({
+        status: "success",
+        requestId,
+        audio: new Uint8Array([1]),
+        format: "../wav",
+        mediaType: "text/plain",
+        cacheHit: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      speechGenerateResponseSchema.parse({
+        status: "error",
+        requestId,
+        code: "provider-error",
+        message: "语音生成失败。",
+      }),
+    ).toMatchObject({ status: "error", code: "provider-error" });
+  });
+
+  it("requires speech model and voice together while leaving settings to main Adapters", () => {
+    expect(
+      createCharacterRequestSchema.safeParse({
+        name: "角色",
+        modelConfigId: null,
+        speechModelConfigId: "00000000-0000-4000-8000-000000000020",
+        speechVoice: null,
+        systemPrompt: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      createModelConfigRequestSchema.safeParse({
+        providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
+        modelType: "speechModel",
+        modelId: "gpt-4o-mini-tts",
+        displayName: null,
+        settings: { temperature: 0.2 },
+        enabled: true,
+      }).success,
+    ).toBe(true);
+  });
+
   it.each([
     ["empty app name", appInfoSchema, { name: "", version: "0.1.0", platform: "win32", electronVersion: "43.1.1", nodeVersion: "24.13.1" }],
     ["negative thread count", databaseStatusSchema, { ready: true, journalMode: "wal", threadCount: -1, validationThreadId: "thread", validationThreadRestored: false }],
@@ -414,10 +542,7 @@ describe("shared IPC contracts", () => {
     ["unsupported provider type", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "arbitrary-package", baseUrl: null, settings: null, enabled: true }],
     ["non-HTTP base URL", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "file:///secret", settings: null, enabled: true }],
     ["renderer-selected credential reference", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: "https://example.com/v1", credentialRef: "safe-storage/12345678-1234-4123-8123-123456789abc", settings: null, enabled: true }],
-    ["unknown provider setting", createProviderConfigRequestSchema, { displayName: "Custom", providerType: "openai-compatible", baseUrl: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
     ["unsupported model type", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "audioModel", modelId: "model", displayName: null, settings: null, enabled: true }],
-    ["unknown model setting", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { apiKey: "must-not-be-persisted" }, enabled: true }],
-    ["invalid top-p", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "languageModel", modelId: "model", displayName: null, settings: { topP: 2 }, enabled: true }],
     ["blank character name", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "" }],
     ["blank created character name", createCharacterRequestSchema, { name: "", modelConfigId: null, systemPrompt: "" }],
     ["unknown character field", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "星澜", providerId: "secret" }],
