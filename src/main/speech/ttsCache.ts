@@ -168,10 +168,6 @@ export function createTtsCache({
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
             await removeIfPresent(temporary);
           });
-          if (abortSignal?.aborted) {
-            await removeIfPresent(destination);
-            return;
-          }
           await prune();
         } finally {
           await removeIfPresent(temporary);

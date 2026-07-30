@@ -132,6 +132,28 @@ describe("TTS content-addressed cache", () => {
     expect(await cache.get("e".repeat(64), "wav", isWav)).toBeNull();
   });
 
+  it("does not let a cancelled duplicate writer delete a valid cache entry", async () => {
+    const directory = await createTemporaryDirectory();
+    const cache = createTtsCache({ directory, maxBytes: 200 });
+    const key = "f".repeat(64);
+    const audio = wav(4);
+    const abortController = new AbortController();
+
+    const committed = cache.put(key, "wav", audio, isWav);
+    const cancelledDuplicate = cache.put(
+      key,
+      "wav",
+      audio,
+      isWav,
+      abortController.signal,
+    );
+    abortController.abort();
+
+    await Promise.all([committed, cancelledDuplicate]);
+    expect(await cache.get(key, "wav", isWav)).toEqual(audio);
+    expect(await readdir(directory)).toEqual([`${key}.wav`]);
+  });
+
   it("rejects unsafe cache extensions", () => {
     expect(isSafeAudioFormat("wav")).toBe(true);
     expect(isSafeAudioFormat("mpeg_4")).toBe(true);
