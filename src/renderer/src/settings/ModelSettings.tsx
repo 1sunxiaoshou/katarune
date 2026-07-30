@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
@@ -48,7 +47,6 @@ import {
   notify,
 } from "../notifications";
 import {
-  MODEL_TYPES,
   type DiscoveredModel,
   type ModelConfig,
   type ModelType,
@@ -75,11 +73,10 @@ const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
 
 type ModelCategory = "all" | ModelType;
 
-const MODEL_CATEGORIES: ReadonlyArray<{
-  readonly value: ModelCategory;
+const MODEL_TYPE_CATEGORIES: ReadonlyArray<{
+  readonly value: ModelType;
   readonly label: string;
 }> = [
-  { value: "all", label: "全部" },
   { value: "languageModel", label: "语言" },
   { value: "embeddingModel", label: "嵌入" },
   { value: "imageModel", label: "图像" },
@@ -88,6 +85,11 @@ const MODEL_CATEGORIES: ReadonlyArray<{
   { value: "rerankingModel", label: "重排序" },
   { value: "videoModel", label: "视频" },
 ];
+
+const MODEL_CATEGORIES: ReadonlyArray<{
+  readonly value: ModelCategory;
+  readonly label: string;
+}> = [{ value: "all", label: "全部" }, ...MODEL_TYPE_CATEGORIES];
 
 const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
   languageModel: MessageSquareTextIcon,
@@ -101,6 +103,10 @@ const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
 
 function findModelCategory(value: string): ModelCategory | undefined {
   return MODEL_CATEGORIES.find((item) => item.value === value)?.value;
+}
+
+function findModelType(value: string): ModelType | undefined {
+  return MODEL_TYPE_CATEGORIES.find((item) => item.value === value)?.value;
 }
 
 function connectionTestTooltip(
@@ -134,11 +140,30 @@ function ModelTypeIcon({ type }: { readonly type: ModelType | null }): React.JSX
   return <span className="inline-flex justify-center text-foreground" data-testid="model-type-icon" role="img" aria-label={label} title={label}><Icon className="size-4" aria-hidden="true" /></span>;
 }
 
-function ModelCategoryList(): React.JSX.Element {
+interface ModelCategoryListProps {
+  readonly labelledBy?: string | undefined;
+  readonly testId?: string | undefined;
+  readonly typeOnly?: boolean | undefined;
+}
+
+function ModelCategoryList({
+  labelledBy,
+  testId = "model-categories",
+  typeOnly = false,
+}: ModelCategoryListProps): React.JSX.Element {
+  const categories = typeOnly ? MODEL_TYPE_CATEGORIES : MODEL_CATEGORIES;
   return (
-    <div className="mx-auto mt-auto w-fit max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" data-testid="model-categories">
-      <TabsList className="grid h-8! min-w-[32rem] grid-cols-8 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-        {MODEL_CATEGORIES.map((item) => (
+    <div
+      className="mx-auto mt-auto w-fit max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      data-testid={testId}
+    >
+      <TabsList
+        aria-labelledby={labelledBy}
+        className={`grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground ${
+          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"
+        }`}
+      >
+        {categories.map((item) => (
           <TabsTrigger
             className="isolate w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 before:absolute before:inset-x-1 before:inset-y-0.5 before:-z-10 before:-skew-x-12 before:rounded-sm hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:before:bg-background data-active:hover:text-foreground dark:data-active:bg-transparent! dark:data-active:text-foreground dark:data-active:hover:text-foreground"
             key={item.value}
@@ -242,12 +267,24 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
             <DialogDescription className="sr-only">填写模型信息</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-2">
-            <Label htmlFor="model-type">模型类别 <span className="text-destructive" aria-hidden="true">*</span></Label>
-            <NativeSelect id="model-type" className="w-full" required value={modelType ?? ""} onChange={(event) => setModelType(event.target.value.length === 0 ? null : event.target.value as ModelType)}>
-              {modelType === null && <NativeSelectOption value="">请选择模型类别</NativeSelectOption>}
-              {MODEL_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{MODEL_TYPE_LABELS[type]}</NativeSelectOption>)}
-            </NativeSelect>
+          <div className="grid min-w-0 gap-2" role="group" aria-labelledby="model-type-label">
+            <p className="text-sm leading-none font-medium" id="model-type-label">
+              模型类别 <span className="text-destructive" aria-hidden="true">*</span>
+            </p>
+            <Tabs
+              className="min-w-0"
+              value={modelType ?? ""}
+              onValueChange={(value) => {
+                const nextType = findModelType(value);
+                if (nextType !== undefined) setModelType(nextType);
+              }}
+            >
+              <ModelCategoryList
+                labelledBy="model-type-label"
+                testId="model-type-selector"
+                typeOnly
+              />
+            </Tabs>
           </div>
 
           <div className="grid gap-2">

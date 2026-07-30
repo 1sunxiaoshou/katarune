@@ -24,14 +24,14 @@ export function ChatPage({
   const [collapsed, setCollapsed] = useState(() =>
     readThreadListCollapsed(window.localStorage),
   );
-  const hiddenRegion = useRef<HTMLDivElement>(null);
+  const hiddenContent = useRef<HTMLDivElement>(null);
   const visibilityButton = useRef<HTMLButtonElement>(null);
 
-  const toggleThreadList = (): void => {
+  const toggleSidebarContent = (): void => {
     const nextCollapsed = !collapsed;
     if (
       nextCollapsed &&
-      hiddenRegion.current?.contains(document.activeElement)
+      hiddenContent.current?.contains(document.activeElement)
     ) {
       visibilityButton.current?.focus();
     }
@@ -41,28 +41,39 @@ export function ChatPage({
 
   return (
     <div className="chat-shell">
-      <aside className="chat-sidebar" aria-label="会话侧栏">
+      <aside
+        className={`chat-sidebar${collapsed ? " is-collapsed" : ""}`}
+        data-collapsed={collapsed}
+        aria-label="会话侧栏"
+      >
         <div
-          className="chat-character-entry"
-          data-testid="character-launcher-container"
-        >
-          <CharacterCard
-            character={activeCharacter}
-            selected
-            testId="character-launcher"
-            onSelect={onOpenCharacters}
-          />
-        </div>
-
-        <div
-          ref={hiddenRegion}
-          className={`chat-thread-region${collapsed ? " is-hidden" : ""}`}
+          ref={hiddenContent}
+          id="chat-sidebar-content"
+          className={`chat-sidebar-content${collapsed ? " is-hidden" : ""}`}
           data-hidden={collapsed}
-          data-testid="thread-list-region"
+          data-testid="chat-sidebar-content"
           aria-hidden={collapsed}
           inert={collapsed}
         >
-          <ThreadStarline hidden={collapsed} />
+          <div
+            className="chat-character-entry"
+            data-testid="character-launcher-container"
+          >
+            <CharacterCard
+              character={activeCharacter}
+              selected
+              testId="character-launcher"
+              onSelect={onOpenCharacters}
+            />
+          </div>
+
+          <div
+            className="chat-thread-region"
+            data-hidden={collapsed}
+            data-testid="thread-list-region"
+          >
+            <ThreadStarline hidden={collapsed} />
+          </div>
         </div>
 
         <footer className="chat-sidebar-footer">
@@ -77,13 +88,13 @@ export function ChatPage({
           </TooltipIconButton>
           <TooltipIconButton
             ref={visibilityButton}
-            tooltip={collapsed ? "显示会话" : "隐藏会话"}
+            tooltip={collapsed ? "显示角色与会话" : "隐藏角色与会话"}
             side="top"
             className="size-8"
             data-testid="thread-list-visibility-toggle"
-            aria-controls="thread-list-region"
+            aria-controls="chat-sidebar-content"
             aria-expanded={!collapsed}
-            onClick={toggleThreadList}
+            onClick={toggleSidebarContent}
           >
             {collapsed ? (
               <EyeIcon aria-hidden="true" />
