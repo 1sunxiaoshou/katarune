@@ -389,6 +389,9 @@ function registerMockHandlers() {
       ...(createdModel === null ? [] : [createdModel]),
     ],
   }));
+  ipcMain.handle("speech:list-available-models", () => ({
+    modelConfigIds: [],
+  }));
   ipcMain.handle("model-configs:discover", () => ({
     models: [
       {
@@ -723,6 +726,10 @@ async function run() {
     };
     check();
   })`);
+  const unavailableSpeechAction = await window.webContents.executeJavaScript(
+    `document.querySelector('button[aria-label="朗读"]')`,
+  );
+  assert.equal(unavailableSpeechAction, null);
 
   await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
   await window.webContents.executeJavaScript(`(() => {
