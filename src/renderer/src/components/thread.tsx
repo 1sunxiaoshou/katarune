@@ -51,6 +51,7 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  Volume2Icon,
 } from "lucide-react";
 import {
   createContext,
@@ -368,6 +369,20 @@ const AssistantActionBar: FC = () => {
                     </AuiIf><AuiIf condition={(s) => !s.message.isCopied}>
                       <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
                     </AuiIf></ActionBarPrimitive.Copy>
+      <AuiIf condition={(s) => s.message.speech == null}>
+        <ActionBarPrimitive.Speak
+          render={<TooltipIconButton tooltip="朗读" />}
+        >
+          <Volume2Icon />
+        </ActionBarPrimitive.Speak>
+      </AuiIf>
+      <AuiIf condition={(s) => s.message.speech != null}>
+        <ActionBarPrimitive.StopSpeaking
+          render={<TooltipIconButton tooltip="停止朗读" />}
+        >
+          <SquareIcon />
+        </ActionBarPrimitive.StopSpeaking>
+      </AuiIf>
       <ActionBarPrimitive.Reload render={<TooltipIconButton tooltip="Refresh" />}><RefreshCwIcon /></ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger render={<TooltipIconButton tooltip="More" className="data-[state=open]:bg-accent" />}><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>

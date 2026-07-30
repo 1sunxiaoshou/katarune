@@ -13,6 +13,7 @@ import {
   type FocusEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
@@ -37,6 +38,11 @@ import type {
   UpdateCharacterRequest,
 } from "../../../shared/ipc";
 import { assetUrl } from "../../../shared/ipc";
+import {
+  getProviderCapabilities,
+  providerCredentialIsAvailable,
+  providerSupportsModelType,
+} from "../../../shared/providers";
 import { useCharacterSession } from "./CharacterSessionProvider";
 import { CharacterList } from "./CharacterList";
 
@@ -46,6 +52,23 @@ const NO_MODEL_OPTION: ModelOption = {
   id: NO_MODEL_ID,
   name: "暂不选择模型",
 };
+
+function speechDefaultVoice(
+  modelConfigId: string | null,
+  models: readonly ModelConfig[],
+  providers: readonly ProviderConfig[],
+): string | null {
+  if (modelConfigId === null) return null;
+  const model = models.find((candidate) => candidate.id === modelConfigId);
+  if (model === undefined) return null;
+  const provider = providers.find(
+    (candidate) => candidate.id === model.providerConfigId,
+  );
+  return provider === undefined
+    ? null
+    : (getProviderCapabilities(provider.providerType).speech?.defaultVoice ??
+        null);
+}
 
 interface CharacterPageProps {
   readonly onClose: () => void;
@@ -62,6 +85,8 @@ function draftRequest(character: Character): CreateCharacterRequest {
   return {
     name: character.name.trim() || NEW_CHARACTER_NAME,
     modelConfigId: character.modelConfigId,
+    speechModelConfigId: character.speechModelConfigId,
+    speechVoice: character.speechVoice,
     systemPrompt: character.systemPrompt,
   };
 }
@@ -71,6 +96,7 @@ function draftHasChanges(character: Character): boolean {
   return (
     request.name !== NEW_CHARACTER_NAME ||
     request.modelConfigId !== null ||
+    request.speechModelConfigId !== null ||
     request.systemPrompt !== ""
   );
 }
@@ -118,6 +144,31 @@ function CharacterEditor({
       : assetUrl(character.portraitAssetId);
   const [name, setName] = useState(character.name);
   const [systemPrompt, setSystemPrompt] = useState(character.systemPrompt);
+  const [selectedSpeechModelId, setSelectedSpeechModelId] = useState(
+    character.speechModelConfigId,
+  );
+  const [speechVoice, setSpeechVoice] = useState(
+    character.speechVoice ??
+      speechDefaultVoice(character.speechModelConfigId, models, providers) ??
+      "",
+  );
+  useEffect(() => {
+    setSelectedSpeechModelId(character.speechModelConfigId);
+    setSpeechVoice(
+      character.speechVoice ??
+        speechDefaultVoice(
+          character.speechModelConfigId,
+          models,
+          providers,
+        ) ??
+        "",
+    );
+  }, [
+    character.speechModelConfigId,
+    character.speechVoice,
+    models,
+    providers,
+  ]);
   const [saveState, setSaveState] = useState<SaveState>({
     status: "idle",
     message: draft
@@ -150,6 +201,41 @@ function CharacterEditor({
   const currentModelAvailable =
     character.modelConfigId === null ||
     availableModels.some((model) => model.id === character.modelConfigId);
+  const availableSpeechProviderIds = useMemo(
+    () =>
+      new Set(
+        providers
+          .filter(
+            (provider) =>
+              provider.enabled &&
+              providerCredentialIsAvailable(
+                provider.providerType,
+                provider.credentialRef,
+              ) &&
+              providerSupportsModelType(
+                provider.providerType,
+                "speechModel",
+              ),
+          )
+          .map((provider) => provider.id),
+      ),
+    [providers],
+  );
+  const availableSpeechModels = useMemo(
+    () =>
+      models.filter(
+        (model) =>
+          model.enabled &&
+          model.modelType === "speechModel" &&
+          availableSpeechProviderIds.has(model.providerConfigId),
+      ),
+    [availableSpeechProviderIds, models],
+  );
+  const currentSpeechModelAvailable =
+    character.speechModelConfigId === null ||
+    availableSpeechModels.some(
+      (model) => model.id === character.speechModelConfigId,
+    );
 
   const persist = useCallback(
     async (request: UpdateCharacterRequest): Promise<void> => {
@@ -159,6 +245,12 @@ function CharacterEditor({
           ...(request.modelConfigId === undefined
             ? {}
             : { modelConfigId: request.modelConfigId }),
+          ...(request.speechModelConfigId === undefined
+            ? {}
+            : { speechModelConfigId: request.speechModelConfigId }),
+          ...(request.speechVoice === undefined
+            ? {}
+            : { speechVoice: request.speechVoice }),
           ...(request.systemPrompt === undefined
             ? {}
             : { systemPrompt: request.systemPrompt }),
@@ -253,6 +345,60 @@ function CharacterEditor({
     ],
     [groupedModels, unavailableModelOption],
   );
+  const groupedSpeechModels = useMemo(() => {
+    return providers
+      .filter((provider) => availableSpeechProviderIds.has(provider.id))
+      .map((provider) => ({
+        provider,
+        options: availableSpeechModels
+          .filter((model) => model.providerConfigId === provider.id)
+          .map(
+            (model): ModelOption => ({
+              id: model.id,
+              name: model.displayName ?? model.modelId,
+              description: model.modelId,
+              icon: (
+                <ProviderLogo
+                  className="size-3.5"
+                  providerType={provider.providerType}
+                />
+              ),
+              keywords: [
+                provider.displayName,
+                provider.providerType,
+                model.modelId,
+              ],
+            }),
+          ),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [
+    availableSpeechModels,
+    availableSpeechProviderIds,
+    providers,
+  ]);
+  const unavailableSpeechModelOption = useMemo<ModelOption | null>(
+    () =>
+      !currentSpeechModelAvailable && character.speechModelConfigId !== null
+        ? {
+            id: character.speechModelConfigId,
+            name: "原声音模型不可用",
+            description: "该模型已被删除、禁用、改变类别，或所属供应商不可用",
+            disabled: true,
+          }
+        : null,
+    [character.speechModelConfigId, currentSpeechModelAvailable],
+  );
+  const speechModelOptions = useMemo(
+    () => [
+      NO_MODEL_OPTION,
+      ...(unavailableSpeechModelOption === null
+        ? []
+        : [unavailableSpeechModelOption]),
+      ...groupedSpeechModels.flatMap((group) => group.options),
+    ],
+    [groupedSpeechModels, unavailableSpeechModelOption],
+  );
 
   return (
     <>
@@ -325,6 +471,121 @@ function CharacterEditor({
             </ModelSelectorContent>
           </ModelSelectorRoot>
           {availableModels.length === 0 && (
+            <button className="character-inline-link" type="button" onClick={onOpenSettings}>
+              <SettingsIcon aria-hidden="true" />
+              前往模型设置
+            </button>
+          )}
+        </div>
+
+        <div className="character-field">
+          <label htmlFor="character-speech-model">
+            <span className="character-star" aria-hidden="true">✦</span>
+            声音 <small>/ SPEECH MODEL</small>
+          </label>
+          <ModelSelectorRoot
+            models={speechModelOptions}
+            value={selectedSpeechModelId ?? NO_MODEL_ID}
+            onValueChange={(value) => {
+              if (value === NO_MODEL_ID) {
+                setSelectedSpeechModelId(null);
+                setSpeechVoice("");
+                void persist({
+                  id: character.id,
+                  speechModelConfigId: null,
+                  speechVoice: null,
+                });
+                return;
+              }
+              const voice = speechDefaultVoice(value, models, providers);
+              setSelectedSpeechModelId(value);
+              if (voice === null) {
+                setSpeechVoice("");
+                setSaveState({
+                  status: "dirty",
+                  message: "请填写 Voice ID 后保存声音模型。",
+                });
+                return;
+              }
+              setSpeechVoice(voice);
+              void persist({
+                id: character.id,
+                speechModelConfigId: value,
+                speechVoice: voice,
+              });
+            }}
+          >
+            <ModelSelectorTrigger
+              id="character-speech-model"
+              className="w-full"
+              data-model-id={selectedSpeechModelId ?? ""}
+              data-testid="character-speech-model"
+            />
+            <ModelSelectorContent searchable>
+              <ModelSelectorSearch placeholder="搜索语音模型…" />
+              <ModelSelectorList>
+                <ModelSelectorEmpty>没有匹配的语音模型</ModelSelectorEmpty>
+                <ModelSelectorGroup heading="角色">
+                  <ModelSelectorItem model={NO_MODEL_OPTION} />
+                  {unavailableSpeechModelOption !== null && (
+                    <ModelSelectorItem model={unavailableSpeechModelOption} />
+                  )}
+                </ModelSelectorGroup>
+                {groupedSpeechModels.map(({ provider, options }) => (
+                  <ModelSelectorGroup key={provider.id} heading={provider.displayName}>
+                    {options.map((option) => (
+                      <ModelSelectorItem key={option.id} model={option} />
+                    ))}
+                  </ModelSelectorGroup>
+                ))}
+              </ModelSelectorList>
+            </ModelSelectorContent>
+          </ModelSelectorRoot>
+          {selectedSpeechModelId !== null && (
+            <Input
+              aria-label="Voice ID"
+              data-testid="character-speech-voice"
+              maxLength={200}
+              placeholder="供应商 Voice ID"
+              value={speechVoice}
+              onBlur={(event) => {
+                const voice = event.currentTarget.value.trim();
+                if (voice.length === 0) {
+                  setSpeechVoice(
+                    character.speechVoice ??
+                      speechDefaultVoice(
+                        character.speechModelConfigId,
+                        models,
+                        providers,
+                      ) ??
+                      "",
+                  );
+                  setSaveState({
+                    status: "error",
+                    message: "Voice ID 不能为空。",
+                  });
+                  return;
+                }
+                if (voice === character.speechVoice) return;
+                setSpeechVoice(voice);
+                void persist({
+                  id: character.id,
+                  speechModelConfigId: selectedSpeechModelId,
+                  speechVoice: voice,
+                });
+              }}
+              onChange={(event) => {
+                setSpeechVoice(event.target.value);
+                setSaveState({
+                  status: "dirty",
+                  message: draft
+                    ? "草稿将在离开角色时保存"
+                    : "已修改，离开输入框后保存",
+                });
+              }}
+            />
+          )}
+          {availableSpeechModels.length === 0 && (
             <button className="character-inline-link" type="button" onClick={onOpenSettings}>
               <SettingsIcon aria-hidden="true" />
               前往模型设置
@@ -452,6 +713,8 @@ export function CharacterPage({
       name: NEW_CHARACTER_NAME,
       portraitAssetId: null,
       modelConfigId: null,
+      speechModelConfigId: null,
+      speechVoice: null,
       systemPrompt: "",
       createdAt: now,
       updatedAt: now,
