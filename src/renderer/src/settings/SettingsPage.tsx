@@ -65,6 +65,10 @@ import {
   type ProviderConfig,
   type ProviderType,
 } from "../../../shared/ipc";
+import {
+  getProviderCapabilities,
+  providerSupportsModelType,
+} from "../../../shared/providers";
 import { PROVIDER_CATALOG } from "./providerCatalog";
 
 const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
@@ -105,6 +109,24 @@ const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
 
 function findModelCategory(value: string): ModelCategory | undefined {
   return MODEL_CATEGORIES.find((item) => item.value === value)?.value;
+}
+
+function connectionTestTooltip(
+  provider: ProviderConfig,
+  model: ModelConfig,
+): string {
+  if (!providerSupportsModelType(provider.providerType, model.modelType)) {
+    return "已登记，但当前 Provider Adapter 未实现该类别的调用";
+  }
+  if (model.modelType === "languageModel") {
+    return "测试连接（会调用供应商并可能产生费用）";
+  }
+  const speech = getProviderCapabilities(provider.providerType).speech;
+  if (model.modelType === "speechModel" && speech !== undefined) {
+    const voice = speech.defaultVoice ?? "测试音色";
+    return `使用 ${voice} 合成极短 ${speech.preferredOutput.format.toUpperCase()}（会调用供应商并可能产生费用）`;
+  }
+  return "当前不支持该类别的连接测试";
 }
 
 function matchesSearch(query: string, fields: readonly (string | null | undefined)[]): boolean {
@@ -228,7 +250,10 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const credentialRequired = provider?.credentialRef == null;
+  const credentialRequired =
+    getProviderCapabilities(providerType).credentialMode === "required";
+  const credentialInputRequired =
+    credentialRequired && provider?.credentialRef == null;
 
   useEffect(() => () => {
     clearNotificationScope(PROVIDER_DIALOG_NOTIFICATION_SCOPE);
@@ -254,7 +279,7 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
       });
       return;
     }
-    if (credentialRequired && secret.length === 0) {
+    if (credentialInputRequired && secret.length === 0) {
       notify({
         channel: "inline",
         scope: PROVIDER_DIALOG_NOTIFICATION_SCOPE,
@@ -332,9 +357,9 @@ function ProviderDialog({ provider, onOpenChange, onSaved }: ProviderDialogProps
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="provider-secret">API Key{credentialRequired && <> <span className="text-destructive" aria-hidden="true">*</span></>}</Label>
+            <Label htmlFor="provider-secret">API Key{credentialInputRequired && <> <span className="text-destructive" aria-hidden="true">*</span></>}</Label>
             <div className="flex gap-2">
-              <Input id="provider-secret" type={showSecret ? "text" : "password"} required={credentialRequired} placeholder={editing && !credentialRequired ? "留空不修改" : undefined} value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" spellCheck={false} />
+              <Input id="provider-secret" type={showSecret ? "text" : "password"} required={credentialInputRequired} placeholder={editing && !credentialInputRequired ? "留空不修改" : credentialRequired ? undefined : "可选，本地服务可留空"} value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" spellCheck={false} />
               <TooltipIconButton tooltip={showSecret ? "隐藏凭据" : "显示凭据"} className="shrink-0" type="button" onClick={() => setShowSecret((value) => !value)}>
                 {showSecret ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}
               </TooltipIconButton>
@@ -399,7 +424,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           modelType,
           modelId: modelId.trim(),
           displayName: displayName.trim().length === 0 ? null : displayName.trim(),
-          settings: model.settings,
+          settings: modelType === "languageModel" ? model.settings : null,
           enabled: model.enabled,
         });
       } else {
@@ -681,7 +706,14 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
             data-testid="model-row"
             key={model.id}
           >
-            <span className="truncate font-medium" title={model.displayName ?? model.modelId}>{model.displayName ?? model.modelId}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium" title={model.displayName ?? model.modelId}>{model.displayName ?? model.modelId}</span>
+              {!providerSupportsModelType(provider.providerType, model.modelType) && (
+                <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  未实现
+                </span>
+              )}
+            </span>
             <span className="truncate font-mono text-xs text-foreground" title={model.displayName !== null && model.displayName !== model.modelId ? model.modelId : undefined}>
               {model.displayName !== null && model.displayName !== model.modelId ? model.modelId : ""}
             </span>
@@ -695,7 +727,19 @@ function ModelSettings({ provider, models, onChanged }: ModelSettingsProps): Rea
               onCheckedChange={(enabled) => void setModelEnabled(model, enabled)}
             />
             <div className="flex w-20 items-center justify-end gap-1 opacity-0 transition-opacity pointer-events-none group-hover/model:pointer-events-auto group-hover/model:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100" data-testid="model-actions">
-              <TooltipIconButton tooltip={model.modelType === "languageModel" ? "测试连接（可能产生费用）" : "当前仅支持语言模型连接测试"} onClick={() => void testConnection(model)} disabled={submitting || model.modelType !== "languageModel"}><RefreshCwIcon aria-hidden="true" /></TooltipIconButton>
+              <TooltipIconButton
+                tooltip={connectionTestTooltip(provider, model)}
+                onClick={() => void testConnection(model)}
+                disabled={
+                  submitting ||
+                  !providerSupportsModelType(
+                    provider.providerType,
+                    model.modelType,
+                  )
+                }
+              >
+                <RefreshCwIcon aria-hidden="true" />
+              </TooltipIconButton>
               <TooltipIconButton data-testid="edit-model" tooltip="编辑模型" onClick={() => beginEdit(model)} disabled={submitting}><PencilIcon aria-hidden="true" /></TooltipIconButton>
               <TooltipIconButton data-testid="delete-model" tooltip="删除模型" onClick={() => setModelToDelete(model)} disabled={submitting}><Trash2Icon aria-hidden="true" /></TooltipIconButton>
             </div>

@@ -145,6 +145,16 @@ try {
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({ threadId, characterId: initialCharacterId, message });
   const providerConfig = runtime.createProviderConfig(providerConfigRequest);
+  assert.throws(
+    () =>
+      runtime?.createProviderConfig({
+        ...providerConfigRequest,
+        displayName: "非法设置供应商",
+        settings: { apiKey: "must-not-be-persisted" },
+      }),
+    /unrecognized|Invalid input/i,
+    "Provider Definition 必须在持久化前拒绝未声明设置",
+  );
   const duplicateProviderConfig = runtime.createProviderConfig(providerConfigRequest);
   assert.notEqual(duplicateProviderConfig.id, providerConfig.id);
   runtime.deleteProviderConfig(duplicateProviderConfig.id);
@@ -152,6 +162,40 @@ try {
     providerConfigId: providerConfig.id,
     ...modelConfigRequest,
   });
+  const speechModelConfig = runtime.createModelConfig({
+    providerConfigId: providerConfig.id,
+    modelType: "speechModel",
+    modelId: "gpt-4o-mini-tts",
+    displayName: "测试声音模型",
+    settings: null,
+    enabled: true,
+  });
+  assert.throws(
+    () =>
+      runtime?.createModelConfig({
+        providerConfigId: providerConfig.id,
+        modelType: "languageModel",
+        modelId: "invalid-language-settings",
+        displayName: null,
+        settings: { topP: 2 },
+        enabled: true,
+      }),
+    /too big|Invalid input/i,
+    "Language Capability Schema 必须在持久化前校验 settings",
+  );
+  assert.throws(
+    () =>
+      runtime?.createModelConfig({
+        providerConfigId: providerConfig.id,
+        modelType: "speechModel",
+        modelId: "invalid-speech-settings",
+        displayName: null,
+        settings: { temperature: 0.2 },
+        enabled: true,
+      }),
+    /Invalid input/i,
+    "未实现的 Capability 只能保存 null settings",
+  );
   assert.throws(
     () =>
       runtime?.createModelConfig({
@@ -165,6 +209,7 @@ try {
       providerConfigId: providerConfig.id,
       ...modelConfigRequest,
       modelType: "embeddingModel",
+      settings: null,
     }),
     /already exists/,
     "同一 Provider 下的 modelId 只能配置一次",
@@ -173,13 +218,25 @@ try {
   assert.ok(defaultCharacter);
   assert.equal(defaultCharacter.name, "春原心奈");
   assert.equal(defaultCharacter.modelConfigId, null);
+  assert.equal(defaultCharacter.speechModelConfigId, null);
+  assert.equal(defaultCharacter.speechVoice, null);
   const updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
     name: "数据库中的星澜",
     modelConfigId: modelConfig.id,
+    speechModelConfigId: speechModelConfig.id,
+    speechVoice: "alloy",
     systemPrompt: "数据库配置优先于默认配置。",
   });
   assert.equal(updatedCharacter.name, "数据库中的星澜");
+  assert.throws(
+    () =>
+      runtime?.updateCharacter({
+        id: defaultCharacter.id,
+        speechModelConfigId: null,
+      }),
+    /同时配置或同时清空/,
+  );
   runtime.close();
   runtime = undefined;
 
@@ -204,7 +261,11 @@ try {
   assert.deepEqual(runtime.fetchProviderConfig(providerConfig.id), providerConfig);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, [providerConfig]);
   assert.deepEqual(runtime.fetchModelConfig(modelConfig.id), modelConfig);
-  assert.deepEqual(runtime.listModelConfigs().modelConfigs, [modelConfig]);
+  assert.deepEqual(runtime.fetchModelConfig(speechModelConfig.id), speechModelConfig);
+  assert.deepEqual(runtime.listModelConfigs().modelConfigs, [
+    modelConfig,
+    speechModelConfig,
+  ]);
   assert.deepEqual(runtime.fetchCharacter(updatedCharacter.id), updatedCharacter);
   assert.equal(
     runtime
@@ -305,7 +366,7 @@ try {
     modelType: "embeddingModel",
     modelId: "local-chat-updated",
     displayName: null,
-    settings: { temperature: 0.2 },
+    settings: null,
     enabled: false,
   });
   assert.equal(updatedModelConfig.providerConfigId, providerConfig.id);
@@ -336,6 +397,12 @@ try {
     modelConfig.id,
     "角色应保留已失效的模型引用，供 UI 显示不可用状态",
   );
+  assert.equal(
+    runtime.fetchCharacter(updatedCharacter.id).speechModelConfigId,
+    speechModelConfig.id,
+    "角色应保留已失效的声音模型引用，供 UI 显示不可用状态",
+  );
+  assert.equal(runtime.fetchCharacter(updatedCharacter.id).speechVoice, "alloy");
   runtime.deleteThread(secondThreadId, secondCharacterId);
   runtime.close();
   runtime = undefined;
@@ -435,6 +502,8 @@ try {
   const createdCharacter = deletionRuntime.createCharacter({
     name: "未命名角色",
     modelConfigId: null,
+    speechModelConfigId: null,
+    speechVoice: null,
     systemPrompt: "",
   });
   assert.equal(createdCharacter.name, "未命名角色");
@@ -444,6 +513,8 @@ try {
   const secondCreatedCharacter = deletionRuntime.createCharacter({
     name: "未命名角色",
     modelConfigId: null,
+    speechModelConfigId: null,
+    speechVoice: null,
     systemPrompt: "",
   });
   assert.deepEqual(

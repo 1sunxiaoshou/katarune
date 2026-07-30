@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { ChatPage } from "./chat/ChatPage";
 import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
+import { SPEECH_CONFIG_CHANGED_EVENT } from "./speech/speechAvailability";
 
 const SettingsPage = lazy(async () => {
   const settingsModule = await import("./settings/SettingsPage");
@@ -33,7 +34,12 @@ export function App(): React.JSX.Element {
             </main>
           }
         >
-          <SettingsPage onClose={() => setActiveView("chat")} />
+          <SettingsPage
+            onClose={() => {
+              window.dispatchEvent(new Event(SPEECH_CONFIG_CHANGED_EVENT));
+              setActiveView("chat");
+            }}
+          />
         </Suspense>
       ) : activeView === "characters" ? (
         <Suspense

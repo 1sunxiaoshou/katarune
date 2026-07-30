@@ -39,8 +39,20 @@ export { assetSchema, ASSET_STATUSES, assetUrl } from "./assets";
 export type { Asset, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
-export { PROVIDER_TYPES } from "./providers";
-export type { ProviderType } from "./providers";
+export {
+  PROVIDER_CAPABILITIES,
+  PROVIDER_TYPES,
+  getProviderCapabilities,
+  providerCredentialIsAvailable,
+  providerSupportsModelType,
+} from "./providers";
+export type {
+  CredentialMode,
+  ProviderCapabilityMetadata,
+  ProviderType,
+  SpeechCapabilityMetadata,
+  SpeechOutputMetadata,
+} from "./providers";
 
 export const IPC_CHANNELS = {
   getAppInfo: "app:get-info",
@@ -59,6 +71,9 @@ export const IPC_CHANNELS = {
   appendThreadMessage: "thread-messages:append",
   deleteThreadMessages: "thread-messages:delete",
   startChatStream: "chat-stream:start",
+  listAvailableSpeechModels: "speech:list-available-models",
+  generateSpeech: "speech:generate",
+  cancelSpeech: "speech:cancel",
   listProviderConfigs: "provider-configs:list",
   createProviderConfig: "provider-configs:create",
   fetchProviderConfig: "provider-configs:fetch",
@@ -236,10 +251,59 @@ export const operationSuccessSchema = z.strictObject({
 
 export const providerTypeSchema = z.enum(PROVIDER_TYPES);
 
-export const providerSettingsSchema = z.strictObject({
-  includeUsage: z.optional(z.boolean()),
-  supportsStructuredOutputs: z.optional(z.boolean()),
-});
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue =
+  | JsonPrimitive
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+export type JsonObject = { readonly [key: string]: JsonValue };
+
+const MAX_SETTINGS_JSON_LENGTH = 64 * 1024;
+
+function isJsonValue(value: unknown, seen: Set<object>): value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((entry) => isJsonValue(entry, seen))
+    : Object.getPrototypeOf(value) === Object.prototype &&
+      Object.values(value).every((entry) => isJsonValue(entry, seen));
+  seen.delete(value);
+  return valid;
+}
+
+function isBoundedJsonObject(value: unknown): value is JsonObject {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    !isJsonValue(value, new Set())
+  ) {
+    return false;
+  }
+  try {
+    return (
+      new TextEncoder().encode(JSON.stringify(value)).byteLength <=
+      MAX_SETTINGS_JSON_LENGTH
+    );
+  } catch {
+    return false;
+  }
+}
+
+export const jsonObjectSettingsSchema = z.custom<JsonObject>(
+  isBoundedJsonObject,
+  "Settings must be a JSON object no larger than 64 KiB.",
+);
 
 export const providerConfigSchema = z.strictObject({
   id: z.uuid(),
@@ -247,7 +311,7 @@ export const providerConfigSchema = z.strictObject({
   providerType: providerTypeSchema,
   baseUrl: z.nullable(z.url({ protocol: /^https?$/ })),
   credentialRef: z.nullable(boundedStringSchema),
-  settings: z.nullable(providerSettingsSchema),
+  settings: z.nullable(jsonObjectSettingsSchema),
   enabled: z.boolean(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -265,7 +329,7 @@ export const createProviderConfigRequestSchema = z.strictObject({
   displayName: boundedStringSchema,
   providerType: providerTypeSchema,
   baseUrl: z.nullable(z.url({ protocol: /^https?$/ })),
-  settings: z.nullable(providerSettingsSchema),
+  settings: z.nullable(jsonObjectSettingsSchema),
   enabled: z.boolean(),
 });
 
@@ -273,7 +337,7 @@ export const updateProviderConfigRequestSchema = z.strictObject({
   id: z.uuid(),
   displayName: boundedStringSchema,
   baseUrl: z.nullable(z.url({ protocol: /^https?$/ })),
-  settings: z.nullable(providerSettingsSchema),
+  settings: z.nullable(jsonObjectSettingsSchema),
   enabled: z.boolean(),
 });
 
@@ -284,7 +348,7 @@ export const replaceProviderCredentialRequestSchema = z.strictObject({
 
 const finiteNumberSchema = z.number();
 
-export const modelSettingsSchema = z.strictObject({
+export const languageModelSettingsSchema = z.strictObject({
   maxOutputTokens: z.optional(z.int().check(z.positive())),
   temperature: z.optional(finiteNumberSchema),
   topP: z.optional(finiteNumberSchema.check(z.gte(0), z.lte(1))),
@@ -299,16 +363,16 @@ const providerModelIdSchema = z.string().check(z.minLength(1), z.maxLength(500))
 export const modelTypeSchema = z.enum(MODEL_TYPES);
 
 export const modelConfigSchema = z.strictObject({
-  id: z.uuid(),
-  providerConfigId: z.uuid(),
-  modelType: modelTypeSchema,
-  modelId: providerModelIdSchema,
-  displayName: z.nullable(boundedStringSchema),
-  settings: z.nullable(modelSettingsSchema),
-  enabled: z.boolean(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
+    id: z.uuid(),
+    providerConfigId: z.uuid(),
+    modelType: modelTypeSchema,
+    modelId: providerModelIdSchema,
+    displayName: z.nullable(boundedStringSchema),
+    settings: z.nullable(jsonObjectSettingsSchema),
+    enabled: z.boolean(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+  });
 
 export const modelConfigListSchema = z.strictObject({
   modelConfigs: z.array(modelConfigSchema),
@@ -332,22 +396,22 @@ export const modelConfigIdRequestSchema = z.strictObject({
 });
 
 export const createModelConfigRequestSchema = z.strictObject({
-  providerConfigId: z.uuid(),
-  modelType: modelTypeSchema,
-  modelId: providerModelIdSchema,
-  displayName: z.nullable(boundedStringSchema),
-  settings: z.nullable(modelSettingsSchema),
-  enabled: z.boolean(),
-});
+    providerConfigId: z.uuid(),
+    modelType: modelTypeSchema,
+    modelId: providerModelIdSchema,
+    displayName: z.nullable(boundedStringSchema),
+    settings: z.nullable(jsonObjectSettingsSchema),
+    enabled: z.boolean(),
+  });
 
 export const updateModelConfigRequestSchema = z.strictObject({
-  id: z.uuid(),
-  modelType: modelTypeSchema,
-  modelId: providerModelIdSchema,
-  displayName: z.nullable(boundedStringSchema),
-  settings: z.nullable(modelSettingsSchema),
-  enabled: z.boolean(),
-});
+    id: z.uuid(),
+    modelType: modelTypeSchema,
+    modelId: providerModelIdSchema,
+    displayName: z.nullable(boundedStringSchema),
+    settings: z.nullable(jsonObjectSettingsSchema),
+    enabled: z.boolean(),
+  });
 
 export const modelConnectionTestResultSchema = z.strictObject({
   modelConfigId: z.uuid(),
@@ -355,6 +419,56 @@ export const modelConnectionTestResultSchema = z.strictObject({
   latencyMs: z.int().check(z.nonnegative()),
   message: z.string().check(z.minLength(1), z.maxLength(1000)),
 });
+
+export const availableSpeechModelListSchema = z.strictObject({
+  modelConfigIds: z.array(z.uuid()).check(z.maxLength(10_000)),
+});
+
+export const speechGenerateRequestSchema = z.strictObject({
+  requestId: z.uuid(),
+  characterId: z.uuid(),
+  text: z.string().check(z.minLength(1), z.maxLength(100_000)),
+});
+
+export const speechCancelRequestSchema = z.strictObject({
+  requestId: z.uuid(),
+});
+
+export const speechGenerateResponseSchema = z.union([
+  z.strictObject({
+    status: z.literal("success"),
+    requestId: z.uuid(),
+    audio: z.instanceof(Uint8Array),
+    format: z.string().check(
+      z.minLength(1),
+      z.maxLength(16),
+      z.regex(/^[a-z0-9][a-z0-9_-]*$/),
+    ),
+    mediaType: z
+      .string()
+      .check(
+        z.minLength(7),
+        z.maxLength(80),
+        z.regex(/^audio\/[a-z0-9][a-z0-9.+-]*$/),
+      ),
+    cacheHit: z.boolean(),
+  }),
+  z.strictObject({
+    status: z.literal("cancelled"),
+    requestId: z.uuid(),
+  }),
+  z.strictObject({
+    status: z.literal("error"),
+    requestId: z.uuid(),
+    code: z.enum([
+      "not-configured",
+      "model-unavailable",
+      "provider-error",
+      "invalid-audio",
+    ]),
+    message: z.string().check(z.minLength(1), z.maxLength(1000)),
+  }),
+]);
 
 export type AppInfo = Readonly<z.infer<typeof appInfoSchema>>;
 export type DatabaseStatus = Readonly<z.infer<typeof databaseStatusSchema>>;
@@ -388,7 +502,7 @@ export type SetActiveCharacterRequest = Readonly<
   z.infer<typeof setActiveCharacterRequestSchema>
 >;
 export type OperationSuccess = Readonly<z.infer<typeof operationSuccessSchema>>;
-export type ProviderSettings = Readonly<z.infer<typeof providerSettingsSchema>>;
+export type ProviderSettings = Readonly<JsonObject>;
 export type ProviderConfig = Readonly<z.infer<typeof providerConfigSchema>>;
 export type ProviderConfigList = Readonly<z.infer<typeof providerConfigListSchema>>;
 export type ProviderConfigIdRequest = Readonly<z.infer<typeof providerConfigIdRequestSchema>>;
@@ -397,7 +511,10 @@ export type UpdateProviderConfigRequest = Readonly<z.infer<typeof updateProvider
 export type ReplaceProviderCredentialRequest = Readonly<
   z.infer<typeof replaceProviderCredentialRequestSchema>
 >;
-export type ModelSettings = Readonly<z.infer<typeof modelSettingsSchema>>;
+export type LanguageModelSettings = Readonly<
+  z.infer<typeof languageModelSettingsSchema>
+>;
+export type ModelSettings = Readonly<JsonObject>;
 export type ModelConfig = Readonly<z.infer<typeof modelConfigSchema>>;
 export type ModelConfigList = Readonly<z.infer<typeof modelConfigListSchema>>;
 export type DiscoveredModel = Readonly<z.infer<typeof discoveredModelSchema>>;
@@ -406,6 +523,12 @@ export type ModelConfigIdRequest = Readonly<z.infer<typeof modelConfigIdRequestS
 export type CreateModelConfigRequest = Readonly<z.infer<typeof createModelConfigRequestSchema>>;
 export type UpdateModelConfigRequest = Readonly<z.infer<typeof updateModelConfigRequestSchema>>;
 export type ModelConnectionTestResult = Readonly<z.infer<typeof modelConnectionTestResultSchema>>;
+export type AvailableSpeechModelList = Readonly<
+  z.infer<typeof availableSpeechModelListSchema>
+>;
+export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateRequestSchema>>;
+export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
+export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
   getAppInfo(): Promise<AppInfo>;
@@ -428,6 +551,9 @@ export interface KataruneApi {
   startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;
   pullChatStream(requestId: string): void;
   cancelChatStream(requestId: string): void;
+  listAvailableSpeechModels(): Promise<AvailableSpeechModelList>;
+  generateSpeech(request: SpeechGenerateRequest): Promise<SpeechGenerateResponse>;
+  cancelSpeech(request: SpeechCancelRequest): void;
   listProviderConfigs(): Promise<ProviderConfigList>;
   createProviderConfig(request: CreateProviderConfigRequest): Promise<ProviderConfig>;
   fetchProviderConfig(request: ProviderConfigIdRequest): Promise<ProviderConfig>;

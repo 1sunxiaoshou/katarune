@@ -42,6 +42,8 @@ let character = {
   name: "星澜",
   portraitAssetId: "00000000-0000-4000-8000-000000000002",
   modelConfigId: modelId,
+  speechModelConfigId: null,
+  speechVoice: null,
   systemPrompt: "你是星澜，一位温柔、沉静的数字角色。",
   createdAt: now,
   updatedAt: now,
@@ -51,6 +53,8 @@ const secondCharacter = {
   name: "月影",
   portraitAssetId: null,
   modelConfigId: null,
+  speechModelConfigId: null,
+  speechVoice: null,
   systemPrompt: "你是月影。",
   createdAt: now,
   updatedAt: now,
@@ -385,6 +389,9 @@ function registerMockHandlers() {
       ...(createdModel === null ? [] : [createdModel]),
     ],
   }));
+  ipcMain.handle("speech:list-available-models", () => ({
+    modelConfigIds: [],
+  }));
   ipcMain.handle("model-configs:discover", () => ({
     models: [
       {
@@ -433,6 +440,8 @@ function registerMockHandlers() {
       name: request.name,
       portraitAssetId: null,
       modelConfigId: request.modelConfigId,
+      speechModelConfigId: request.speechModelConfigId,
+      speechVoice: request.speechVoice,
       systemPrompt: request.systemPrompt,
       createdAt: new Date(now.getTime() + createdCharacterCount),
       updatedAt: new Date(now.getTime() + createdCharacterCount),
@@ -717,6 +726,10 @@ async function run() {
     };
     check();
   })`);
+  const unavailableSpeechAction = await window.webContents.executeJavaScript(
+    `document.querySelector('button[aria-label="朗读"]')`,
+  );
+  assert.equal(unavailableSpeechAction, null);
 
   await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
   await window.webContents.executeJavaScript(`(() => {
@@ -1246,6 +1259,8 @@ async function run() {
   assert.deepEqual(createdCharacterRequest, {
     name: "流萤",
     modelConfigId: null,
+    speechModelConfigId: null,
+    speechVoice: null,
     systemPrompt: "",
   });
   const createdCharacterId = characters[0].id;
@@ -1553,12 +1568,27 @@ async function run() {
     deleteUsesNormalColor: getComputedStyle(document.querySelector('[data-testid="delete-model"]')).color === getComputedStyle(document.querySelector('[data-testid="edit-model"]')).color,
     textUsesForeground: getComputedStyle(document.querySelector('[data-testid="model-row"]')).color === getComputedStyle(document.querySelector('[data-slot="card-title"]')).color,
   })`);
-  assert.deepEqual(modelActions, { opacity: "1", labels: ["测试连接（可能产生费用）", "编辑模型", "删除模型"], deleteUsesNormalColor: true, textUsesForeground: true });
+  assert.deepEqual(modelActions, { opacity: "1", labels: ["测试连接（会调用供应商并可能产生费用）", "编辑模型", "删除模型"], deleteUsesNormalColor: true, textUsesForeground: true });
   await clickSelector(window, '[data-testid="model-row"] [data-slot="switch"]');
-  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 100))`);
+  const modelSwitchSettled = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    let stableSince = null;
+    const check = () => {
+      const modelSwitch = document.querySelector('[data-testid="model-row"] [data-slot="switch"]');
+      const isSettled = modelSwitch?.hasAttribute('data-unchecked') && !modelSwitch.hasAttribute('data-disabled');
+      if (isSettled) {
+        stableSince ??= Date.now();
+        if (Date.now() - stableSince >= 150) return resolve(true);
+      } else {
+        stableSince = null;
+      }
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for model switch update'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
   assert.equal(updatedModelRequest.enabled, false);
-  const modelSwitchUnchecked = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-row"] [data-slot="switch"]').hasAttribute('data-unchecked')`);
-  assert.equal(modelSwitchUnchecked, true);
+  assert.equal(modelSwitchSettled, true);
   await hoverSelector(window, '[data-testid="model-search"]');
   await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
     const deadline = Date.now() + 1000;
@@ -1637,7 +1667,16 @@ async function run() {
   const providerListText = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="provider-list"]').textContent`);
   assert.doesNotMatch(providerListText, /已启用|已停用/);
   await hoverSelector(window, '[data-testid="provider-row"]');
-  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 200))`);
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 1000;
+    const check = () => {
+      const opacity = getComputedStyle(document.querySelector('[data-testid="provider-actions"]')).opacity;
+      if (opacity === "1") return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for provider actions to show'));
+      requestAnimationFrame(check);
+    };
+    check();
+  })`);
   const providerActions = await window.webContents.executeJavaScript(`(() => {
     const actions = document.querySelector('[data-testid="provider-actions"]');
     return {
@@ -1649,16 +1688,17 @@ async function run() {
   assert.deepEqual(providerActions, { opacity: "1", editLabel: "编辑供应商", deleteLabel: "删除供应商" });
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="discover-models"]').click()`);
-  await waitForSelector(window, '[data-testid="discovered-model-row"]');
+  await Promise.all([
+    waitForSelector(window, '[data-testid="discovered-model-row"]'),
+    waitForToastMessage(window, "获取到 2 个模型。"),
+  ]);
   const discoveredCount = await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="discovered-model-row"]').length`);
   assert.equal(discoveredCount, 1);
   const discoveryFeedback = await window.webContents.executeJavaScript(`({
-    toastMessages: Array.from(document.querySelectorAll('[data-testid="notification-toast"]'), (element) => element.textContent),
     inlineMessages: Array.from(document.querySelectorAll('[data-notification-scope]'), (element) => element.textContent),
     modelAreaInlineCount: document.querySelectorAll('[data-notification-scope^="settings.models:"]').length,
   })`);
-  assert.equal(discoveryFeedback.toastMessages.some((message) => message.includes("获取到 1 个模型。")), true);
-  assert.equal(discoveryFeedback.inlineMessages.some((message) => message.includes("获取到 1 个模型。")), false);
+  assert.equal(discoveryFeedback.inlineMessages.some((message) => message.includes("获取到 2 个模型。")), false);
   assert.equal(discoveryFeedback.modelAreaInlineCount, 0);
   const categoryColumns = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-type-icon"]'), (element) => Math.round(element.getBoundingClientRect().left))`);
   assert.equal(new Set(categoryColumns).size, 1);

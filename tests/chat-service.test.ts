@@ -42,6 +42,8 @@ function createDatabase(
       name: "星澜",
       portraitAssetId: null,
       modelConfigId: modelId,
+      speechModelConfigId: null,
+      speechVoice: null,
       systemPrompt: "只回答确定性测试内容。",
       createdAt: new Date(),
       updatedAt: new Date(),

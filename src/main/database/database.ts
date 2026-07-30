@@ -43,6 +43,10 @@ import {
   type UpdateProviderConfigRequest,
   type UpdateModelConfigRequest,
 } from "../../shared/ipc";
+import {
+  validateModelSettings,
+  validateProviderSettings,
+} from "../ai/providerDefinitions";
 import { loadDefaultCharacterConfig } from "../characters/defaultCharacter";
 import {
   appState,
@@ -193,6 +197,8 @@ export function openDatabase({
         name: defaultCharacterConfig.character.name,
         portraitAssetId: defaultCharacterConfig.character.portrait?.assetId ?? null,
         modelConfigId: defaultCharacterConfig.character.modelConfigId,
+        speechModelConfigId: null,
+        speechVoice: null,
         systemPrompt: defaultCharacterConfig.character.systemPrompt,
         createdAt: now,
         updatedAt: now,
@@ -492,6 +498,7 @@ export function openDatabase({
           .all(),
       }),
     createProviderConfig: (request) => {
+      validateProviderSettings(request.providerType, request.settings);
       const id = randomUUID();
       const now = new Date();
       database
@@ -513,6 +520,8 @@ export function openDatabase({
     },
     fetchProviderConfig,
     updateProviderConfig: ({ id, ...updates }) => {
+      const current = fetchProviderConfig(id);
+      validateProviderSettings(current.providerType, updates.settings);
       const result = database
         .update(providerConfigs)
         .set({ ...updates, updatedAt: new Date() })
@@ -539,7 +548,12 @@ export function openDatabase({
         modelConfigs: database.select().from(modelConfigs).orderBy(asc(modelConfigs.createdAt)).all(),
       }),
     createModelConfig: (request) => {
-      fetchProviderConfig(request.providerConfigId);
+      const provider = fetchProviderConfig(request.providerConfigId);
+      validateModelSettings(
+        provider.providerType,
+        request.modelType,
+        request.settings,
+      );
       const existingConfig = database
         .select({ id: modelConfigs.id })
         .from(modelConfigs)
@@ -576,6 +590,12 @@ export function openDatabase({
     fetchModelConfig,
     updateModelConfig: ({ id, ...updates }) => {
       const current = fetchModelConfig(id);
+      const provider = fetchProviderConfig(current.providerConfigId);
+      validateModelSettings(
+        provider.providerType,
+        updates.modelType,
+        updates.settings,
+      );
       const duplicate = database
         .select({ id: modelConfigs.id })
         .from(modelConfigs)
@@ -610,7 +630,10 @@ export function openDatabase({
           .orderBy(desc(characters.createdAt), desc(characters.id))
           .all(),
       }),
-    createCharacter: ({ name, modelConfigId, systemPrompt }, portraitAsset) => {
+    createCharacter: (
+      { name, modelConfigId, speechModelConfigId, speechVoice, systemPrompt },
+      portraitAsset,
+    ) => {
       const id = randomUUID();
       const latestCharacter = database
         .select({ createdAt: characters.createdAt })
@@ -639,6 +662,8 @@ export function openDatabase({
             name,
             portraitAssetId: portraitAsset?.id ?? null,
             modelConfigId,
+            speechModelConfigId,
+            speechVoice,
             systemPrompt,
             createdAt: now,
             updatedAt: now,
@@ -722,15 +747,38 @@ export function openDatabase({
         });
       }),
     fetchCharacter,
-    updateCharacter: ({ id, name, modelConfigId, systemPrompt }) => {
+    updateCharacter: ({
+      id,
+      name,
+      modelConfigId,
+      speechModelConfigId,
+      speechVoice,
+      systemPrompt,
+    }) => {
+      const currentCharacter = fetchCharacter(id);
+      const nextSpeechModelConfigId =
+        speechModelConfigId === undefined
+          ? currentCharacter.speechModelConfigId
+          : speechModelConfigId;
+      const nextSpeechVoice =
+        speechVoice === undefined ? currentCharacter.speechVoice : speechVoice;
+      if ((nextSpeechModelConfigId === null) !== (nextSpeechVoice === null)) {
+        throw new Error("语音模型和 voice 必须同时配置或同时清空。");
+      }
       const updates: {
         name?: string;
         modelConfigId?: string | null;
+        speechModelConfigId?: string | null;
+        speechVoice?: string | null;
         systemPrompt?: string;
         updatedAt: Date;
       } = { updatedAt: new Date() };
       if (name !== undefined) updates.name = name;
       if (modelConfigId !== undefined) updates.modelConfigId = modelConfigId;
+      if (speechModelConfigId !== undefined) {
+        updates.speechModelConfigId = speechModelConfigId;
+      }
+      if (speechVoice !== undefined) updates.speechVoice = speechVoice;
       if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
 
       const result = database
