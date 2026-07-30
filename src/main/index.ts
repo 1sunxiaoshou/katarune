@@ -25,6 +25,9 @@ import {
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
   setActiveCharacterRequestSchema,
+  speechCancelRequestSchema,
+  speechGenerateRequestSchema,
+  speechGenerateResponseSchema,
   listThreadsRequestSchema,
   threadIdRequestSchema,
   updateProviderConfigRequestSchema,
@@ -42,6 +45,13 @@ import { createAssetService, type AssetService } from "./assets/assetService";
 import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { createCredentialStore, type CredentialStore } from "./security/credentialStore";
+import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
+import { createTtsCache } from "./speech/ttsCache";
+import {
+  createSpeechService,
+  SpeechServiceError,
+  type SpeechService,
+} from "./speech/ttsService";
 
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
@@ -64,9 +74,11 @@ function registerIpcHandlers(
   aiRuntime: AiRuntime,
   credentialStore: CredentialStore,
   assetService: AssetService,
-): void {
+  speechService: SpeechService,
+): SpeechRequestRegistry {
   const chatService = createChatService({ database, aiRuntime });
   const chatStreams = new ChatStreamRegistry();
+  const speechRequests = new SpeechRequestRegistry();
 
   ipcMain.handle(IPC_CHANNELS.getAppInfo, getAppInfo);
   ipcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
@@ -165,6 +177,68 @@ function registerIpcHandlers(
       });
       event.sender.once("destroyed", handleSenderDestroyed);
     }
+  });
+  ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
+    const request = speechGenerateRequestSchema.parse(value);
+    const abortController = new AbortController();
+    const senderId = event.sender.id;
+    const unregister = speechRequests.register(
+      senderId,
+      request.requestId,
+      abortController,
+    );
+    const handleSenderDestroyed = (): void => speechRequests.cancelSender(senderId);
+    event.sender.once("destroyed", handleSenderDestroyed);
+
+    try {
+      const result = await speechService.generate(
+        request.characterId,
+        request.text,
+        abortController.signal,
+      );
+      if (abortController.signal.aborted) {
+        return speechGenerateResponseSchema.parse({
+          status: "cancelled",
+          requestId: request.requestId,
+        });
+      }
+      return speechGenerateResponseSchema.parse({
+        status: "success",
+        requestId: request.requestId,
+        audio: result.audio,
+        format: result.format,
+        mediaType: result.mediaType,
+        cacheHit: result.cacheHit,
+      });
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        return speechGenerateResponseSchema.parse({
+          status: "cancelled",
+          requestId: request.requestId,
+        });
+      }
+      const publicError =
+        error instanceof SpeechServiceError
+          ? error
+          : new SpeechServiceError(
+              "provider-error",
+              "语音生成失败，请检查供应商连接后重试。",
+            );
+      return speechGenerateResponseSchema.parse({
+        status: "error",
+        requestId: request.requestId,
+        code: publicError.code,
+        message: publicError.message,
+      });
+    } finally {
+      unregister();
+      event.sender.removeListener("destroyed", handleSenderDestroyed);
+    }
+  });
+  ipcMain.on(IPC_CHANNELS.cancelSpeech, (event, value: unknown) => {
+    const request = speechCancelRequestSchema.safeParse(value);
+    if (!request.success) return;
+    speechRequests.cancel(event.sender.id, request.data.requestId);
   });
   ipcMain.handle(IPC_CHANNELS.listProviderConfigs, () => database.listProviderConfigs());
   ipcMain.handle(IPC_CHANNELS.createProviderConfig, async (_event, value: unknown) => {
@@ -316,6 +390,7 @@ function registerIpcHandlers(
     }
     return characterPortraitImportResultSchema.parse({ canceled: false, character: updated });
   });
+  return speechRequests;
 }
 
 function createMainWindow(): BrowserWindow {
@@ -365,6 +440,7 @@ function createMainWindow(): BrowserWindow {
 
 let databaseRuntime: DatabaseRuntime | undefined;
 let aiRuntime: AiRuntime | undefined;
+let speechRequests: SpeechRequestRegistry | undefined;
 
 void app.whenReady().then(() => {
   const characterResourcesPath = app.isPackaged
@@ -398,8 +474,32 @@ void app.whenReady().then(() => {
   }
   Menu.setApplicationMenu(null);
   aiRuntime = await createAiRuntime({ database: databaseRuntime, credentialStore });
+  let ttsCache = createTtsCache({
+    directory: join(app.getPath("userData"), "tts-cache"),
+  });
+  try {
+    await ttsCache.initialize();
+  } catch (error) {
+    console.error("Failed to initialize the optional TTS cache.", error);
+    ttsCache = {
+      initialize: async () => undefined,
+      get: async () => null,
+      put: async () => undefined,
+    };
+  }
+  const speechService = createSpeechService({
+    database: databaseRuntime,
+    aiRuntime,
+    cache: ttsCache,
+  });
   registerAssetProtocol(databaseRuntime, assetService);
-  registerIpcHandlers(databaseRuntime, aiRuntime, credentialStore, assetService);
+  speechRequests = registerIpcHandlers(
+    databaseRuntime,
+    aiRuntime,
+    credentialStore,
+    assetService,
+    speechService,
+  );
   createMainWindow();
 
   app.on("activate", () => {
@@ -413,6 +513,8 @@ void app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
+  speechRequests?.cancelAll();
+  speechRequests = undefined;
   void kataruneAiToolkit.close().catch((error: unknown) => {
     console.error("Failed to close the AI toolkit.", error);
   });

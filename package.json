@@ -16,6 +16,7 @@
     "models:snapshot": "node scripts/update-model-catalog-snapshot.mjs",
     "test": "vitest run",
     "test:ai:deepseek": "node tests/run-deepseek-live.mjs",
+    "test:ai:openai-tts": "node tests/run-openai-tts-live.mjs",
     "test:credentials": "node tests/run-credential-integration.mjs",
     "test:database": "node tests/run-database-integration.mjs",
     "test:ui": "npm run build && node tests/run-ui-smoke.mjs",
