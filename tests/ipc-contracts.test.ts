@@ -3,6 +3,7 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  appSettingsSchema,
   appStateSchema,
   assetSchema,
   availableModelListSchema,
@@ -38,6 +39,7 @@ import {
   speechModelSettingsSchema,
   threadMessagesSchema,
   updateCharacterRequestSchema,
+  updateAppSettingsRequestSchema,
 } from "../src/shared/ipc";
 
 describe("shared IPC contracts", () => {
@@ -69,6 +71,22 @@ describe("shared IPC contracts", () => {
         modelCallsEnabled: false,
       }),
     ).toMatchObject({ ready: true, modelCallsEnabled: false });
+
+    const defaultLanguageModelConfigId =
+      "00000000-0000-4000-8000-000000000001";
+    expect(
+      appSettingsSchema.parse({ defaultLanguageModelConfigId }),
+    ).toEqual({ defaultLanguageModelConfigId });
+    expect(
+      updateAppSettingsRequestSchema.parse({
+        defaultLanguageModelConfigId: null,
+      }),
+    ).toEqual({ defaultLanguageModelConfigId: null });
+    expect(
+      updateAppSettingsRequestSchema.safeParse({
+        defaultLanguageModelConfigId: "not-a-model-id",
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts assistant-ui thread metadata and format-preserving message records", () => {

@@ -1,4 +1,9 @@
-import { AssistantRuntimeProvider, useRemoteThreadListRuntime } from "@assistant-ui/react";
+import {
+  AssistantRuntimeProvider,
+  useAui,
+  useAuiState,
+  useRemoteThreadListRuntime,
+} from "@assistant-ui/react";
 import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -9,6 +14,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -21,6 +27,7 @@ import {
   isCharacterSpeechAvailable,
   SPEECH_CONFIG_CHANGED_EVENT,
 } from "./speech/speechAvailability";
+import { useApplicationSettings } from "./settings/ApplicationSettingsProvider";
 
 const CharacterRuntimeConfigContext = createContext<Character | null>(null);
 
@@ -34,6 +41,7 @@ function useCharacterRuntimeConfig(): Character {
 
 function ThreadRuntimeHook() {
   const character = useCharacterRuntimeConfig();
+  const { appSettings } = useApplicationSettings();
   const [speechAvailable, setSpeechAvailable] = useState(false);
   const transport = useMemo(
     () => new KataruneChatTransport(character.id),
@@ -75,11 +83,51 @@ function ThreadRuntimeHook() {
   return useChatRuntime({
     transport,
     adapters: { speech },
-    isSendDisabled: character.modelConfigId === null,
+    isSendDisabled:
+      character.modelConfigId === null &&
+      appSettings.defaultLanguageModelConfigId === null,
     sendAutomaticallyWhen: (options) =>
       lastAssistantMessageIsCompleteWithToolCalls(options) ||
       lastAssistantMessageIsCompleteWithApprovalResponses(options),
   });
+}
+
+function AutoReadReplies(): null {
+  const aui = useAui();
+  const { autoReadReplies } = useApplicationSettings();
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const canSpeak = useAuiState((state) => state.thread.capabilities.speech);
+  const wasRunning = useRef(isRunning);
+  const lastSpokenMessageId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const completedRun = wasRunning.current && !isRunning;
+    wasRunning.current = isRunning;
+    if (!completedRun || !autoReadReplies || !canSpeak) return;
+
+    const timer = window.setTimeout(() => {
+      const thread = aui.thread().getState();
+      if (thread.isRunning || !thread.capabilities.speech) return;
+      const message = thread.messages.at(-1);
+      if (
+        message === undefined ||
+        message.role !== "assistant" ||
+        message.status?.type !== "complete" ||
+        !message.content.some(
+          (part) => part.type === "text" && part.text.trim().length > 0,
+        ) ||
+        lastSpokenMessageId.current === message.id
+      ) {
+        return;
+      }
+      lastSpokenMessageId.current = message.id;
+      aui.thread().message({ id: message.id }).speak();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [aui, autoReadReplies, canSpeak, isRunning]);
+
+  return null;
 }
 
 interface CharacterRuntimeHostProps extends PropsWithChildren {
@@ -104,7 +152,12 @@ function CharacterRuntimeHost({
   return (
     <CharacterRuntimeConfigContext.Provider value={character}>
       <AssistantRuntimeProvider runtime={runtime}>
-        {active ? children : null}
+        {active ? (
+          <>
+            <AutoReadReplies />
+            {children}
+          </>
+        ) : null}
       </AssistantRuntimeProvider>
     </CharacterRuntimeConfigContext.Provider>
   );

@@ -28,8 +28,12 @@ const request: ChatStreamRequest = {
 
 function createDatabase(
   modelId: string | null = modelConfigId,
+  defaultModelId: string | null = null,
 ): ChatServiceDatabase {
   return {
+    getAppSettings: vi.fn(() => ({
+      defaultLanguageModelConfigId: defaultModelId,
+    })),
     fetchThread: vi.fn(() => ({
       remoteId: request.threadId,
       status: "regular" as const,
@@ -378,7 +382,7 @@ describe("chat service", () => {
     });
     await expect(
       missingModelService.createResponse(request, new AbortController().signal),
-    ).rejects.toThrow("尚未选择语言模型");
+    ).rejects.toThrow("尚未设置应用默认语言模型");
 
     const unavailableModelService = createChatService({
       database: createDatabase(),
@@ -394,5 +398,80 @@ describe("chat service", () => {
     expect(sanitizeChatError(new Error("secret provider response"))).not.toContain(
       "secret provider response",
     );
+  });
+
+  it("inherits the application default model without overriding an explicit role model", async () => {
+    const inheritedRuntime: ChatServiceAiRuntime = {
+      resolveLanguageModel: vi.fn(() => createModel(() => undefined)),
+    };
+    const inheritedService = createChatService({
+      database: createDatabase(null, modelConfigId),
+      aiRuntime: inheritedRuntime,
+    });
+
+    await (
+      await inheritedService.createResponse(
+        request,
+        new AbortController().signal,
+      )
+    ).text();
+    expect(inheritedRuntime.resolveLanguageModel).toHaveBeenCalledWith(
+      modelConfigId,
+    );
+
+    const otherDefaultModelId = "00000000-0000-4000-8000-000000000004";
+    const explicitRuntime: ChatServiceAiRuntime = {
+      resolveLanguageModel: vi.fn(() => createModel(() => undefined)),
+    };
+    const explicitService = createChatService({
+      database: createDatabase(modelConfigId, otherDefaultModelId),
+      aiRuntime: explicitRuntime,
+    });
+
+    await (
+      await explicitService.createResponse(request, new AbortController().signal)
+    ).text();
+    expect(explicitRuntime.resolveLanguageModel).toHaveBeenCalledWith(
+      modelConfigId,
+    );
+  });
+
+  it("uses the application default model for title generation", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "默认模型标题" }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage: {
+          inputTokens: {
+            total: 1,
+            noCache: 1,
+            cacheRead: undefined,
+            cacheWrite: undefined,
+          },
+          outputTokens: {
+            total: 1,
+            text: 1,
+            reasoning: undefined,
+          },
+        },
+        warnings: [],
+      }),
+    });
+    const aiRuntime: ChatServiceAiRuntime = {
+      resolveLanguageModel: vi.fn(() => model),
+    };
+    const service = createChatService({
+      database: createDatabase(null, modelConfigId),
+      aiRuntime,
+    });
+
+    await expect(
+      service.generateTitle({
+        threadId: request.threadId,
+        characterId,
+        messages: [{ role: "user", text: "测试默认模型" }],
+      }),
+    ).resolves.toEqual({ title: "默认模型标题" });
+    expect(aiRuntime.resolveLanguageModel).toHaveBeenCalledWith(modelConfigId);
   });
 });

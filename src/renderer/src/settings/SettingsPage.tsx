@@ -1,4 +1,5 @@
 import "../characters/character-fonts.css";
+import { useCallback } from "react";
 import {
   ArrowLeftIcon,
   BotIcon,
@@ -15,8 +16,9 @@ import {
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ModelManagement } from "./ModelSettings";
 import { ProviderDialog } from "./ProviderDialog";
-import { ThemeSettings } from "./ThemeSettings";
+import { GeneralSettings } from "./GeneralSettings";
 import { useSettingsController } from "./useSettingsController";
+import { useApplicationSettings } from "./ApplicationSettingsProvider";
 
 interface SettingsPageProps {
   readonly onClose: () => void;
@@ -26,6 +28,16 @@ export function SettingsPage({
   onClose,
 }: SettingsPageProps): React.JSX.Element {
   const controller = useSettingsController();
+  const { refreshAppSettings } = useApplicationSettings();
+  const reload = useCallback(
+    async (preferredProviderId?: string): Promise<void> => {
+      await Promise.all([
+        controller.reload(preferredProviderId),
+        refreshAppSettings(),
+      ]);
+    },
+    [controller.reload, refreshAppSettings],
+  );
 
   return (
     <main
@@ -49,7 +61,7 @@ export function SettingsPage({
       </header>
 
       <Tabs
-        className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-16 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-14 lg:gap-10"
+        className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-20 lg:gap-10"
         defaultValue="general"
         data-testid="settings-workspace"
         orientation="vertical"
@@ -81,7 +93,7 @@ export function SettingsPage({
           data-testid="settings-content"
         >
           <TabsContent className="settings-tab-panel h-full" value="general">
-            <ThemeSettings />
+            <GeneralSettings dataState={controller.dataState} />
           </TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="models">
             <ModelManagement
@@ -94,7 +106,7 @@ export function SettingsPage({
                 controller.requestProviderDelete(provider);
               }}
               onEditProvider={controller.editProvider}
-              onReload={controller.reload}
+              onReload={reload}
               onSelectProvider={controller.selectProvider}
             />
           </TabsContent>
@@ -109,7 +121,7 @@ export function SettingsPage({
           onOpenChange={(open) => {
             if (!open) controller.closeProviderDialog();
           }}
-          onSaved={controller.reload}
+          onSaved={reload}
         />
       )}
 
@@ -129,6 +141,7 @@ export function SettingsPage({
         onConfirm={async () => {
           if (controller.providerToDelete !== null) {
             await controller.deleteProvider(controller.providerToDelete);
+            await refreshAppSettings();
           }
         }}
       />

@@ -48,6 +48,7 @@ let createdModelRequest = null;
 let createdModel = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
+let appSettings = { defaultLanguageModelConfigId: null };
 let updatedCharacterRequest = null;
 let committedPortraitRequest = null;
 let discardedPortraitStageRequest = null;
@@ -146,6 +147,11 @@ function registerMockHandlers() {
   ipcMain.handle("app-state:get", () => ({
     activeCharacter: characters.find((candidate) => candidate.id === activeCharacterId),
   }));
+  ipcMain.handle("app-settings:get", () => appSettings);
+  ipcMain.handle("app-settings:update", (_event, request) => {
+    appSettings = request;
+    return appSettings;
+  });
   ipcMain.handle("app-state:set-active-character", (_event, request) => {
     activeCharacterId = request.characterId;
     return {
@@ -740,14 +746,58 @@ async function run() {
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
     });
 
-    await runStep("open model settings", async () => {
+    await runStep("use general settings", async () => {
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await waitForSelector(window, '[data-testid="settings-page"]');
+      await waitForSelector(window, '[data-testid="general-settings"]');
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[data-testid="general-settings"] [data-slot="card"]')`,
+        ),
+        null,
+      );
       await clickSelector(window, '[data-testid="theme-dark"]');
       await waitForSelector(window, "html.dark");
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `getComputedStyle(document.querySelector('[data-testid="theme-dark"]')).borderColor`,
+        ),
+        "rgba(0, 0, 0, 0)",
+      );
+      await clickSelector(window, '[data-testid="reduce-motion"]');
+      await waitForSelector(window, 'html[data-reduce-motion]');
+      await clickSelector(window, '[data-testid="auto-read-replies"]');
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`({
+          autoReadReplies: localStorage.getItem('katarune.autoReadReplies'),
+          reduceMotion: localStorage.getItem('katarune.reduceMotion'),
+        })`),
+        { autoReadReplies: "true", reduceMotion: "true" },
+      );
+      await clickSelector(window, '[data-testid="default-language-model"]');
+      await waitForSelector(window, '[data-slot="model-selector-content"]');
+      await window.webContents.executeJavaScript(`(() => {
+        const item = [...document.querySelectorAll('[data-slot="model-selector-item"]')]
+          .find((candidate) => candidate.textContent.includes('DeepSeek Chat'));
+        if (item === undefined) throw new Error('Default language model option was not found');
+        item.click();
+      })()`);
+      await waitUntil(
+        "application default model update",
+        () => appSettings.defaultLanguageModelConfigId === modelId,
+      );
+    });
+
+    await runStep("open model settings", async () => {
       await clickSelector(window, '[data-testid="settings-tab-models"]');
       await waitForSelector(window, '[data-testid="model-row"]');
       await waitForText(window, '[data-testid="settings-page"]', "DeepSeek Chat");
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `getComputedStyle(document.querySelector('[data-testid="model-categories"] [data-active]')).borderColor`,
+        ),
+        "rgba(0, 0, 0, 0)",
+      );
       assert.equal(
         await window.webContents.executeJavaScript(
           `document.querySelectorAll('[data-testid="provider-row"]').length`,

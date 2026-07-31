@@ -32,14 +32,15 @@ import {
   type ProviderConfig,
   type UpdateCharacterRequest,
 } from "../../../shared/ipc";
+import { useApplicationSettings } from "../settings/ApplicationSettingsProvider";
 import { CharacterPortraitPanel } from "./CharacterPortraitPanel";
 
 const NO_MODEL_ID = "__katarune_no_model__";
 const NO_VOICE_ID = "__katarune_no_voice__";
 export const NEW_CHARACTER_NAME = "未命名角色";
-const NO_MODEL_OPTION: ModelOption = {
+const NO_SPEECH_MODEL_OPTION: ModelOption = {
   id: NO_MODEL_ID,
-  name: "暂不选择模型",
+  name: "未选择声音模型",
 };
 const NO_VOICE_OPTION: ModelOption = {
   id: NO_VOICE_ID,
@@ -121,6 +122,7 @@ export function CharacterEditor({
   onPortraitEdit,
   onOpenSettings,
 }: CharacterEditorProps): React.JSX.Element {
+  const { appSettings } = useApplicationSettings();
   const nameInput = useRef<HTMLInputElement>(null);
   const [portraitFailed, setPortraitFailed] = useState(false);
   useEffect(() => {
@@ -194,6 +196,27 @@ export function CharacterEditor({
   const currentModelAvailable =
     character.modelConfigId === null ||
     availableModels.some((model) => model.id === character.modelConfigId);
+  const defaultLanguageModelOption = useMemo<ModelOption>(() => {
+    const defaultModelId = appSettings.defaultLanguageModelConfigId;
+    if (defaultModelId === null) {
+      return {
+        id: NO_MODEL_ID,
+        name: "应用默认",
+        description: "尚未配置",
+      };
+    }
+    const defaultModel = models.find((model) => model.id === defaultModelId);
+    const defaultModelName =
+      defaultModel?.displayName ?? defaultModel?.modelId ?? "默认模型";
+    const available = availableModels.some((model) => model.id === defaultModelId);
+    return {
+      id: NO_MODEL_ID,
+      name: "应用默认",
+      description: available
+        ? `已配置：${defaultModelName}`
+        : `已配置但不可用：${defaultModelName}`,
+    };
+  }, [appSettings.defaultLanguageModelConfigId, availableModels, models]);
   const availableSpeechModels = useMemo(
     () =>
       models.filter(
@@ -314,11 +337,11 @@ export function CharacterEditor({
   );
   const modelOptions = useMemo(
     () => [
-      NO_MODEL_OPTION,
+      defaultLanguageModelOption,
       ...(unavailableModelOption === null ? [] : [unavailableModelOption]),
       ...groupedModels.flatMap((group) => group.options),
     ],
-    [groupedModels, unavailableModelOption],
+    [defaultLanguageModelOption, groupedModels, unavailableModelOption],
   );
   const groupedSpeechModels = useMemo(
     () =>
@@ -369,7 +392,7 @@ export function CharacterEditor({
   );
   const speechModelOptions = useMemo(
     () => [
-      NO_MODEL_OPTION,
+      NO_SPEECH_MODEL_OPTION,
       ...(unavailableSpeechModelOption === null
         ? []
         : [unavailableSpeechModelOption]),
@@ -463,7 +486,7 @@ export function CharacterEditor({
               <ModelSelectorList>
                 <ModelSelectorEmpty>没有匹配的模型</ModelSelectorEmpty>
                 <ModelSelectorGroup heading="角色">
-                  <ModelSelectorItem model={NO_MODEL_OPTION} />
+                  <ModelSelectorItem model={defaultLanguageModelOption} />
                   {unavailableModelOption !== null && (
                     <ModelSelectorItem model={unavailableModelOption} />
                   )}
@@ -537,7 +560,7 @@ export function CharacterEditor({
               <ModelSelectorList>
                 <ModelSelectorEmpty>没有匹配的语音模型</ModelSelectorEmpty>
                 <ModelSelectorGroup heading="角色">
-                  <ModelSelectorItem model={NO_MODEL_OPTION} />
+                  <ModelSelectorItem model={NO_SPEECH_MODEL_OPTION} />
                   {unavailableSpeechModelOption !== null && (
                     <ModelSelectorItem model={unavailableSpeechModelOption} />
                   )}

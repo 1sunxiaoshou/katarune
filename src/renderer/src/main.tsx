@@ -6,7 +6,8 @@ import { App } from "./App";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CharacterSessionProvider } from "./characters/CharacterSessionProvider";
 import { NotificationProvider } from "./notifications";
-import { initializeTheme } from "./theme";
+import { ApplicationSettingsProvider } from "./settings/ApplicationSettingsProvider";
+import { initializeDevicePreferences } from "./settings/devicePreferences";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -15,15 +16,17 @@ if (rootElement === null) {
   throw new Error("Renderer root element was not found.");
 }
 
-initializeTheme();
+initializeDevicePreferences();
 
 createRoot(rootElement).render(
   <StrictMode>
     <TooltipProvider>
       <NotificationProvider>
-        <CharacterSessionProvider>
-          <App />
-        </CharacterSessionProvider>
+        <ApplicationSettingsProvider>
+          <CharacterSessionProvider>
+            <App />
+          </CharacterSessionProvider>
+        </ApplicationSettingsProvider>
       </NotificationProvider>
     </TooltipProvider>
   </StrictMode>,

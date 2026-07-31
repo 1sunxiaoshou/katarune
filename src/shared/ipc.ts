@@ -84,6 +84,8 @@ export const IPC_CHANNELS = {
   getAiRuntimeStatus: "ai:get-runtime-status",
   getAppState: "app-state:get",
   setActiveCharacter: "app-state:set-active-character",
+  getAppSettings: "app-settings:get",
+  updateAppSettings: "app-settings:update",
   listThreads: "threads:list",
   initializeThread: "threads:initialize",
   fetchThread: "threads:fetch",
@@ -271,6 +273,12 @@ export const appStateSchema = z.strictObject({
 export const setActiveCharacterRequestSchema = z.strictObject({
   characterId: z.uuid(),
 });
+
+export const appSettingsSchema = z.strictObject({
+  defaultLanguageModelConfigId: z.nullable(z.uuid()),
+});
+
+export const updateAppSettingsRequestSchema = appSettingsSchema;
 
 export const operationSuccessSchema = z.strictObject({
   success: z.literal(true),
@@ -541,6 +549,10 @@ export type AppState = Readonly<z.infer<typeof appStateSchema>>;
 export type SetActiveCharacterRequest = Readonly<
   z.infer<typeof setActiveCharacterRequestSchema>
 >;
+export type AppSettings = Readonly<z.infer<typeof appSettingsSchema>>;
+export type UpdateAppSettingsRequest = Readonly<
+  z.infer<typeof updateAppSettingsRequestSchema>
+>;
 export type OperationSuccess = Readonly<z.infer<typeof operationSuccessSchema>>;
 export type ProviderSettings = Readonly<JsonObject>;
 export type ProviderConfig = Readonly<z.infer<typeof providerConfigSchema>>;
@@ -577,6 +589,8 @@ export interface KataruneApi {
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;
   getAppState(): Promise<AppState>;
   setActiveCharacter(request: SetActiveCharacterRequest): Promise<AppState>;
+  getAppSettings(): Promise<AppSettings>;
+  updateAppSettings(request: UpdateAppSettingsRequest): Promise<AppSettings>;
   listThreads(request: ListThreadsRequest): Promise<ThreadList>;
   initializeThread(request: ThreadIdRequest): Promise<InitializeThreadResponse>;
   fetchThread(request: ThreadIdRequest): Promise<ThreadMetadata>;

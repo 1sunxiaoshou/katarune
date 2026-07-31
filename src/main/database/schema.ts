@@ -73,6 +73,17 @@ export const modelConfigs = sqliteTable(
   ],
 );
 
+export const appSettings = sqliteTable(
+  "app_settings",
+  {
+    id: integer("id").primaryKey(),
+    defaultLanguageModelConfigId: text("default_language_model_config_id")
+      .references(() => modelConfigs.id, { onDelete: "set null" }),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [check("app_settings_singleton_check", sql`${table.id} = 1`)],
+);
+
 export const characters = sqliteTable(
   "characters",
   {

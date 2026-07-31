@@ -9,13 +9,14 @@ import {
   type DatabaseStatus,
 } from "../../shared/ipc";
 import { loadDefaultCharacterConfig } from "../characters/defaultCharacter";
+import { createAppSettingsRepository } from "./appSettingsRepository";
 import { createAppStateRepository } from "./appStateRepository";
 import { createAssetRepository } from "./assetRepository";
 import { createCharacterRepository } from "./characterRepository";
 import { VALIDATION_THREAD_ID } from "./constants";
 import { createModelRepository } from "./modelRepository";
 import { createProviderRepository } from "./providerRepository";
-import { appState, assets, characters, threads } from "./schema";
+import { appSettings, appState, assets, characters, threads } from "./schema";
 import { createThreadRepository } from "./threadRepository";
 import type {
   DatabaseRuntime,
@@ -145,6 +146,15 @@ export function openDatabase({
     );
   }
   database
+    .insert(appSettings)
+    .values({
+      id: 1,
+      defaultLanguageModelConfigId: null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: appSettings.id })
+    .run();
+  database
     .insert(appState)
     .values({
       id: 1,
@@ -222,11 +232,16 @@ export function openDatabase({
     configValidator,
     providerRepository.fetchProviderConfig,
   );
+  const appSettingsRepository = createAppSettingsRepository(
+    database,
+    modelRepository.fetchModelConfig,
+  );
   const assetRepository = createAssetRepository(database);
 
   return {
     getStatus: () => status,
     ...appStateRepository,
+    ...appSettingsRepository,
     ...threadRepository,
     ...providerRepository,
     ...modelRepository,
