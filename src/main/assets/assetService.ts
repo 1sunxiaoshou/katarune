@@ -3,13 +3,18 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   statSync,
   unlinkSync,
 } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
-import type { DefaultCharacterConfig } from "../../shared/characters";
+import {
+  stagedCharacterPortraitSchema,
+  type DefaultCharacterConfig,
+  type StagedCharacterPortrait,
+} from "../../shared/characters";
 import type {
   AssetMetadata,
   DatabaseRuntime,
@@ -29,9 +34,19 @@ const PORTRAIT_MIME_BY_EXTENSION = {
 type PortraitMime = (typeof PORTRAIT_MIME_BY_EXTENSION)[keyof typeof PORTRAIT_MIME_BY_EXTENSION];
 
 export interface AssetService {
-  importPortrait(sourcePath: string): ReadyAssetRegistration;
+  stagePortrait(sourcePath: string): StagedCharacterPortrait;
+  commitStagedPortrait<T>(
+    stageId: string,
+    commit: (asset: ReadyAssetRegistration) => T,
+  ): T;
+  discardStagedPortrait(stageId: string): void;
   removeExact(assetId: string): void;
   resolveManagedPath(assetId: string): string;
+  resolveStagedPortrait(stageId: string): {
+    readonly path: string;
+    readonly mimeType: string;
+    readonly byteSize: number;
+  };
   reconcile(database: DatabaseRuntime, config: DefaultCharacterConfig): void;
 }
 
@@ -117,6 +132,14 @@ export function createAssetService({
   const legacyDirectory = resolve(userDataPath, "character-assets");
   mkdirSync(assetDirectory, { recursive: true });
   mkdirSync(stagingDirectory, { recursive: true });
+  for (const entry of readdirSync(stagingDirectory)) {
+    if (!/^[0-9a-f-]{36}\.tmp$/i.test(entry)) continue;
+    const stalePath = resolve(stagingDirectory, entry);
+    if (stalePath.startsWith(`${stagingDirectory}${sep}`) && statSync(stalePath).isFile()) {
+      unlinkSync(stalePath);
+    }
+  }
+  const stagedPortraits = new Map<string, ReadyAssetRegistration>();
 
   const resolveManagedPath = (assetId: string): string => {
     if (!UUID_PATTERN.test(assetId)) {
@@ -129,17 +152,15 @@ export function createAssetService({
     return path;
   };
 
-  const moveIntoStore = (
+  const copyIntoStage = (
     sourcePath: string,
     assetId: string,
     originalName: string,
   ): ReadyAssetRegistration => {
     const stagingPath = resolve(stagingDirectory, `${assetId}.tmp`);
-    const finalPath = resolveManagedPath(assetId);
     try {
       copyFileSync(sourcePath, stagingPath);
       const metadata = inspectPortrait(stagingPath, originalName);
-      renameSync(stagingPath, finalPath);
       return { id: assetId, storageKey: assetId, ...metadata };
     } catch (error) {
       if (existsSync(stagingPath)) unlinkSync(stagingPath);
@@ -148,16 +169,65 @@ export function createAssetService({
   };
 
   return {
-    importPortrait: (sourcePath) => {
+    stagePortrait: (sourcePath) => {
       const originalName = basename(sourcePath);
       expectedMime(originalName);
-      return moveIntoStore(sourcePath, randomUUID(), originalName);
+      const registration = copyIntoStage(sourcePath, randomUUID(), originalName);
+      stagedPortraits.set(registration.id, registration);
+      return stagedCharacterPortraitSchema.parse({
+        id: registration.id,
+        mimeType: registration.mimeType,
+        byteSize: registration.byteSize,
+        originalName: registration.originalName,
+      });
+    },
+    commitStagedPortrait: (stageId, commit) => {
+      const registration = stagedPortraits.get(stageId);
+      if (registration === undefined) {
+        throw new Error("立绘暂存项不存在或已失效。");
+      }
+      const stagingPath = resolve(stagingDirectory, `${stageId}.tmp`);
+      const finalPath = resolveManagedPath(stageId);
+      if (!existsSync(stagingPath) || existsSync(finalPath)) {
+        throw new Error("立绘暂存状态无效。");
+      }
+      renameSync(stagingPath, finalPath);
+      try {
+        const result = commit(registration);
+        stagedPortraits.delete(stageId);
+        return result;
+      } catch (error) {
+        renameSync(finalPath, stagingPath);
+        throw error;
+      }
+    },
+    discardStagedPortrait: (stageId) => {
+      if (!stagedPortraits.delete(stageId)) {
+        throw new Error("立绘暂存项不存在或已失效。");
+      }
+      const stagingPath = resolve(stagingDirectory, `${stageId}.tmp`);
+      if (existsSync(stagingPath)) unlinkSync(stagingPath);
     },
     removeExact: (assetId) => {
       const path = resolveManagedPath(assetId);
       if (existsSync(path)) unlinkSync(path);
     },
     resolveManagedPath,
+    resolveStagedPortrait: (stageId) => {
+      const registration = stagedPortraits.get(stageId);
+      if (registration === undefined) {
+        throw new Error("立绘暂存项不存在或已失效。");
+      }
+      const path = resolve(stagingDirectory, `${stageId}.tmp`);
+      if (!path.startsWith(`${stagingDirectory}${sep}`) || !existsSync(path)) {
+        throw new Error("立绘暂存状态无效。");
+      }
+      return {
+        path,
+        mimeType: registration.mimeType,
+        byteSize: registration.byteSize,
+      };
+    },
     reconcile: (database, config) => {
       for (const asset of database.listAssets()) {
         if (asset.status === "ready") continue;
@@ -180,10 +250,14 @@ export function createAssetService({
               throw new Error("Invalid bundled portrait path.");
             }
             if (existsSync(bundledPath)) {
-              const registration = moveIntoStore(
+              const registration = copyIntoStage(
                 bundledPath,
                 asset.id,
                 bundledPortrait.file,
+              );
+              renameSync(
+                resolve(stagingDirectory, `${asset.id}.tmp`),
+                resolveManagedPath(asset.id),
               );
               database.markAssetReady(asset.id, registration);
               continue;

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -12,6 +12,18 @@ import {
 const projectRoot = process.cwd();
 const userDataPath = join(projectRoot, ".test-dist", "ui-user-data");
 const screenshotDirectory = mkdtempSync(join(tmpdir(), "katarune-ui-screenshots-"));
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "katarune-asset",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 mkdirSync(userDataPath, { recursive: true });
 app.setPath("userData", userDataPath);
@@ -30,6 +42,8 @@ let createdModel = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
 let updatedCharacterRequest = null;
+let committedPortraitRequest = null;
+let discardedPortraitStageRequest = null;
 let createdCharacterCount = 0;
 let createdCharacterRequest = null;
 let deletedCharacterRequest = null;
@@ -41,6 +55,9 @@ let character = {
   id: characterId,
   name: "星澜",
   portraitAssetId: "00000000-0000-4000-8000-000000000002",
+  portraitFocusX: 0.5,
+  portraitFocusY: 0,
+  portraitZoom: 1,
   modelConfigId: modelId,
   speechModelConfigId: null,
   speechVoice: null,
@@ -52,6 +69,9 @@ const secondCharacter = {
   id: "00000000-0000-4000-8000-000000000003",
   name: "月影",
   portraitAssetId: null,
+  portraitFocusX: 0.5,
+  portraitFocusY: 0,
+  portraitZoom: 1,
   modelConfigId: null,
   speechModelConfigId: null,
   speechVoice: null,
@@ -439,6 +459,9 @@ function registerMockHandlers() {
       id: `00000000-0000-4000-8000-${String(createdCharacterCount + 3).padStart(12, "0")}`,
       name: request.name,
       portraitAssetId: null,
+      portraitFocusX: 0.5,
+      portraitFocusY: 0,
+      portraitZoom: 1,
       modelConfigId: request.modelConfigId,
       speechModelConfigId: request.speechModelConfigId,
       speechVoice: request.speechVoice,
@@ -480,10 +503,39 @@ function registerMockHandlers() {
     if (request.id === characterId) character = updated;
     return updated;
   });
-  ipcMain.handle("characters:import-portrait", () => ({
+  ipcMain.handle("characters:stage-portrait", () => ({
     canceled: true,
-    character: null,
+    stage: null,
   }));
+  ipcMain.handle("characters:commit-portrait", (_event, request) => {
+    committedPortraitRequest = request;
+    const target =
+      request.mode === "existing"
+        ? characters.find((candidate) => candidate.id === request.id)
+        : {
+            id: "00000000-0000-4000-8000-000000000099",
+            portraitAssetId: request.stageId,
+            createdAt: now,
+            ...request.character,
+          };
+    const updated = {
+      ...target,
+      portraitAssetId: request.stageId ?? target.portraitAssetId,
+      portraitFocusX: request.framing.focusX,
+      portraitFocusY: request.framing.focusY,
+      portraitZoom: request.framing.zoom,
+      updatedAt: now,
+    };
+    characters = characters.map((candidate) =>
+      candidate.id === updated.id ? updated : candidate,
+    );
+    if (updated.id === characterId) character = updated;
+    return updated;
+  });
+  ipcMain.handle("characters:discard-portrait-stage", (_event, request) => {
+    discardedPortraitStageRequest = request;
+    return { success: true };
+  });
 }
 
 async function waitForSelector(window, selector) {
@@ -493,6 +545,24 @@ async function waitForSelector(window, selector) {
       const deadline = Date.now() + 5000;
       const check = () => {
         if (document.querySelector(${JSON.stringify(selector)}) !== null) return resolve(true);
+        if (Date.now() > deadline) return reject(new Error(${JSON.stringify(timeoutMessage)}));
+        setTimeout(check, 25);
+      };
+      check();
+    })
+  `);
+}
+
+async function waitForSelectorAttribute(window, selector, attribute, value) {
+  const timeoutMessage = `Timed out waiting for ${selector} ${attribute}=${value}`;
+  await window.webContents.executeJavaScript(`
+    new Promise((resolve, reject) => {
+      const deadline = Date.now() + 5000;
+      const check = () => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        if (element?.getAttribute(${JSON.stringify(attribute)}) === ${JSON.stringify(value)}) {
+          return resolve(true);
+        }
         if (Date.now() > deadline) return reject(new Error(${JSON.stringify(timeoutMessage)}));
         setTimeout(check, 25);
       };
@@ -615,6 +685,25 @@ let exitCode = 0;
 async function run() {
   console.log("UI smoke: registering IPC mocks");
   registerMockHandlers();
+  protocol.handle("katarune-asset", (request) => {
+    const url = new URL(request.url);
+    if (
+      url.hostname !== "asset" ||
+      url.pathname !== "/00000000-0000-4000-8000-000000000002"
+    ) {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(
+      readFileSync(join(projectRoot, "resources", "characters", "sunohara-kokona.png")),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  });
 
   const window = createTestWindow();
 
@@ -645,7 +734,10 @@ async function run() {
   const launcherMetrics = await window.webContents.executeJavaScript(`(() => {
     const launcherElement = document.querySelector('[data-testid="settings-launcher"]');
     const launcher = launcherElement.getBoundingClientRect();
-    const character = document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect();
+    const characterElement = document.querySelector('[data-testid="character-launcher"]');
+    const character = characterElement.getBoundingClientRect();
+    const characterPointer = characterElement.querySelector('.character-list-pointer');
+    const controlsStyle = getComputedStyle(document.querySelector('.chat-sidebar-footer'));
     return {
       left: Math.round(launcher.left),
       bottom: Math.round(window.innerHeight - launcher.bottom),
@@ -655,6 +747,11 @@ async function run() {
       characterLeft: Math.round(character.left),
       characterTop: Math.round(character.top),
       characterHeight: Math.round(character.height),
+      characterOverflow: getComputedStyle(characterElement).overflow,
+      characterPointerVisible: getComputedStyle(characterPointer).display !== 'none',
+      controlsPosition: controlsStyle.position,
+      controlsHaveBackground: controlsStyle.backgroundColor !== "rgba(0, 0, 0, 0)",
+      controlsBorderWidth: controlsStyle.borderTopWidth,
     };
   })()`);
   assert.deepEqual(launcherMetrics, {
@@ -666,16 +763,41 @@ async function run() {
     characterLeft: 24,
     characterTop: 24,
     characterHeight: 86,
+    characterOverflow: "visible",
+    characterPointerVisible: false,
+    controlsPosition: "absolute",
+    controlsHaveBackground: false,
+    controlsBorderWidth: "0px",
   });
 
   await waitForSelector(window, '[data-testid="thread-starline-item"]');
+  await waitForSelectorAttribute(
+    window,
+    '[data-testid="thread-fade-bottom"]',
+    "data-visible",
+    "true",
+  );
   const initialStarline = await window.webContents.executeJavaScript(`(() => {
     const region = document.querySelector('[data-testid="thread-list-region"]');
     const scroll = document.querySelector('[data-testid="thread-starline-scroll"]');
+    const character = document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect();
+    const header = document.querySelector('.thread-starline-header').getBoundingClientRect();
+    const heading = document.querySelector('[data-testid="thread-section-title"]');
+    const newThread = document.querySelector('[data-testid="thread-new"]');
+    const newThreadRect = newThread.getBoundingClientRect();
+    const firstItem = document.querySelector('[data-testid="thread-starline-item"]').getBoundingClientRect();
     return {
       regularCount: document.querySelectorAll('[data-testid="thread-starline-item"]').length,
       includesArchived: region.textContent.includes('不应出现的归档会话'),
       hasNewThread: document.querySelector('[data-testid="thread-new"]') !== null,
+      heading: heading.textContent.trim(),
+      newThreadLabel: newThread.getAttribute('aria-label'),
+      newThreadText: newThread.textContent.trim(),
+      newThreadWidth: Math.round(newThreadRect.width),
+      newThreadHeight: Math.round(newThreadRect.height),
+      headerAlignment: Math.round(newThreadRect.top + newThreadRect.height / 2 - (header.top + header.height / 2)),
+      characterToHeaderGap: Math.round(header.top - character.bottom),
+      headerToFirstThreadGap: Math.round(firstItem.top - header.bottom),
       scrollable: scroll.scrollHeight > scroll.clientHeight,
       bottomFade: document.querySelector('[data-testid="thread-fade-bottom"]').getAttribute('data-visible'),
       settingLeftOfToggle:
@@ -686,6 +808,14 @@ async function run() {
   assert.equal(initialStarline.regularCount, 18);
   assert.equal(initialStarline.includesArchived, false);
   assert.equal(initialStarline.hasNewThread, true);
+  assert.equal(initialStarline.heading, "会话");
+  assert.equal(initialStarline.newThreadLabel, "新对话");
+  assert.equal(initialStarline.newThreadText, "");
+  assert.equal(initialStarline.newThreadWidth, 32);
+  assert.equal(initialStarline.newThreadHeight, 32);
+  assert.equal(initialStarline.headerAlignment, 0);
+  assert.equal(initialStarline.characterToHeaderGap, 20);
+  assert.equal(initialStarline.headerToFirstThreadGap, 8);
   assert.equal(initialStarline.scrollable, true);
   assert.equal(initialStarline.bottomFade, "true");
   assert.equal(initialStarline.settingLeftOfToggle, true);
@@ -697,19 +827,36 @@ async function run() {
     };
     return {
       characterName: fontFamily('[data-testid="character-launcher"] strong'),
+      characterReading: fontFamily('[data-testid="character-launcher"] [data-testid="character-list-reading"]'),
       threadTitle: fontFamily('[data-testid="thread-starline-item"] .thread-starline-title'),
       welcomeTitle: fontFamily('.aui-thread-welcome-message-inner'),
       newThreadAction: fontFamily('[data-testid="thread-new"]'),
     };
   })()`);
   assert.match(typographyRoles.characterName, /Noto Serif SC Variable/);
+  assert.match(typographyRoles.characterReading, /Yellowtail/);
   assert.match(typographyRoles.threadTitle, /Noto Serif SC Variable/);
   assert.match(typographyRoles.welcomeTitle, /Noto Serif SC Variable/);
   assert.doesNotMatch(typographyRoles.newThreadAction, /Noto Serif SC Variable/);
 
   await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(1) [data-testid="thread-starline-trigger"]');
-  const activeMarker = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) [data-active], [data-testid="thread-starline-item"]:nth-child(1)[data-active]')?.textContent ?? document.querySelector('[data-testid="thread-starline-item"]:nth-child(1) .thread-starline-marker').textContent`);
-  assert.match(activeMarker, /✦/);
+  await waitForSelector(window, '[data-testid="thread-active-marker"]');
+  await waitForSelectorAttribute(
+    window,
+    '[data-testid="thread-starline-item"]:nth-child(1)',
+    "data-active",
+    "true",
+  );
+  const activeMarker = await window.webContents.executeJavaScript(`(() => ({
+    count: document.querySelectorAll('[data-testid="thread-active-marker"]').length,
+    text: document.querySelector('[data-testid="thread-active-marker"]').textContent,
+    firstActive: document.querySelector('[data-testid="thread-starline-item"]:nth-child(1)').getAttribute('data-active'),
+  }))()`);
+  assert.deepEqual(activeMarker, {
+    count: 1,
+    text: "✦",
+    firstActive: "true",
+  });
 
   await window.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('.aui-composer-input');
@@ -731,7 +878,33 @@ async function run() {
   );
   assert.equal(unavailableSpeechAction, null);
 
+  const markerTopBeforeSwitch = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="thread-active-marker"]').getBoundingClientRect().top`,
+  );
   await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(2) [data-testid="thread-starline-trigger"]');
+  const markerMotion = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+    const marker = document.querySelector('[data-testid="thread-active-marker"]');
+    const target = document.querySelector('[data-testid="thread-starline-item"]:nth-child(2) .thread-starline-marker');
+    const transitionDuration = getComputedStyle(marker).transitionDuration;
+    setTimeout(() => {
+      const animations = marker.getAnimations();
+      for (const animation of animations) animation.finish();
+      const markerRect = marker.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      resolve({
+        transitionDuration,
+        animationCount: animations.length,
+        finalTop: Math.round(markerRect.top),
+        targetTop: Math.round(targetRect.top),
+        secondActive: document.querySelector('[data-testid="thread-starline-item"]:nth-child(2)').getAttribute('data-active'),
+      });
+    }, 340);
+  })`);
+  assert.equal(markerMotion.transitionDuration, "0.28s");
+  assert.equal(markerMotion.animationCount, 1);
+  assert.ok(Math.abs(markerMotion.finalTop - markerTopBeforeSwitch) > 1);
+  assert.equal(markerMotion.finalTop, markerMotion.targetTop);
+  assert.equal(markerMotion.secondActive, "true");
   await window.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('.aui-composer-input');
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '请同时确认另一条星轨');
@@ -991,56 +1164,124 @@ async function run() {
   assert.deepEqual(scrolledFades, { top: "true", bottom: "false" });
 
   await clickSelector(window, '[data-testid="thread-list-visibility-toggle"]');
-  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 260))`);
+  await window.webContents.executeJavaScript(`(() => {
+    const sidebar = document.querySelector('.chat-sidebar');
+    for (const animation of sidebar.getAnimations({ subtree: true })) animation.finish();
+  })()`);
   const collapsedState = await window.webContents.executeJavaScript(`(() => {
+    const content = document.querySelector('[data-testid="chat-sidebar-content"]');
     const region = document.querySelector('[data-testid="thread-list-region"]');
+    const character = document.querySelector('[data-testid="character-launcher-container"]');
+    const toggle = document.querySelector('[data-testid="thread-list-visibility-toggle"]');
+    const sidebar = document.querySelector('.chat-sidebar');
+    const main = document.querySelector('.chat-main');
+    const controls = document.querySelector('.chat-sidebar-footer');
+    const controlsStyle = getComputedStyle(controls);
+    const settings = document.querySelector('[data-testid="settings-launcher"]').getBoundingClientRect();
     return {
-      ariaHidden: region.getAttribute('aria-hidden'),
-      inert: region.inert,
-      hiddenClass: region.classList.contains('is-hidden'),
-      transitionDuration: getComputedStyle(region).transitionDuration,
+      ariaHidden: content.getAttribute('aria-hidden'),
+      inert: content.inert,
+      hiddenClass: content.classList.contains('is-hidden'),
+      threadOpacity: getComputedStyle(region).opacity,
+      threadVisibility: getComputedStyle(region).visibility,
+      characterOpacity: getComputedStyle(character).opacity,
+      characterVisibility: getComputedStyle(character).visibility,
+      characterTransitionDuration: getComputedStyle(character).transitionDuration,
+      threadTransitionDuration: getComputedStyle(region).transitionDuration,
+      toggleLabel: toggle.textContent.trim(),
+      controls: toggle.getAttribute('aria-controls'),
       stored: localStorage.getItem('katarune.threadListCollapsed'),
-      sidebarWidth: Math.round(document.querySelector('.chat-sidebar').getBoundingClientRect().width),
+      sidebarWidth: Math.round(sidebar.getBoundingClientRect().width),
+      mainWidth: Math.round(main.getBoundingClientRect().width),
       viewportWidth: window.innerWidth,
+      controlsPosition: controlsStyle.position,
+      controlsHaveBackground: controlsStyle.backgroundColor !== "rgba(0, 0, 0, 0)",
+      settingsLeft: Math.round(settings.left),
+      settingsBottom: Math.round(window.innerHeight - settings.bottom),
     };
   })()`);
   assert.deepEqual(collapsedState, {
     ariaHidden: "true",
     inert: true,
     hiddenClass: true,
-    transitionDuration: collapsedState.transitionDuration,
+    threadOpacity: "0",
+    threadVisibility: "hidden",
+    characterOpacity: "0",
+    characterVisibility: "hidden",
+    characterTransitionDuration: collapsedState.characterTransitionDuration,
+    threadTransitionDuration: collapsedState.threadTransitionDuration,
+    toggleLabel: "显示角色与会话",
+    controls: "chat-sidebar-content",
     stored: "true",
     sidebarWidth: collapsedState.sidebarWidth,
+    mainWidth: collapsedState.mainWidth,
     viewportWidth: collapsedState.viewportWidth,
+    controlsPosition: "absolute",
+    controlsHaveBackground: false,
+    settingsLeft: 24,
+    settingsBottom: 19,
   });
-  assert.equal(
-    collapsedState.sidebarWidth,
-    Math.round(
-      Math.min(322, Math.max(254, collapsedState.viewportWidth * 0.23)),
-    ),
+  assert.equal(collapsedState.sidebarWidth, 0);
+  assert.equal(collapsedState.mainWidth, collapsedState.viewportWidth);
+  assert.ok(
+    collapsedState.characterTransitionDuration.includes("0.15s") ||
+      collapsedState.characterTransitionDuration === "0s",
   );
   assert.ok(
-    collapsedState.transitionDuration.includes("0.22s") ||
-      collapsedState.transitionDuration === "0s",
+    collapsedState.threadTransitionDuration.includes("0.15s") ||
+      collapsedState.threadTransitionDuration === "0s",
   );
 
   window.reload();
   await waitForSelector(window, '[data-testid="thread-list-region"][data-hidden="true"]');
   await clickSelector(window, '[data-testid="thread-list-visibility-toggle"]');
-  await window.webContents.executeJavaScript(`new Promise((resolve) => setTimeout(resolve, 230))`);
+  await window.webContents.executeJavaScript(`(() => {
+    const sidebar = document.querySelector('.chat-sidebar');
+    for (const animation of sidebar.getAnimations({ subtree: true })) animation.finish();
+  })()`);
   const expandedState = await window.webContents.executeJavaScript(`(() => {
+    const content = document.querySelector('[data-testid="chat-sidebar-content"]');
     const region = document.querySelector('[data-testid="thread-list-region"]');
+    const character = document.querySelector('[data-testid="character-launcher-container"]');
+    const sidebar = document.querySelector('.chat-sidebar');
+    const main = document.querySelector('.chat-main');
     return {
-      ariaHidden: region.getAttribute('aria-hidden'),
-      inert: region.inert,
+      ariaHidden: content.getAttribute('aria-hidden'),
+      inert: content.inert,
+      threadOpacity: getComputedStyle(region).opacity,
+      threadVisibility: getComputedStyle(region).visibility,
+      characterOpacity: getComputedStyle(character).opacity,
+      characterVisibility: getComputedStyle(character).visibility,
       stored: localStorage.getItem('katarune.threadListCollapsed'),
+      sidebarWidth: Math.round(sidebar.getBoundingClientRect().width),
+      mainWidth: Math.round(main.getBoundingClientRect().width),
+      viewportWidth: window.innerWidth,
+      footerPosition: getComputedStyle(document.querySelector('.chat-sidebar-footer')).position,
     };
   })()`);
   assert.deepEqual(expandedState, {
     ariaHidden: "false",
     inert: false,
+    threadOpacity: "1",
+    threadVisibility: "visible",
+    characterOpacity: "1",
+    characterVisibility: "visible",
     stored: "false",
+    sidebarWidth: expandedState.sidebarWidth,
+    mainWidth: expandedState.mainWidth,
+    viewportWidth: expandedState.viewportWidth,
+    footerPosition: "absolute",
   });
+  assert.equal(
+    expandedState.sidebarWidth,
+    Math.round(
+      Math.min(322, Math.max(254, expandedState.viewportWidth * 0.23)),
+    ),
+  );
+  assert.equal(
+    expandedState.mainWidth,
+    expandedState.viewportWidth - expandedState.sidebarWidth,
+  );
   await clickSelector(window, '[data-testid="thread-starline-item"]:nth-child(1) [data-testid="thread-starline-trigger"]');
   await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
     const deadline = Date.now() + 5000;
@@ -1052,6 +1293,21 @@ async function run() {
     check();
   })`);
 
+  window.setContentSize(772, 520);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const characterCardWidthAboveBreakpoint = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect().width`,
+  );
+  window.setContentSize(764, 520);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const characterCardWidthBelowBreakpoint = await window.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect().width`,
+  );
+  assert.ok(
+    characterCardWidthBelowBreakpoint <= characterCardWidthAboveBreakpoint,
+    `Character card grew across the responsive breakpoint: ${characterCardWidthAboveBreakpoint} -> ${characterCardWidthBelowBreakpoint}`,
+  );
+
   window.setContentSize(760, 520);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   const minimumLayout = await window.webContents.executeJavaScript(`(() => ({
@@ -1059,13 +1315,21 @@ async function run() {
     viewportWidth: window.innerWidth,
     sidebarWidth: Math.round(document.querySelector('.chat-sidebar').getBoundingClientRect().width),
     mainWidth: Math.round(document.querySelector('.chat-main').getBoundingClientRect().width),
+    characterCardHeight: Math.round(document.querySelector('[data-testid="character-launcher"]').getBoundingClientRect().height),
   }))()`);
-  assert.deepEqual(minimumLayout, {
-    documentScrollWidth: 760,
-    viewportWidth: 760,
-    sidebarWidth: 258,
-    mainWidth: 502,
-  });
+  assert.equal(minimumLayout.documentScrollWidth, minimumLayout.viewportWidth);
+  assert.ok(Math.abs(minimumLayout.viewportWidth - 760) <= 1);
+  assert.equal(
+    minimumLayout.sidebarWidth,
+    Math.round(
+      Math.min(254, Math.max(210, minimumLayout.viewportWidth * 0.34)),
+    ),
+  );
+  assert.equal(
+    minimumLayout.mainWidth,
+    minimumLayout.viewportWidth - minimumLayout.sidebarWidth,
+  );
+  assert.equal(minimumLayout.characterCardHeight, 68);
   window.setContentSize(1080, 720);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   const standardLayout = await window.webContents.executeJavaScript(`(() => ({
@@ -1088,12 +1352,16 @@ async function run() {
       sharesBackground:
         getComputedStyle(document.querySelector('.chat-sidebar')).backgroundColor ===
         getComputedStyle(document.body).backgroundColor,
+      sidebarDividerWidth: getComputedStyle(document.querySelector('.chat-sidebar')).borderRightWidth,
+      controlsBorderWidth: getComputedStyle(document.querySelector('.chat-sidebar-footer')).borderTopWidth,
       fillsViewport: Math.round(sidebar.width + main.width) === window.innerWidth,
     };
   })()`);
   assert.deepEqual(darkStarlineMetrics, {
     noHorizontalOverflow: true,
     sharesBackground: true,
+    sidebarDividerWidth: "0px",
+    controlsBorderWidth: "0px",
     fillsViewport: true,
   });
   const darkStarlineScreenshot = await capture(window, "thread-starline-dark.png");
@@ -1110,6 +1378,8 @@ async function run() {
     const prompt = document.querySelector('[data-testid="character-system-prompt"]');
     const list = document.querySelector('[data-testid="character-list"]');
     const listReading = document.querySelector('[data-testid="character-list-reading"]');
+    const listCard = document.querySelector('[data-testid="character-list-item"]');
+    const listPanel = document.querySelector('.character-list-panel');
     const backIcon = document.querySelector('[data-testid="character-back"] svg');
     return {
       title: page.querySelector('h1').textContent.trim(),
@@ -1118,6 +1388,10 @@ async function run() {
       prompt: prompt.value,
       listCount: list.querySelectorAll('[data-testid="character-list-item"]').length,
       listReading: listReading.textContent.trim(),
+      listReadingFont: getComputedStyle(listReading).fontFamily,
+      listCardHeight: Math.round(listCard.getBoundingClientRect().height),
+      listCardOverflow: getComputedStyle(listCard).overflow,
+      listPanelWidth: Math.round(listPanel.getBoundingClientRect().width),
       columns: getComputedStyle(page.querySelector('.character-layout')).gridTemplateColumns.split(' ').length,
       backgroundImage: getComputedStyle(page).backgroundImage,
       backgroundMatchesBody: getComputedStyle(page).backgroundColor === getComputedStyle(document.body).backgroundColor,
@@ -1130,10 +1404,144 @@ async function run() {
   assert.match(characterLayout.prompt, /温柔、沉静/);
   assert.equal(characterLayout.listCount, 2);
   assert.equal(characterLayout.listReading, "Xing Lan");
+  assert.equal(characterLayout.listReadingFont, typographyRoles.characterReading);
+  assert.ok(
+    characterLayout.listCardHeight >= 84 &&
+      characterLayout.listCardHeight <= 86,
+  );
+  assert.equal(characterLayout.listCardOverflow, "visible");
+  assert.ok(
+    characterLayout.listPanelWidth >= 288 &&
+      characterLayout.listPanelWidth <= 292,
+  );
   assert.equal(characterLayout.columns, 3);
   assert.equal(characterLayout.backgroundImage, "none");
   assert.equal(characterLayout.backgroundMatchesBody, true);
   assert.equal(characterLayout.backTransitionDuration, "0.16s");
+
+  const portraitThemeFilters = await window.webContents.executeJavaScript(`(async () => {
+    const readFilters = () => ({
+      artwork: getComputedStyle(document.querySelector('.character-art img')).filter,
+      cards: Array.from(
+        document.querySelectorAll('.character-list-portrait img'),
+        (image) => getComputedStyle(image).filter,
+      ),
+    });
+    const light = readFilters();
+    document.documentElement.classList.add('dark');
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const dark = readFilters();
+    document.documentElement.classList.remove('dark');
+    return { light, dark };
+  })()`);
+  assert.deepEqual(portraitThemeFilters.dark, portraitThemeFilters.light);
+  assert.doesNotMatch(
+    [portraitThemeFilters.dark.artwork, ...portraitThemeFilters.dark.cards].join(" "),
+    /invert/,
+  );
+
+  window.setContentSize(760, 520);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  const compactCharacterLayout = await window.webContents.executeJavaScript(`(() => ({
+    noHorizontalOverflow: document.documentElement.scrollWidth === window.innerWidth,
+    columns: getComputedStyle(document.querySelector('.character-layout')).gridTemplateColumns.split(' ').length,
+    listPanelWidth: Math.round(document.querySelector('.character-list-panel').getBoundingClientRect().width),
+    listCardHeight: Math.round(document.querySelector('[data-testid="character-list-item"]').getBoundingClientRect().height),
+  }))()`);
+  assert.deepEqual(compactCharacterLayout, {
+    noHorizontalOverflow: true,
+    columns: 3,
+    listPanelWidth: 224,
+    listCardHeight: 68,
+  });
+  window.setContentSize(1280, 900);
+  await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+
+  await rightClickSelector(
+    window,
+    `[data-character-id="${characterId}"] [data-testid="character-list-item"]`,
+    '[data-testid="character-context-menu"]',
+  );
+  const portraitContextMenu = await window.webContents.executeJavaScript(`(() => ({
+    portraitLabel: document.querySelector('[data-testid="character-context-portrait"]').textContent.trim(),
+    hasSeparator: document.querySelector('[data-testid="character-context-menu"] [role="separator"]') !== null,
+  }))()`);
+  assert.deepEqual(portraitContextMenu, {
+    portraitLabel: "调整立绘",
+    hasSeparator: true,
+  });
+  await clickSelector(window, '[data-testid="character-context-portrait"]');
+  await waitForSelector(window, '[data-testid="portrait-framing-dialog"]');
+  const portraitPreviewLayout = await window.webContents.executeJavaScript(`(() => ({
+    desktopHeight: Math.round(document.querySelector('[data-testid="portrait-preview-desktop"]').getBoundingClientRect().height),
+    compactHeight: Math.round(document.querySelector('[data-testid="portrait-preview-compact"]').getBoundingClientRect().height),
+    previewCount: document.querySelectorAll('[data-testid^="portrait-preview-"]').length,
+    zoomLabel: document.querySelector('[data-testid="portrait-framing-zoom"]').getAttribute('aria-valuetext'),
+  }))()`);
+  assert.deepEqual(portraitPreviewLayout, {
+    desktopHeight: 86,
+    compactHeight: 68,
+    previewCount: 2,
+    zoomLabel: "1.00 倍",
+  });
+  await window.webContents.executeJavaScript(`document.querySelector('[data-testid="portrait-framing-crop"]').focus()`);
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode: "RIGHT" });
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode: "RIGHT" });
+  await clickSelector(window, '[data-testid="portrait-framing-reset"]');
+  await clickSelector(window, '[data-testid="portrait-framing-cancel"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-testid="portrait-framing-dialog"]') === null) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for portrait editor cancellation'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.equal(committedPortraitRequest, null, "取消取景编辑不应修改角色");
+  assert.equal(discardedPortraitStageRequest, null, "编辑已有立绘无需创建暂存项");
+
+  await clickSelector(window, '[data-testid="character-portrait-import"]');
+  await waitForSelector(window, '[data-testid="portrait-framing-dialog"]');
+  await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[data-testid="portrait-framing-zoom"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '1.55');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await clickSelector(window, '[data-testid="portrait-framing-save"]');
+  await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 5000;
+    const check = () => {
+      if (document.querySelector('[data-testid="portrait-framing-dialog"]') === null) return resolve(true);
+      if (Date.now() > deadline) return reject(new Error('Timed out waiting for portrait framing save'));
+      setTimeout(check, 25);
+    };
+    check();
+  })`);
+  assert.deepEqual(committedPortraitRequest, {
+    mode: "existing",
+    id: characterId,
+    stageId: null,
+    framing: {
+      focusX: 0.5,
+      focusY: 0,
+      zoom: 1.55,
+    },
+  });
+  const savedPortraitFraming = await window.webContents.executeJavaScript(`(() => {
+    const portrait = document.querySelector('[data-character-id="${characterId}"] .character-list-portrait');
+    return {
+      zoom: portrait.style.getPropertyValue('--portrait-zoom'),
+      focusX: portrait.style.getPropertyValue('--portrait-focus-x'),
+      focusY: portrait.style.getPropertyValue('--portrait-focus-y'),
+    };
+  })()`);
+  assert.deepEqual(savedPortraitFraming, {
+    zoom: "1.55",
+    focusX: "50%",
+    focusY: "0%",
+  });
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-model"]').click()`);
   await waitForSelector(window, '[data-slot="model-selector-content"]');
@@ -1275,10 +1683,12 @@ async function run() {
     characterClass: document.querySelector('[data-testid="character-context-menu"]').className,
     threadClass: 'thread-context-menu',
     dangerClass: document.querySelector('[data-testid="character-context-delete"]').className,
+    portraitLabel: document.querySelector('[data-testid="character-context-portrait"]').textContent.trim(),
   }))()`);
   assert.equal(characterContextMenu.selectedName, "星澜·测试");
   assert.match(characterContextMenu.characterClass, /thread-context-menu/);
   assert.match(characterContextMenu.dangerClass, /thread-context-menu-danger/);
+  assert.equal(characterContextMenu.portraitLabel, "添加立绘");
   await clickSelector(window, '[data-testid="character-context-delete"]');
   await waitForSelector(window, '[data-testid="confirm-dialog"]');
   const cancelDeleteText = await window.webContents.executeJavaScript(
@@ -1405,6 +1815,24 @@ async function run() {
   assert.deepEqual(generatedThreadTitleRequest.messages[0], {
     role: "user",
     text: "请为月下新谈命名",
+  });
+  const compactStarlineRows = await window.webContents.executeJavaScript(`(() => {
+    const list = document.querySelector('.thread-starline-list');
+    const items = Array.from(document.querySelectorAll('[data-testid="thread-starline-item"]'))
+      .slice(0, 2)
+      .map((item) => item.getBoundingClientRect());
+    return {
+      alignContent: getComputedStyle(list).alignContent,
+      firstHeight: Math.round(items[0].height),
+      secondHeight: Math.round(items[1].height),
+      gap: Math.round(items[1].top - items[0].bottom),
+    };
+  })()`);
+  assert.deepEqual(compactStarlineRows, {
+    alignContent: "start",
+    firstHeight: 56,
+    secondHeight: 56,
+    gap: 2,
   });
 
   console.log("UI smoke: opening settings");
@@ -1726,8 +2154,12 @@ async function run() {
   assert.deepEqual(searchedModels, { configured: 0, discovered: 1 });
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="discovered-model-row"] button').click()`);
   await waitForSelector(window, "#model-id");
-  const discoveredModelDraft = await window.webContents.executeJavaScript(`({ id: document.querySelector('#model-id').value, name: document.querySelector('#model-name').value, type: document.querySelector('#model-type').value })`);
-  assert.deepEqual(discoveredModelDraft, { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", type: "languageModel" });
+  const discoveredModelDraft = await window.webContents.executeJavaScript(`({
+    id: document.querySelector('#model-id').value,
+    name: document.querySelector('#model-name').value,
+    type: document.querySelector('[data-testid="model-type-selector"] [data-slot="tabs-trigger"][data-active]').textContent.trim(),
+  })`);
+  assert.deepEqual(discoveredModelDraft, { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", type: "语言" });
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="dialog-content"] button')).find((button) => button.textContent.trim() === "取消").click()`);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   await window.webContents.executeJavaScript(`(() => {
@@ -1786,51 +2218,56 @@ async function run() {
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
 
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="edit-model"]').click()`);
-  await waitForSelector(window, "#model-type");
+  await waitForSelector(window, '[data-testid="model-type-selector"]');
   const modelTypeOptions = await window.webContents.executeJavaScript(`(() => {
-    const select = document.querySelector("#model-type");
+    const selector = document.querySelector('[data-testid="model-type-selector"]');
     const fields = [
-      select.closest("div.grid"),
+      selector.closest("div.grid"),
       document.querySelector("#model-id").closest("div.grid"),
       document.querySelector("#model-name").closest("div.grid"),
     ].map((element) => element.getBoundingClientRect());
     return {
-      value: select.value,
-      options: Array.from(select.options, (option) => option.value),
-      usesDialog: select.closest('[data-slot="dialog-content"]') !== null,
+      activeLabel: selector.querySelector('[data-slot="tabs-trigger"][data-active]')?.textContent.trim(),
+      options: Array.from(selector.querySelectorAll('[data-slot="tabs-trigger"]'), (option) => option.textContent.trim()),
+      role: selector.querySelector('[data-slot="tabs-list"]').getAttribute('role'),
+      usesDialog: selector.closest('[data-slot="dialog-content"]') !== null,
       fieldsAreVertical: fields.every((rect, index) => index === 0 || fields[index - 1].bottom <= rect.top),
-      title: select.closest('[data-slot="dialog-content"]').innerText,
+      title: selector.closest('[data-slot="dialog-content"]').innerText,
     };
   })()`);
-  assert.equal(modelTypeOptions.value, "languageModel");
+  assert.equal(modelTypeOptions.activeLabel, "语言");
+  assert.equal(modelTypeOptions.role, "tablist");
   assert.equal(modelTypeOptions.usesDialog, true);
   assert.equal(modelTypeOptions.fieldsAreVertical, true);
   assert.match(modelTypeOptions.title, /编辑模型/);
   assert.deepEqual(modelTypeOptions.options, [
-    "languageModel",
-    "embeddingModel",
-    "imageModel",
-    "transcriptionModel",
-    "speechModel",
-    "rerankingModel",
-    "videoModel",
+    "语言",
+    "嵌入",
+    "图像",
+    "语音识别",
+    "语音生成",
+    "重排序",
+    "视频",
   ]);
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="dialog-content"] button')).find((button) => button.textContent.trim() === "取消").click()`);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="add-model"]').click()`);
-  await waitForSelector(window, "#model-type");
+  await waitForSelector(window, '[data-testid="model-type-selector"]');
   const addModelDialog = await window.webContents.executeJavaScript(`(() => {
-    const select = document.querySelector("#model-type");
+    const selector = document.querySelector('[data-testid="model-type-selector"]');
     return {
-      text: select.closest('[data-slot="dialog-content"]').innerText,
-      value: select.value,
-      required: select.required,
+      text: selector.closest('[data-slot="dialog-content"]').innerText,
+      activeCount: selector.querySelectorAll('[data-slot="tabs-trigger"][data-active]').length,
+      labelledBy: selector.querySelector('[data-slot="tabs-list"]').getAttribute('aria-labelledby'),
     };
   })()`);
   assert.match(addModelDialog.text, /添加模型[\s\S]*模型类别[\s\S]*厂商模型 ID[\s\S]*显示名称/);
   assert.doesNotMatch(addModelDialog.text, /启用模型/);
-  assert.equal(addModelDialog.value, "");
-  assert.equal(addModelDialog.required, true);
+  assert.equal(addModelDialog.activeCount, 0);
+  assert.equal(addModelDialog.labelledBy, "model-type-label");
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-type-selector"] [data-slot="tabs-trigger"]')).find((element) => element.textContent.trim() === "语音生成").click()`);
+  const selectedModelType = await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-type-selector"] [data-slot="tabs-trigger"][data-active]').textContent.trim()`);
+  assert.equal(selectedModelType, "语音生成");
   await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="dialog-content"] button')).find((button) => button.textContent.trim() === "取消").click()`);
   await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   await window.webContents.executeJavaScript(`document.querySelector('[data-testid="quick-add-model"]').click()`);

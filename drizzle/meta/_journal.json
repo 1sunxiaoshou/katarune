@@ -71,6 +71,13 @@
       "when": 1785397846496,
       "tag": "0009_misty_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785430538473,
+      "tag": "0010_nosy_the_enforcers",
+      "breakpoints": true
     }
   ]
 }

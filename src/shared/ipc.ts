@@ -4,8 +4,9 @@ import {
   type Character,
   type CharacterIdRequest,
   type CharacterList,
-  type CharacterPortraitImportRequest,
-  type CharacterPortraitImportResult,
+  type CharacterPortraitCommitRequest,
+  type CharacterPortraitStageIdRequest,
+  type CharacterPortraitStageResult,
   type CreateCharacterRequest,
   type DeleteCharacterResult,
   type UpdateCharacterRequest,
@@ -16,26 +17,33 @@ import { PROVIDER_TYPES } from "./providers";
 export {
   characterIdRequestSchema,
   characterListSchema,
-  characterPortraitImportRequestSchema,
-  characterPortraitImportResultSchema,
+  characterPortraitCommitRequestSchema,
+  characterPortraitStageIdRequestSchema,
+  characterPortraitStageResultSchema,
   characterSchema,
   createCharacterRequestSchema,
+  DEFAULT_PORTRAIT_FRAMING,
   deleteCharacterResultSchema,
   defaultCharacterConfigSchema,
+  portraitFramingSchema,
+  stagedCharacterPortraitSchema,
   updateCharacterRequestSchema,
 } from "./characters";
 export type {
   Character,
   CharacterIdRequest,
   CharacterList,
-  CharacterPortraitImportRequest,
-  CharacterPortraitImportResult,
+  CharacterPortraitCommitRequest,
+  CharacterPortraitStageIdRequest,
+  CharacterPortraitStageResult,
   CreateCharacterRequest,
   DeleteCharacterResult,
   DefaultCharacterConfig,
+  PortraitFraming,
+  StagedCharacterPortrait,
   UpdateCharacterRequest,
 } from "./characters";
-export { assetSchema, ASSET_STATUSES, assetUrl } from "./assets";
+export { assetSchema, ASSET_STATUSES, assetUrl, stagedAssetUrl } from "./assets";
 export type { Asset, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
@@ -92,7 +100,9 @@ export const IPC_CHANNELS = {
   createCharacter: "characters:create",
   deleteCharacter: "characters:delete",
   updateCharacter: "characters:update",
-  importCharacterPortrait: "characters:import-portrait",
+  stageCharacterPortrait: "characters:stage-portrait",
+  commitCharacterPortrait: "characters:commit-portrait",
+  discardCharacterPortraitStage: "characters:discard-portrait-stage",
 } as const;
 
 const nonEmptyStringSchema = z.string().check(z.minLength(1));
@@ -572,7 +582,11 @@ export interface KataruneApi {
   createCharacter(request: CreateCharacterRequest): Promise<Character>;
   deleteCharacter(request: CharacterIdRequest): Promise<DeleteCharacterResult>;
   updateCharacter(request: UpdateCharacterRequest): Promise<Character>;
-  importCharacterPortrait(
-    request: CharacterPortraitImportRequest,
-  ): Promise<CharacterPortraitImportResult>;
+  stageCharacterPortrait(): Promise<CharacterPortraitStageResult>;
+  commitCharacterPortrait(
+    request: CharacterPortraitCommitRequest,
+  ): Promise<Character>;
+  discardCharacterPortraitStage(
+    request: CharacterPortraitStageIdRequest,
+  ): Promise<OperationSuccess>;
 }

@@ -104,7 +104,7 @@ interface CharacterEditorProps {
   readonly onDraftUpdated: (
     request: Partial<CreateCharacterRequest>,
   ) => void;
-  readonly onPortraitImport: () => Promise<void>;
+  readonly onPortraitEdit: () => Promise<void>;
   readonly onOpenSettings: () => void;
 }
 
@@ -118,7 +118,7 @@ export function CharacterEditor({
   providers,
   onCharacterUpdated,
   onDraftUpdated,
-  onPortraitImport,
+  onPortraitEdit,
   onOpenSettings,
 }: CharacterEditorProps): React.JSX.Element {
   const nameInput = useRef<HTMLInputElement>(null);
@@ -604,7 +604,7 @@ export function CharacterEditor({
       <CharacterPortraitPanel
         character={character}
         portrait={portrait}
-        onImport={onPortraitImport}
+        onEdit={onPortraitEdit}
         onPortraitError={() => setPortraitFailed(true)}
       />
     </>

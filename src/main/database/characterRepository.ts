@@ -3,6 +3,7 @@ import { count, desc, eq, ne, and } from "drizzle-orm";
 import {
   characterListSchema,
   characterSchema,
+  DEFAULT_PORTRAIT_FRAMING,
   deleteCharacterResultSchema,
   type Character,
 } from "../../shared/ipc";
@@ -46,6 +47,7 @@ export function createCharacterRepository(
         systemPrompt,
       },
       portraitAsset,
+      portraitFraming = DEFAULT_PORTRAIT_FRAMING,
     ) => {
       const id = randomUUID();
       const latestCharacter = database
@@ -77,6 +79,9 @@ export function createCharacterRepository(
             id,
             name,
             portraitAssetId: portraitAsset?.id ?? null,
+            portraitFocusX: portraitFraming.focusX,
+            portraitFocusY: portraitFraming.focusY,
+            portraitZoom: portraitFraming.zoom,
             modelConfigId,
             speechModelConfigId,
             speechVoice,
@@ -223,22 +228,33 @@ export function createCharacterRepository(
       if (result.changes === 0) fetchCharacter(id);
       return fetchCharacter(id);
     },
-    registerAssetAndSetCharacterPortrait: (characterId, asset) => {
-      fetchCharacter(characterId);
+    updateCharacterPortrait: (characterId, framing, asset) => {
+      const currentCharacter = fetchCharacter(characterId);
+      if (asset === undefined && currentCharacter.portraitAssetId === null) {
+        throw new Error("角色尚未设置立绘。");
+      }
       const now = new Date();
       database.transaction((transaction) => {
-        transaction
-          .insert(assets)
-          .values({
-            ...asset,
-            status: "ready",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
+        if (asset !== undefined) {
+          transaction
+            .insert(assets)
+            .values({
+              ...asset,
+              status: "ready",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .run();
+        }
         const result = transaction
           .update(characters)
-          .set({ portraitAssetId: asset.id, updatedAt: now })
+          .set({
+            ...(asset === undefined ? {} : { portraitAssetId: asset.id }),
+            portraitFocusX: framing.focusX,
+            portraitFocusY: framing.focusY,
+            portraitZoom: framing.zoom,
+            updatedAt: now,
+          })
           .where(eq(characters.id, characterId))
           .run();
         if (result.changes !== 1) {

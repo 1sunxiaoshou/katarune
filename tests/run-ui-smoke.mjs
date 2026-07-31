@@ -22,8 +22,12 @@ try {
     const result = spawnSync(electronPath, [testBundle], {
       cwd: projectRoot,
       stdio: "inherit",
+      timeout: 300_000,
     });
 
+    if (result.error !== undefined) {
+      console.error(`UI smoke process failed: ${result.error.message}`);
+    }
     if (result.status !== 0) process.exitCode = result.status ?? 1;
   }
 } finally {

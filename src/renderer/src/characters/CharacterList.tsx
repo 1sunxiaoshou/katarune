@@ -1,9 +1,10 @@
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { CropIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import {
   AppContextMenu,
   AppContextMenuItem,
+  AppContextMenuSeparator,
 } from "@/components/app-context-menu";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import type { Character } from "../../../shared/ipc";
@@ -15,6 +16,7 @@ interface CharacterListProps {
   readonly isDeleteDisabled: (character: Character) => boolean;
   readonly onCreate: () => void;
   readonly onDeleteRequest: (character: Character) => void;
+  readonly onPortraitEdit: (character: Character) => Promise<void>;
   readonly selectedId: string;
   readonly scrollToId: string | null;
   readonly onSelect: (id: string) => void;
@@ -26,6 +28,7 @@ export function CharacterList({
   isDeleteDisabled,
   onCreate,
   onDeleteRequest,
+  onPortraitEdit,
   selectedId,
   scrollToId,
   onSelect,
@@ -80,6 +83,14 @@ export function CharacterList({
                 />
               }
             >
+              <AppContextMenuItem
+                data-testid="character-context-portrait"
+                onClick={() => void onPortraitEdit(character)}
+              >
+                <CropIcon aria-hidden="true" />
+                {character.portraitAssetId === null ? "添加立绘" : "调整立绘"}
+              </AppContextMenuItem>
+              <AppContextMenuSeparator />
               <AppContextMenuItem
                 danger
                 data-testid="character-context-delete"

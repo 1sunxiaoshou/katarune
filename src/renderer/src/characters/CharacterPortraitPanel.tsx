@@ -5,14 +5,14 @@ import type { Character } from "../../../shared/ipc";
 interface CharacterPortraitPanelProps {
   readonly character: Character;
   readonly portrait: string | null;
-  readonly onImport: () => Promise<void>;
+  readonly onEdit: () => Promise<void>;
   readonly onPortraitError: () => void;
 }
 
 export function CharacterPortraitPanel({
   character,
   portrait,
-  onImport,
+  onEdit,
   onPortraitError,
 }: CharacterPortraitPanelProps): React.JSX.Element {
   return (
@@ -31,10 +31,10 @@ export function CharacterPortraitPanel({
         data-testid="character-portrait-import"
         type="button"
         variant="outline"
-        onClick={() => void onImport()}
+        onClick={() => void onEdit()}
       >
         <ImagePlusIcon aria-hidden="true" />
-        {portrait === null ? "导入立绘" : "更换立绘"}
+        {portrait === null ? "导入立绘" : "编辑立绘"}
       </Button>
     </section>
   );

@@ -34,3 +34,6 @@ export type Asset = Readonly<z.infer<typeof assetSchema>>;
 
 export const assetUrl = (assetId: string): string =>
   `katarune-asset://asset/${encodeURIComponent(assetId)}`;
+
+export const stagedAssetUrl = (stageId: string): string =>
+  `katarune-asset://staged/${encodeURIComponent(stageId)}`;

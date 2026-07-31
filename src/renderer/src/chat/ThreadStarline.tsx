@@ -8,6 +8,7 @@ import { ArchiveIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -19,6 +20,11 @@ import {
   AppContextMenuItem,
   AppContextMenuSeparator,
 } from "@/components/app-context-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { notify } from "../notifications";
 import { formatThreadTime } from "./threadTime";
 import { normalizeThreadTitle } from "./threadSidebarState";
@@ -35,10 +41,12 @@ function errorMessage(cause: unknown, fallback: string): string {
 
 interface ThreadStarlineItemProps {
   readonly now: Date;
+  readonly onActiveChange: () => void;
 }
 
 function ThreadStarlineItem({
   now,
+  onActiveChange,
 }: ThreadStarlineItemProps): React.JSX.Element {
   const runtime = useThreadListItemRuntime();
   const title = useAuiState((state) => state.threadListItem.title);
@@ -58,6 +66,10 @@ function ThreadStarlineItem({
   useEffect(() => {
     if (!editing) setDraft(title ?? "");
   }, [editing, title]);
+
+  useLayoutEffect(() => {
+    if (active) onActiveChange();
+  }, [active, onActiveChange]);
 
   useEffect(() => {
     if (editing) {
@@ -153,9 +165,7 @@ function ThreadStarlineItem({
           <>
             {editing ? (
               <div className="thread-starline-row" data-editing="true">
-                <span className="thread-starline-marker" aria-hidden="true">
-                  {active ? "✦" : ""}
-                </span>
+                <span className="thread-starline-marker" aria-hidden="true" />
                 <input
                   ref={renameInput}
                   className="thread-starline-rename"
@@ -174,9 +184,7 @@ function ThreadStarlineItem({
                 data-testid="thread-starline-trigger"
                 title={title ?? "未命名会话"}
               >
-                <span className="thread-starline-marker" aria-hidden="true">
-                  {active ? "✦" : ""}
-                </span>
+                <span className="thread-starline-marker" aria-hidden="true" />
                 <span className="thread-starline-copy">
                   <span className="thread-starline-title">
                     <ThreadListItemPrimitive.Title fallback="未命名会话" />
@@ -236,10 +244,15 @@ export function ThreadStarline({
   hidden,
 }: ThreadStarlineProps): React.JSX.Element {
   const scrollElement = useRef<HTMLDivElement>(null);
+  const listElement = useRef<HTMLOListElement>(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [activeMarkerTop, setActiveMarkerTop] = useState<number | null>(null);
+  const [activeMarkerReady, setActiveMarkerReady] = useState(false);
+  const activeMarkerReadyFrame = useRef<number | null>(null);
   const threadIds = useAuiState((state) => state.threads.threadIds);
+  const mainThreadId = useAuiState((state) => state.threads.mainThreadId);
   const loading = useAuiState((state) => state.threads.isLoading);
 
   const updateScrollState = useCallback((): void => {
@@ -250,18 +263,78 @@ export function ThreadStarline({
     setCanScrollDown(maximum - element.scrollTop > 1);
   }, []);
 
+  const updateActiveMarker = useCallback((): void => {
+    const list = listElement.current;
+    if (list === null) {
+      setActiveMarkerTop(null);
+      return;
+    }
+    const activeItem = list.querySelector<HTMLElement>(
+      '.thread-starline-item[data-active="true"]',
+    );
+    if (activeItem === null) {
+      setActiveMarkerTop(null);
+      return;
+    }
+
+    const listBounds = list.getBoundingClientRect();
+    const activeBounds = activeItem.getBoundingClientRect();
+    setActiveMarkerTop(
+      activeBounds.top -
+        listBounds.top +
+        (activeBounds.height - 22) / 2,
+    );
+    if (!activeMarkerReady) {
+      if (activeMarkerReadyFrame.current !== null) {
+        cancelAnimationFrame(activeMarkerReadyFrame.current);
+      }
+      activeMarkerReadyFrame.current = requestAnimationFrame(() => {
+        setActiveMarkerReady(true);
+        activeMarkerReadyFrame.current = null;
+      });
+    }
+  }, [activeMarkerReady]);
+
+  useLayoutEffect(() => {
+    updateActiveMarker();
+  }, [mainThreadId, threadIds, updateActiveMarker]);
+
   useEffect(() => {
     const element = scrollElement.current;
     if (element === null) return;
 
-    const frame = requestAnimationFrame(updateScrollState);
-    const observer = new ResizeObserver(updateScrollState);
+    const updateLayout = (): void => {
+      updateScrollState();
+      updateActiveMarker();
+    };
+    const frame = requestAnimationFrame(updateLayout);
+    const observer = new ResizeObserver(updateLayout);
     observer.observe(element);
+    const list = listElement.current;
+    const activeObserver = new MutationObserver(updateActiveMarker);
+    if (list !== null) {
+      observer.observe(list);
+      activeObserver.observe(list, {
+        attributes: true,
+        attributeFilter: ["data-active"],
+        subtree: true,
+      });
+    }
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      activeObserver.disconnect();
     };
-  }, [threadIds.length, hidden, updateScrollState]);
+  }, [threadIds.length, hidden, updateActiveMarker, updateScrollState]);
+
+  useEffect(
+    () => () => {
+      if (activeMarkerReadyFrame.current !== null) {
+        cancelAnimationFrame(activeMarkerReadyFrame.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 60_000);
@@ -272,15 +345,28 @@ export function ThreadStarline({
 
   return (
     <ThreadListPrimitive.Root className="thread-starline-root">
-      <ThreadListPrimitive.New
-        className="thread-starline-new"
-        data-testid="thread-new"
-      >
-        <span className="thread-starline-new-icon" aria-hidden="true">
-          <PlusIcon />
+      <div className="thread-starline-header">
+        <span
+          className="thread-starline-heading"
+          data-testid="thread-section-title"
+        >
+          会话
         </span>
-        <span>新对话</span>
-      </ThreadListPrimitive.New>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <ThreadListPrimitive.New
+                className="thread-starline-new"
+                data-testid="thread-new"
+                aria-label="新对话"
+              />
+            }
+          >
+            <PlusIcon aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent side="right">新对话</TooltipContent>
+        </Tooltip>
+      </div>
 
       <div className="thread-starline-scroll-frame">
         <div
@@ -303,10 +389,26 @@ export function ThreadStarline({
           {!loading && threadIds.length === 0 && (
             <p className="thread-starline-state">还没有会话</p>
           )}
-          <ol className="thread-starline-list">
+          <ol ref={listElement} className="thread-starline-list">
             <ThreadListPrimitive.Items>
-              {() => <ThreadStarlineItem now={now} />}
+              {() => (
+                <ThreadStarlineItem
+                  now={now}
+                  onActiveChange={updateActiveMarker}
+                />
+              )}
             </ThreadListPrimitive.Items>
+            {activeMarkerTop !== null && (
+              <li
+                className="thread-starline-active-marker"
+                data-ready={activeMarkerReady}
+                data-testid="thread-active-marker"
+                style={{ transform: `translateY(${activeMarkerTop}px)` }}
+                aria-hidden="true"
+              >
+                ✦
+              </li>
+            )}
           </ol>
         </div>
         <div

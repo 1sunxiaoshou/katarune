@@ -15,6 +15,7 @@ import type {
   ModelConfig,
   ModelConfigList,
   ModelType,
+  PortraitFraming,
   ProviderConfig,
   ProviderConfigList,
   ProviderType,
@@ -89,15 +90,17 @@ export interface DatabaseRuntime {
   createCharacter(
     request: CreateCharacterRequest,
     portraitAsset?: ReadyAssetRegistration,
+    portraitFraming?: PortraitFraming,
   ): Character;
   deleteCharacter(id: string): DeleteCharacterResult;
   fetchCharacter(id: string): Character;
   updateCharacter(request: UpdateCharacterRequest): Character;
   fetchAsset(id: string): Asset;
   listAssets(): readonly Asset[];
-  registerAssetAndSetCharacterPortrait(
+  updateCharacterPortrait(
     characterId: string,
-    asset: ReadyAssetRegistration,
+    framing: PortraitFraming,
+    asset?: ReadyAssetRegistration,
   ): Character;
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
   close(): void;
@@ -155,7 +158,7 @@ export type CharacterRepository = Pick<
   | "deleteCharacter"
   | "fetchCharacter"
   | "updateCharacter"
-  | "registerAssetAndSetCharacterPortrait"
+  | "updateCharacterPortrait"
 >;
 export type AssetRepository = Pick<
   DatabaseRuntime,
