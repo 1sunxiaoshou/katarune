@@ -3,13 +3,23 @@ export type Theme = "light" | "dark";
 const THEME_STORAGE_KEY = "katarune.theme";
 
 export function readTheme(): Theme {
-  return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark"
+      ? "dark"
+      : "light";
+  } catch {
+    return "light";
+  }
 }
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.classList.toggle("dark", theme === "dark");
   document.documentElement.style.colorScheme = theme;
-  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Device preferences are optional; blocked storage must not break startup.
+  }
 }
 
 export function initializeTheme(): Theme {

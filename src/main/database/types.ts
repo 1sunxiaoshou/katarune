@@ -1,6 +1,7 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type {
   AppendThreadMessageRequest,
+  AppSettings,
   AppState,
   Asset,
   Character,
@@ -24,6 +25,7 @@ import type {
   ThreadMessages,
   ThreadMetadata,
   UpdateCharacterRequest,
+  UpdateAppSettingsRequest,
   UpdateModelConfigRequest,
   UpdateProviderConfigRequest,
 } from "../../shared/ipc";
@@ -51,6 +53,8 @@ export interface DatabaseRuntime {
   getStatus(): DatabaseStatus;
   getAppState(): AppState;
   setActiveCharacter(characterId: string): AppState;
+  getAppSettings(): AppSettings;
+  updateAppSettings(request: UpdateAppSettingsRequest): AppSettings;
   listThreads(characterId: string): ThreadList;
   initializeThread(
     threadId: string,
@@ -139,6 +143,10 @@ export interface ReadyAssetRegistration extends AssetMetadata {
 export type AppStateRepository = Pick<
   DatabaseRuntime,
   "getAppState" | "setActiveCharacter"
+>;
+export type AppSettingsRepository = Pick<
+  DatabaseRuntime,
+  "getAppSettings" | "updateAppSettings"
 >;
 export type ThreadRepository = Pick<
   DatabaseRuntime,

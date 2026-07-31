@@ -233,6 +233,9 @@ try {
     appPath: process.cwd(),
     configValidator,
   });
+  assert.deepEqual(runtime.getAppSettings(), {
+    defaultLanguageModelConfigId: null,
+  });
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({ threadId, characterId: initialCharacterId, message });
@@ -265,6 +268,19 @@ try {
     settings: { defaultVoiceId: "alloy" },
     enabled: true,
   });
+  assert.throws(
+    () =>
+      runtime?.updateAppSettings({
+        defaultLanguageModelConfigId: speechModelConfig.id,
+      }),
+    /语言模型/,
+  );
+  assert.deepEqual(
+    runtime.updateAppSettings({
+      defaultLanguageModelConfigId: modelConfig.id,
+    }),
+    { defaultLanguageModelConfigId: modelConfig.id },
+  );
   assert.throws(
     () =>
       runtime?.createModelConfig({
@@ -364,6 +380,9 @@ try {
     userDataPath,
     appPath: process.cwd(),
     configValidator,
+  });
+  assert.deepEqual(runtime.getAppSettings(), {
+    defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
   assert.equal(runtime.fetchThread(threadId, restoredCharacterId).remoteId, threadId);
@@ -539,6 +558,11 @@ try {
   runtime.deleteProviderConfig(providerConfig.id);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, []);
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, []);
+  assert.deepEqual(
+    runtime.getAppSettings(),
+    { defaultLanguageModelConfigId: null },
+    "删除默认模型所属 Provider 后应由外键自动清空应用默认模型",
+  );
   assert.equal(
     runtime.fetchCharacter(updatedCharacter.id).modelConfigId,
     modelConfig.id,

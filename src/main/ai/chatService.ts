@@ -23,7 +23,7 @@ import {
 
 export type ChatServiceDatabase = Pick<
   DatabaseRuntime,
-  "fetchCharacter" | "fetchThread" | "renameThread"
+  "fetchCharacter" | "fetchThread" | "getAppSettings" | "renameThread"
 >;
 export type ChatServiceAiRuntime = Pick<AiRuntime, "resolveLanguageModel">;
 
@@ -182,6 +182,16 @@ function fallbackThreadTitle(request: GenerateThreadTitleRequest): string {
   return Array.from(normalized).slice(0, 30).join("") || "新对话";
 }
 
+function resolveLanguageModelConfigId(
+  database: ChatServiceDatabase,
+  character: Character,
+): string | null {
+  return (
+    character.modelConfigId ??
+    database.getAppSettings().defaultLanguageModelConfigId
+  );
+}
+
 function sanitizeThreadTitle(value: string, fallback: string): string {
   const normalized = value
     .replace(/^#+\s*/, "")
@@ -217,9 +227,10 @@ export function createChatService({
     createResponse: async (request, abortSignal) => {
       database.fetchThread(request.threadId, request.characterId);
       const character = database.fetchCharacter(request.characterId);
+      const modelConfigId = resolveLanguageModelConfigId(database, character);
 
-      if (character.modelConfigId === null) {
-        throw new PublicChatError("当前角色尚未选择语言模型。");
+      if (modelConfigId === null) {
+        throw new PublicChatError("尚未设置应用默认语言模型。");
       }
       if (containsSystemMessage(request.messages)) {
         throw new PublicChatError("会话消息包含不允许的系统消息。");
@@ -227,10 +238,12 @@ export function createChatService({
 
       let model: ResolvedLanguageModel;
       try {
-        model = aiRuntime.resolveLanguageModel(character.modelConfigId);
+        model = aiRuntime.resolveLanguageModel(modelConfigId);
       } catch {
         throw new PublicChatError(
-          "当前角色配置的模型暂不可用，请检查模型与供应商设置。",
+          character.modelConfigId === null
+            ? "应用默认模型暂不可用，请检查常规与模型设置。"
+            : "当前角色配置的模型暂不可用，请检查模型与供应商设置。",
         );
       }
 
@@ -255,10 +268,11 @@ export function createChatService({
       const character = database.fetchCharacter(request.characterId);
       const fallback = fallbackThreadTitle(request);
       let title = fallback;
+      const modelConfigId = resolveLanguageModelConfigId(database, character);
 
-      if (character.modelConfigId !== null) {
+      if (modelConfigId !== null) {
         try {
-          const model = aiRuntime.resolveLanguageModel(character.modelConfigId);
+          const model = aiRuntime.resolveLanguageModel(modelConfigId);
           const agent = createTitleAgent(character, model);
           const result = await agent.generate({
             prompt: buildTitlePrompt(request),

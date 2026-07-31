@@ -3,6 +3,7 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  appSettingsSchema,
   appStateSchema,
   availableModelListSchema,
   characterIdRequestSchema,
@@ -37,6 +38,7 @@ import {
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
   setActiveCharacterRequestSchema,
+  updateAppSettingsRequestSchema,
   speechCancelRequestSchema,
   speechGenerateRequestSchema,
   speechGenerateResponseSchema,
@@ -65,6 +67,7 @@ import {
   type ModelConfigIdRequest,
   type RenameThreadRequest,
   type SetThreadStatusRequest,
+  type UpdateAppSettingsRequest,
   type SetActiveCharacterRequest,
   type SpeechCancelRequest,
   type SpeechGenerateRequest,
@@ -106,6 +109,14 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.setActiveCharacter,
       appStateSchema,
       setActiveCharacterRequestSchema.parse(request),
+    ),
+  getAppSettings: () =>
+    invokeValidated(IPC_CHANNELS.getAppSettings, appSettingsSchema),
+  updateAppSettings: (request: UpdateAppSettingsRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.updateAppSettings,
+      appSettingsSchema,
+      updateAppSettingsRequestSchema.parse(request),
     ),
   listThreads: (request: ListThreadsRequest) =>
     invokeValidated(

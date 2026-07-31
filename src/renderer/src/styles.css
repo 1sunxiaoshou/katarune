@@ -263,6 +263,10 @@
     calc(var(--active-tab-top) + 2px);
 }
 
+.dark .model-category-indicator {
+  background: var(--foreground);
+}
+
 .selection-indicator {
   transition:
     width 280ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1486,7 +1490,29 @@
   }
 }
 
+html[data-reduce-motion] *,
+html[data-reduce-motion] *::before,
+html[data-reduce-motion] *::after {
+  scroll-behavior: auto !important;
+  animation-delay: 0ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-delay: 0ms !important;
+  transition-duration: 0.01ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-delay: 0ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .settings-page,
   .settings-tab-panel,
   .character-studio,
