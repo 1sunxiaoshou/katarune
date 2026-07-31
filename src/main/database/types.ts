@@ -14,6 +14,7 @@ import type {
   JsonObject,
   ModelConfig,
   ModelConfigList,
+  SpeechModelMetadata,
   ModelType,
   PortraitFraming,
   ProviderConfig,
@@ -82,9 +83,9 @@ export interface DatabaseRuntime {
   ): ProviderConfig;
   deleteProviderConfig(id: string): void;
   listModelConfigs(): ModelConfigList;
-  createModelConfig(request: CreateModelConfigRequest): ModelConfig;
+  createModelConfig(request: PersistModelConfigRequest): ModelConfig;
   fetchModelConfig(id: string): ModelConfig;
-  updateModelConfig(request: UpdateModelConfigRequest): ModelConfig;
+  updateModelConfig(request: PersistModelConfigUpdate): ModelConfig;
   deleteModelConfig(id: string): void;
   listCharacters(): CharacterList;
   createCharacter(
@@ -105,6 +106,21 @@ export interface DatabaseRuntime {
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
   close(): void;
 }
+
+export type PersistModelConfigRequest = Omit<
+  CreateModelConfigRequest,
+  "modelType" | "defaultVoiceId"
+> & {
+  readonly modelType: ModelType;
+  readonly speechMetadata: SpeechModelMetadata | null;
+};
+
+export type PersistModelConfigUpdate = Omit<
+  UpdateModelConfigRequest,
+  "defaultVoiceId"
+> & {
+  readonly speechMetadata: SpeechModelMetadata | null;
+};
 
 export interface AssetMetadata {
   readonly mimeType: string;

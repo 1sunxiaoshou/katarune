@@ -1,12 +1,10 @@
 import { ipcMain } from "electron";
 import {
-  availableSpeechModelListSchema,
   IPC_CHANNELS,
   speechCancelRequestSchema,
   speechGenerateRequestSchema,
   speechGenerateResponseSchema,
 } from "../../shared/ipc";
-import type { AiRuntime } from "../ai/runtime";
 import { SpeechRequestRegistry } from "../speech/speechRequestRegistry";
 import {
   SpeechServiceError,
@@ -14,15 +12,9 @@ import {
 } from "../speech/ttsService";
 
 export function registerSpeechHandlers(
-  aiRuntime: AiRuntime,
   speechService: SpeechService,
   speechRequests: SpeechRequestRegistry,
 ): void {
-  ipcMain.handle(IPC_CHANNELS.listAvailableSpeechModels, () =>
-    availableSpeechModelListSchema.parse({
-      modelConfigIds: aiRuntime.listAvailableSpeechModelConfigIds(),
-    }),
-  );
   ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
     const request = speechGenerateRequestSchema.parse(value);
     const abortController = new AbortController();

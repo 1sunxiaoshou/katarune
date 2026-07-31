@@ -1,8 +1,9 @@
 import * as z from "zod/mini";
+import { speechVoiceSchema } from "./speech";
 
 const characterNameSchema = z.string().check(z.minLength(1), z.maxLength(50));
 const systemPromptSchema = z.string().check(z.maxLength(20_000));
-export const speechVoiceSchema = z.string().check(z.minLength(1), z.maxLength(200));
+export { speechVoiceSchema } from "./speech";
 const portraitFocusSchema = z.number().check(z.gte(0), z.lte(1));
 const portraitZoomSchema = z.number().check(z.gte(1), z.lte(3));
 

@@ -1,3 +1,4 @@
+import type { SpeechResult } from "ai";
 import { describe, expect, it } from "vitest";
 import { PROVIDER_TYPES, type ModelConfig, type ProviderConfig } from "../src/shared/ipc";
 import { createConfiguredProvider } from "../src/main/ai/providerFactory";
@@ -8,9 +9,8 @@ import {
 } from "../src/main/ai/providerDefinitions";
 import { createAiRuntime, type AiRuntimeDatabase } from "../src/main/ai/runtime";
 import {
-  getProviderCapabilities,
+  getProviderCredentialRequirement,
   providerCredentialIsAvailable,
-  providerSupportsModelType,
 } from "../src/shared/providers";
 import type { CredentialStore } from "../src/main/security/credentialStore";
 
@@ -42,6 +42,7 @@ const modelConfig: ModelConfig = {
   modelType: "languageModel",
   modelId: "test-model",
   displayName: "Test model",
+  speechMetadata: null,
   settings: { temperature: 0.2, maxOutputTokens: 128 },
   enabled: true,
   createdAt: now,
@@ -70,18 +71,40 @@ const credentialStore: CredentialStore = {
 };
 
 describe("configured Provider runtime", () => {
-  it("keeps shared metadata and main definitions exhaustive", () => {
+  it("keeps credential requirements and main definitions exhaustive", () => {
     expect(Object.keys(PROVIDER_DEFINITIONS).sort()).toEqual(
       [...PROVIDER_TYPES].sort(),
     );
-    expect(getProviderCapabilities("openai").speech).toMatchObject({
-      defaultVoice: "alloy",
-      preferredOutput: { format: "wav", mediaType: "audio/wav" },
-    });
-    expect(providerSupportsModelType("openai", "speechModel")).toBe(true);
-    expect(providerSupportsModelType("anthropic", "speechModel")).toBe(false);
+    expect(getProviderCredentialRequirement("openai").credentialMode).toBe(
+      "required",
+    );
+    expect(PROVIDER_DEFINITIONS.openai.speechModel).toBeDefined();
+    expect(PROVIDER_DEFINITIONS.google.speechModel).toBeDefined();
+    expect(PROVIDER_DEFINITIONS["fish-audio"].speechModel).toBeDefined();
+    expect(PROVIDER_DEFINITIONS.anthropic.speechModel).toBeUndefined();
     expect(providerCredentialIsAvailable("openai", null)).toBe(false);
     expect(providerCredentialIsAvailable("openai-compatible", null)).toBe(true);
+  });
+
+  it("normalizes Google speech output and requires a valid RIFF/WAVE payload", () => {
+    const capability = PROVIDER_DEFINITIONS.google.speechModel;
+    expect(capability).toBeDefined();
+    if (capability === undefined) return;
+    const wav = new Uint8Array(44);
+    wav.set(new TextEncoder().encode("RIFF"), 0);
+    wav.set(new TextEncoder().encode("WAVE"), 8);
+    const normalized = capability.normalizeAudio({
+      uint8Array: wav,
+      format: "wav",
+      mediaType: "audio/wav",
+    } as SpeechResult["audio"]);
+
+    expect(normalized).toMatchObject({
+      format: "wav",
+      mediaType: "audio/wav",
+    });
+    expect(capability.validateAudio(normalized.audio)).toBe(true);
+    expect(capability.validateAudio(new Uint8Array(44))).toBe(false);
   });
 
   it("delegates bounded settings to Provider and capability schemas", () => {
@@ -114,7 +137,7 @@ describe("configured Provider runtime", () => {
     ).not.toThrow();
   });
 
-  it.each(PROVIDER_TYPES)("constructs the official %s Provider factory", (providerType) => {
+  it.each(PROVIDER_TYPES)("constructs the registered %s Provider factory", (providerType) => {
     const provider = createConfiguredProvider(providerConfig(providerType), "test-api-key");
     expect(provider.specificationVersion).toMatch(/^v[34]$/);
   });
@@ -221,6 +244,10 @@ describe("configured Provider runtime", () => {
       ...modelConfig,
       modelType: "speechModel",
       modelId: "gpt-4o-mini-tts",
+      speechMetadata: {
+        voices: [{ id: "alloy", displayName: "Alloy" }],
+        defaultVoiceId: "alloy",
+      },
       settings: null,
     };
     const baseDatabase = runtimeDatabase(provider);
@@ -245,7 +272,7 @@ describe("configured Provider runtime", () => {
         mediaType: "audio/wav",
       },
     });
-    expect(runtime.listAvailableSpeechModelConfigIds()).toEqual([
+    expect(runtime.listAvailableModelConfigIds()).toEqual([
       modelConfigId,
     ]);
     await expect(runtime.testConnection(modelConfigId)).resolves.toMatchObject({
@@ -254,11 +281,57 @@ describe("configured Provider runtime", () => {
     expect(probeCount).toBe(1);
   });
 
+  it("resolves Google Gemini TTS and probes with the model-level voice", async () => {
+    const provider = providerConfig("google");
+    const speechConfig: ModelConfig = {
+      ...modelConfig,
+      modelType: "speechModel",
+      modelId: "gemini-2.5-flash-preview-tts",
+      speechMetadata: {
+        voices: [{ id: "Kore", displayName: "Kore" }],
+        defaultVoiceId: "Kore",
+      },
+      settings: null,
+    };
+    const baseDatabase = runtimeDatabase(provider);
+    let probedVoice: string | null = null;
+    const runtime = await createAiRuntime({
+      database: {
+        ...baseDatabase,
+        listModelConfigs: () => ({ modelConfigs: [speechConfig] }),
+        fetchModelConfig: () => speechConfig,
+      },
+      credentialStore,
+      speechConnectionProbe: async (_model, _capability, voiceId) => {
+        probedVoice = voiceId;
+      },
+    });
+
+    expect(runtime.resolveSpeechModel(modelConfigId)).toMatchObject({
+      model: {
+        modelId: "gemini-2.5-flash-preview-tts",
+      },
+      output: {
+        requestFormat: "wav",
+        format: "wav",
+        mediaType: "audio/wav",
+      },
+    });
+    await expect(runtime.testConnection(modelConfigId)).resolves.toMatchObject({
+      success: true,
+    });
+    expect(probedVoice).toBe("Kore");
+  });
+
   it("rejects speech models when the Provider Definition has no speech Adapter", async () => {
     const provider = providerConfig("anthropic");
     const speechConfig: ModelConfig = {
       ...modelConfig,
       modelType: "speechModel",
+      speechMetadata: {
+        voices: null,
+        defaultVoiceId: null,
+      },
       settings: null,
     };
     const baseDatabase = runtimeDatabase(provider);
@@ -274,6 +347,6 @@ describe("configured Provider runtime", () => {
     expect(() => runtime.resolveSpeechModel(modelConfigId)).toThrow(
       /no speechModel Adapter/,
     );
-    expect(runtime.listAvailableSpeechModelConfigIds()).toEqual([]);
+    expect(runtime.listAvailableModelConfigIds()).toEqual([]);
   });
 });

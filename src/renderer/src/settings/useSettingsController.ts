@@ -22,14 +22,16 @@ export function useSettingsController() {
   const reload = useCallback(
     async (preferredProviderId?: string): Promise<void> => {
       try {
-        const [providerResult, modelResult] = await Promise.all([
+        const [providerResult, modelResult, availableResult] = await Promise.all([
           window.katarune.listProviderConfigs(),
           window.katarune.listModelConfigs(),
+          window.katarune.listAvailableModels(),
         ]);
         setDataState({
           status: "ready",
           providers: providerResult.providerConfigs,
           models: modelResult.modelConfigs,
+          availableModelIds: new Set(availableResult.modelConfigIds),
         });
         setSelectedProviderId((current) => {
           const preferred = preferredProviderId ?? current;

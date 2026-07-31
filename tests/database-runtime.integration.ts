@@ -37,6 +37,7 @@ const modelConfigRequest = {
   modelType: "languageModel",
   modelId: "local-chat",
   displayName: "本地聊天模型",
+  speechMetadata: null,
   settings: { temperature: 0.7, maxOutputTokens: 512 },
   enabled: true,
 } as const;
@@ -180,6 +181,10 @@ try {
     modelType: "speechModel",
     modelId: "gpt-4o-mini-tts",
     displayName: "测试声音模型",
+    speechMetadata: {
+      voices: [{ id: "alloy", displayName: "Alloy" }],
+      defaultVoiceId: "alloy",
+    },
     settings: null,
     enabled: true,
   });
@@ -190,6 +195,7 @@ try {
         modelType: "languageModel",
         modelId: "invalid-language-settings",
         displayName: null,
+        speechMetadata: null,
         settings: { topP: 2 },
         enabled: true,
       }),
@@ -203,6 +209,7 @@ try {
         modelType: "speechModel",
         modelId: "invalid-speech-settings",
         displayName: null,
+        speechMetadata: null,
         settings: { temperature: 0.2 },
         enabled: true,
       }),
@@ -236,7 +243,7 @@ try {
   assert.equal(defaultCharacter.portraitFocusX, 0.5);
   assert.equal(defaultCharacter.portraitFocusY, 0);
   assert.equal(defaultCharacter.portraitZoom, 1);
-  const updatedCharacter = runtime.updateCharacter({
+  let updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
     name: "数据库中的星澜",
     modelConfigId: modelConfig.id,
@@ -245,6 +252,12 @@ try {
     systemPrompt: "数据库配置优先于默认配置。",
   });
   assert.equal(updatedCharacter.name, "数据库中的星澜");
+  updatedCharacter = runtime.updateCharacter({
+    id: defaultCharacter.id,
+    speechModelConfigId: speechModelConfig.id,
+    speechVoice: "not-in-catalog",
+  });
+  assert.equal(updatedCharacter.speechVoice, "not-in-catalog");
   assert.throws(
     () =>
       runtime?.updateCharacter({
@@ -422,6 +435,7 @@ try {
     modelType: "embeddingModel",
     modelId: "local-chat-updated",
     displayName: null,
+    speechMetadata: null,
     settings: null,
     enabled: false,
   });
@@ -458,7 +472,10 @@ try {
     speechModelConfig.id,
     "角色应保留已失效的声音模型引用，供 UI 显示不可用状态",
   );
-  assert.equal(runtime.fetchCharacter(updatedCharacter.id).speechVoice, "alloy");
+  assert.equal(
+    runtime.fetchCharacter(updatedCharacter.id).speechVoice,
+    "not-in-catalog",
+  );
   runtime.deleteThread(secondThreadId, secondCharacterId);
   runtime.close();
   runtime = undefined;

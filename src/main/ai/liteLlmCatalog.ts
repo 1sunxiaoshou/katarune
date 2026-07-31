@@ -4,7 +4,6 @@ import {
   discoveredModelListSchema,
   type DiscoveredModel,
   type ModelType,
-  type ProviderConfig,
 } from "../../shared/ipc";
 
 type FetchImplementation = typeof globalThis.fetch;
@@ -14,18 +13,24 @@ type Catalog = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 const ONLINE_CATALOG_URL =
   "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
-const PROVIDER_CATALOG_IDENTITIES = {
-  openai: { baseUrl: "https://api.openai.com/v1", alias: "openai" },
-  anthropic: { baseUrl: "https://api.anthropic.com/v1", alias: "anthropic" },
-  google: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", alias: "gemini" },
-  deepseek: { baseUrl: "https://api.deepseek.com", alias: "deepseek" },
-  xai: { baseUrl: "https://api.x.ai/v1", alias: "xai" },
-  moonshotai: { baseUrl: "https://api.moonshot.ai/v1", alias: "moonshot" },
-  alibaba: { baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", alias: "dashscope" },
-} as const;
+const OFFICIAL_CATALOG_IDENTITIES = [
+  { baseUrl: "https://api.openai.com/v1", alias: "openai" },
+  { baseUrl: "https://api.anthropic.com/v1", alias: "anthropic" },
+  {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    alias: "gemini",
+  },
+  { baseUrl: "https://api.deepseek.com", alias: "deepseek" },
+  { baseUrl: "https://api.x.ai/v1", alias: "xai" },
+  { baseUrl: "https://api.moonshot.ai/v1", alias: "moonshot" },
+  {
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    alias: "dashscope",
+  },
+] as const;
 
 const OFFICIAL_PROVIDER_URLS = new Map<string, string>(
-  Object.values(PROVIDER_CATALOG_IDENTITIES).map(({ baseUrl, alias }) => [baseUrl, alias]),
+  OFFICIAL_CATALOG_IDENTITIES.map(({ baseUrl, alias }) => [baseUrl, alias]),
 );
 
 const SNAPSHOT = snapshotJson as unknown as Catalog;
@@ -112,64 +117,35 @@ function providerAliasFromUrl(baseUrl: string): string | null {
   return OFFICIAL_PROVIDER_URLS.get(normalizeCatalogBaseUrl(baseUrl)) ?? null;
 }
 
-function providerAlias(
-  provider: ProviderConfig,
-  effectiveBaseUrl: string | null,
-): string | null {
-  if (provider.providerType === "gateway") return null;
-  if (provider.baseUrl !== null && effectiveBaseUrl !== null) {
-    const baseUrlAlias = providerAliasFromUrl(effectiveBaseUrl);
-    if (baseUrlAlias !== null) return baseUrlAlias;
-  }
-  if (provider.providerType === "openai-compatible") return null;
-  return PROVIDER_CATALOG_IDENTITIES[provider.providerType].alias;
+export interface LiteLlmCatalogContext {
+  readonly aliases: readonly string[];
+  readonly inventoryAlias: string | null;
+  readonly allowsInventoryFallback: boolean;
 }
 
-function allowsCatalogInventoryFallback(
-  provider: ProviderConfig,
-  effectiveBaseUrl: string | null,
-): boolean {
-  if (effectiveBaseUrl === null || provider.providerType === "gateway") return false;
-  if (provider.baseUrl !== null) {
-    return providerAliasFromUrl(effectiveBaseUrl) !== null;
-  }
-  return provider.providerType !== "openai-compatible";
-}
-
-function gatewayIdentity(modelId: string): { readonly providerAlias: string; readonly modelId: string } | null {
-  const separator = modelId.indexOf("/");
-  if (separator <= 0 || separator === modelId.length - 1) return null;
-  const gatewayProvider = modelId.slice(0, separator);
-  const aliases: Readonly<Record<string, string>> = {
-    google: "gemini",
-    moonshotai: "moonshot",
-    alibaba: "dashscope",
-  };
-  return {
-    providerAlias: aliases[gatewayProvider] ?? gatewayProvider,
-    modelId: modelId.slice(separator + 1),
-  };
-}
-
-function resolveIdentities(
-  provider: ProviderConfig,
-  modelId: string,
-  effectiveBaseUrl: string | null,
-): readonly { readonly providerAlias: string; readonly modelId: string }[] {
-  if (provider.providerType === "gateway") {
-    const identity = gatewayIdentity(modelId);
-    return identity === null ? [] : [identity];
-  }
+export function createLiteLlmCatalogContext({
+  presetAlias,
+  effectiveBaseUrl,
+  isCustomBaseUrl,
+}: {
+  readonly presetAlias: string | null;
+  readonly effectiveBaseUrl: string;
+  readonly isCustomBaseUrl: boolean;
+}): LiteLlmCatalogContext {
+  const baseUrlAlias = isCustomBaseUrl
+    ? providerAliasFromUrl(effectiveBaseUrl)
+    : null;
   const aliases: string[] = [];
-  if (provider.baseUrl !== null && effectiveBaseUrl !== null) {
-    const baseUrlAlias = providerAliasFromUrl(effectiveBaseUrl);
-    if (baseUrlAlias !== null) aliases.push(baseUrlAlias);
+  if (baseUrlAlias !== null) aliases.push(baseUrlAlias);
+  if (presetAlias !== null && !aliases.includes(presetAlias)) {
+    aliases.push(presetAlias);
   }
-  if (provider.providerType !== "openai-compatible") {
-    const selectedAlias = PROVIDER_CATALOG_IDENTITIES[provider.providerType].alias;
-    if (!aliases.includes(selectedAlias)) aliases.push(selectedAlias);
-  }
-  return aliases.map((providerAlias) => ({ providerAlias, modelId }));
+  const inventoryAlias = isCustomBaseUrl ? baseUrlAlias : presetAlias;
+  return {
+    aliases,
+    inventoryAlias,
+    allowsInventoryFallback: inventoryAlias !== null,
+  };
 }
 
 function catalogEntry(
@@ -255,13 +231,15 @@ async function onlineCatalog(fetchImplementation: FetchImplementation): Promise<
 }
 
 export async function enrichDiscoveredModels(
-  provider: ProviderConfig,
   models: readonly DiscoveredModel[],
-  effectiveBaseUrl: string | null,
+  context: LiteLlmCatalogContext,
   fetchImplementation: FetchImplementation,
 ): Promise<readonly DiscoveredModel[]> {
   return Promise.all(models.map(async (model): Promise<DiscoveredModel> => {
-    const identities = resolveIdentities(provider, model.id, effectiveBaseUrl);
+    const identities = context.aliases.map((providerAlias) => ({
+      providerAlias,
+      modelId: model.id,
+    }));
     const local = enrichFromCatalog(SNAPSHOT, identities, model, "litellm-snapshot");
     if (local !== null) return local;
     const online = await onlineCatalog(fetchImplementation);
@@ -299,15 +277,14 @@ function catalogModelsForProvider(
 }
 
 export async function discoverModelsFromCatalog(
-  provider: ProviderConfig,
-  effectiveBaseUrl: string | null,
+  context: LiteLlmCatalogContext,
   fetchImplementation: FetchImplementation,
   warning: string,
 ) {
-  if (!allowsCatalogInventoryFallback(provider, effectiveBaseUrl)) {
+  if (!context.allowsInventoryFallback) {
     throw new Error(`${warning}自定义 Base URL 的实际可用模型不能由供应商完整目录代替。`);
   }
-  const alias = providerAlias(provider, effectiveBaseUrl);
+  const alias = context.inventoryAlias;
   if (alias === null) {
     throw new Error(`${warning}且无法匹配 LiteLLM 模型目录。`);
   }

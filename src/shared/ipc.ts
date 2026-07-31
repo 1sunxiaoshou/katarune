@@ -13,6 +13,7 @@ import {
 } from "./characters";
 import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
+import { speechModelMetadataSchema, speechVoiceSchema } from "./speech";
 
 export {
   characterIdRequestSchema,
@@ -48,19 +49,22 @@ export type { Asset, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
 export {
-  PROVIDER_CAPABILITIES,
+  PROVIDER_CREDENTIAL_REQUIREMENTS,
   PROVIDER_TYPES,
-  getProviderCapabilities,
+  getProviderCredentialRequirement,
   providerCredentialIsAvailable,
-  providerSupportsModelType,
 } from "./providers";
 export type {
   CredentialMode,
-  ProviderCapabilityMetadata,
+  ProviderCredentialRequirement,
   ProviderType,
-  SpeechCapabilityMetadata,
-  SpeechOutputMetadata,
 } from "./providers";
+export {
+  speechModelMetadataSchema,
+  speechVoiceSchema,
+  voiceOptionSchema,
+} from "./speech";
+export type { SpeechModelMetadata, VoiceOption } from "./speech";
 
 export const IPC_CHANNELS = {
   getAppInfo: "app:get-info",
@@ -79,7 +83,7 @@ export const IPC_CHANNELS = {
   appendThreadMessage: "thread-messages:append",
   deleteThreadMessages: "thread-messages:delete",
   startChatStream: "chat-stream:start",
-  listAvailableSpeechModels: "speech:list-available-models",
+  listAvailableModels: "models:list-available",
   generateSpeech: "speech:generate",
   cancelSpeech: "speech:cancel",
   listProviderConfigs: "provider-configs:list",
@@ -95,6 +99,7 @@ export const IPC_CHANNELS = {
   updateModelConfig: "model-configs:update",
   deleteModelConfig: "model-configs:delete",
   discoverProviderModels: "model-configs:discover",
+  refreshModelMetadata: "model-configs:refresh-metadata",
   testModelConnection: "model-configs:test-connection",
   listCharacters: "characters:list",
   createCharacter: "characters:create",
@@ -378,11 +383,20 @@ export const modelConfigSchema = z.strictObject({
     modelType: modelTypeSchema,
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
+    speechMetadata: z.nullable(speechModelMetadataSchema),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
     createdAt: z.date(),
     updatedAt: z.date(),
-  });
+  }).check(
+    z.refine(
+      (model) =>
+        model.modelType === "speechModel" || model.speechMetadata === null,
+      {
+        error: "Only speech models may persist speech metadata.",
+      },
+    ),
+  );
 
 export const modelConfigListSchema = z.strictObject({
   modelConfigs: z.array(modelConfigSchema),
@@ -407,9 +421,10 @@ export const modelConfigIdRequestSchema = z.strictObject({
 
 export const createModelConfigRequestSchema = z.strictObject({
     providerConfigId: z.uuid(),
-    modelType: modelTypeSchema,
+    modelType: z.nullable(modelTypeSchema),
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
+    defaultVoiceId: z.optional(z.nullable(speechVoiceSchema)),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
   });
@@ -419,6 +434,7 @@ export const updateModelConfigRequestSchema = z.strictObject({
     modelType: modelTypeSchema,
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
+    defaultVoiceId: z.optional(z.nullable(speechVoiceSchema)),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
   });
@@ -430,7 +446,7 @@ export const modelConnectionTestResultSchema = z.strictObject({
   message: z.string().check(z.minLength(1), z.maxLength(1000)),
 });
 
-export const availableSpeechModelListSchema = z.strictObject({
+export const availableModelListSchema = z.strictObject({
   modelConfigIds: z.array(z.uuid()).check(z.maxLength(10_000)),
 });
 
@@ -533,8 +549,8 @@ export type ModelConfigIdRequest = Readonly<z.infer<typeof modelConfigIdRequestS
 export type CreateModelConfigRequest = Readonly<z.infer<typeof createModelConfigRequestSchema>>;
 export type UpdateModelConfigRequest = Readonly<z.infer<typeof updateModelConfigRequestSchema>>;
 export type ModelConnectionTestResult = Readonly<z.infer<typeof modelConnectionTestResultSchema>>;
-export type AvailableSpeechModelList = Readonly<
-  z.infer<typeof availableSpeechModelListSchema>
+export type AvailableModelList = Readonly<
+  z.infer<typeof availableModelListSchema>
 >;
 export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateRequestSchema>>;
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
@@ -561,7 +577,7 @@ export interface KataruneApi {
   startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;
   pullChatStream(requestId: string): void;
   cancelChatStream(requestId: string): void;
-  listAvailableSpeechModels(): Promise<AvailableSpeechModelList>;
+  listAvailableModels(): Promise<AvailableModelList>;
   generateSpeech(request: SpeechGenerateRequest): Promise<SpeechGenerateResponse>;
   cancelSpeech(request: SpeechCancelRequest): void;
   listProviderConfigs(): Promise<ProviderConfigList>;
@@ -577,6 +593,7 @@ export interface KataruneApi {
   updateModelConfig(request: UpdateModelConfigRequest): Promise<ModelConfig>;
   deleteModelConfig(request: ModelConfigIdRequest): Promise<OperationSuccess>;
   discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
+  refreshModelMetadata(request: ModelConfigIdRequest): Promise<ModelConfig>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
   listCharacters(): Promise<CharacterList>;
   createCharacter(request: CreateCharacterRequest): Promise<Character>;

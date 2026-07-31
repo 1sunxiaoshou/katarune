@@ -10,6 +10,7 @@ export type SettingsDataState =
       readonly status: "ready";
       readonly providers: readonly ProviderConfig[];
       readonly models: readonly ModelConfig[];
+      readonly availableModelIds: ReadonlySet<string>;
     };
 
 export function errorMessage(

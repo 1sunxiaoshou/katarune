@@ -53,6 +53,10 @@ const modelConfig: ModelConfig = {
   modelType: "speechModel",
   modelId: "gpt-4o-mini-tts",
   displayName: null,
+  speechMetadata: {
+    voices: [{ id: "alloy", displayName: "Alloy" }],
+    defaultVoiceId: "alloy",
+  },
   settings: null,
   enabled: true,
   createdAt: now,
@@ -207,6 +211,25 @@ describe("single-shot TTS service", () => {
     ).rejects.toMatchObject({
       code: "model-unavailable",
     });
+  });
+
+  it("passes a manual Voice ID through even when it is absent from the catalog", async () => {
+    const generate = vi.fn(async () => speechResult());
+    const service = createSpeechService({
+      database: database({
+        character: { ...character, speechVoice: "removed-voice" },
+      }),
+      aiRuntime: { resolveSpeechModel: resolvedSpeechModel },
+      cache: memoryCache(),
+      generate,
+    });
+
+    await expect(
+      service.generate(characterId, "文字", new AbortController().signal),
+    ).resolves.toMatchObject({ cacheHit: false });
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: "removed-voice" }),
+    );
   });
 
   it("rejects invalid audio and never caches it", async () => {

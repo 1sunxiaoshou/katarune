@@ -46,6 +46,7 @@ void app.whenReady().then(async () => {
     modelType: "languageModel",
     modelId: "deepseek-chat",
     displayName: "DeepSeek Chat live test",
+    speechMetadata: null,
     settings: { maxOutputTokens: 16 },
     enabled: true,
     createdAt: now,

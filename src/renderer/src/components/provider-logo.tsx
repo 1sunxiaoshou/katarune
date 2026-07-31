@@ -1,6 +1,7 @@
 import alibabaLogo from "@lobehub/icons-static-svg/icons/alibaba.svg";
 import anthropicLogo from "@lobehub/icons-static-svg/icons/anthropic.svg";
 import deepSeekLogo from "@lobehub/icons-static-svg/icons/deepseek.svg";
+import fishAudioLogo from "@lobehub/icons-static-svg/icons/fishaudio.svg";
 import googleLogo from "@lobehub/icons-static-svg/icons/google.svg";
 import moonshotLogo from "@lobehub/icons-static-svg/icons/moonshot.svg";
 import openAiLogo from "@lobehub/icons-static-svg/icons/openai.svg";
@@ -16,6 +17,7 @@ const PROVIDER_LOGO_URLS: Readonly<
   openai: openAiLogo,
   anthropic: anthropicLogo,
   google: googleLogo,
+  "fish-audio": fishAudioLogo,
   deepseek: deepSeekLogo,
   xai: xAiLogo,
   moonshotai: moonshotLogo,

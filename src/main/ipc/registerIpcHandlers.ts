@@ -23,7 +23,7 @@ export function registerIpcHandlers(
 
   registerAppHandlers(database, aiRuntime);
   registerChatHandlers(database, aiRuntime, chatStreams);
-  registerSpeechHandlers(aiRuntime, speechService, speechRequests);
+  registerSpeechHandlers(speechService, speechRequests);
   registerProviderHandlers(database, aiRuntime, credentialStore);
   registerCharacterHandlers(database, assetService, chatStreams);
 

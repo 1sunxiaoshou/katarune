@@ -99,7 +99,6 @@ export function createSpeechService({
           "该角色原先配置的语音模型已不可用。",
         );
       }
-
       let resolved;
       try {
         resolved = aiRuntime.resolveSpeechModel(modelConfig.id);

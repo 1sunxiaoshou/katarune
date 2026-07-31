@@ -3,6 +3,7 @@ import { and, asc, eq, ne } from "drizzle-orm";
 import {
   modelConfigListSchema,
   modelConfigSchema,
+  speechModelMetadataSchema,
   type ModelConfig,
   type ProviderConfig,
 } from "../../shared/ipc";
@@ -18,6 +19,18 @@ export function createModelRepository(
   validator: DatabaseSettingsValidator,
   fetchProviderConfig: (id: string) => ProviderConfig,
 ): ModelRepository {
+  const validateSpeechMetadata = (
+    modelType: ModelConfig["modelType"],
+    speechMetadata: ModelConfig["speechMetadata"],
+  ): void => {
+    if (modelType !== "speechModel" && speechMetadata !== null) {
+      throw new Error("Only speech models may persist speech metadata.");
+    }
+    if (speechMetadata !== null) {
+      speechModelMetadataSchema.parse(speechMetadata);
+    }
+  };
+
   const fetchModelConfig = (id: string): ModelConfig => {
     const modelConfig = database
       .select()
@@ -42,6 +55,7 @@ export function createModelRepository(
           .all(),
       }),
     createModelConfig: (request) => {
+      validateSpeechMetadata(request.modelType, request.speechMetadata);
       const provider = fetchProviderConfig(request.providerConfigId);
       validator.validateModelSettings(
         provider.providerType,
@@ -77,6 +91,7 @@ export function createModelRepository(
           modelType: request.modelType,
           modelId: request.modelId,
           displayName: request.displayName,
+          speechMetadata: request.speechMetadata,
           settings: request.settings,
           enabled: request.enabled,
           createdAt: now,
@@ -88,6 +103,7 @@ export function createModelRepository(
     },
     fetchModelConfig,
     updateModelConfig: ({ id, ...updates }) => {
+      validateSpeechMetadata(updates.modelType, updates.speechMetadata);
       const current = fetchModelConfig(id);
       const provider = fetchProviderConfig(current.providerConfigId);
       validator.validateModelSettings(
