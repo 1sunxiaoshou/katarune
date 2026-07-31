@@ -1,16 +1,29 @@
-# P1 prototype identifier; replace after the distribution identity is decided.
-appId: app.katarune.prototype
+appId: app.katarune.desktop
 productName: Katarune
 icon: katarune-logo.png
-asar: true
+asar:
+  smartUnpack: false
 npmRebuild: true
+compression: normal
 asarUnpack:
-  - node_modules/better-sqlite3/**/*
+  - node_modules/better-sqlite3/build/Release/better_sqlite3.node
 directories:
   buildResources: resources
   output: dist
 files:
   - out/**/*
+  - "!**/*.map"
+  - "!node_modules/**/{test,tests,__tests__}/**/*"
+  - "!node_modules/**/*.{test,spec}.{js,cjs,mjs,ts,tsx,jsx}"
+  - "!node_modules/better-sqlite3/binding.gyp"
+  - "!node_modules/better-sqlite3/deps/**/*"
+  - "!node_modules/better-sqlite3/src/**/*"
+  - "!node_modules/better-sqlite3/build/deps/**/*"
+  - "!node_modules/better-sqlite3/build/Release/obj/**/*"
+  - "!node_modules/better-sqlite3/build/Release/better_sqlite3.{exp,iobj,ipdb,lib,pdb}"
+  - "!node_modules/better-sqlite3/build/Release/sqlite3.lib"
+  - "!node_modules/better-sqlite3/build/Release/test_extension.*"
+  - "!node_modules/better-sqlite3/build/*.{gypi,sln,vcxproj,filters}"
   - drizzle/**/*
   - package.json
 extraResources:
@@ -20,3 +33,47 @@ extraResources:
     to: fonts
   - from: node_modules/@fontsource/yellowtail/LICENSE
     to: fonts/Apache-2.0-Yellowtail.txt
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  verifyUpdateCodeSignature: true
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  hardenedRuntime: true
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Utility
+nsis:
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  differentialPackage: true
+  useZip: false
+  unicode: true
+  multiLanguageInstaller: true
+  installerLanguages:
+    - en_US
+    - zh_CN
+  displayLanguageSelector: false
+  uninstallDisplayName: "${productName}"
+  include: installer.nsh
