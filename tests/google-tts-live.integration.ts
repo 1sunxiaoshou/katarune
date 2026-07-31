@@ -57,11 +57,10 @@ void app
       modelType: "speechModel",
       modelId: "gemini-2.5-flash-preview-tts",
       displayName: "Gemini 2.5 Flash TTS",
-      speechMetadata: {
+      metadata: {
         voices: [{ id: "Kore", displayName: "Kore", description: "Firm" }],
-        defaultVoiceId: "Kore",
       },
-      settings: null,
+      settings: { defaultVoiceId: "Kore" },
       enabled: true,
       createdAt: now,
       updatedAt: now,

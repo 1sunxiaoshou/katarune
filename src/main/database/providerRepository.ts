@@ -7,14 +7,14 @@ import {
 } from "../../shared/ipc";
 import { providerConfigs } from "./schema";
 import type {
-  DatabaseSettingsValidator,
+  DatabaseConfigValidator,
   KataruneDatabase,
   ProviderRepository,
 } from "./types";
 
 export function createProviderRepository(
   database: KataruneDatabase,
-  validator: DatabaseSettingsValidator,
+  validator: DatabaseConfigValidator,
 ): ProviderRepository {
   const fetchProviderConfig = (id: string): ProviderConfig => {
     const providerConfig = database

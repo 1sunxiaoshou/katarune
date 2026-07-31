@@ -13,7 +13,10 @@ import {
 } from "./characters";
 import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
-import { speechModelMetadataSchema, speechVoiceSchema } from "./speech";
+import {
+  speechModelMetadataSchema,
+  type SpeechModelMetadata,
+} from "./speech";
 
 export {
   characterIdRequestSchema,
@@ -61,10 +64,19 @@ export type {
 } from "./providers";
 export {
   speechModelMetadataSchema,
+  speechModelSettingsSchema,
   speechVoiceSchema,
   voiceOptionSchema,
 } from "./speech";
-export type { SpeechModelMetadata, VoiceOption } from "./speech";
+export {
+  parseSpeechModelMetadata,
+  parseSpeechModelSettings,
+} from "./speech";
+export type {
+  SpeechModelMetadata,
+  SpeechModelSettings,
+  VoiceOption,
+} from "./speech";
 
 export const IPC_CHANNELS = {
   getAppInfo: "app:get-info",
@@ -273,7 +285,7 @@ export type JsonValue =
   | { readonly [key: string]: JsonValue };
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-const MAX_SETTINGS_JSON_LENGTH = 64 * 1024;
+const MAX_JSON_OBJECT_LENGTH = 64 * 1024;
 
 function isJsonValue(value: unknown, seen: Set<object>): value is JsonValue {
   if (
@@ -308,17 +320,18 @@ function isBoundedJsonObject(value: unknown): value is JsonObject {
   try {
     return (
       new TextEncoder().encode(JSON.stringify(value)).byteLength <=
-      MAX_SETTINGS_JSON_LENGTH
+      MAX_JSON_OBJECT_LENGTH
     );
   } catch {
     return false;
   }
 }
 
-export const jsonObjectSettingsSchema = z.custom<JsonObject>(
+export const boundedJsonObjectSchema = z.custom<JsonObject>(
   isBoundedJsonObject,
-  "Settings must be a JSON object no larger than 64 KiB.",
+  "Value must be a JSON object no larger than 64 KiB.",
 );
+export const jsonObjectSettingsSchema = boundedJsonObjectSchema;
 
 export const providerConfigSchema = z.strictObject({
   id: z.uuid(),
@@ -376,6 +389,7 @@ export const languageModelSettingsSchema = z.strictObject({
 
 const providerModelIdSchema = z.string().check(z.minLength(1), z.maxLength(500));
 export const modelTypeSchema = z.enum(MODEL_TYPES);
+export const modelMetadataSchema = boundedJsonObjectSchema;
 
 export const modelConfigSchema = z.strictObject({
     id: z.uuid(),
@@ -383,7 +397,7 @@ export const modelConfigSchema = z.strictObject({
     modelType: modelTypeSchema,
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
-    speechMetadata: z.nullable(speechModelMetadataSchema),
+    metadata: z.nullable(modelMetadataSchema),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
     createdAt: z.date(),
@@ -391,9 +405,11 @@ export const modelConfigSchema = z.strictObject({
   }).check(
     z.refine(
       (model) =>
-        model.modelType === "speechModel" || model.speechMetadata === null,
+        model.modelType !== "speechModel" ||
+        model.metadata === null ||
+        speechModelMetadataSchema.safeParse(model.metadata).success,
       {
-        error: "Only speech models may persist speech metadata.",
+        error: "Speech model metadata is invalid.",
       },
     ),
   );
@@ -424,7 +440,6 @@ export const createModelConfigRequestSchema = z.strictObject({
     modelType: z.nullable(modelTypeSchema),
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
-    defaultVoiceId: z.optional(z.nullable(speechVoiceSchema)),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
   });
@@ -434,7 +449,6 @@ export const updateModelConfigRequestSchema = z.strictObject({
     modelType: modelTypeSchema,
     modelId: providerModelIdSchema,
     displayName: z.nullable(boundedStringSchema),
-    defaultVoiceId: z.optional(z.nullable(speechVoiceSchema)),
     settings: z.nullable(jsonObjectSettingsSchema),
     enabled: z.boolean(),
   });
@@ -541,6 +555,7 @@ export type LanguageModelSettings = Readonly<
   z.infer<typeof languageModelSettingsSchema>
 >;
 export type ModelSettings = Readonly<JsonObject>;
+export type ModelMetadata = Readonly<JsonObject | SpeechModelMetadata>;
 export type ModelConfig = Readonly<z.infer<typeof modelConfigSchema>>;
 export type ModelConfigList = Readonly<z.infer<typeof modelConfigListSchema>>;
 export type DiscoveredModel = Readonly<z.infer<typeof discoveredModelSchema>>;

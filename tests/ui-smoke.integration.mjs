@@ -402,7 +402,7 @@ function registerMockHandlers() {
         modelType: "languageModel",
         modelId: "deepseek-chat",
         displayName: "DeepSeek Chat",
-        speechMetadata: null,
+        metadata: null,
         settings: null,
         enabled: modelEnabled,
         createdAt: now,
@@ -415,16 +415,15 @@ function registerMockHandlers() {
             modelType: "speechModel",
             modelId: "gemini-2.5-flash-preview-tts",
             displayName: "Gemini 2.5 Flash TTS",
-            speechMetadata: {
+            metadata: {
               voices: [
                 { id: "Kore", displayName: "Kore", description: "Firm" },
                 ...(!googleVoiceCatalogRefreshed
                   ? [{ id: "Puck", displayName: "Puck", description: "Upbeat" }]
                   : []),
               ],
-              defaultVoiceId: "Kore",
             },
-            settings: null,
+            settings: { defaultVoiceId: "Kore" },
             enabled: true,
             createdAt: now,
             updatedAt: now,
@@ -435,11 +434,10 @@ function registerMockHandlers() {
             modelType: "speechModel",
             modelId: "account-custom-tts",
             displayName: "Custom Voice TTS",
-            speechMetadata: {
+            metadata: {
               voices: null,
-              defaultVoiceId: null,
             },
-            settings: null,
+            settings: { defaultVoiceId: null },
             enabled: true,
             createdAt: now,
             updatedAt: now,
@@ -483,7 +481,7 @@ function registerMockHandlers() {
       id: modelId,
       providerConfigId: providerId,
       ...request,
-      speechMetadata: null,
+      metadata: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -493,7 +491,7 @@ function registerMockHandlers() {
     createdModel = {
       id: "3cab15e0-e330-4f78-80b9-8ebc99c919bd",
       ...request,
-      speechMetadata: null,
+      metadata: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -756,6 +754,7 @@ async function run() {
         ),
         1,
       );
+
     });
   } finally {
     if (!window.isDestroyed()) window.destroy();

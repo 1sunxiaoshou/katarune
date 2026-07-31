@@ -9,6 +9,7 @@ import {
   aiRuntimeStatusSchema,
   modelConnectionTestResultSchema,
   providerCredentialIsAvailable,
+  speechModelSettingsSchema,
   type AiRuntimeStatus,
   type ModelConnectionTestResult,
 } from "../../shared/ipc";
@@ -294,7 +295,9 @@ export async function createAiRuntime({
               `Provider type "${providerConfig.providerType}" has no speechModel Adapter.`,
             );
           }
-          const voiceId = modelConfig.speechMetadata?.defaultVoiceId;
+          const voiceId = speechModelSettingsSchema.parse(
+            modelConfig.settings,
+          ).defaultVoiceId;
           if (voiceId == null) {
             throw new Error(
               "The speech model has no model-level default voice.",

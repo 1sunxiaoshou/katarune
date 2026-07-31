@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  applyModelDefaultVoice,
   inspectModelForPersistence,
 } from "../src/main/ai/modelInspection";
 import { PROVIDER_DEFINITIONS } from "../src/main/ai/providerDefinitions";
-import type { ProviderConfig } from "../src/shared/ipc";
+import {
+  speechModelMetadataSchema,
+  type ProviderConfig,
+} from "../src/shared/ipc";
 
 const provider: ProviderConfig = {
   id: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
@@ -20,25 +22,6 @@ const provider: ProviderConfig = {
 };
 
 describe("model import inspection", () => {
-  it("lets a speech-model editor set a manual model default outside the voice catalog", () => {
-    expect(
-      applyModelDefaultVoice(
-        "speechModel",
-        {
-          voices: [{ id: "owned", displayName: "Owned" }],
-          defaultVoiceId: null,
-        },
-        "public-or-shared-voice",
-      ),
-    ).toEqual({
-      voices: [{ id: "owned", displayName: "Owned" }],
-      defaultVoiceId: "public-or-shared-voice",
-    });
-    expect(() =>
-      applyModelDefaultVoice("languageModel", null, "voice"),
-    ).toThrow("只有语音生成模型");
-  });
-
   it("persists trained voices owned by the active Fish Audio workspace", async () => {
     const fishProvider: ProviderConfig = {
       ...provider,
@@ -105,7 +88,7 @@ describe("model import inspection", () => {
     expect(result).toEqual({
       modelType: "speechModel",
       suggestedDisplayName: "Fish Audio S2.1 Pro Free",
-      speechMetadata: {
+      metadata: {
         voices: [
           {
             id: "voice-one",
@@ -114,8 +97,8 @@ describe("model import inspection", () => {
           },
           { id: "voice-two", displayName: "Second Voice" },
         ],
-        defaultVoiceId: null,
       },
+      suggestedSettings: { defaultVoiceId: null },
     });
     expect(fetchImplementation).toHaveBeenCalledTimes(2);
   });
@@ -140,7 +123,8 @@ describe("model import inspection", () => {
       }),
     ).resolves.toMatchObject({
       modelType: "speechModel",
-      speechMetadata: { voices: null, defaultVoiceId: null },
+      metadata: { voices: null },
+      suggestedSettings: { defaultVoiceId: null },
     });
   });
 
@@ -166,11 +150,12 @@ describe("model import inspection", () => {
     expect(result).toMatchObject({
       modelType: "speechModel",
       suggestedDisplayName: "Gemini 2.5 Flash TTS",
-      speechMetadata: {
-        defaultVoiceId: "Kore",
-      },
+      metadata: { voices: expect.any(Array) },
+      suggestedSettings: { defaultVoiceId: "Kore" },
     });
-    expect(result.speechMetadata?.voices).toHaveLength(30);
+    expect(speechModelMetadataSchema.parse(result.metadata).voices).toHaveLength(
+      30,
+    );
   });
 
   it("rejects a renderer hint that conflicts with Provider inspection", async () => {
@@ -181,7 +166,8 @@ describe("model import inspection", () => {
           inspectModel: async () => ({
             modelType: "embeddingModel",
             displayName: null,
-            speechMetadata: null,
+            metadata: null,
+            suggestedSettings: null,
           }),
         },
         apiKey: "key",
@@ -200,7 +186,8 @@ describe("model import inspection", () => {
           inspectModel: async () => ({
             modelType: null,
             displayName: null,
-            speechMetadata: null,
+            metadata: null,
+            suggestedSettings: null,
           }),
         },
         apiKey: "key",
@@ -227,10 +214,10 @@ describe("model import inspection", () => {
       }),
     ).resolves.toMatchObject({
       modelType: "speechModel",
-      speechMetadata: {
+      metadata: {
         voices: null,
-        defaultVoiceId: null,
       },
+      suggestedSettings: { defaultVoiceId: null },
     });
   });
 });

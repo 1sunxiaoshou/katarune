@@ -57,11 +57,10 @@ void app
       modelType: "speechModel",
       modelId: "s2.1-pro-free",
       displayName: "Fish Audio S2.1 Pro Free",
-      speechMetadata: {
+      metadata: {
         voices: null,
-        defaultVoiceId: voiceId,
       },
-      settings: null,
+      settings: { defaultVoiceId: voiceId },
       enabled: true,
       createdAt: now,
       updatedAt: now,

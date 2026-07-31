@@ -55,11 +55,10 @@ void app
       modelType: "speechModel",
       modelId: "gpt-4o-mini-tts",
       displayName: "OpenAI TTS live test",
-      speechMetadata: {
+      metadata: {
         voices: [{ id: "alloy", displayName: "Alloy" }],
-        defaultVoiceId: "alloy",
       },
-      settings: null,
+      settings: { defaultVoiceId: "alloy" },
       enabled: true,
       createdAt: now,
       updatedAt: now,

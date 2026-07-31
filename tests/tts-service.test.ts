@@ -53,11 +53,10 @@ const modelConfig: ModelConfig = {
   modelType: "speechModel",
   modelId: "gpt-4o-mini-tts",
   displayName: null,
-  speechMetadata: {
+  metadata: {
     voices: [{ id: "alloy", displayName: "Alloy" }],
-    defaultVoiceId: "alloy",
   },
-  settings: null,
+  settings: { defaultVoiceId: "alloy" },
   enabled: true,
   createdAt: now,
   updatedAt: now,

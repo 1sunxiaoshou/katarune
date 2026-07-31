@@ -4,6 +4,7 @@ import { PROVIDER_TYPES, type ModelConfig, type ProviderConfig } from "../src/sh
 import { createConfiguredProvider } from "../src/main/ai/providerFactory";
 import {
   PROVIDER_DEFINITIONS,
+  validateModelMetadata,
   validateModelSettings,
   validateProviderSettings,
 } from "../src/main/ai/providerDefinitions";
@@ -42,7 +43,7 @@ const modelConfig: ModelConfig = {
   modelType: "languageModel",
   modelId: "test-model",
   displayName: "Test model",
-  speechMetadata: null,
+  metadata: null,
   settings: { temperature: 0.2, maxOutputTokens: 128 },
   enabled: true,
   createdAt: now,
@@ -133,7 +134,14 @@ describe("configured Provider runtime", () => {
       }),
     ).toThrow();
     expect(() =>
-      validateModelSettings("anthropic", "speechModel", null),
+      validateModelSettings("anthropic", "speechModel", {
+        defaultVoiceId: null,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateModelMetadata("openai", "speechModel", {
+        voices: [{ id: "alloy", displayName: "Alloy" }],
+      }),
     ).not.toThrow();
   });
 
@@ -244,11 +252,10 @@ describe("configured Provider runtime", () => {
       ...modelConfig,
       modelType: "speechModel",
       modelId: "gpt-4o-mini-tts",
-      speechMetadata: {
+      metadata: {
         voices: [{ id: "alloy", displayName: "Alloy" }],
-        defaultVoiceId: "alloy",
       },
-      settings: null,
+      settings: { defaultVoiceId: "alloy" },
     };
     const baseDatabase = runtimeDatabase(provider);
     let probeCount = 0;
@@ -287,11 +294,10 @@ describe("configured Provider runtime", () => {
       ...modelConfig,
       modelType: "speechModel",
       modelId: "gemini-2.5-flash-preview-tts",
-      speechMetadata: {
+      metadata: {
         voices: [{ id: "Kore", displayName: "Kore" }],
-        defaultVoiceId: "Kore",
       },
-      settings: null,
+      settings: { defaultVoiceId: "Kore" },
     };
     const baseDatabase = runtimeDatabase(provider);
     let probedVoice: string | null = null;
@@ -328,11 +334,10 @@ describe("configured Provider runtime", () => {
     const speechConfig: ModelConfig = {
       ...modelConfig,
       modelType: "speechModel",
-      speechMetadata: {
+      metadata: {
         voices: null,
-        defaultVoiceId: null,
       },
-      settings: null,
+      settings: { defaultVoiceId: null },
     };
     const baseDatabase = runtimeDatabase(provider);
     const runtime = await createAiRuntime({

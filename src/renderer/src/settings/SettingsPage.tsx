@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   Tabs,
   TabsContent,
+  TabsIndicator,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
@@ -28,7 +29,7 @@ export function SettingsPage({
 
   return (
     <main
-      className="relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
+      className="settings-page relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
       data-testid="settings-page"
       id="main-content"
     >
@@ -48,15 +49,16 @@ export function SettingsPage({
       </header>
 
       <Tabs
-        className="mx-auto grid min-h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)] gap-6 p-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:py-16 lg:gap-10 lg:py-24"
+        className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-16 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-14 lg:gap-10"
         defaultValue="general"
         data-testid="settings-workspace"
         orientation="vertical"
       >
         <aside className="min-h-0" aria-label="设置分类">
-          <TabsList className="flex-row! w-full items-stretch gap-2 bg-transparent p-0 md:flex-col!">
+          <TabsList className="relative isolate flex-row! w-full items-stretch gap-2 bg-transparent p-0 md:flex-col!">
+            <TabsIndicator className="settings-tabs-indicator" />
             <TabsTrigger
-              className="min-h-11 w-auto! justify-center px-3 data-active:bg-primary data-active:text-primary-foreground data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-primary dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
               data-testid="settings-tab-general"
               value="general"
             >
@@ -64,7 +66,7 @@ export function SettingsPage({
               常规
             </TabsTrigger>
             <TabsTrigger
-              className="min-h-11 w-auto! justify-center px-3 data-active:bg-primary data-active:text-primary-foreground data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-primary dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
               data-testid="settings-tab-models"
               value="models"
             >
@@ -78,10 +80,10 @@ export function SettingsPage({
           className="min-h-0 md:overflow-y-auto"
           data-testid="settings-content"
         >
-          <TabsContent className="h-full" value="general">
+          <TabsContent className="settings-tab-panel h-full" value="general">
             <ThemeSettings />
           </TabsContent>
-          <TabsContent className="h-full" value="models">
+          <TabsContent className="settings-tab-panel h-full" value="models">
             <ModelManagement
               dataState={controller.dataState}
               selectedModels={controller.selectedModels}

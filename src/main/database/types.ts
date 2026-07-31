@@ -14,7 +14,7 @@ import type {
   JsonObject,
   ModelConfig,
   ModelConfigList,
-  SpeechModelMetadata,
+  ModelMetadata,
   ModelType,
   PortraitFraming,
   ProviderConfig,
@@ -30,7 +30,7 @@ import type {
 
 export type KataruneDatabase = BetterSQLite3Database;
 
-export interface DatabaseSettingsValidator {
+export interface DatabaseConfigValidator {
   validateProviderSettings(
     providerType: ProviderType,
     settings: JsonObject | null,
@@ -39,6 +39,11 @@ export interface DatabaseSettingsValidator {
     providerType: ProviderType,
     modelType: ModelType,
     settings: JsonObject | null,
+  ): void;
+  validateModelMetadata(
+    providerType: ProviderType,
+    modelType: ModelType,
+    metadata: ModelMetadata | null,
   ): void;
 }
 
@@ -109,17 +114,14 @@ export interface DatabaseRuntime {
 
 export type PersistModelConfigRequest = Omit<
   CreateModelConfigRequest,
-  "modelType" | "defaultVoiceId"
+  "modelType"
 > & {
   readonly modelType: ModelType;
-  readonly speechMetadata: SpeechModelMetadata | null;
+  readonly metadata: ModelMetadata | null;
 };
 
-export type PersistModelConfigUpdate = Omit<
-  UpdateModelConfigRequest,
-  "defaultVoiceId"
-> & {
-  readonly speechMetadata: SpeechModelMetadata | null;
+export type PersistModelConfigUpdate = UpdateModelConfigRequest & {
+  readonly metadata: ModelMetadata | null;
 };
 
 export interface AssetMetadata {

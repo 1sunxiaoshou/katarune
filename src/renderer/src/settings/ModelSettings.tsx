@@ -38,7 +38,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsIndicator,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProviderLogo } from "@/components/provider-logo";
@@ -48,6 +54,9 @@ import {
   notify,
 } from "../notifications";
 import {
+  parseSpeechModelMetadata,
+  parseSpeechModelSettings,
+  speechModelSettingsSchema,
   type DiscoveredModel,
   type ModelConfig,
   type ModelType,
@@ -111,18 +120,18 @@ function connectionTestTooltip(
   callable: boolean,
 ): string {
   if (!callable) {
-    return "已登记，但当前 Provider Adapter 未实现该类别的调用";
+    return "当前不可调用";
   }
   if (model.modelType === "languageModel") {
-    return "测试连接（会调用供应商并可能产生费用）";
+    return "测试连接";
   }
   if (model.modelType === "speechModel") {
-    const voice = model.speechMetadata?.defaultVoiceId;
+    const voice = parseSpeechModelSettings(model.settings)?.defaultVoiceId;
     return voice == null
-      ? "模型尚未配置默认 Voice ID，无法执行连接测试"
-      : `使用 ${voice} 合成极短 WAV（会调用供应商并可能产生费用）`;
+      ? "请先配置默认 Voice ID"
+      : "测试连接";
   }
-  return "当前不支持该类别的连接测试";
+  return "暂不支持连接测试";
 }
 
 function matchesSearch(query: string, fields: readonly (string | null | undefined)[]): boolean {
@@ -139,12 +148,14 @@ function ModelTypeIcon({ type }: { readonly type: ModelType | null }): React.JSX
 }
 
 interface ModelCategoryListProps {
+  readonly floating?: boolean | undefined;
   readonly labelledBy?: string | undefined;
   readonly testId?: string | undefined;
   readonly typeOnly?: boolean | undefined;
 }
 
 function ModelCategoryList({
+  floating = false,
   labelledBy,
   testId = "model-categories",
   typeOnly = false,
@@ -152,18 +163,21 @@ function ModelCategoryList({
   const categories = typeOnly ? MODEL_TYPE_CATEGORIES : MODEL_CATEGORIES;
   return (
     <div
-      className="mx-auto mt-auto w-fit max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className={`mx-auto w-fit max-w-full shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+        floating ? "absolute inset-x-0 bottom-0 z-10" : ""
+      }`}
       data-testid={testId}
     >
       <TabsList
         aria-labelledby={labelledBy}
-        className={`grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground ${
+        className={`relative isolate grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground ${
           typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"
         }`}
       >
+        <TabsIndicator className="model-category-indicator" />
         {categories.map((item) => (
           <TabsTrigger
-            className="isolate w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 before:absolute before:inset-x-1 before:inset-y-0.5 before:-z-10 before:-skew-x-12 before:rounded-sm hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:before:bg-background data-active:hover:text-foreground dark:data-active:bg-transparent! dark:data-active:text-foreground dark:data-active:hover:text-foreground"
+            className="z-[1] w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:shadow-none! data-active:hover:text-foreground dark:data-active:bg-transparent! dark:data-active:text-foreground dark:data-active:hover:text-foreground"
             key={item.value}
             value={item.value}
           >
@@ -199,8 +213,14 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
   const [modelType, setModelType] = useState<ModelType | null>(model?.modelType ?? initialType);
   const [modelId, setModelId] = useState(model?.modelId ?? initialModelId);
   const [displayName, setDisplayName] = useState(model?.displayName ?? initialDisplayName);
+  const speechMetadata =
+    model?.modelType === "speechModel"
+      ? parseSpeechModelMetadata(model.metadata)
+      : null;
   const [defaultVoiceId, setDefaultVoiceId] = useState(
-    model?.speechMetadata?.defaultVoiceId ?? "",
+    model?.modelType === "speechModel"
+      ? parseSpeechModelSettings(model.settings)?.defaultVoiceId ?? ""
+      : "",
   );
   const [submitting, setSubmitting] = useState(false);
 
@@ -228,15 +248,18 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           modelType,
           modelId: modelId.trim(),
           displayName: displayName.trim().length === 0 ? null : displayName.trim(),
-          ...(modelType === "speechModel"
-            ? {
-                defaultVoiceId:
-                  defaultVoiceId.trim().length === 0
-                    ? null
-                    : defaultVoiceId.trim(),
-              }
-            : {}),
-          settings: modelType === "languageModel" ? model.settings : null,
+          settings:
+            modelType === "speechModel"
+              ? speechModelSettingsSchema.parse({
+                  defaultVoiceId:
+                    defaultVoiceId.trim().length === 0
+                      ? null
+                      : defaultVoiceId.trim(),
+                })
+              : modelType === "languageModel" &&
+                  model.modelType === "languageModel"
+                ? model.settings
+                : null,
           enabled: model.enabled,
         });
       } else {
@@ -245,15 +268,15 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           modelType,
           modelId: modelId.trim(),
           displayName: displayName.trim().length === 0 ? null : displayName.trim(),
-          ...(modelType === "speechModel"
-            ? {
-                defaultVoiceId:
-                  defaultVoiceId.trim().length === 0
-                    ? null
-                    : defaultVoiceId.trim(),
-              }
-            : {}),
-          settings: null,
+          settings:
+            modelType === "speechModel"
+              ? speechModelSettingsSchema.parse({
+                  defaultVoiceId:
+                    defaultVoiceId.trim().length === 0
+                      ? null
+                      : defaultVoiceId.trim(),
+                })
+              : null,
           enabled: true,
         });
       }
@@ -322,7 +345,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
                 id="model-default-voice"
                 data-testid="model-default-voice"
                 list={
-                  (model?.speechMetadata?.voices?.length ?? 0) > 0
+                  (speechMetadata?.voices?.length ?? 0) > 0
                     ? "model-default-voice-options"
                     : undefined
                 }
@@ -332,9 +355,9 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
                 value={defaultVoiceId}
                 onChange={(event) => setDefaultVoiceId(event.target.value)}
               />
-              {(model?.speechMetadata?.voices?.length ?? 0) > 0 && (
+              {(speechMetadata?.voices?.length ?? 0) > 0 && (
                 <datalist id="model-default-voice-options">
-                  {model?.speechMetadata?.voices?.map((voice) => (
+                  {speechMetadata?.voices?.map((voice) => (
                     <option key={voice.id} value={voice.id}>
                       {voice.displayName}
                     </option>
@@ -439,7 +462,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
         enabled: true,
       });
       setQuickAddState({ modelId: model.id, status: "saved" });
-      const successDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300;
+      const successDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 420;
       await new Promise((resolve) => window.setTimeout(resolve, successDelay));
       await onChanged(provider.id);
       notify({
@@ -487,24 +510,21 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
     }
   };
 
-  const refreshMetadata = async (model: ModelConfig): Promise<void> => {
+  const refreshVoiceCatalog = async (model: ModelConfig): Promise<void> => {
     setSubmitting(true);
     try {
       await window.katarune.refreshModelMetadata({ id: model.id });
       await onChanged(provider.id);
       notify({
         level: "success",
-        message:
-          model.modelType === "speechModel"
-            ? "模型信息与音色已刷新。"
-            : "模型信息已刷新。",
+        message: "音色列表已刷新。",
         dedupeKey: `${notificationKeyPrefix}:metadata:${model.id}`,
       });
     } catch (error) {
       notify({
         channel: "toast",
         level: "error",
-        message: errorMessage(error, "无法刷新模型信息。"),
+        message: errorMessage(error, "无法刷新音色列表。"),
         dedupeKey: `${notificationKeyPrefix}:metadata:${model.id}`,
       });
     } finally {
@@ -615,7 +635,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
               aria-label={`${model.displayName ?? model.modelId}启用状态`}
               onCheckedChange={(enabled) => void setModelEnabled(model, enabled)}
             />
-            <div className="flex w-28 items-center justify-end gap-1 opacity-0 transition-opacity pointer-events-none group-hover/model:pointer-events-auto group-hover/model:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100" data-testid="model-actions">
+            <div className="flex w-28 items-center justify-end gap-1 opacity-0 transition-opacity pointer-events-none group-hover/model:pointer-events-auto group-hover/model:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100" data-testid="model-actions">
               <TooltipIconButton
                 tooltip={connectionTestTooltip(
                   model,
@@ -626,25 +646,33 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
                   submitting ||
                   !availableModelIds.has(model.id) ||
                   (model.modelType === "speechModel" &&
-                    model.speechMetadata?.defaultVoiceId == null)
+                    parseSpeechModelSettings(model.settings)?.defaultVoiceId == null)
                 }
               >
                 <PlugZapIcon aria-hidden="true" />
               </TooltipIconButton>
-              <TooltipIconButton
-                tooltip={model.modelType === "speechModel" ? "刷新模型信息与音色" : "刷新模型信息"}
-                onClick={() => void refreshMetadata(model)}
-                disabled={submitting}
-              >
-                <RefreshCwIcon aria-hidden="true" />
-              </TooltipIconButton>
+              {provider.providerType === "fish-audio" &&
+                model.modelType === "speechModel" ? (
+                  <TooltipIconButton
+                    tooltip="刷新音色列表"
+                    onClick={() => void refreshVoiceCatalog(model)}
+                    disabled={submitting}
+                  >
+                    <RefreshCwIcon aria-hidden="true" />
+                  </TooltipIconButton>
+                ) : null}
               <TooltipIconButton data-testid="edit-model" tooltip="编辑模型" onClick={() => beginEdit(model)} disabled={submitting}><PencilIcon aria-hidden="true" /></TooltipIconButton>
               <TooltipIconButton data-testid="delete-model" tooltip="删除模型" onClick={() => setModelToDelete(model)} disabled={submitting}><Trash2Icon aria-hidden="true" /></TooltipIconButton>
             </div>
           </div>
         ))}
         {visibleDiscoveredModels.map((model) => (
-          <div className="group/discovered grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_7rem] items-center gap-3 rounded-sm px-4" data-testid="discovered-model-row" key={model.id}>
+          <div
+            className="discovered-model-row group/discovered relative isolate grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_7rem] items-center gap-3 overflow-hidden rounded-sm px-4"
+            data-add-state={quickAddState?.modelId === model.id ? quickAddState.status : undefined}
+            data-testid="discovered-model-row"
+            key={model.id}
+          >
             <button
               className={`min-w-0 cursor-pointer truncate text-left font-medium transition-colors duration-200 motion-reduce:transition-none ${
                 quickAddState?.modelId === model.id && quickAddState.status === "saved"
@@ -671,7 +699,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
             </span>
             <ModelTypeIcon type={model.modelType} />
             <span aria-hidden="true" />
-            <div className="flex w-28 justify-end opacity-0 transition-opacity pointer-events-none group-hover/discovered:pointer-events-auto group-hover/discovered:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+            <div className="flex w-28 justify-end opacity-0 transition-opacity pointer-events-none group-hover/discovered:pointer-events-auto group-hover/discovered:opacity-100 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
               <TooltipIconButton
                 className={quickAddState?.modelId === model.id && quickAddState.status === "saved" ? "text-foreground disabled:opacity-100" : undefined}
                 data-testid="quick-add-model"
@@ -704,13 +732,13 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
         </TooltipIconButton>
       </CardHeader>
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        <Tabs className="min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
+        <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="min-h-0" key={item.value} value={item.value}>
+            <TabsContent className="min-h-0 overflow-y-auto pb-12" key={item.value} value={item.value}>
               {modelRows(item.value)}
             </TabsContent>
           ))}
-          <ModelCategoryList />
+          <ModelCategoryList floating />
         </Tabs>
       </CardContent>
       </Card>
@@ -752,13 +780,13 @@ function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.E
   return (
     <Card className="min-h-[31rem] rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <Tabs className="min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
+        <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="grid min-h-80 place-items-center px-6 text-center text-muted-foreground" key={item.value} value={item.value}>
+            <TabsContent className="grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
               {message}
             </TabsContent>
           ))}
-          <ModelCategoryList />
+          <ModelCategoryList floating />
         </Tabs>
       </CardContent>
     </Card>
@@ -789,6 +817,9 @@ export function ModelManagement({
   onReload,
 }: ModelManagementProps): React.JSX.Element {
   const providers = dataState.status === "ready" ? dataState.providers : [];
+  const selectedProviderIndex = providers.findIndex(
+    (provider) => provider.id === selectedProviderId,
+  );
 
   return (
     <section className="grid w-full gap-6 lg:h-full lg:grid-cols-[15rem_minmax(0,1fr)]" aria-labelledby="model-settings-title" data-testid="model-management">
@@ -805,12 +836,21 @@ export function ModelManagement({
           {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">正在读取配置……</p>}
           {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
           {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
-          <div className="grid gap-2">
+          <div className="relative isolate grid gap-2">
+            {selectedProviderIndex >= 0 ? (
+              <span
+                aria-hidden="true"
+                className="selection-indicator h-10 w-full rounded-sm"
+                style={{
+                  transform: `translateY(${selectedProviderIndex * 3}rem)`,
+                }}
+              />
+            ) : null}
             {providers.map((provider) => {
               const selected = provider.id === selectedProviderId;
               return (
                 <div
-                  className={`group/provider flex h-10 min-w-0 items-center rounded-sm transition-colors ${selected ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:bg-muted"}`}
+                  className={`group/provider relative z-[1] flex h-10 min-w-0 items-center rounded-sm transition-colors ${selected ? "text-primary-foreground" : "hover:bg-muted"}`}
                   data-testid="provider-row"
                   key={provider.id}
                 >
@@ -825,7 +865,7 @@ export function ModelManagement({
                     />
                     <span className="min-w-0 flex-1 truncate">{provider.displayName}</span>
                   </button>
-                  <div className="flex shrink-0 gap-0.5 pr-1 opacity-0 transition-opacity group-hover/provider:opacity-100 group-focus-within/provider:opacity-100" data-testid="provider-actions">
+                  <div className="flex shrink-0 gap-0.5 pr-1 opacity-0 transition-opacity group-hover/provider:opacity-100 has-[:focus-visible]:opacity-100" data-testid="provider-actions">
                     <TooltipIconButton className={`size-7 ${selected ? "hover:bg-primary-foreground/15 hover:text-primary-foreground" : ""}`} data-testid="edit-provider" tooltip="编辑供应商" onClick={() => onEditProvider(provider.id)}>
                       <PencilIcon aria-hidden="true" />
                     </TooltipIconButton>

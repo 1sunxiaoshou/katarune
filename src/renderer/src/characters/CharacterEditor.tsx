@@ -22,14 +22,16 @@ import {
   ModelSelectorTrigger,
   type ModelOption,
 } from "@/components/model-selector";
-import type {
-  Character,
-  CreateCharacterRequest,
-  ModelConfig,
-  ProviderConfig,
-  UpdateCharacterRequest,
+import {
+  assetUrl,
+  parseSpeechModelMetadata,
+  parseSpeechModelSettings,
+  type Character,
+  type CreateCharacterRequest,
+  type ModelConfig,
+  type ProviderConfig,
+  type UpdateCharacterRequest,
 } from "../../../shared/ipc";
-import { assetUrl } from "../../../shared/ipc";
 import { CharacterPortraitPanel } from "./CharacterPortraitPanel";
 
 const NO_MODEL_ID = "__katarune_no_model__";
@@ -51,7 +53,8 @@ function speechDefaultVoice(
   if (modelConfigId === null) return null;
   const model = models.find((candidate) => candidate.id === modelConfigId);
   if (model === undefined) return null;
-  return model.speechMetadata?.defaultVoiceId ?? null;
+  if (model.modelType !== "speechModel") return null;
+  return parseSpeechModelSettings(model.settings)?.defaultVoiceId ?? null;
 }
 
 export interface CharacterDeleteCandidate {
@@ -377,7 +380,10 @@ export function CharacterEditor({
   const selectedSpeechModel = models.find(
     (model) => model.id === selectedSpeechModelId,
   );
-  const voiceCatalog = selectedSpeechModel?.speechMetadata?.voices ?? null;
+  const voiceCatalog =
+    selectedSpeechModel?.modelType === "speechModel"
+      ? parseSpeechModelMetadata(selectedSpeechModel.metadata)?.voices ?? null
+      : null;
   const voiceInCatalog =
     speechVoice.length > 0 &&
     voiceCatalog?.some((voice) => voice.id === speechVoice) === true;

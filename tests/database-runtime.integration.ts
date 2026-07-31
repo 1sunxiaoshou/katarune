@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import {
+  validateModelMetadata,
   validateModelSettings,
   validateProviderSettings,
 } from "../src/main/ai/providerDefinitions";
 import { openDatabase, type DatabaseRuntime } from "../src/main/database/database";
 
-const settingsValidator = {
+const configValidator = {
+  validateModelMetadata,
   validateModelSettings,
   validateProviderSettings,
 };
@@ -37,7 +39,7 @@ const modelConfigRequest = {
   modelType: "languageModel",
   modelId: "local-chat",
   displayName: "本地聊天模型",
-  speechMetadata: null,
+  metadata: null,
   settings: { temperature: 0.7, maxOutputTokens: 512 },
   enabled: true,
 } as const;
@@ -45,10 +47,14 @@ const modelConfigRequest = {
 const userDataPath = mkdtempSync(join(tmpdir(), "katarune-database-test-"));
 const legacyUserDataPath = mkdtempSync(join(tmpdir(), "katarune-legacy-database-test-"));
 const jumpUserDataPath = mkdtempSync(join(tmpdir(), "katarune-jump-database-test-"));
+const speechMigrationUserDataPath = mkdtempSync(
+  join(tmpdir(), "katarune-speech-migration-test-"),
+);
 const deletionUserDataPath = mkdtempSync(join(tmpdir(), "katarune-character-delete-test-"));
 let runtime: DatabaseRuntime | undefined;
 let legacyRuntime: DatabaseRuntime | undefined;
 let jumpRuntime: DatabaseRuntime | undefined;
+let speechMigrationRuntime: DatabaseRuntime | undefined;
 let deletionRuntime: DatabaseRuntime | undefined;
 
 function createLegacyProviderIdentityDatabase(): void {
@@ -149,11 +155,83 @@ function createCharacterlessThreadDatabaseAtMigrationSix(): void {
   }
 }
 
+function createSpeechModelDatabaseAtMigrationEleven(): void {
+  const sqlite = new BetterSqlite3(
+    join(speechMigrationUserDataPath, "katarune.sqlite"),
+  );
+  try {
+    for (const migration of [
+      "0000_dapper_mother_askani.sql",
+      "0001_pink_ma_gnuci.sql",
+      "0002_material_callisto.sql",
+      "0003_harsh_ultimatum.sql",
+      "0004_chilly_night_nurse.sql",
+      "0005_harsh_fallen_one.sql",
+      "0006_tired_lake.sql",
+      "0007_hesitant_amazoness.sql",
+      "0008_conscious_sauron.sql",
+      "0009_misty_doomsday.sql",
+      "0010_nosy_the_enforcers.sql",
+      "0011_many_lizard.sql",
+    ]) {
+      sqlite.exec(readFileSync(join(process.cwd(), "drizzle", migration), "utf8"));
+    }
+    sqlite.exec(`
+      CREATE TABLE "__drizzle_migrations" (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL,
+        created_at numeric
+      );
+    `);
+    sqlite
+      .prepare('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?, ?)')
+      .run("migration-eleven", 1785487335537);
+    sqlite.prepare(`
+      INSERT INTO provider_configs (
+        id, display_name, provider_type, base_url, credential_ref,
+        settings, enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "44444444-4444-4444-8444-444444444444",
+      "OpenAI migration fixture",
+      "openai",
+      null,
+      null,
+      null,
+      1,
+      1785487335537,
+      1785487335537,
+    );
+    sqlite.prepare(`
+      INSERT INTO model_configs (
+        id, provider_config_id, model_type, model_id, display_name,
+        speech_metadata, settings, enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "55555555-5555-4555-8555-555555555555",
+      "44444444-4444-4444-8444-444444444444",
+      "speechModel",
+      "gpt-4o-mini-tts",
+      "Migrated speech model",
+      JSON.stringify({
+        voices: [{ id: "alloy", displayName: "Alloy" }],
+        defaultVoiceId: "manual-voice",
+      }),
+      null,
+      1,
+      1785487335537,
+      1785487335537,
+    );
+  } finally {
+    sqlite.close();
+  }
+}
+
 try {
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
@@ -181,11 +259,10 @@ try {
     modelType: "speechModel",
     modelId: "gpt-4o-mini-tts",
     displayName: "测试声音模型",
-    speechMetadata: {
+    metadata: {
       voices: [{ id: "alloy", displayName: "Alloy" }],
-      defaultVoiceId: "alloy",
     },
-    settings: null,
+    settings: { defaultVoiceId: "alloy" },
     enabled: true,
   });
   assert.throws(
@@ -195,7 +272,7 @@ try {
         modelType: "languageModel",
         modelId: "invalid-language-settings",
         displayName: null,
-        speechMetadata: null,
+        metadata: null,
         settings: { topP: 2 },
         enabled: true,
       }),
@@ -209,12 +286,12 @@ try {
         modelType: "speechModel",
         modelId: "invalid-speech-settings",
         displayName: null,
-        speechMetadata: null,
+        metadata: null,
         settings: { temperature: 0.2 },
         enabled: true,
       }),
     /Invalid input/i,
-    "未实现的 Capability 只能保存 null settings",
+    "Speech Capability Schema 必须拒绝未声明的 settings",
   );
   assert.throws(
     () =>
@@ -286,7 +363,7 @@ try {
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
   assert.equal(runtime.fetchThread(threadId, restoredCharacterId).remoteId, threadId);
@@ -378,7 +455,7 @@ try {
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
   assert.deepEqual(
@@ -410,7 +487,7 @@ try {
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   assert.equal(
     runtime.fetchThread(threadId, restoredCharacterId).status,
@@ -435,7 +512,7 @@ try {
     modelType: "embeddingModel",
     modelId: "local-chat-updated",
     displayName: null,
-    speechMetadata: null,
+    metadata: null,
     settings: null,
     enabled: false,
   });
@@ -508,7 +585,7 @@ try {
   legacyRuntime = openDatabase({
     userDataPath: legacyUserDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   const migratedProvider = legacyRuntime.fetchProviderConfig(
     "11111111-1111-4111-8111-111111111111",
@@ -540,7 +617,7 @@ try {
   jumpRuntime = openDatabase({
     userDataPath: jumpUserDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   const bootstrappedCharacter = jumpRuntime.getAppState().activeCharacter;
   assert.equal(bootstrappedCharacter.id, "00000000-0000-4000-8000-000000000001");
@@ -564,10 +641,28 @@ try {
     jumpSqlite.close();
   }
 
+  createSpeechModelDatabaseAtMigrationEleven();
+  speechMigrationRuntime = openDatabase({
+    userDataPath: speechMigrationUserDataPath,
+    appPath: process.cwd(),
+    configValidator,
+  });
+  const migratedSpeechModel = speechMigrationRuntime.fetchModelConfig(
+    "55555555-5555-4555-8555-555555555555",
+  );
+  assert.deepEqual(migratedSpeechModel.metadata, {
+    voices: [{ id: "alloy", displayName: "Alloy" }],
+  });
+  assert.deepEqual(migratedSpeechModel.settings, {
+    defaultVoiceId: "manual-voice",
+  });
+  speechMigrationRuntime.close();
+  speechMigrationRuntime = undefined;
+
   deletionRuntime = openDatabase({
     userDataPath: deletionUserDataPath,
     appPath: process.cwd(),
-    settingsValidator,
+    configValidator,
   });
   const deletionDefault = deletionRuntime.getAppState().activeCharacter;
   assert.throws(
@@ -693,9 +788,11 @@ try {
   runtime?.close();
   legacyRuntime?.close();
   jumpRuntime?.close();
+  speechMigrationRuntime?.close();
   deletionRuntime?.close();
   rmSync(userDataPath, { recursive: true, force: true });
   rmSync(legacyUserDataPath, { recursive: true, force: true });
   rmSync(jumpUserDataPath, { recursive: true, force: true });
+  rmSync(speechMigrationUserDataPath, { recursive: true, force: true });
   rmSync(deletionUserDataPath, { recursive: true, force: true });
 }

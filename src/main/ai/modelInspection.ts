@@ -1,9 +1,13 @@
 import type {
+  JsonObject,
+  ModelMetadata,
   ModelType,
   ProviderConfig,
-  SpeechModelMetadata,
 } from "../../shared/ipc";
-import { speechModelMetadataSchema } from "../../shared/ipc";
+import {
+  speechModelMetadataSchema,
+  speechModelSettingsSchema,
+} from "../../shared/ipc";
 import type {
   ProviderDefinition,
   ProviderModelInspection,
@@ -13,22 +17,8 @@ import type { FetchImplementation } from "./providerModelDiscovery";
 export interface PersistableModelInspection {
   readonly modelType: ModelType;
   readonly suggestedDisplayName: string | null;
-  readonly speechMetadata: SpeechModelMetadata | null;
-}
-
-export function applyModelDefaultVoice(
-  modelType: ModelType,
-  speechMetadata: SpeechModelMetadata | null,
-  defaultVoiceId: string | null | undefined,
-): SpeechModelMetadata | null {
-  if (defaultVoiceId === undefined) return speechMetadata;
-  if (modelType !== "speechModel") {
-    throw new Error("只有语音生成模型可以配置默认 Voice ID。");
-  }
-  return speechModelMetadataSchema.parse({
-    ...(speechMetadata ?? { voices: null, defaultVoiceId: null }),
-    defaultVoiceId,
-  });
+  readonly metadata: ModelMetadata | null;
+  readonly suggestedSettings: JsonObject | null;
 }
 
 export async function inspectModelForPersistence({
@@ -59,7 +49,8 @@ export async function inspectModelForPersistence({
     inspection = {
       modelType: null,
       displayName: null,
-      speechMetadata: null,
+      metadata: null,
+      suggestedSettings: null,
     };
   }
 
@@ -79,12 +70,17 @@ export async function inspectModelForPersistence({
   return {
     modelType,
     suggestedDisplayName: inspection.displayName,
-    speechMetadata:
+    metadata:
       modelType === "speechModel"
-        ? (inspection.speechMetadata ?? {
+        ? (inspection.metadata ?? speechModelMetadataSchema.parse({
             voices: null,
+          }))
+        : inspection.metadata,
+    suggestedSettings:
+      modelType === "speechModel"
+        ? (inspection.suggestedSettings ?? speechModelSettingsSchema.parse({
             defaultVoiceId: null,
-          })
-        : null,
+          }))
+        : inspection.suggestedSettings,
   };
 }

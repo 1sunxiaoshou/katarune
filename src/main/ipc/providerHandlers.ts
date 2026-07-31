@@ -15,7 +15,6 @@ import {
 } from "../../shared/ipc";
 import { discoverProviderModels } from "../ai/modelDiscovery";
 import {
-  applyModelDefaultVoice,
   inspectModelForPersistence,
 } from "../ai/modelInspection";
 import { getProviderDefinition } from "../ai/providerDefinitions";
@@ -134,7 +133,6 @@ export function registerProviderHandlers(
   );
   ipcMain.handle(IPC_CHANNELS.createModelConfig, async (_event, value: unknown) => {
     const request = createModelConfigRequestSchema.parse(value);
-    const { defaultVoiceId, ...persistedRequest } = request;
     const provider = database.fetchProviderConfig(request.providerConfigId);
     const inspected = await inspectModelForPersistence({
       provider,
@@ -144,16 +142,12 @@ export function registerProviderHandlers(
       modelTypeHint: request.modelType,
       allowInspectionFallback: true,
     });
-    const speechMetadata = applyModelDefaultVoice(
-      inspected.modelType,
-      inspected.speechMetadata,
-      defaultVoiceId,
-    );
     const result = database.createModelConfig({
-      ...persistedRequest,
+      ...request,
       modelType: inspected.modelType,
       displayName: request.displayName ?? inspected.suggestedDisplayName,
-      speechMetadata,
+      metadata: inspected.metadata,
+      settings: request.settings ?? inspected.suggestedSettings,
     });
     await aiRuntime.reload();
     return result;
@@ -164,14 +158,14 @@ export function registerProviderHandlers(
   });
   ipcMain.handle(IPC_CHANNELS.updateModelConfig, async (_event, value: unknown) => {
     const request = updateModelConfigRequestSchema.parse(value);
-    const { defaultVoiceId, ...persistedRequest } = request;
     const current = database.fetchModelConfig(request.id);
     const inspected =
       current.modelId === request.modelId &&
       current.modelType === request.modelType
         ? {
             modelType: current.modelType,
-            speechMetadata: current.speechMetadata,
+            metadata: current.metadata,
+            suggestedSettings: null,
           }
         : await (async () => {
             const provider = database.fetchProviderConfig(
@@ -186,15 +180,11 @@ export function registerProviderHandlers(
               allowInspectionFallback: true,
             });
           })();
-    const speechMetadata = applyModelDefaultVoice(
-      inspected.modelType,
-      inspected.speechMetadata,
-      defaultVoiceId,
-    );
     const result = database.updateModelConfig({
-      ...persistedRequest,
+      ...request,
       modelType: inspected.modelType,
-      speechMetadata,
+      metadata: inspected.metadata,
+      settings: request.settings,
     });
     await aiRuntime.reload();
     return result;
@@ -233,7 +223,7 @@ export function registerProviderHandlers(
       modelType: current.modelType,
       modelId: current.modelId,
       displayName: current.displayName,
-      speechMetadata: inspected.speechMetadata,
+      metadata: inspected.metadata,
       settings: current.settings,
       enabled: current.enabled,
     });

@@ -20,12 +20,16 @@ import * as z from "zod/mini";
 import {
   discoveredModelListSchema,
   languageModelSettingsSchema,
+  modelMetadataSchema,
   speechModelMetadataSchema,
+  speechModelSettingsSchema,
   type JsonObject,
   type ModelConfig,
+  type ModelMetadata,
   type ModelType,
   type ProviderConfig,
   type SpeechModelMetadata,
+  type SpeechModelSettings,
 } from "../../shared/ipc";
 import type { ProviderType } from "../../shared/providers";
 import { createFishAudio } from "./fishAudioProvider";
@@ -59,7 +63,8 @@ interface SpeechOutputMetadata {
 export interface ProviderModelInspection {
   readonly modelType: ModelType | null;
   readonly displayName: string | null;
-  readonly speechMetadata: SpeechModelMetadata | null;
+  readonly metadata: ModelMetadata | null;
+  readonly suggestedSettings: JsonObject | null;
 }
 
 export type ProviderModelInspector = (
@@ -84,6 +89,7 @@ export interface ProviderModelRegistry {
 }
 
 export interface LanguageCapabilityDefinition {
+  readonly metadataSchema: SettingsSchema;
   readonly settingsSchema: SettingsSchema;
   createModel(
     registry: ProviderModelRegistry,
@@ -93,6 +99,7 @@ export interface LanguageCapabilityDefinition {
 }
 
 export interface SpeechCapabilityDefinition {
+  readonly metadataSchema: SettingsSchema;
   readonly settingsSchema: SettingsSchema;
   readonly output: SpeechOutputMetadata & {
     readonly requestFormat: string;
@@ -129,6 +136,9 @@ const providerSettingsSchema = z.strictObject({
 const nullableProviderSettingsSchema = z.nullable(providerSettingsSchema);
 const nullableLanguageSettingsSchema = z.nullable(languageModelSettingsSchema);
 const nullSettingsSchema = z.null();
+const nullableSpeechModelMetadataSchema = z.nullable(
+  speechModelMetadataSchema,
+);
 
 const defaultLanguageConnectionProbe: LanguageConnectionProbe = async (model) => {
   await generateText({
@@ -191,6 +201,7 @@ function commonLanguageCapability(
   connectionProbe: LanguageConnectionProbe,
 ): LanguageCapabilityDefinition {
   return {
+    metadataSchema: nullSettingsSchema,
     settingsSchema: nullableLanguageSettingsSchema,
     createModel: (registry, id) => registry.languageModel(id),
     testConnection: connectionProbe,
@@ -201,7 +212,8 @@ function createSpeechCapability(
   speechConnectionProbe: SpeechConnectionProbe,
 ): SpeechCapabilityDefinition {
   const capability: SpeechCapabilityDefinition = {
-    settingsSchema: nullSettingsSchema,
+    metadataSchema: nullableSpeechModelMetadataSchema,
+    settingsSchema: speechModelSettingsSchema,
     output: {
       requestFormat: "wav",
       format: "wav",
@@ -404,7 +416,6 @@ async function discoverFishAudioVoices(
 
   return speechModelMetadataSchema.parse({
     voices: voices.size === 0 ? null : [...voices.values()],
-    defaultVoiceId: null,
   });
 }
 
@@ -414,13 +425,17 @@ const fishAudioInspector: ProviderModelInspector = async (context, modelId) => {
     return {
       modelType: null,
       displayName: null,
-      speechMetadata: null,
+      metadata: null,
+      suggestedSettings: null,
     };
   }
   return {
     modelType: "speechModel",
     displayName: model.displayName,
-    speechMetadata: await discoverFishAudioVoices(context),
+    metadata: await discoverFishAudioVoices(context),
+    suggestedSettings: speechModelSettingsSchema.parse({
+      defaultVoiceId: null,
+    }),
   };
 };
 
@@ -443,6 +458,8 @@ const OPENAI_SPEECH_METADATA = speechModelMetadataSchema.parse({
     id,
     displayName: id[0]?.toUpperCase() + id.slice(1),
   })),
+});
+const OPENAI_SPEECH_SETTINGS = speechModelSettingsSchema.parse({
   defaultVoiceId: "alloy",
 });
 
@@ -483,27 +500,36 @@ const GOOGLE_SPEECH_METADATA = speechModelMetadataSchema.parse({
     displayName: id ?? "",
     description,
   })),
+});
+const GOOGLE_SPEECH_SETTINGS = speechModelSettingsSchema.parse({
   defaultVoiceId: "Kore",
 });
 
+interface SpeechInspectionDefaults {
+  readonly metadata: SpeechModelMetadata;
+  readonly suggestedSettings: SpeechModelSettings;
+}
+
 function discoveryBackedInspector(
   discoverModels: ProviderModelDiscovery,
-  speechMetadata?: (
+  speechInspection?: (
     modelId: string,
     discoveredType: ModelType | null,
-  ) => SpeechModelMetadata | null,
+  ) => SpeechInspectionDefaults | null,
 ): ProviderModelInspector {
   return async (context, modelId) => {
     const discovered = (await discoverModels(context)).models.find(
       (model) => model.id === modelId,
     );
     let modelType = discovered?.modelType ?? null;
-    const metadata = speechMetadata?.(modelId, modelType) ?? null;
-    if (modelType === null && metadata !== null) modelType = "speechModel";
+    const speech = speechInspection?.(modelId, modelType) ?? null;
+    if (modelType === null && speech !== null) modelType = "speechModel";
     return {
       modelType,
       displayName: discovered?.displayName ?? null,
-      speechMetadata: modelType === "speechModel" ? metadata : null,
+      metadata: modelType === "speechModel" ? (speech?.metadata ?? null) : null,
+      suggestedSettings:
+        modelType === "speechModel" ? (speech?.suggestedSettings ?? null) : null,
     };
   };
 }
@@ -564,7 +590,10 @@ export function createProviderDefinitionRegistry({
         openAiDiscovery,
         (modelId, discoveredType) =>
           discoveredType === "speechModel" || knownSpeechModelId(modelId)
-            ? OPENAI_SPEECH_METADATA
+            ? {
+                metadata: OPENAI_SPEECH_METADATA,
+                suggestedSettings: OPENAI_SPEECH_SETTINGS,
+              }
             : null,
       ),
       languageModel,
@@ -587,7 +616,10 @@ export function createProviderDefinitionRegistry({
         googleDiscovery,
         (modelId, discoveredType) =>
           discoveredType === "speechModel" || knownSpeechModelId(modelId)
-            ? GOOGLE_SPEECH_METADATA
+            ? {
+                metadata: GOOGLE_SPEECH_METADATA,
+                suggestedSettings: GOOGLE_SPEECH_SETTINGS,
+              }
             : null,
       ),
       languageModel,
@@ -677,15 +709,48 @@ export function validateModelSettings(
       : modelType === "speechModel"
         ? definition.speechModel
         : undefined;
-  (capability?.settingsSchema ?? nullSettingsSchema).parse(settings);
+  const fallbackSchema =
+    modelType === "languageModel"
+      ? nullableLanguageSettingsSchema
+      : modelType === "speechModel"
+        ? speechModelSettingsSchema
+        : nullSettingsSchema;
+  (capability?.settingsSchema ?? fallbackSchema).parse(settings);
+}
+
+export function validateModelMetadata(
+  providerType: ProviderType,
+  modelType: ModelType,
+  metadata: ModelMetadata | null,
+  registry: ProviderDefinitionRegistry = PROVIDER_DEFINITIONS,
+): void {
+  if (metadata !== null) modelMetadataSchema.parse(metadata);
+  const definition = getProviderDefinition(providerType, registry);
+  const capability =
+    modelType === "languageModel"
+      ? definition.languageModel
+      : modelType === "speechModel"
+        ? definition.speechModel
+        : undefined;
+  const fallbackSchema =
+    modelType === "speechModel"
+      ? nullableSpeechModelMetadataSchema
+      : nullSettingsSchema;
+  (capability?.metadataSchema ?? fallbackSchema).parse(metadata);
 }
 
 export function validateModelConfigSettings(
   provider: ProviderConfig,
-  model: Pick<ModelConfig, "modelType" | "settings">,
+  model: Pick<ModelConfig, "modelType" | "metadata" | "settings">,
   registry: ProviderDefinitionRegistry = PROVIDER_DEFINITIONS,
 ): void {
   validateProviderSettings(provider.providerType, provider.settings, registry);
+  validateModelMetadata(
+    provider.providerType,
+    model.modelType,
+    model.metadata,
+    registry,
+  );
   validateModelSettings(
     provider.providerType,
     model.modelType,

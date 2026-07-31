@@ -19,13 +19,13 @@ import { appState, assets, characters, threads } from "./schema";
 import { createThreadRepository } from "./threadRepository";
 import type {
   DatabaseRuntime,
-  DatabaseSettingsValidator,
+  DatabaseConfigValidator,
 } from "./types";
 
 export type {
   AssetMetadata,
   DatabaseRuntime,
-  DatabaseSettingsValidator,
+  DatabaseConfigValidator,
   ReadyAssetRegistration,
 } from "./types";
 
@@ -42,14 +42,14 @@ const persistedThreadSchema = z.object({
 interface OpenDatabaseOptions {
   readonly userDataPath: string;
   readonly appPath: string;
-  readonly settingsValidator: DatabaseSettingsValidator;
+  readonly configValidator: DatabaseConfigValidator;
   readonly characterResourcesPath?: string;
 }
 
 export function openDatabase({
   userDataPath,
   appPath,
-  settingsValidator,
+  configValidator,
   characterResourcesPath = join(appPath, "resources", "characters"),
 }: OpenDatabaseOptions): DatabaseRuntime {
   const sqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
@@ -215,11 +215,11 @@ export function openDatabase({
   );
   const providerRepository = createProviderRepository(
     database,
-    settingsValidator,
+    configValidator,
   );
   const modelRepository = createModelRepository(
     database,
-    settingsValidator,
+    configValidator,
     providerRepository.fetchProviderConfig,
   );
   const assetRepository = createAssetRepository(database);

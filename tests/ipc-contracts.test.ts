@@ -35,6 +35,7 @@ import {
   speechCancelRequestSchema,
   speechGenerateRequestSchema,
   speechGenerateResponseSchema,
+  speechModelSettingsSchema,
   threadMessagesSchema,
   updateCharacterRequestSchema,
 } from "../src/shared/ipc";
@@ -296,7 +297,7 @@ describe("shared IPC contracts", () => {
       modelConfigSchema.parse({
         id: "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb",
         ...request,
-        speechMetadata: null,
+        metadata: null,
         createdAt: new Date("2026-07-19T00:00:00.000Z"),
         updatedAt: new Date("2026-07-19T00:00:00.000Z"),
       }),
@@ -561,14 +562,14 @@ describe("shared IPC contracts", () => {
     ).toMatchObject({ status: "error", code: "provider-error" });
   });
 
-  it("validates model-level speech voice metadata", () => {
+  it("validates refreshable speech metadata separately from model settings", () => {
     const base = {
       id: "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb",
       providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
       modelType: "speechModel",
       modelId: "gemini-2.5-flash-preview-tts",
       displayName: "Gemini TTS",
-      settings: null,
+      settings: { defaultVoiceId: "Kore" },
       enabled: true,
       createdAt: new Date("2026-07-19T00:00:00.000Z"),
       updatedAt: new Date("2026-07-19T00:00:00.000Z"),
@@ -576,54 +577,51 @@ describe("shared IPC contracts", () => {
     expect(
       modelConfigSchema.parse({
         ...base,
-        speechMetadata: {
+        metadata: {
           voices: [
             { id: "Kore", displayName: "Kore", description: "Firm" },
           ],
-          defaultVoiceId: "Kore",
         },
-      }).speechMetadata,
-    ).toMatchObject({ defaultVoiceId: "Kore" });
+      }).metadata,
+    ).toMatchObject({ voices: [{ id: "Kore" }] });
     expect(
-      modelConfigSchema.parse({
-        ...base,
-        speechMetadata: {
-          voices: [{ id: "Kore", displayName: "Kore" }],
-          defaultVoiceId: "manual-public-voice",
-        },
-      }).speechMetadata,
+      speechModelSettingsSchema.parse({
+        defaultVoiceId: "manual-public-voice",
+      }),
     ).toMatchObject({ defaultVoiceId: "manual-public-voice" });
     expect(
       modelConfigSchema.safeParse({
         ...base,
-        speechMetadata: {
+        metadata: {
+          voices: null,
+          defaultVoiceId: "legacy-mixed-default",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      modelConfigSchema.safeParse({
+        ...base,
+        metadata: {
           voices: [
             { id: "Kore", displayName: "Kore" },
             { id: "Kore", displayName: "Duplicate" },
           ],
-          defaultVoiceId: "Kore",
         },
       }).success,
     ).toBe(false);
     expect(
       modelConfigSchema.parse({
         ...base,
-        speechMetadata: {
+        metadata: {
           voices: null,
-          defaultVoiceId: "account-default",
         },
-      }).speechMetadata,
+      }).metadata,
     ).toMatchObject({
       voices: null,
-      defaultVoiceId: "account-default",
     });
     expect(
-      modelConfigSchema.safeParse({
-        ...base,
-        speechMetadata: {
-          voices: null,
-          defaultVoiceId: "v".repeat(201),
-        },
+      speechModelSettingsSchema.safeParse({
+        defaultVoiceId: "v".repeat(201),
       }).success,
     ).toBe(false);
   });

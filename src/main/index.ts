@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, Menu, safeStorage, shell } from "electron";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
 import {
+  validateModelMetadata,
   validateModelSettings,
   validateProviderSettings,
 } from "./ai/providerDefinitions";
@@ -84,7 +85,8 @@ void app.whenReady().then(() => {
     userDataPath: app.getPath("userData"),
     appPath: app.getAppPath(),
     characterResourcesPath,
-    settingsValidator: {
+    configValidator: {
+      validateModelMetadata,
       validateModelSettings,
       validateProviderSettings,
     },

@@ -26,10 +26,30 @@ const voiceOptionsSchema = z
 export const speechModelMetadataSchema = z
   .strictObject({
     voices: z.nullable(voiceOptionsSchema),
-    defaultVoiceId: z.nullable(speechVoiceSchema),
   });
+
+export const speechModelSettingsSchema = z.strictObject({
+  defaultVoiceId: z.nullable(speechVoiceSchema),
+});
 
 export type VoiceOption = Readonly<z.infer<typeof voiceOptionSchema>>;
 export type SpeechModelMetadata = Readonly<
   z.infer<typeof speechModelMetadataSchema>
 >;
+export type SpeechModelSettings = Readonly<
+  z.infer<typeof speechModelSettingsSchema>
+>;
+
+export function parseSpeechModelSettings(
+  value: unknown,
+): SpeechModelSettings | null {
+  const result = speechModelSettingsSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
+export function parseSpeechModelMetadata(
+  value: unknown,
+): SpeechModelMetadata | null {
+  const result = speechModelMetadataSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
