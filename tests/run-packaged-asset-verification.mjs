@@ -79,15 +79,22 @@ async function evaluate(webSocketDebuggerUrl, expression) {
 }
 
 const port = await availablePort();
-const child = spawn(executablePath, [`--remote-debugging-port=${port}`], {
-  env: {
-    ...process.env,
-    APPDATA: isolatedDataRoot,
-    LOCALAPPDATA: isolatedDataRoot,
+const child = spawn(
+  executablePath,
+  [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${isolatedDataRoot}`,
+  ],
+  {
+    env: {
+      ...process.env,
+      APPDATA: isolatedDataRoot,
+      LOCALAPPDATA: isolatedDataRoot,
+    },
+    stdio: "ignore",
+    windowsHide: true,
   },
-  stdio: "ignore",
-  windowsHide: true,
-});
+);
 
 try {
   const page = await waitForPage(port);
