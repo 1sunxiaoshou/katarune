@@ -157,7 +157,7 @@
 
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
 
-@keyframes character-frame-enter {
+@keyframes page-frame-enter {
   from {
     opacity: 0;
     transform: scale(0.992);
@@ -190,6 +190,31 @@
   }
 }
 
+@keyframes model-add-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes settings-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .settings-header {
   position: absolute;
   z-index: 2;
@@ -205,6 +230,77 @@
   padding: 0 32px;
   font-family: "Noto Serif SC Variable", "Songti SC", serif;
   pointer-events: none;
+}
+
+.settings-page {
+  animation: page-frame-enter 420ms ease-out both;
+}
+
+.selection-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.settings-tabs-indicator {
+  width: var(--active-tab-width);
+  height: var(--active-tab-height);
+  translate: var(--active-tab-left) var(--active-tab-top);
+}
+
+.model-category-indicator {
+  width: calc(var(--active-tab-width) - 8px);
+  height: calc(var(--active-tab-height) - 4px);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  transform: skewX(-12deg);
+  translate:
+    calc(var(--active-tab-left) + 4px)
+    calc(var(--active-tab-top) + 2px);
+}
+
+.selection-indicator {
+  transition:
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    translate 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-tab-panel[data-active] {
+  animation: settings-panel-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.discovered-model-row::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 24%,
+    color-mix(in oklch, var(--primary) 10%, transparent) 44%,
+    color-mix(in oklch, var(--primary) 24%, transparent) 50%,
+    color-mix(in oklch, var(--primary) 10%, transparent) 56%,
+    transparent 76%
+  );
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+}
+
+.discovered-model-row[data-add-state="saved"]::before {
+  animation: model-add-sweep 420ms ease-out both;
+}
+
+.discovered-model-row > * {
+  position: relative;
+  z-index: 1;
 }
 
 .settings-header > * {
@@ -269,7 +365,7 @@
   color: var(--foreground);
   background: var(--background);
   font-family: var(--character-font-sans);
-  animation: character-frame-enter 420ms ease-out both;
+  animation: page-frame-enter 420ms ease-out both;
 }
 
 .character-header {
@@ -1391,10 +1487,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .settings-page,
+  .settings-tab-panel,
   .character-studio,
   .character-art,
-  .character-list-panel {
+  .character-list-panel,
+  .discovered-model-row::before {
     animation: none;
+  }
+
+  .selection-indicator {
+    transition: none;
   }
 
   .character-art img,

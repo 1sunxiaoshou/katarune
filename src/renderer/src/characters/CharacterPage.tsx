@@ -109,9 +109,7 @@ export function CharacterPage({
         <div className="character-layout">
           <CharacterEditor
             key={selectedCharacter.id}
-            availableSpeechModelIds={
-              controller.availableSpeechModelIds
-            }
+            availableModelIds={controller.availableModelIds}
             character={selectedCharacter}
             draft={
               controller.draftCharacter?.id === selectedCharacter.id

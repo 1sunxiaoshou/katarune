@@ -42,7 +42,7 @@ export function useCharacterPageController({
   const [draftOriginId, setDraftOriginId] = useState<string | null>(null);
   const [models, setModels] = useState<readonly ModelConfig[]>([]);
   const [providers, setProviders] = useState<readonly ProviderConfig[]>([]);
-  const [availableSpeechModelIds, setAvailableSpeechModelIds] = useState<
+  const [availableModelIds, setAvailableModelIds] = useState<
     ReadonlySet<string>
   >(new Set());
   const [selectedId, setSelectedId] = useState<string>(
@@ -59,7 +59,7 @@ export function useCharacterPageController({
       window.katarune.listCharacters(),
       window.katarune.listModelConfigs(),
       window.katarune.listProviderConfigs(),
-      window.katarune.listAvailableSpeechModels(),
+      window.katarune.listAvailableModels(),
     ])
       .then(
         ([characterResult, modelResult, providerResult, speechModels]) => {
@@ -67,7 +67,7 @@ export function useCharacterPageController({
           setCharacters(characterResult.characters);
           setModels(modelResult.modelConfigs);
           setProviders(providerResult.providerConfigs);
-          setAvailableSpeechModelIds(
+          setAvailableModelIds(
             new Set(speechModels.modelConfigIds),
           );
           const activeExists = characterResult.characters.some(
@@ -376,7 +376,7 @@ export function useCharacterPageController({
   );
 
   return {
-    availableSpeechModelIds,
+    availableModelIds,
     characterEntries,
     characters,
     confirmCharacterDelete,

@@ -26,7 +26,7 @@ import {
   type ProviderConfig,
   type ProviderType,
 } from "../../../shared/ipc";
-import { getProviderCapabilities } from "../../../shared/providers";
+import { getProviderCredentialRequirement } from "../../../shared/providers";
 import { errorMessage } from "./settingsState";
 import { PROVIDER_CATALOG } from "./providerCatalog";
 
@@ -56,7 +56,7 @@ export function ProviderDialog({
   const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const credentialRequired =
-    getProviderCapabilities(providerType).credentialMode === "required";
+    getProviderCredentialRequirement(providerType).credentialMode === "required";
   const credentialInputRequired =
     credentialRequired && provider?.credentialRef == null;
 

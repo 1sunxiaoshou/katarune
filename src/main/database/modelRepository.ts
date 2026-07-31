@@ -8,14 +8,14 @@ import {
 } from "../../shared/ipc";
 import { modelConfigs } from "./schema";
 import type {
-  DatabaseSettingsValidator,
+  DatabaseConfigValidator,
   KataruneDatabase,
   ModelRepository,
 } from "./types";
 
 export function createModelRepository(
   database: KataruneDatabase,
-  validator: DatabaseSettingsValidator,
+  validator: DatabaseConfigValidator,
   fetchProviderConfig: (id: string) => ProviderConfig,
 ): ModelRepository {
   const fetchModelConfig = (id: string): ModelConfig => {
@@ -43,6 +43,11 @@ export function createModelRepository(
       }),
     createModelConfig: (request) => {
       const provider = fetchProviderConfig(request.providerConfigId);
+      validator.validateModelMetadata(
+        provider.providerType,
+        request.modelType,
+        request.metadata,
+      );
       validator.validateModelSettings(
         provider.providerType,
         request.modelType,
@@ -77,6 +82,7 @@ export function createModelRepository(
           modelType: request.modelType,
           modelId: request.modelId,
           displayName: request.displayName,
+          metadata: request.metadata,
           settings: request.settings,
           enabled: request.enabled,
           createdAt: now,
@@ -90,6 +96,11 @@ export function createModelRepository(
     updateModelConfig: ({ id, ...updates }) => {
       const current = fetchModelConfig(id);
       const provider = fetchProviderConfig(current.providerConfigId);
+      validator.validateModelMetadata(
+        provider.providerType,
+        updates.modelType,
+        updates.metadata,
+      );
       validator.validateModelSettings(
         provider.providerType,
         updates.modelType,

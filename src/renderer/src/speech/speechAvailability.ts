@@ -12,6 +12,6 @@ export async function isCharacterSpeechAvailable(
   ) {
     return false;
   }
-  const { modelConfigIds } = await window.katarune.listAvailableSpeechModels();
+  const { modelConfigIds } = await window.katarune.listAvailableModels();
   return modelConfigIds.includes(character.speechModelConfigId);
 }

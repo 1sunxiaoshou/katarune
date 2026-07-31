@@ -16,19 +16,33 @@ import {
   type SpeechResult,
 } from "ai";
 import * as z from "zod/mini";
+
 import {
+  discoveredModelListSchema,
   languageModelSettingsSchema,
+  modelMetadataSchema,
+  speechModelMetadataSchema,
+  speechModelSettingsSchema,
   type JsonObject,
   type ModelConfig,
+  type ModelMetadata,
+  type ModelType,
   type ProviderConfig,
+  type SpeechModelMetadata,
+  type SpeechModelSettings,
 } from "../../shared/ipc";
-import type { ModelType } from "../../shared/models";
+import type { ProviderType } from "../../shared/providers";
+import { createFishAudio } from "./fishAudioProvider";
 import {
-  PROVIDER_CAPABILITIES,
-  type ProviderCapabilityMetadata,
-  type ProviderType,
-  type SpeechOutputMetadata,
-} from "../../shared/providers";
+  bearerHeaders,
+  createHttpModelDiscovery,
+  discoverGatewayModels,
+  normalizeGoogleModels,
+  normalizeOpenAiModels,
+  stringField,
+  type ProviderModelDiscovery,
+  type ProviderModelDiscoveryContext,
+} from "./providerModelDiscovery";
 
 export type RegistryProvider = Parameters<typeof createProviderRegistry>[0][string];
 type ResolvedLanguageModel = Exclude<LanguageModel, string>;
@@ -41,10 +55,28 @@ type SettingsSchema = {
   parse(value: unknown): unknown;
 };
 
+interface SpeechOutputMetadata {
+  readonly format: string;
+  readonly mediaType: `audio/${string}`;
+}
+
+export interface ProviderModelInspection {
+  readonly modelType: ModelType | null;
+  readonly displayName: string | null;
+  readonly metadata: ModelMetadata | null;
+  readonly suggestedSettings: JsonObject | null;
+}
+
+export type ProviderModelInspector = (
+  context: ProviderModelDiscoveryContext,
+  modelId: string,
+) => Promise<ProviderModelInspection>;
+
 export type LanguageConnectionProbe = (model: LanguageModel) => Promise<void>;
 export type SpeechConnectionProbe = (
   model: SpeechModel,
   capability: SpeechCapabilityDefinition,
+  voiceId: string,
 ) => Promise<void>;
 
 export interface NormalizedSpeechAudio extends SpeechOutputMetadata {
@@ -57,6 +89,7 @@ export interface ProviderModelRegistry {
 }
 
 export interface LanguageCapabilityDefinition {
+  readonly metadataSchema: SettingsSchema;
   readonly settingsSchema: SettingsSchema;
   createModel(
     registry: ProviderModelRegistry,
@@ -66,8 +99,8 @@ export interface LanguageCapabilityDefinition {
 }
 
 export interface SpeechCapabilityDefinition {
+  readonly metadataSchema: SettingsSchema;
   readonly settingsSchema: SettingsSchema;
-  readonly defaultVoice: string | null;
   readonly output: SpeechOutputMetadata & {
     readonly requestFormat: string;
   };
@@ -77,15 +110,19 @@ export interface SpeechCapabilityDefinition {
   ): ResolvedSpeechModel;
   normalizeAudio(audio: SpeechResult["audio"]): NormalizedSpeechAudio;
   validateAudio(audio: Uint8Array): boolean;
-  testConnection(model: SpeechModel): Promise<void>;
+  testConnection(model: SpeechModel, voiceId: string): Promise<void>;
 }
 
 export interface ProviderDefinition {
-  readonly metadata: ProviderCapabilityMetadata;
   readonly providerSettingsSchema: SettingsSchema;
+  readonly discoverModels: ProviderModelDiscovery;
+  readonly inspectModel: ProviderModelInspector;
   readonly languageModel?: LanguageCapabilityDefinition;
   readonly speechModel?: SpeechCapabilityDefinition;
-  createProvider(config: ProviderConfig, apiKey: string | undefined): RegistryProvider;
+  createProvider(
+    config: ProviderConfig,
+    apiKey: string | undefined,
+  ): RegistryProvider;
 }
 
 export type ProviderDefinitionRegistry = Readonly<
@@ -99,6 +136,9 @@ const providerSettingsSchema = z.strictObject({
 const nullableProviderSettingsSchema = z.nullable(providerSettingsSchema);
 const nullableLanguageSettingsSchema = z.nullable(languageModelSettingsSchema);
 const nullSettingsSchema = z.null();
+const nullableSpeechModelMetadataSchema = z.nullable(
+  speechModelMetadataSchema,
+);
 
 const defaultLanguageConnectionProbe: LanguageConnectionProbe = async (model) => {
   await generateText({
@@ -113,15 +153,12 @@ const defaultLanguageConnectionProbe: LanguageConnectionProbe = async (model) =>
 const defaultSpeechConnectionProbe: SpeechConnectionProbe = async (
   model,
   capability,
+  voiceId,
 ) => {
-  const voice = capability.defaultVoice;
-  if (voice === null) {
-    throw new Error("The speech Adapter does not define a connection-test voice.");
-  }
   const result = await generateSpeech({
     model,
     text: "OK",
-    voice,
+    voice: voiceId,
     outputFormat: capability.output.requestFormat,
     maxRetries: 0,
     abortSignal: AbortSignal.timeout(15_000),
@@ -164,10 +201,341 @@ function commonLanguageCapability(
   connectionProbe: LanguageConnectionProbe,
 ): LanguageCapabilityDefinition {
   return {
+    metadataSchema: nullSettingsSchema,
     settingsSchema: nullableLanguageSettingsSchema,
     createModel: (registry, id) => registry.languageModel(id),
     testConnection: connectionProbe,
   };
+}
+
+function createSpeechCapability(
+  speechConnectionProbe: SpeechConnectionProbe,
+): SpeechCapabilityDefinition {
+  const capability: SpeechCapabilityDefinition = {
+    metadataSchema: nullableSpeechModelMetadataSchema,
+    settingsSchema: speechModelSettingsSchema,
+    output: {
+      requestFormat: "wav",
+      format: "wav",
+      mediaType: "audio/wav",
+    },
+    createModel: (registry, id) => registry.speechModel(id),
+    normalizeAudio: (audio) => ({
+      audio: new Uint8Array(audio.uint8Array),
+      format: audio.format,
+      mediaType: audio.mediaType as `audio/${string}`,
+    }),
+    validateAudio: isValidWav,
+    testConnection: async (model, voiceId) =>
+      speechConnectionProbe(model, capability, voiceId),
+  };
+  return capability;
+}
+
+function responseRecord(value: unknown): Readonly<Record<string, unknown>> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : null;
+}
+
+function googleNextPageUrl(value: unknown, currentUrl: URL): URL | null {
+  const token = stringField(responseRecord(value)?.nextPageToken, 1_000);
+  if (token === null) return null;
+  const nextUrl = new URL(currentUrl);
+  nextUrl.searchParams.set("pageToken", token);
+  return nextUrl;
+}
+
+function anthropicNextPageUrl(value: unknown, currentUrl: URL): URL | null {
+  const response = responseRecord(value);
+  if (response?.has_more !== true) return null;
+  const lastId = stringField(response.last_id, 500);
+  if (lastId === null) return null;
+  const nextUrl = new URL(currentUrl);
+  nextUrl.searchParams.set("after_id", lastId);
+  return nextUrl;
+}
+
+const gatewayDiscovery = discoverGatewayModels;
+const openAiCompatibleDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: null,
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+const openAiDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://api.openai.com/v1",
+  liteLlmCatalogAlias: "openai",
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+const anthropicDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://api.anthropic.com/v1",
+  liteLlmCatalogAlias: "anthropic",
+  configureUrl: (url) => url.searchParams.set("limit", "1000"),
+  nextPageUrl: anthropicNextPageUrl,
+  createHeaders: (apiKey) => {
+    const headers = new Headers({
+      Accept: "application/json",
+      "anthropic-version": "2023-06-01",
+    });
+    if (apiKey !== undefined) headers.set("x-api-key", apiKey);
+    return headers;
+  },
+  normalizeModels: normalizeOpenAiModels,
+});
+const googleDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  liteLlmCatalogAlias: "gemini",
+  configureUrl: (url) => url.searchParams.set("pageSize", "1000"),
+  nextPageUrl: googleNextPageUrl,
+  createHeaders: (apiKey) => {
+    const headers = new Headers({ Accept: "application/json" });
+    if (apiKey !== undefined) headers.set("x-goog-api-key", apiKey);
+    return headers;
+  },
+  normalizeModels: normalizeGoogleModels,
+});
+const deepSeekDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://api.deepseek.com",
+  liteLlmCatalogAlias: "deepseek",
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+const xaiDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://api.x.ai/v1",
+  liteLlmCatalogAlias: "xai",
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+const moonshotDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://api.moonshot.ai/v1",
+  liteLlmCatalogAlias: "moonshot",
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+const alibabaDiscovery = createHttpModelDiscovery({
+  defaultBaseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+  liteLlmCatalogAlias: "dashscope",
+  createHeaders: bearerHeaders,
+  normalizeModels: normalizeOpenAiModels,
+});
+
+const FISH_AUDIO_TTS_MODELS = [
+  { id: "s2.1-pro-free", displayName: "Fish Audio S2.1 Pro Free" },
+  { id: "s2.1-pro", displayName: "Fish Audio S2.1 Pro" },
+  { id: "s2-pro", displayName: "Fish Audio S2 Pro" },
+  { id: "s1", displayName: "Fish Audio S1" },
+] as const;
+
+const fishAudioDiscovery: ProviderModelDiscovery = async () =>
+  discoveredModelListSchema.parse({
+    models: FISH_AUDIO_TTS_MODELS.map((model) => ({
+      ...model,
+      modelType: "speechModel" as const,
+      typeSource: null,
+    })),
+    source: "provider",
+    warning: null,
+  });
+
+function fishAudioBaseUrl(context: ProviderModelDiscoveryContext): string {
+  return (context.provider.baseUrl ?? "https://api.fish.audio").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+function fishAudioVoiceOption(
+  value: unknown,
+): { id: string; displayName: string; description?: string } | null {
+  const record = responseRecord(value);
+  if (record?.type !== "tts" || record.state !== "trained") return null;
+  const id = stringField(record._id, 200);
+  if (id === null) return null;
+  const displayName = stringField(record.title, 200) ?? id;
+  const description = stringField(record.description, 500);
+  return {
+    id,
+    displayName,
+    ...(description === null ? {} : { description }),
+  };
+}
+
+async function discoverFishAudioVoices(
+  context: ProviderModelDiscoveryContext,
+): Promise<SpeechModelMetadata> {
+  const voices = new Map<
+    string,
+    { id: string; displayName: string; description?: string }
+  >();
+  for (let page = 1; page <= 10; page += 1) {
+    const url = new URL(`${fishAudioBaseUrl(context)}/model`);
+    url.searchParams.set("page_size", "100");
+    url.searchParams.set("page_number", String(page));
+    url.searchParams.set("self", "true");
+    url.searchParams.set("sort_by", "created_at");
+
+    const response = await context.fetchImplementation(url, {
+      method: "GET",
+      headers: bearerHeaders(context.apiKey),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      throw new Error(`获取 Fish Audio 音色失败（HTTP ${response.status}）。`);
+    }
+    const body = responseRecord(await response.json());
+    const items = Array.isArray(body?.items) ? body.items : null;
+    if (items === null) {
+      throw new Error("Fish Audio 音色接口返回了无效数据。");
+    }
+    const total = body?.total;
+    if (
+      typeof total === "number" &&
+      Number.isInteger(total) &&
+      total > 1_000
+    ) {
+      throw new Error(
+        "Fish Audio 账号音色超过 1000 个，无法安全保存为完整音色目录。",
+      );
+    }
+    for (const item of items) {
+      const voice = fishAudioVoiceOption(item);
+      if (voice !== null) voices.set(voice.id, voice);
+    }
+
+    const hasMore =
+      body?.has_more === true ||
+      (typeof total === "number" && page * 100 < total);
+    if (!hasMore) break;
+    if (page === 10) {
+      throw new Error(
+        "Fish Audio 音色目录超过 10 页，无法安全保存为完整音色目录。",
+      );
+    }
+  }
+
+  return speechModelMetadataSchema.parse({
+    voices: voices.size === 0 ? null : [...voices.values()],
+  });
+}
+
+const fishAudioInspector: ProviderModelInspector = async (context, modelId) => {
+  const model = FISH_AUDIO_TTS_MODELS.find((item) => item.id === modelId);
+  if (model === undefined) {
+    return {
+      modelType: null,
+      displayName: null,
+      metadata: null,
+      suggestedSettings: null,
+    };
+  }
+  return {
+    modelType: "speechModel",
+    displayName: model.displayName,
+    metadata: await discoverFishAudioVoices(context),
+    suggestedSettings: speechModelSettingsSchema.parse({
+      defaultVoiceId: null,
+    }),
+  };
+};
+
+const OPENAI_SPEECH_METADATA = speechModelMetadataSchema.parse({
+  voices: [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "onyx",
+    "nova",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar",
+  ].map((id) => ({
+    id,
+    displayName: id[0]?.toUpperCase() + id.slice(1),
+  })),
+});
+const OPENAI_SPEECH_SETTINGS = speechModelSettingsSchema.parse({
+  defaultVoiceId: "alloy",
+});
+
+const GOOGLE_SPEECH_METADATA = speechModelMetadataSchema.parse({
+  voices: [
+    ["Zephyr", "Bright"],
+    ["Puck", "Upbeat"],
+    ["Charon", "Informative"],
+    ["Kore", "Firm"],
+    ["Fenrir", "Excitable"],
+    ["Leda", "Youthful"],
+    ["Orus", "Firm"],
+    ["Aoede", "Breezy"],
+    ["Callirrhoe", "Easy-going"],
+    ["Autonoe", "Bright"],
+    ["Enceladus", "Breathy"],
+    ["Iapetus", "Clear"],
+    ["Umbriel", "Easy-going"],
+    ["Algieba", "Smooth"],
+    ["Despina", "Smooth"],
+    ["Erinome", "Clear"],
+    ["Algenib", "Gravelly"],
+    ["Rasalgethi", "Informative"],
+    ["Laomedeia", "Upbeat"],
+    ["Achernar", "Soft"],
+    ["Alnilam", "Firm"],
+    ["Schedar", "Even"],
+    ["Gacrux", "Mature"],
+    ["Pulcherrima", "Forward"],
+    ["Achird", "Friendly"],
+    ["Zubenelgenubi", "Casual"],
+    ["Vindemiatrix", "Gentle"],
+    ["Sadachbia", "Lively"],
+    ["Sadaltager", "Knowledgeable"],
+    ["Sulafat", "Warm"],
+  ].map(([id, description]) => ({
+    id: id ?? "",
+    displayName: id ?? "",
+    description,
+  })),
+});
+const GOOGLE_SPEECH_SETTINGS = speechModelSettingsSchema.parse({
+  defaultVoiceId: "Kore",
+});
+
+interface SpeechInspectionDefaults {
+  readonly metadata: SpeechModelMetadata;
+  readonly suggestedSettings: SpeechModelSettings;
+}
+
+function discoveryBackedInspector(
+  discoverModels: ProviderModelDiscovery,
+  speechInspection?: (
+    modelId: string,
+    discoveredType: ModelType | null,
+  ) => SpeechInspectionDefaults | null,
+): ProviderModelInspector {
+  return async (context, modelId) => {
+    const discovered = (await discoverModels(context)).models.find(
+      (model) => model.id === modelId,
+    );
+    let modelType = discovered?.modelType ?? null;
+    const speech = speechInspection?.(modelId, modelType) ?? null;
+    if (modelType === null && speech !== null) modelType = "speechModel";
+    return {
+      modelType,
+      displayName: discovered?.displayName ?? null,
+      metadata: modelType === "speechModel" ? (speech?.metadata ?? null) : null,
+      suggestedSettings:
+        modelType === "speechModel" ? (speech?.suggestedSettings ?? null) : null,
+    };
+  };
+}
+
+function knownSpeechModelId(modelId: string): boolean {
+  return /(?:^tts-|[-.]tts(?:[-.]|$))/i.test(modelId);
 }
 
 export function createProviderDefinitionRegistry({
@@ -178,35 +546,21 @@ export function createProviderDefinitionRegistry({
   readonly speechConnectionProbe?: SpeechConnectionProbe;
 } = {}): ProviderDefinitionRegistry {
   const languageModel = commonLanguageCapability(languageConnectionProbe);
-  const openAiSpeechMetadata = PROVIDER_CAPABILITIES.openai.speech;
-  const openAiSpeech: SpeechCapabilityDefinition = {
-    settingsSchema: nullSettingsSchema,
-    defaultVoice: openAiSpeechMetadata.defaultVoice,
-    output: {
-      ...openAiSpeechMetadata.preferredOutput,
-      requestFormat: openAiSpeechMetadata.preferredOutput.format,
-    },
-    createModel: (registry, id) => registry.speechModel(id),
-    normalizeAudio: (audio) => ({
-      audio: new Uint8Array(audio.uint8Array),
-      format: audio.format,
-      mediaType: audio.mediaType as `audio/${string}`,
-    }),
-    validateAudio: isValidWav,
-    testConnection: async (model) => speechConnectionProbe(model, openAiSpeech),
-  };
+  const speechModel = createSpeechCapability(speechConnectionProbe);
 
   return {
     gateway: {
-      metadata: PROVIDER_CAPABILITIES.gateway,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: gatewayDiscovery,
+      inspectModel: discoveryBackedInspector(gatewayDiscovery),
       languageModel,
       createProvider: (config, apiKey) =>
         createGateway(optionalFactorySettings(config, apiKey)),
     },
     "openai-compatible": {
-      metadata: PROVIDER_CAPABILITIES["openai-compatible"],
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: openAiCompatibleDiscovery,
+      inspectModel: discoveryBackedInspector(openAiCompatibleDiscovery),
       languageModel,
       createProvider: (config, apiKey) => {
         if (config.baseUrl === null) {
@@ -222,56 +576,93 @@ export function createProviderDefinitionRegistry({
             : { includeUsage: settings.includeUsage }),
           ...(settings.supportsStructuredOutputs === undefined
             ? {}
-            : { supportsStructuredOutputs: settings.supportsStructuredOutputs }),
+            : {
+                supportsStructuredOutputs:
+                  settings.supportsStructuredOutputs,
+              }),
         });
       },
     },
     openai: {
-      metadata: PROVIDER_CAPABILITIES.openai,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: openAiDiscovery,
+      inspectModel: discoveryBackedInspector(
+        openAiDiscovery,
+        (modelId, discoveredType) =>
+          discoveredType === "speechModel" || knownSpeechModelId(modelId)
+            ? {
+                metadata: OPENAI_SPEECH_METADATA,
+                suggestedSettings: OPENAI_SPEECH_SETTINGS,
+              }
+            : null,
+      ),
       languageModel,
-      speechModel: openAiSpeech,
+      speechModel,
       createProvider: (config, apiKey) =>
         createOpenAI(optionalFactorySettings(config, apiKey)),
     },
     anthropic: {
-      metadata: PROVIDER_CAPABILITIES.anthropic,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: anthropicDiscovery,
+      inspectModel: discoveryBackedInspector(anthropicDiscovery),
       languageModel,
       createProvider: (config, apiKey) =>
         createAnthropic(optionalFactorySettings(config, apiKey)),
     },
     google: {
-      metadata: PROVIDER_CAPABILITIES.google,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: googleDiscovery,
+      inspectModel: discoveryBackedInspector(
+        googleDiscovery,
+        (modelId, discoveredType) =>
+          discoveredType === "speechModel" || knownSpeechModelId(modelId)
+            ? {
+                metadata: GOOGLE_SPEECH_METADATA,
+                suggestedSettings: GOOGLE_SPEECH_SETTINGS,
+              }
+            : null,
+      ),
       languageModel,
+      speechModel,
       createProvider: (config, apiKey) =>
         createGoogle(optionalFactorySettings(config, apiKey)),
     },
-    deepseek: {
-      metadata: PROVIDER_CAPABILITIES.deepseek,
+    "fish-audio": {
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: fishAudioDiscovery,
+      inspectModel: fishAudioInspector,
+      speechModel,
+      createProvider: (config, apiKey) =>
+        createFishAudio(optionalFactorySettings(config, apiKey)),
+    },
+    deepseek: {
+      providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: deepSeekDiscovery,
+      inspectModel: discoveryBackedInspector(deepSeekDiscovery),
       languageModel,
       createProvider: (config, apiKey) =>
         createDeepSeek(optionalFactorySettings(config, apiKey)),
     },
     xai: {
-      metadata: PROVIDER_CAPABILITIES.xai,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: xaiDiscovery,
+      inspectModel: discoveryBackedInspector(xaiDiscovery),
       languageModel,
       createProvider: (config, apiKey) =>
         createXai(optionalFactorySettings(config, apiKey)),
     },
     moonshotai: {
-      metadata: PROVIDER_CAPABILITIES.moonshotai,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: moonshotDiscovery,
+      inspectModel: discoveryBackedInspector(moonshotDiscovery),
       languageModel,
       createProvider: (config, apiKey) =>
         createMoonshotAI(optionalFactorySettings(config, apiKey)),
     },
     alibaba: {
-      metadata: PROVIDER_CAPABILITIES.alibaba,
       providerSettingsSchema: nullableProviderSettingsSchema,
+      discoverModels: alibabaDiscovery,
+      inspectModel: discoveryBackedInspector(alibabaDiscovery),
       languageModel,
       createProvider: (config, apiKey) => {
         const settings = providerSettingsSchema.parse(config.settings ?? {});
@@ -300,7 +691,9 @@ export function validateProviderSettings(
   settings: JsonObject | null,
   registry: ProviderDefinitionRegistry = PROVIDER_DEFINITIONS,
 ): void {
-  getProviderDefinition(providerType, registry).providerSettingsSchema.parse(settings);
+  getProviderDefinition(providerType, registry).providerSettingsSchema.parse(
+    settings,
+  );
 }
 
 export function validateModelSettings(
@@ -316,15 +709,48 @@ export function validateModelSettings(
       : modelType === "speechModel"
         ? definition.speechModel
         : undefined;
-  (capability?.settingsSchema ?? nullSettingsSchema).parse(settings);
+  const fallbackSchema =
+    modelType === "languageModel"
+      ? nullableLanguageSettingsSchema
+      : modelType === "speechModel"
+        ? speechModelSettingsSchema
+        : nullSettingsSchema;
+  (capability?.settingsSchema ?? fallbackSchema).parse(settings);
+}
+
+export function validateModelMetadata(
+  providerType: ProviderType,
+  modelType: ModelType,
+  metadata: ModelMetadata | null,
+  registry: ProviderDefinitionRegistry = PROVIDER_DEFINITIONS,
+): void {
+  if (metadata !== null) modelMetadataSchema.parse(metadata);
+  const definition = getProviderDefinition(providerType, registry);
+  const capability =
+    modelType === "languageModel"
+      ? definition.languageModel
+      : modelType === "speechModel"
+        ? definition.speechModel
+        : undefined;
+  const fallbackSchema =
+    modelType === "speechModel"
+      ? nullableSpeechModelMetadataSchema
+      : nullSettingsSchema;
+  (capability?.metadataSchema ?? fallbackSchema).parse(metadata);
 }
 
 export function validateModelConfigSettings(
   provider: ProviderConfig,
-  model: Pick<ModelConfig, "modelType" | "settings">,
+  model: Pick<ModelConfig, "modelType" | "metadata" | "settings">,
   registry: ProviderDefinitionRegistry = PROVIDER_DEFINITIONS,
 ): void {
   validateProviderSettings(provider.providerType, provider.settings, registry);
+  validateModelMetadata(
+    provider.providerType,
+    model.modelType,
+    model.metadata,
+    registry,
+  );
   validateModelSettings(
     provider.providerType,
     model.modelType,

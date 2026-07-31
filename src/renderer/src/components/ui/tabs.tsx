@@ -53,6 +53,16 @@ function TabsList({
   )
 }
 
+function TabsIndicator({ className, ...props }: TabsPrimitive.Indicator.Props) {
+  return (
+    <TabsPrimitive.Indicator
+      data-slot="tabs-indicator"
+      className={cn("selection-indicator", className)}
+      {...props}
+    />
+  )
+}
+
 function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
   return (
     <TabsPrimitive.Tab
@@ -79,4 +89,11 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   )
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+export {
+  Tabs,
+  TabsList,
+  TabsIndicator,
+  TabsTrigger,
+  TabsContent,
+  tabsListVariants,
+}

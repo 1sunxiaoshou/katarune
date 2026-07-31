@@ -8,6 +8,8 @@ import {
 import {
   aiRuntimeStatusSchema,
   modelConnectionTestResultSchema,
+  providerCredentialIsAvailable,
+  speechModelSettingsSchema,
   type AiRuntimeStatus,
   type ModelConnectionTestResult,
 } from "../../shared/ipc";
@@ -54,7 +56,7 @@ export interface AiRuntime {
   readonly registry: ProviderRegistry;
   getStatus(): AiRuntimeStatus;
   reload(): Promise<void>;
-  listAvailableSpeechModelConfigIds(): readonly string[];
+  listAvailableModelConfigIds(): readonly string[];
   resolveLanguageModel(modelConfigId: string): ResolvedLanguageModel;
   resolveSpeechModel(modelConfigId: string): ResolvedSpeechModel;
   testConnection(modelConfigId: string): Promise<ModelConnectionTestResult>;
@@ -100,8 +102,10 @@ export async function createAiRuntime({
         providerDefinitions,
       );
       if (
-        config.credentialRef === null &&
-        definition.metadata.credentialMode === "required"
+        !providerCredentialIsAvailable(
+          config.providerType,
+          config.credentialRef,
+        )
       ) {
         continue;
       }
@@ -244,17 +248,19 @@ export async function createAiRuntime({
     },
     getStatus: () => status,
     reload,
-    listAvailableSpeechModelConfigIds: () =>
+    listAvailableModelConfigIds: () =>
       database
         .listModelConfigs()
-        .modelConfigs.filter(
-          (modelConfig) =>
-            modelConfig.enabled &&
-            modelConfig.modelType === "speechModel",
-        )
+        .modelConfigs.filter((modelConfig) => modelConfig.enabled)
         .filter((modelConfig) => {
           try {
-            resolveSpeechModel(modelConfig.id);
+            if (modelConfig.modelType === "languageModel") {
+              resolveLanguageModel(modelConfig.id);
+            } else if (modelConfig.modelType === "speechModel") {
+              resolveSpeechModel(modelConfig.id);
+            } else {
+              return false;
+            }
             return true;
           } catch {
             return false;
@@ -289,8 +295,17 @@ export async function createAiRuntime({
               `Provider type "${providerConfig.providerType}" has no speechModel Adapter.`,
             );
           }
+          const voiceId = speechModelSettingsSchema.parse(
+            modelConfig.settings,
+          ).defaultVoiceId;
+          if (voiceId == null) {
+            throw new Error(
+              "The speech model has no model-level default voice.",
+            );
+          }
           await definition.speechModel.testConnection(
             resolveSpeechModel(modelConfigId).model,
+            voiceId,
           );
         } else {
           throw new Error(`Unsupported model type "${modelConfig.modelType}".`);

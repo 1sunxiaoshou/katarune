@@ -5,10 +5,11 @@ import {
   characterSchema,
   DEFAULT_PORTRAIT_FRAMING,
   deleteCharacterResultSchema,
+  modelConfigSchema,
   type Character,
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
-import { appState, assets, characters, threads } from "./schema";
+import { appState, assets, characters, modelConfigs, threads } from "./schema";
 import type {
   CharacterRepository,
   KataruneDatabase,
@@ -17,6 +18,31 @@ import type {
 export function createCharacterRepository(
   database: KataruneDatabase,
 ): CharacterRepository {
+  const validateSpeechSelection = (
+    speechModelConfigId: string | null,
+    speechVoice: string | null,
+  ): void => {
+    if (
+      (speechModelConfigId === null) !==
+      (speechVoice === null)
+    ) {
+      throw new Error("语音模型和 voice 必须同时配置或同时清空。");
+    }
+    if (speechModelConfigId === null || speechVoice === null) return;
+    const rawModel = database
+      .select()
+      .from(modelConfigs)
+      .where(eq(modelConfigs.id, speechModelConfigId))
+      .get();
+    if (rawModel === undefined) {
+      throw new Error("选择的语音模型不存在。");
+    }
+    const model = modelConfigSchema.parse(rawModel);
+    if (model.modelType !== "speechModel") {
+      throw new Error("选择的模型不是语音生成模型。");
+    }
+  };
+
   const fetchCharacter = (id: string): Character => {
     const character = database
       .select()
@@ -49,6 +75,7 @@ export function createCharacterRepository(
       portraitAsset,
       portraitFraming = DEFAULT_PORTRAIT_FRAMING,
     ) => {
+      validateSpeechSelection(speechModelConfigId, speechVoice);
       const id = randomUUID();
       const latestCharacter = database
         .select({ createdAt: characters.createdAt })
@@ -196,14 +223,10 @@ export function createCharacterRepository(
         speechVoice === undefined
           ? currentCharacter.speechVoice
           : speechVoice;
-      if (
-        (nextSpeechModelConfigId === null) !==
-        (nextSpeechVoice === null)
-      ) {
-        throw new Error(
-          "语音模型和 voice 必须同时配置或同时清空。",
-        );
-      }
+      validateSpeechSelection(
+        nextSpeechModelConfigId,
+        nextSpeechVoice,
+      );
       const updates: {
         name?: string;
         modelConfigId?: string | null;

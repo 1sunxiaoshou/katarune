@@ -3,27 +3,29 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, safeStorage } from "electron";
+
 import { createAiRuntime, type AiRuntimeDatabase } from "../src/main/ai/runtime";
 import { createCredentialStore } from "../src/main/security/credentialStore";
 import { createSpeechService } from "../src/main/speech/ttsService";
 import { createTtsCache } from "../src/main/speech/ttsCache";
-import type {
-  Character,
-  ModelConfig,
-  ProviderConfig,
-} from "../src/shared/ipc";
+import type { Character, ModelConfig, ProviderConfig } from "../src/shared/ipc";
 
-const apiKey = process.env.KATARUNE_TEST_OPENAI_API_KEY;
+const apiKey = process.env.KATARUNE_TEST_FISH_AUDIO_API_KEY;
+const voiceId = process.env.KATARUNE_TEST_FISH_AUDIO_VOICE_ID;
 if (apiKey === undefined || apiKey.length === 0) {
-  throw new Error("KATARUNE_TEST_OPENAI_API_KEY is not configured.");
+  throw new Error("KATARUNE_TEST_FISH_AUDIO_API_KEY is not configured.");
+}
+if (voiceId === undefined || voiceId.length === 0) {
+  throw new Error("KATARUNE_TEST_FISH_AUDIO_VOICE_ID is not configured.");
 }
 
-const providerConfigId = "d3867f4b-e85f-4ff4-ac2b-974dc39ad832";
-const modelConfigId = "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb";
+const providerConfigId = "01e6979a-c05f-484b-9c42-3402be2e0d55";
+const modelConfigId = "9c38b838-2d3f-444d-b88e-0690e96a2d34";
 const characterId = "00000000-0000-4000-8000-000000000001";
 const now = new Date();
-const userDataPath = mkdtempSync(join(tmpdir(), "katarune-openai-tts-live-"));
+const userDataPath = mkdtempSync(join(tmpdir(), "katarune-fish-audio-tts-live-"));
 let credentialReference: string | undefined;
+let exitCode = 0;
 
 void app
   .whenReady()
@@ -40,8 +42,8 @@ void app
 
     const providerConfig: ProviderConfig = {
       id: providerConfigId,
-      displayName: "OpenAI TTS live test",
-      providerType: "openai",
+      displayName: "Fish Audio TTS live test",
+      providerType: "fish-audio",
       baseUrl: null,
       credentialRef: credentialReference,
       settings: null,
@@ -53,26 +55,26 @@ void app
       id: modelConfigId,
       providerConfigId,
       modelType: "speechModel",
-      modelId: "gpt-4o-mini-tts",
-      displayName: "OpenAI TTS live test",
+      modelId: "s2.1-pro-free",
+      displayName: "Fish Audio S2.1 Pro Free",
       metadata: {
-        voices: [{ id: "alloy", displayName: "Alloy" }],
+        voices: null,
       },
-      settings: { defaultVoiceId: "alloy" },
+      settings: { defaultVoiceId: voiceId },
       enabled: true,
       createdAt: now,
       updatedAt: now,
     };
     const character: Character = {
       id: characterId,
-      name: "TTS live test",
+      name: "Fish Audio TTS live test",
       portraitAssetId: null,
       portraitFocusX: 0.5,
       portraitFocusY: 0,
       portraitZoom: 1,
       modelConfigId: null,
       speechModelConfigId: modelConfigId,
-      speechVoice: "alloy",
+      speechVoice: voiceId,
       systemPrompt: "",
       createdAt: now,
       updatedAt: now,
@@ -84,9 +86,7 @@ void app
       fetchModelConfig: () => modelConfig,
     };
     const runtime = await createAiRuntime({ database, credentialStore });
-    const cache = createTtsCache({
-      directory: join(userDataPath, "tts-cache"),
-    });
+    const cache = createTtsCache({ directory: join(userDataPath, "tts-cache") });
     await cache.initialize();
     const service = createSpeechService({
       database: {
@@ -98,31 +98,26 @@ void app
       cache,
     });
 
+    const text = "你好。";
     const first = await service.generate(
       characterId,
-      "Katarune text to speech validation.",
-      AbortSignal.timeout(15_000),
+      text,
+      AbortSignal.timeout(60_000),
     );
     assert.equal(first.cacheHit, false);
     assert.equal(first.format, "wav");
     assert.equal(first.mediaType, "audio/wav");
-    assert.equal(
-      String.fromCharCode(...first.audio.slice(0, 4)),
-      "RIFF",
-    );
-    assert.equal(
-      String.fromCharCode(...first.audio.slice(8, 12)),
-      "WAVE",
-    );
+    assert.equal(String.fromCharCode(...first.audio.slice(0, 4)), "RIFF");
+    assert.equal(String.fromCharCode(...first.audio.slice(8, 12)), "WAVE");
     const second = await service.generate(
       characterId,
-      "Katarune text to speech validation.",
-      AbortSignal.timeout(15_000),
+      text,
+      AbortSignal.timeout(60_000),
     );
     assert.equal(second.cacheHit, true);
     assert.deepEqual(second.audio, first.audio);
     console.log(
-      `OpenAI TTS runtime returned and cached a valid ${first.audio.byteLength}-byte WAV.`,
+      `Fish Audio returned and cached a valid ${first.audio.byteLength}-byte WAV.`,
     );
 
     await credentialStore.delete(credentialReference);
@@ -130,11 +125,11 @@ void app
   })
   .catch((error: unknown) => {
     console.error(
-      error instanceof Error ? error.message : "OpenAI TTS live test failed.",
+      error instanceof Error ? error.message : "Fish Audio TTS live test failed.",
     );
-    process.exitCode = 1;
+    exitCode = 1;
   })
   .finally(() => {
     rmSync(userDataPath, { recursive: true, force: true });
-    app.quit();
+    app.exit(exitCode);
   });

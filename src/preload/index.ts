@@ -4,7 +4,7 @@ import {
   appendThreadMessageRequestSchema,
   appInfoSchema,
   appStateSchema,
-  availableSpeechModelListSchema,
+  availableModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitCommitRequestSchema,
@@ -221,10 +221,10 @@ const api: KataruneApi = Object.freeze({
     port.postMessage({ type: "cancel" });
     closeChatStreamPort(requestId);
   },
-  listAvailableSpeechModels: () =>
+  listAvailableModels: () =>
     invokeValidated(
-      IPC_CHANNELS.listAvailableSpeechModels,
-      availableSpeechModelListSchema,
+      IPC_CHANNELS.listAvailableModels,
+      availableModelListSchema,
     ),
   generateSpeech: (request: SpeechGenerateRequest) =>
     invokeValidated(
@@ -306,6 +306,12 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.discoverProviderModels,
       discoveredModelListSchema,
       providerConfigIdRequestSchema.parse(request),
+    ),
+  refreshModelMetadata: (request: ModelConfigIdRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.refreshModelMetadata,
+      modelConfigSchema,
+      modelConfigIdRequestSchema.parse(request),
     ),
   testModelConnection: (request: ModelConfigIdRequest) =>
     invokeValidated(

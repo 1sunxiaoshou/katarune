@@ -5,7 +5,7 @@ import {
   appInfoSchema,
   appStateSchema,
   assetSchema,
-  availableSpeechModelListSchema,
+  availableModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
   characterPortraitCommitRequestSchema,
@@ -35,6 +35,7 @@ import {
   speechCancelRequestSchema,
   speechGenerateRequestSchema,
   speechGenerateResponseSchema,
+  speechModelSettingsSchema,
   threadMessagesSchema,
   updateCharacterRequestSchema,
 } from "../src/shared/ipc";
@@ -296,6 +297,7 @@ describe("shared IPC contracts", () => {
       modelConfigSchema.parse({
         id: "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb",
         ...request,
+        metadata: null,
         createdAt: new Date("2026-07-19T00:00:00.000Z"),
         updatedAt: new Date("2026-07-19T00:00:00.000Z"),
       }),
@@ -516,7 +518,7 @@ describe("shared IPC contracts", () => {
     const requestId = "00000000-0000-4000-8000-000000000010";
     const characterId = "00000000-0000-4000-8000-000000000001";
     expect(
-      availableSpeechModelListSchema.parse({
+      availableModelListSchema.parse({
         modelConfigIds: ["00000000-0000-4000-8000-000000000020"],
       }),
     ).toEqual({
@@ -558,6 +560,70 @@ describe("shared IPC contracts", () => {
         message: "语音生成失败。",
       }),
     ).toMatchObject({ status: "error", code: "provider-error" });
+  });
+
+  it("validates refreshable speech metadata separately from model settings", () => {
+    const base = {
+      id: "e76076e7-73a8-42c2-92d7-f9fa8d44f5eb",
+      providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832",
+      modelType: "speechModel",
+      modelId: "gemini-2.5-flash-preview-tts",
+      displayName: "Gemini TTS",
+      settings: { defaultVoiceId: "Kore" },
+      enabled: true,
+      createdAt: new Date("2026-07-19T00:00:00.000Z"),
+      updatedAt: new Date("2026-07-19T00:00:00.000Z"),
+    } as const;
+    expect(
+      modelConfigSchema.parse({
+        ...base,
+        metadata: {
+          voices: [
+            { id: "Kore", displayName: "Kore", description: "Firm" },
+          ],
+        },
+      }).metadata,
+    ).toMatchObject({ voices: [{ id: "Kore" }] });
+    expect(
+      speechModelSettingsSchema.parse({
+        defaultVoiceId: "manual-public-voice",
+      }),
+    ).toMatchObject({ defaultVoiceId: "manual-public-voice" });
+    expect(
+      modelConfigSchema.safeParse({
+        ...base,
+        metadata: {
+          voices: null,
+          defaultVoiceId: "legacy-mixed-default",
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      modelConfigSchema.safeParse({
+        ...base,
+        metadata: {
+          voices: [
+            { id: "Kore", displayName: "Kore" },
+            { id: "Kore", displayName: "Duplicate" },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      modelConfigSchema.parse({
+        ...base,
+        metadata: {
+          voices: null,
+        },
+      }).metadata,
+    ).toMatchObject({
+      voices: null,
+    });
+    expect(
+      speechModelSettingsSchema.safeParse({
+        defaultVoiceId: "v".repeat(201),
+      }).success,
+    ).toBe(false);
   });
 
   it("requires speech model and voice together while leaving settings to main Adapters", () => {

@@ -8,7 +8,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { ModelSettings } from "../../shared/ipc";
+import type { ModelMetadata, ModelSettings } from "../../shared/ipc";
 import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
 
@@ -59,6 +59,7 @@ export const modelConfigs = sqliteTable(
       .default("languageModel"),
     modelId: text("model_id").notNull(),
     displayName: text("display_name"),
+    metadata: text("metadata", { mode: "json" }).$type<ModelMetadata | null>(),
     settings: text("settings", { mode: "json" }).$type<ModelSettings | null>(),
     enabled: integer("enabled", { mode: "boolean" }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),

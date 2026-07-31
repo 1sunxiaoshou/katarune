@@ -32,6 +32,11 @@ export const PROVIDER_CATALOG: Readonly<Record<ProviderType, ProviderDescriptor>
     baseUrlRequired: false,
     baseUrlPlaceholder: "https://generativelanguage.googleapis.com/v1beta",
   },
+  "fish-audio": {
+    label: "Fish Audio",
+    baseUrlRequired: false,
+    baseUrlPlaceholder: "https://api.fish.audio",
+  },
   deepseek: {
     label: "DeepSeek",
     baseUrlRequired: false,

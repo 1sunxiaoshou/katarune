@@ -21,6 +21,27 @@ function provider(overrides: Partial<ProviderConfig>): ProviderConfig {
 }
 
 describe("Provider model discovery", () => {
+  it("discovers the Fish Audio TTS backends without treating voices as models", async () => {
+    const fetchImplementation = vi.fn();
+    const result = await discoverProviderModels(
+      provider({ providerType: "fish-audio" }),
+      "fish-key",
+      fetchImplementation,
+    );
+
+    expect(result).toMatchObject({
+      source: "provider",
+      warning: null,
+      models: [
+        { id: "s2.1-pro-free", modelType: "speechModel" },
+        { id: "s2.1-pro", modelType: "speechModel" },
+        { id: "s2-pro", modelType: "speechModel" },
+        { id: "s1", modelType: "speechModel" },
+      ],
+    });
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
   it("reads an OpenAI-compatible model list without exposing the credential", async () => {
     const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://api.deepseek.com/models");
@@ -130,13 +151,20 @@ describe("Provider model discovery", () => {
 
   it("uses LiteLLM types instead of Google method declarations", async () => {
     const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
       expect(new Headers(init?.headers).get("x-goog-api-key")).toBe("google-key");
+      if (String(input).includes("pageToken=next-google-page")) {
+        return Response.json({
+          models: [
+            { name: "models/text-embedding-004", supportedGenerationMethods: ["generateContent"] },
+          ],
+        });
+      }
+      expect(String(input)).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
       return Response.json({
         models: [
           { name: "models/gemini-2.5-pro", baseModelId: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", supportedGenerationMethods: ["embedContent"] },
-          { name: "models/text-embedding-004", supportedGenerationMethods: ["generateContent"] },
         ],
+        nextPageToken: "next-google-page",
       });
     });
 
@@ -153,6 +181,37 @@ describe("Provider model discovery", () => {
         typeSource: "litellm-snapshot",
       },
     ]);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps Anthropic pagination and authentication inside its definition", async () => {
+    const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("x-api-key")).toBe("anthropic-key");
+      if (String(input).includes("after_id=page-one")) {
+        return Response.json({
+          data: [{ id: "page-two" }],
+          has_more: false,
+          last_id: "page-two",
+        });
+      }
+      expect(String(input)).toBe("https://api.anthropic.com/v1/models?limit=1000");
+      return Response.json({
+        data: [{ id: "page-one" }],
+        has_more: true,
+        last_id: "page-one",
+      });
+    });
+
+    const result = await discoverProviderModels(
+      provider({ providerType: "anthropic" }),
+      "anthropic-key",
+      fetchImplementation,
+    );
+    expect(result.models.map((model) => model.id)).toEqual([
+      "page-one",
+      "page-two",
+    ]);
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
   });
 
   it("uses the installed Gateway Provider discovery API and its model type", async () => {

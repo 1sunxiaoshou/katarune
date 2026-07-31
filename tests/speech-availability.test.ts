@@ -24,24 +24,24 @@ afterEach(() => {
 
 describe("renderer speech availability", () => {
   it("uses the main Runtime callable-model result", async () => {
-    const listAvailableSpeechModels = vi.fn(async () => ({
+    const listAvailableModels = vi.fn(async () => ({
       modelConfigIds: [speechModelConfigId],
     }));
     vi.stubGlobal("window", {
       katarune: {
-        listAvailableSpeechModels,
+        listAvailableModels,
       } as Partial<KataruneApi>,
     });
 
     await expect(isCharacterSpeechAvailable(character)).resolves.toBe(true);
-    expect(listAvailableSpeechModels).toHaveBeenCalledOnce();
+    expect(listAvailableModels).toHaveBeenCalledOnce();
   });
 
   it("does not query main when the character has no complete speech binding", async () => {
-    const listAvailableSpeechModels = vi.fn();
+    const listAvailableModels = vi.fn();
     vi.stubGlobal("window", {
       katarune: {
-        listAvailableSpeechModels,
+        listAvailableModels,
       } as Partial<KataruneApi>,
     });
 
@@ -52,6 +52,6 @@ describe("renderer speech availability", () => {
         speechVoice: null,
       }),
     ).resolves.toBe(false);
-    expect(listAvailableSpeechModels).not.toHaveBeenCalled();
+    expect(listAvailableModels).not.toHaveBeenCalled();
   });
 });
