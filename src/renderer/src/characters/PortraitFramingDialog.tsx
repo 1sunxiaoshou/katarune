@@ -68,6 +68,14 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function fixedPrecisionFraming(framing: PortraitFraming): PortraitFraming {
+  return {
+    focusX: Number(framing.focusX.toFixed(6)),
+    focusY: Number(framing.focusY.toFixed(6)),
+    zoom: Number(framing.zoom.toFixed(6)),
+  };
+}
+
 function cropAreaFromFraming(
   naturalWidth: number,
   naturalHeight: number,
@@ -281,7 +289,10 @@ export function PortraitFramingDialog({
     setSubmitting(true);
     try {
       const committedStage = stageRef.current;
-      await onCommitted(committedStage?.id ?? null, framing);
+      await onCommitted(
+        committedStage?.id ?? null,
+        fixedPrecisionFraming(framing),
+      );
       stageRef.current = null;
       setStage(null);
       onOpenChange(false);
