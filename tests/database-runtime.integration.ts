@@ -238,7 +238,140 @@ try {
   });
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
-  runtime.appendThreadMessage({ threadId, characterId: initialCharacterId, message });
+  runtime.appendThreadMessage({
+    threadId,
+    characterId: initialCharacterId,
+    message,
+    assetIds: [],
+  });
+  const attachmentId = "55555555-5555-4555-8555-555555555555";
+  runtime.registerReadyAsset({
+    id: attachmentId,
+    kind: "chat_attachment",
+    storageKey: attachmentId,
+    mimeType: "application/octet-stream",
+    byteSize: 4,
+    sha256: "b".repeat(64),
+    originalName: "测试附件.bin",
+  });
+  runtime.appendThreadMessage({
+    threadId,
+    characterId: initialCharacterId,
+    message: {
+      id: "message-with-attachment",
+      parent_id: message.id,
+      format: "ai-sdk/v6",
+      content: {
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            mediaType: "application/octet-stream",
+            filename: "测试附件.bin",
+            url: `katarune-asset://asset/${attachmentId}`,
+          },
+        ],
+      },
+    },
+    assetIds: [attachmentId],
+  });
+  assert.equal(
+    runtime.deleteUnreferencedChatAttachment(attachmentId),
+    false,
+    "消息引用存在时不得释放附件",
+  );
+  runtime.deleteThreadMessages(threadId, initialCharacterId, [
+    "message-with-attachment",
+  ]);
+  assert.equal(
+    runtime.deleteUnreferencedChatAttachment(attachmentId),
+    true,
+    "消息删除后应允许释放无引用附件",
+  );
+  const persistentAttachmentId = "66666666-6666-4666-8666-666666666666";
+  runtime.registerReadyAsset({
+    id: persistentAttachmentId,
+    kind: "chat_attachment",
+    storageKey: persistentAttachmentId,
+    mimeType: "image/png",
+    byteSize: 4,
+    sha256: "c".repeat(64),
+    originalName: "重启恢复.png",
+  });
+  runtime.appendThreadMessage({
+    threadId,
+    characterId: initialCharacterId,
+    message: {
+      id: "persistent-attachment-message",
+      parent_id: message.id,
+      format: "ai-sdk/v6",
+      content: {
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            filename: "重启恢复.png",
+            url: `katarune-asset://asset/${persistentAttachmentId}`,
+          },
+        ],
+      },
+    },
+    assetIds: [persistentAttachmentId],
+  });
+  const oversizedAttachmentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  runtime.registerReadyAsset({
+    id: oversizedAttachmentId,
+    kind: "chat_attachment",
+    storageKey: oversizedAttachmentId,
+    mimeType: "application/octet-stream",
+    byteSize: 25 * 1024 * 1024 + 1,
+    sha256: "e".repeat(64),
+    originalName: "oversized.bin",
+  });
+  assert.throws(
+    () =>
+      runtime?.appendThreadMessage({
+        threadId,
+        characterId: initialCharacterId,
+        message: { ...message, id: "oversized-attachment-message" },
+        assetIds: [oversizedAttachmentId],
+      }),
+    /不可用/,
+    "消息事务必须复验单文件大小",
+  );
+  assert.equal(runtime.deleteUnreferencedChatAttachment(oversizedAttachmentId), true);
+
+  const totalLimitAttachmentIds = [
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  ];
+  for (const id of totalLimitAttachmentIds) {
+    runtime.registerReadyAsset({
+      id,
+      kind: "chat_attachment",
+      storageKey: id,
+      mimeType: "application/octet-stream",
+      byteSize: 20 * 1024 * 1024,
+      sha256: "f".repeat(64),
+      originalName: `${id}.bin`,
+    });
+  }
+  assert.throws(
+    () =>
+      runtime?.appendThreadMessage({
+        threadId,
+        characterId: initialCharacterId,
+        message: { ...message, id: "total-limit-attachment-message" },
+        assetIds: totalLimitAttachmentIds,
+      }),
+    /50 MiB/,
+    "消息事务必须复验附件总大小",
+  );
+  for (const id of totalLimitAttachmentIds) {
+    assert.equal(runtime.deleteUnreferencedChatAttachment(id), true);
+  }
   const providerConfig = runtime.createProviderConfig(providerConfigRequest);
   assert.throws(
     () =>
@@ -385,8 +518,28 @@ try {
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
+  assert.equal(
+    runtime.fetchAsset("00000000-0000-4000-8000-000000000002").kind,
+    "character_portrait",
+    "历史资产迁移后应回填为立绘类别",
+  );
+  assert.equal(
+    runtime.deleteUnreferencedChatAttachment(persistentAttachmentId),
+    false,
+    "重启后消息引用仍应保护附件",
+  );
+  assert.match(
+    JSON.stringify(runtime.loadThreadMessages(threadId, restoredCharacterId)),
+    new RegExp(persistentAttachmentId),
+    "重启后消息应恢复托管附件 URL",
+  );
   assert.equal(runtime.fetchThread(threadId, restoredCharacterId).remoteId, threadId);
-  assert.deepEqual(runtime.loadThreadMessages(threadId, restoredCharacterId).messages, [message]);
+  const restoredMessages = runtime.loadThreadMessages(
+    threadId,
+    restoredCharacterId,
+  ).messages;
+  assert.equal(restoredMessages.length, 2);
+  assert.deepEqual(restoredMessages[0], message);
   assert.deepEqual(runtime.fetchProviderConfig(providerConfig.id), providerConfig);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, [providerConfig]);
   assert.deepEqual(runtime.fetchModelConfig(modelConfig.id), modelConfig);
@@ -441,6 +594,7 @@ try {
     threadId: orderingThreadId,
     characterId: restoredCharacterId,
     message: { ...message, id: "newer-message-ordering-message" },
+    assetIds: [],
   });
   assert.equal(
     runtime.listThreads(restoredCharacterId).threads[0]?.remoteId,
@@ -721,6 +875,7 @@ try {
     {
       id: createdPortraitAssetId,
       storageKey: createdPortraitAssetId,
+      kind: "character_portrait",
       mimeType: "image/png",
       byteSize: 8,
       sha256: "a".repeat(64),
@@ -748,6 +903,7 @@ try {
     threadId: nonActiveThreadId,
     characterId: secondCreatedCharacter.id,
     message: { ...message, id: "non-active-character-message" },
+    assetIds: [],
   });
   const nonActiveDelete = deletionRuntime.deleteCharacter(secondCreatedCharacter.id);
   assert.equal(nonActiveDelete.deletedThreadCount, 1);
@@ -767,6 +923,7 @@ try {
     threadId: regularDeleteThreadId,
     characterId: deletionDefault.id,
     message: { ...message, id: "active-character-message" },
+    assetIds: [],
   });
   const activeDelete = deletionRuntime.deleteCharacter(deletionDefault.id);
   assert.equal(activeDelete.deletedThreadCount, 2);

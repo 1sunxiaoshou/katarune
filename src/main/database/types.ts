@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AppState,
   Asset,
+  AssetKind,
   Character,
   CharacterList,
   CreateCharacterRequest,
@@ -113,6 +114,9 @@ export interface DatabaseRuntime {
     asset?: ReadyAssetRegistration,
   ): Character;
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
+  registerReadyAsset(asset: ReadyAssetRegistration): Asset;
+  deleteUnreferencedChatAttachment(id: string): boolean;
+  listUnreferencedChatAttachmentIds(): readonly string[];
   close(): void;
 }
 
@@ -138,6 +142,7 @@ export interface AssetMetadata {
 export interface ReadyAssetRegistration extends AssetMetadata {
   readonly id: string;
   readonly storageKey: string;
+  readonly kind: AssetKind;
 }
 
 export type AppStateRepository = Pick<
@@ -188,5 +193,10 @@ export type CharacterRepository = Pick<
 >;
 export type AssetRepository = Pick<
   DatabaseRuntime,
-  "fetchAsset" | "listAssets" | "markAssetReady"
+  | "fetchAsset"
+  | "listAssets"
+  | "markAssetReady"
+  | "registerReadyAsset"
+  | "deleteUnreferencedChatAttachment"
+  | "listUnreferencedChatAttachmentIds"
 >;

@@ -99,6 +99,7 @@ export function openDatabase({
         .insert(assets)
         .values({
           id: portraitAssetId,
+          kind: "character_portrait",
           storageKey: portraitAssetId,
           status: "missing",
           mimeType: null,

@@ -23,6 +23,7 @@ import {
   deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
   initializeThreadResponseSchema,
+  importChatAttachmentRequestSchema,
   listThreadsRequestSchema,
   IPC_CHANNELS,
   createModelConfigRequestSchema,
@@ -35,6 +36,8 @@ import {
   providerConfigListSchema,
   providerConfigSchema,
   replaceProviderCredentialRequestSchema,
+  releaseChatAttachmentRequestSchema,
+  assetSchema,
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
   setActiveCharacterRequestSchema,
@@ -61,11 +64,13 @@ import {
   type CreateModelConfigRequest,
   type DeleteThreadMessagesRequest,
   type GenerateThreadTitleRequest,
+  type ImportChatAttachmentRequest,
   type KataruneApi,
   type ProviderConfigIdRequest,
   type ReplaceProviderCredentialRequest,
   type ModelConfigIdRequest,
   type RenameThreadRequest,
+  type ReleaseChatAttachmentRequest,
   type SetThreadStatusRequest,
   type UpdateAppSettingsRequest,
   type SetActiveCharacterRequest,
@@ -171,6 +176,18 @@ const api: KataruneApi = Object.freeze({
       IPC_CHANNELS.appendThreadMessage,
       operationSuccessSchema,
       appendThreadMessageRequestSchema.parse(request),
+    ),
+  importChatAttachment: (request: ImportChatAttachmentRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.importChatAttachment,
+      assetSchema,
+      importChatAttachmentRequestSchema.parse(request),
+    ),
+  releaseChatAttachment: (request: ReleaseChatAttachmentRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.releaseChatAttachment,
+      operationSuccessSchema,
+      releaseChatAttachmentRequestSchema.parse(request),
     ),
   deleteThreadMessages: (request: DeleteThreadMessagesRequest) =>
     invokeValidated(

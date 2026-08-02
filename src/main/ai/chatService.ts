@@ -3,6 +3,7 @@ import {
   ToolLoopAgent,
   createAgentUIStreamResponse,
   type LanguageModel,
+  type Experimental_DownloadFunction,
   type ToolSet,
 } from "ai";
 import type { FrontendTools as AISDKFrontendTools } from "@assistant-ui/react-ai-sdk";
@@ -14,6 +15,11 @@ import type {
   GenerateThreadTitleResponse,
 } from "../../shared/ipc";
 import type { Character } from "../../shared/characters";
+import { parseAssetUrl } from "../../shared/assets";
+import {
+  ChatAttachmentError,
+  type AssetService,
+} from "../assets/assetService";
 import type { DatabaseRuntime } from "../database/database";
 import type { AiRuntime, ResolvedLanguageModel } from "./runtime";
 import {
@@ -51,6 +57,7 @@ interface CreateChatServiceOptions {
   readonly toolkit?: {
     tools(options?: KataruneAiToolkitToolsOptions): Promise<ToolSet>;
   };
+  readonly attachmentDownload?: Experimental_DownloadFunction;
 }
 
 class PublicChatError extends Error {}
@@ -100,6 +107,7 @@ function createCharacterAgent(
   character: Character,
   model: LanguageModel,
   tools: ToolSet,
+  attachmentDownload?: Experimental_DownloadFunction,
 ): ToolLoopAgent<ChatCallOptions, ToolSet> {
   return new ToolLoopAgent<ChatCallOptions, ToolSet>({
     id: `character-${character.id}`,
@@ -115,6 +123,7 @@ function createCharacterAgent(
       ].join("\n"),
     }),
     tools,
+    experimental_download: attachmentDownload,
     stopWhen: stepCountIs(8),
   });
 }
@@ -210,9 +219,72 @@ function buildTitlePrompt(request: GenerateThreadTitleRequest): string {
   return `请为下面的对话生成一个简短的会话标题：\n\n${transcript}`;
 }
 
-export function sanitizeChatError(error: unknown): string {
-  if (error instanceof PublicChatError) return error.message;
+function isUnsupportedAttachmentError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AI_UnsupportedFunctionalityError"
+  );
+}
+
+function attachmentNames(messages: readonly unknown[]): readonly string[] {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (typeof message !== "object" || message === null || !("parts" in message)) {
+      continue;
+    }
+    const parts = message.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "file" &&
+        "filename" in part &&
+        typeof part.filename === "string" &&
+        part.filename.length > 0
+      ) {
+        names.add(part.filename);
+      }
+    }
+  }
+  return [...names];
+}
+
+export function sanitizeChatError(
+  error: unknown,
+  filenames: readonly string[] = [],
+): string {
+  if (error instanceof PublicChatError || error instanceof ChatAttachmentError) {
+    return error.message;
+  }
+  if (isUnsupportedAttachmentError(error) && filenames.length > 0) {
+    return `当前模型不支持附件“${filenames.join("”、“")}”，请移除附件或更换模型后重试。`;
+  }
   return "模型回复失败，请稍后重试或检查模型设置。";
+}
+
+export function createChatAttachmentDownload(
+  database: DatabaseRuntime,
+  assetService: Pick<AssetService, "readChatAttachment">,
+): Experimental_DownloadFunction {
+  return async (requests) =>
+    Promise.all(
+      requests.map(async ({ url, isUrlSupportedByModel }) => {
+        const assetId = parseAssetUrl(url);
+        if (assetId !== null) {
+          const attachment = assetService.readChatAttachment(assetId, database);
+          return {
+            data: attachment.data,
+            mediaType: attachment.mediaType,
+          };
+        }
+        if (isUrlSupportedByModel) return null;
+        throw new ChatAttachmentError("附件引用无效或不受言奏托管。");
+      }),
+    );
 }
 
 export function createChatService({
@@ -222,6 +294,7 @@ export function createChatService({
   createTitleAgent = createCharacterTitleAgent,
   environmentSource = systemChatEnvironmentSource,
   toolkit = kataruneAiToolkit,
+  attachmentDownload,
 }: CreateChatServiceOptions): ChatService {
   return {
     createResponse: async (request, abortSignal) => {
@@ -254,13 +327,14 @@ export function createChatService({
           modelId: model.modelId,
         },
       });
-      const agent = createAgent(character, model, tools);
+      const agent = createAgent(character, model, tools, attachmentDownload);
+      const filenames = attachmentNames(request.messages);
       return createAgentUIStreamResponse({
         agent,
         uiMessages: request.messages,
         options: resolveChatCallOptions(environmentSource),
         abortSignal,
-        onError: sanitizeChatError,
+        onError: (error) => sanitizeChatError(error, filenames),
       });
     },
     generateTitle: async (request) => {

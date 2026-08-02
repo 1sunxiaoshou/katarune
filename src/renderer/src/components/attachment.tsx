@@ -2,7 +2,6 @@
 
 import {
   type PropsWithChildren,
-  useEffect,
   useState,
   type FC,
   isValidElement,
@@ -21,7 +20,6 @@ import {
   useAuiState,
   useAui,
 } from "@assistant-ui/react";
-import { useShallow } from "zustand/shallow";
 import {
   Tooltip,
   TooltipContent,
@@ -34,43 +32,14 @@ import {
   DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
-const useFileSrc = (file: File | undefined) => {
-  const [src, setSrc] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (!file) {
-      setSrc(undefined);
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    setSrc(objectUrl);
-
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [file]);
-
-  return src;
-};
-
 const useAttachmentSrc = () => {
-  const { file, src } = useAuiState(
-    useShallow((s): { file?: File; src?: string } => {
-      if (s.attachment.type !== "image") return {};
-      if (s.attachment.file) return { file: s.attachment.file };
-      const src = s.attachment.content?.filter((c) => c.type === "image")[0]
-        ?.image;
-      if (!src) return {};
-      return { src };
-    }),
-  );
-
-  return useFileSrc(file) ?? src;
+  return useAuiState((s): string | undefined => {
+    if (s.attachment.type !== "image") return undefined;
+    return s.attachment.content?.find((part) => part.type === "image")?.image;
+  });
 };
 
 type AttachmentPreviewProps = {
@@ -121,17 +90,20 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
 const AttachmentThumb: FC = () => {
   const src = useAttachmentSrc();
 
-  return (
-    <Avatar className="aui-attachment-tile-avatar h-full w-full rounded-none">
-      <AvatarImage
+  if (src) {
+    return (
+      <img
         src={src}
         alt="Attachment preview"
-        className="aui-attachment-tile-image object-cover"
+        className="aui-attachment-tile-image block size-full object-cover"
       />
-      <AvatarFallback>
-        <FileText className="aui-attachment-tile-fallback-icon text-muted-foreground size-8" />
-      </AvatarFallback>
-    </Avatar>
+    );
+  }
+
+  return (
+    <div className="aui-attachment-tile-fallback flex size-full items-center justify-center">
+      <FileText className="aui-attachment-tile-fallback-icon text-muted-foreground size-8" />
+    </div>
   );
 };
 
@@ -139,7 +111,6 @@ const AttachmentUI: FC = () => {
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
 
-  const isImage = useAuiState((s) => s.attachment.type === "image");
   const typeLabel = useAuiState((s) => {
     const type = s.attachment.type;
     switch (type) {
@@ -176,12 +147,7 @@ const AttachmentUI: FC = () => {
     <TooltipProvider>
       <Tooltip>
         <AttachmentPrimitive.Root
-          className={cn(
-            "aui-attachment-root relative",
-            isImage &&
-              !isComposer &&
-              "aui-attachment-root-message only:*:first:size-24",
-          )}
+          className="aui-attachment-root relative"
         >
           <AttachmentPreviewDialog>
             <TooltipTrigger

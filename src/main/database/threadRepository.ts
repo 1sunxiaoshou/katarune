@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
+  CHAT_ATTACHMENT_LIMITS,
   initializeThreadResponseSchema,
   threadListSchema,
   threadMessagesSchema,
@@ -9,7 +10,7 @@ import {
   type ThreadMetadata,
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
-import { messages, threads } from "./schema";
+import { assets, messageAssets, messages, threads } from "./schema";
 import type {
   KataruneDatabase,
   ThreadRepository,
@@ -150,9 +151,45 @@ export function createThreadRepository(
           .all(),
       });
     },
-    appendThreadMessage: ({ threadId, characterId, message }) => {
+    appendThreadMessage: ({ threadId, characterId, message, assetIds }) => {
       fetchThread(threadId, characterId);
       database.transaction((transaction) => {
+        const referencedAssets =
+          assetIds.length === 0
+            ? []
+            : transaction
+                .select({
+                  id: assets.id,
+                  kind: assets.kind,
+                  status: assets.status,
+                  byteSize: assets.byteSize,
+                })
+                .from(assets)
+                .where(inArray(assets.id, assetIds))
+                .all();
+        if (
+          referencedAssets.length !== assetIds.length ||
+          referencedAssets.some(
+            (asset) =>
+              asset.kind !== "chat_attachment" ||
+              asset.status !== "ready" ||
+              asset.byteSize === null ||
+              asset.byteSize > CHAT_ATTACHMENT_LIMITS.maxFileBytes,
+          )
+        ) {
+          throw new Error("消息引用了不存在或不可用的聊天附件。");
+        }
+        const totalAttachmentBytes = referencedAssets.reduce(
+          (total, asset) => total + (asset.byteSize ?? 0),
+          0,
+        );
+        if (
+          totalAttachmentBytes >
+          CHAT_ATTACHMENT_LIMITS.maxTotalBytesPerMessage
+        ) {
+          throw new Error("单条消息的附件合计不能超过 50 MiB。");
+        }
+
         const existingMessage = transaction
           .select({ threadId: messages.threadId })
           .from(messages)
@@ -187,6 +224,21 @@ export function createThreadRepository(
             },
           })
           .run();
+        transaction
+          .delete(messageAssets)
+          .where(eq(messageAssets.messageId, message.id))
+          .run();
+        if (assetIds.length > 0) {
+          transaction
+            .insert(messageAssets)
+            .values(
+              assetIds.map((assetId) => ({
+                messageId: message.id,
+                assetId,
+              })),
+            )
+            .run();
+        }
         const updatedThread = transaction
           .update(threads)
           .set({ lastMessageAt: now, updatedAt: now })

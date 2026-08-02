@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -11,11 +12,13 @@ import {
 import type { ModelMetadata, ModelSettings } from "../../shared/ipc";
 import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
+import { ASSET_KINDS } from "../../shared/assets";
 
 export const assets = sqliteTable(
   "assets",
   {
     id: text("id").primaryKey(),
+    kind: text("kind", { enum: ASSET_KINDS }).notNull(),
     storageKey: text("storage_key").notNull(),
     status: text("status", { enum: ["ready", "missing"] }).notNull(),
     mimeType: text("mime_type"),
@@ -28,6 +31,10 @@ export const assets = sqliteTable(
   (table) => [
     uniqueIndex("assets_storage_key_unique").on(table.storageKey),
     check("assets_status_check", sql`${table.status} in ('ready', 'missing')`),
+    check(
+      "assets_kind_check",
+      sql`${table.kind} in ('character_portrait', 'character_vrm', 'chat_attachment')`,
+    ),
     check(
       "assets_ready_metadata_check",
       sql`(${table.status} = 'ready' and ${table.mimeType} is not null and ${table.byteSize} is not null and ${table.sha256} is not null and ${table.originalName} is not null) or (${table.status} = 'missing' and ${table.mimeType} is null and ${table.byteSize} is null and ${table.sha256} is null and ${table.originalName} is null)`,
@@ -170,4 +177,20 @@ export const messages = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("messages_thread_created_at_idx").on(table.threadId, table.createdAt)],
+);
+
+export const messageAssets = sqliteTable(
+  "message_assets",
+  {
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.messageId, table.assetId] }),
+    index("message_assets_asset_id_idx").on(table.assetId),
+  ],
 );

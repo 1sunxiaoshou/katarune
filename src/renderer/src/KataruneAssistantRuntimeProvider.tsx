@@ -21,6 +21,7 @@ import {
 import type { Character } from "../../shared/ipc";
 import { useCharacterSession } from "./characters/CharacterSessionProvider";
 import { KataruneChatTransport } from "./chat/KataruneChatTransport";
+import { KataruneAttachmentAdapter } from "./chat/KataruneAttachmentAdapter";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
 import { KataruneSpeechSynthesisAdapter } from "./speech/KataruneSpeechSynthesisAdapter";
 import {
@@ -47,6 +48,7 @@ function ThreadRuntimeHook() {
     () => new KataruneChatTransport(character.id),
     [character.id],
   );
+  const attachments = useMemo(() => new KataruneAttachmentAdapter(), []);
   useEffect(() => {
     let active = true;
     const refresh = (): void => {
@@ -82,7 +84,7 @@ function ThreadRuntimeHook() {
   useEffect(() => () => speech?.dispose(), [speech]);
   return useChatRuntime({
     transport,
-    adapters: { speech },
+    adapters: { attachments, speech },
     isSendDisabled:
       character.modelConfigId === null &&
       appSettings.defaultLanguageModelConfigId === null,

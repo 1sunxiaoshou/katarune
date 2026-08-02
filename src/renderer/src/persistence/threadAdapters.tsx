@@ -13,6 +13,32 @@ import { createAssistantStream } from "assistant-stream";
 import { useMemo, type PropsWithChildren } from "react";
 
 import { notify } from "../notifications";
+import { parseAssetUrl } from "../../../shared/ipc";
+
+function extractAssetIds(value: unknown): string[] {
+  const assetIds = new Set<string>();
+  const visited = new Set<object>();
+  const visit = (entry: unknown): void => {
+    if (typeof entry !== "object" || entry === null || visited.has(entry)) return;
+    visited.add(entry);
+    if (
+      "type" in entry &&
+      entry.type === "file" &&
+      "url" in entry &&
+      typeof entry.url === "string"
+    ) {
+      const assetId = parseAssetUrl(entry.url);
+      if (assetId !== null) assetIds.add(assetId);
+    }
+    if (Array.isArray(entry)) {
+      for (const child of entry) visit(child);
+    } else {
+      for (const child of Object.values(entry)) visit(child);
+    }
+  };
+  visit(value);
+  return [...assetIds];
+}
 
 function createTitleStream(title?: string) {
   return createAssistantStream((controller) => {
@@ -62,6 +88,7 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
 
     const persist = async (item: MessageFormatItem<TMessage>): Promise<void> => {
       const { remoteId } = await this.aui.threadListItem().initialize();
+      const content = formatAdapter.encode(item);
       await window.katarune.appendThreadMessage({
         threadId: remoteId,
         characterId: this.characterId,
@@ -69,8 +96,9 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
           id: formatAdapter.getId(item.message),
           parent_id: item.parentId,
           format: formatAdapter.format,
-          content: formatAdapter.encode(item),
+          content,
         },
+        assetIds: extractAssetIds(content),
       });
       try {
         await this.aui.threads().reload();

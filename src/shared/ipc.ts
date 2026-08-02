@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import type { Asset } from "./assets";
 import {
   characterSchema,
   type Character,
@@ -47,8 +48,17 @@ export type {
   StagedCharacterPortrait,
   UpdateCharacterRequest,
 } from "./characters";
-export { assetSchema, ASSET_STATUSES, assetUrl, stagedAssetUrl } from "./assets";
-export type { Asset, AssetStatus } from "./assets";
+export {
+  assetSchema,
+  ASSET_KINDS,
+  ASSET_STATUSES,
+  assetUrl,
+  CHAT_ATTACHMENT_LIMITS,
+  DEFAULT_ATTACHMENT_MEDIA_TYPE,
+  parseAssetUrl,
+  stagedAssetUrl,
+} from "./assets";
+export type { Asset, AssetKind, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
 export type { ModelType } from "./models";
 export {
@@ -122,6 +132,8 @@ export const IPC_CHANNELS = {
   stageCharacterPortrait: "characters:stage-portrait",
   commitCharacterPortrait: "characters:commit-portrait",
   discardCharacterPortraitStage: "characters:discard-portrait-stage",
+  importChatAttachment: "chat-attachments:import",
+  releaseChatAttachment: "chat-attachments:release",
 } as const;
 
 const nonEmptyStringSchema = z.string().check(z.minLength(1));
@@ -216,6 +228,36 @@ export const appendThreadMessageRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
   characterId: z.uuid(),
   message: storedMessageSchema,
+  assetIds: z
+    .array(z.uuid())
+    .check(
+      z.maxLength(10),
+      z.refine((assetIds) => new Set(assetIds).size === assetIds.length, {
+        error: "Message asset IDs must be unique.",
+      }),
+    ),
+});
+
+const attachmentDataSchema = z.custom<Uint8Array>(
+  (value) =>
+    value instanceof Uint8Array && value.byteLength <= 25 * 1024 * 1024,
+  "Attachment data must be a Uint8Array no larger than 25 MiB.",
+);
+
+export const importChatAttachmentRequestSchema = z.strictObject({
+  name: z
+    .string()
+    .check(
+      z.minLength(1),
+      z.maxLength(255),
+      z.regex(/^[^\\/\u0000-\u001f\u007f]+$/),
+    ),
+  mediaType: z.string().check(z.maxLength(255)),
+  data: attachmentDataSchema,
+});
+
+export const releaseChatAttachmentRequestSchema = z.strictObject({
+  assetId: z.uuid(),
 });
 
 export const deleteThreadMessagesRequestSchema = z.strictObject({
@@ -538,6 +580,12 @@ export type SetThreadStatusRequest = Readonly<z.infer<typeof setThreadStatusRequ
 export type StoredMessage = Readonly<z.infer<typeof storedMessageSchema>>;
 export type ThreadMessages = Readonly<z.infer<typeof threadMessagesSchema>>;
 export type AppendThreadMessageRequest = Readonly<z.infer<typeof appendThreadMessageRequestSchema>>;
+export type ImportChatAttachmentRequest = Readonly<
+  z.infer<typeof importChatAttachmentRequestSchema>
+>;
+export type ReleaseChatAttachmentRequest = Readonly<
+  z.infer<typeof releaseChatAttachmentRequestSchema>
+>;
 export type DeleteThreadMessagesRequest = Readonly<z.infer<typeof deleteThreadMessagesRequestSchema>>;
 export type FrontendTool = Readonly<z.infer<typeof frontendToolSchema>>;
 export type FrontendTools = Readonly<z.infer<typeof frontendToolsSchema>>;
@@ -602,6 +650,8 @@ export interface KataruneApi {
   deleteThread(request: ThreadIdRequest): Promise<OperationSuccess>;
   loadThreadMessages(request: ThreadIdRequest): Promise<ThreadMessages>;
   appendThreadMessage(request: AppendThreadMessageRequest): Promise<OperationSuccess>;
+  importChatAttachment(request: ImportChatAttachmentRequest): Promise<Asset>;
+  releaseChatAttachment(request: ReleaseChatAttachmentRequest): Promise<OperationSuccess>;
   deleteThreadMessages(request: DeleteThreadMessagesRequest): Promise<OperationSuccess>;
   startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;
   pullChatStream(requestId: string): void;

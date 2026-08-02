@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
 import {
   createChatService,
+  createChatAttachmentDownload,
   sanitizeChatError,
   type ChatServiceAiRuntime,
   type ChatServiceDatabase,
@@ -99,6 +100,60 @@ function createModel(onPrompt: (prompt: unknown) => void): MockLanguageModelV4 {
 }
 
 describe("chat service", () => {
+  it("materializes only managed attachment URLs for the provider call", async () => {
+    const readChatAttachment = vi.fn(() => ({
+      data: new Uint8Array([1, 2, 3]),
+      mediaType: "application/pdf",
+      filename: "说明.pdf",
+    }));
+    const download = createChatAttachmentDownload(
+      {} as never,
+      { readChatAttachment },
+    );
+
+    await expect(
+      download([
+        {
+          url: new URL(
+            "katarune-asset://asset/11111111-1111-4111-8111-111111111111",
+          ),
+          isUrlSupportedByModel: true,
+        },
+      ]),
+    ).resolves.toEqual([
+      { data: new Uint8Array([1, 2, 3]), mediaType: "application/pdf" },
+    ]);
+    expect(readChatAttachment).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      {},
+    );
+    await expect(
+      download([
+        {
+          url: new URL("https://example.com/file.pdf"),
+          isUrlSupportedByModel: true,
+        },
+      ]),
+    ).resolves.toEqual([null]);
+    await expect(
+      download([
+        {
+          url: new URL("data:application/pdf;base64,AA=="),
+          isUrlSupportedByModel: false,
+        },
+      ]),
+    ).rejects.toThrow("不受言奏托管");
+  });
+
+  it("reports unsupported attachment formats with the original filename", () => {
+    expect(
+      sanitizeChatError(
+        { name: "AI_UnsupportedFunctionalityError" },
+        ["说明.pdf"],
+      ),
+    ).toContain("说明.pdf");
+  });
+
   it("uses the database character model and instructions to produce an AI SDK SSE stream", async () => {
     let prompt: unknown;
     const model = createModel((value) => {

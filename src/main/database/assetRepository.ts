@@ -1,6 +1,6 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, notExists } from "drizzle-orm";
 import { assetSchema, type Asset } from "../../shared/ipc";
-import { assets } from "./schema";
+import { assets, messageAssets } from "./schema";
 import type {
   AssetRepository,
   AssetMetadata,
@@ -14,6 +14,7 @@ export function createAssetRepository(
     const asset = database
       .select({
         id: assets.id,
+        kind: assets.kind,
         status: assets.status,
         mimeType: assets.mimeType,
         byteSize: assets.byteSize,
@@ -49,5 +50,45 @@ export function createAssetRepository(
       if (result.changes === 0) fetchAsset(id);
       return fetchAsset(id);
     },
+    registerReadyAsset: (asset) => {
+      const now = new Date();
+      database
+        .insert(assets)
+        .values({ ...asset, status: "ready", createdAt: now, updatedAt: now })
+        .run();
+      return fetchAsset(asset.id);
+    },
+    deleteUnreferencedChatAttachment: (id) => {
+      const result = database
+        .delete(assets)
+        .where(
+          and(
+            eq(assets.id, id),
+            eq(assets.kind, "chat_attachment"),
+            notExists(
+              database
+                .select({ assetId: messageAssets.assetId })
+                .from(messageAssets)
+                .where(eq(messageAssets.assetId, assets.id)),
+            ),
+          ),
+        )
+        .run();
+      return result.changes > 0;
+    },
+    listUnreferencedChatAttachmentIds: () =>
+      database
+        .select({ id: assets.id })
+        .from(assets)
+        .leftJoin(messageAssets, eq(messageAssets.assetId, assets.id))
+        .where(
+          and(
+            eq(assets.kind, "chat_attachment"),
+            isNull(messageAssets.messageId),
+          ),
+        )
+        .orderBy(asc(assets.createdAt))
+        .all()
+        .map(({ id }) => id),
   };
 }
