@@ -5,6 +5,7 @@ import type { DatabaseRuntime } from "../database/database";
 import type { CredentialStore } from "../security/credentialStore";
 import { SpeechRequestRegistry } from "../speech/speechRequestRegistry";
 import type { SpeechService } from "../speech/ttsService";
+import type { MemoryWikiService } from "../memory/memoryWikiService";
 import { registerAppHandlers } from "./appHandlers";
 import { registerCharacterHandlers } from "./characterHandlers";
 import { registerChatHandlers } from "./chatHandlers";
@@ -17,15 +18,16 @@ export function registerIpcHandlers(
   credentialStore: CredentialStore,
   assetService: AssetService,
   speechService: SpeechService,
+  memoryWiki: MemoryWikiService,
 ): SpeechRequestRegistry {
   const chatStreams = new ChatStreamRegistry();
   const speechRequests = new SpeechRequestRegistry();
 
   registerAppHandlers(database, aiRuntime);
-  registerChatHandlers(database, aiRuntime, chatStreams, assetService);
+  registerChatHandlers(database, aiRuntime, chatStreams, assetService, memoryWiki);
   registerSpeechHandlers(speechService, speechRequests);
   registerProviderHandlers(database, aiRuntime, credentialStore);
-  registerCharacterHandlers(database, assetService, chatStreams);
+  registerCharacterHandlers(database, assetService, chatStreams, memoryWiki);
 
   return speechRequests;
 }

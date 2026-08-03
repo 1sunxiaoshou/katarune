@@ -21,16 +21,19 @@ import type { AiRuntime } from "../ai/runtime";
 import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
 import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
+import type { MemoryWikiService } from "../memory/memoryWikiService";
 
 export function registerChatHandlers(
   database: DatabaseRuntime,
   aiRuntime: AiRuntime,
   chatStreams: ChatStreamRegistry,
   assetService: AssetService,
+  memoryWiki: MemoryWikiService,
 ): void {
   const chatService = createChatService({
     database,
     aiRuntime,
+    memoryWiki,
     attachmentSupport: {
       assetService,
       imageProcessor: createElectronChatImageProcessor(),
