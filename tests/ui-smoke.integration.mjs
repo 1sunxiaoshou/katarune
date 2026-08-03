@@ -59,6 +59,14 @@ let renamedThreadRequest = null;
 let generatedThreadTitleRequest = null;
 let statusThreadRequest = null;
 let deletedThreadRequest = null;
+const importedAttachmentRequests = [];
+const importedAttachmentIds = [
+  "77777777-7777-4777-8777-777777777777",
+  "88888888-8888-4888-8888-888888888888",
+  "99999999-9999-4999-8999-999999999999",
+];
+const releasedAttachmentIds = [];
+const appendedMessageRequests = [];
 let character = {
   id: characterId,
   name: "星澜",
@@ -229,6 +237,7 @@ function registerMockHandlers() {
     messages: storedMessages.get(messageKey(request.threadId, request.characterId)) ?? [],
   }));
   ipcMain.handle("thread-messages:append", (_event, request) => {
+    appendedMessageRequests.push(request);
     const key = messageKey(request.threadId, request.characterId);
     const messages = storedMessages.get(key) ?? [];
     const nextMessages = messages.filter(
@@ -242,6 +251,26 @@ function registerMockHandlers() {
         ? { ...thread, lastMessageAt: new Date() }
         : thread,
     );
+    return { success: true };
+  });
+  ipcMain.handle("chat-attachments:import", (_event, request) => {
+    const id = importedAttachmentIds[importedAttachmentRequests.length];
+    assert.ok(id, "Unexpected attachment import");
+    importedAttachmentRequests.push(request);
+    return {
+      id,
+      kind: "chat_attachment",
+      status: "ready",
+      mimeType: request.mediaType || "application/octet-stream",
+      byteSize: request.data.byteLength,
+      sha256: "d".repeat(64),
+      originalName: request.name,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+  ipcMain.handle("chat-attachments:release", (_event, request) => {
+    releasedAttachmentIds.push(request.assetId);
     return { success: true };
   });
   ipcMain.handle("thread-messages:delete", (_event, request) => {
@@ -718,6 +747,90 @@ async function run() {
         window,
         '[data-slot="aui_thread-viewport"]',
         "抵达：",
+      );
+    });
+
+    await runStep("import attachments from picker, drop, and clipboard", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const originalClick = HTMLInputElement.prototype.click;
+        HTMLInputElement.prototype.click = function () {
+          if (this.type !== 'file') return originalClick.call(this);
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(['picker'], '选择文件.txt', { type: 'text/plain' }));
+          Object.defineProperty(this, 'files', { configurable: true, value: transfer.files });
+          this.dispatchEvent(new Event('change', { bubbles: true }));
+          HTMLInputElement.prototype.click = originalClick;
+        };
+        document.querySelector('button[aria-label="Add Attachment"]').click();
+      })()`);
+      await waitUntil(
+        "picker attachment import",
+        () => importedAttachmentRequests.length === 1,
+      );
+      await waitForSelector(window, ".aui-composer-attachments .aui-attachment-root");
+      await clickSelector(window, ".aui-composer-attachments .aui-attachment-tile-remove");
+      await waitUntil(
+        "picker attachment release",
+        () => releasedAttachmentIds.includes(importedAttachmentIds[0]),
+      );
+
+      await window.webContents.executeJavaScript(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['drop'], '拖拽文件.bin'));
+        document.querySelector('[data-slot="aui_composer-shell"]').dispatchEvent(
+          new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }),
+        );
+      })()`);
+      await waitUntil(
+        "drop attachment import",
+        () => importedAttachmentRequests.length === 2,
+      );
+      await clickSelector(window, ".aui-composer-attachments .aui-attachment-tile-remove");
+      await waitUntil(
+        "drop attachment release",
+        () => releasedAttachmentIds.includes(importedAttachmentIds[1]),
+      );
+
+      await window.webContents.executeJavaScript(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['paste'], '粘贴文件.dat'));
+        document.querySelector('.aui-composer-input').dispatchEvent(
+          new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }),
+        );
+      })()`);
+      await waitUntil(
+        "clipboard attachment import",
+        () => importedAttachmentRequests.length === 3,
+      );
+      assert.equal(importedAttachmentRequests[1].mediaType, "application/octet-stream");
+      assert.deepEqual(
+        [...importedAttachmentRequests[2].data],
+        [...new TextEncoder().encode("paste")],
+      );
+
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
+          input,
+          '请读取附件',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="Send message"]');
+      await waitUntil(
+        "attachment message persistence",
+        () =>
+          appendedMessageRequests.some((request) =>
+            request.assetIds?.includes(importedAttachmentIds[2]),
+          ),
+      );
+      const appendedMessageRequest = appendedMessageRequests.find((request) =>
+        request.assetIds?.includes(importedAttachmentIds[2]),
+      );
+      assert.ok(appendedMessageRequest);
+      assert.match(
+        JSON.stringify(appendedMessageRequest.message.content),
+        new RegExp(`katarune-asset://asset/${importedAttachmentIds[2]}`),
       );
     });
 

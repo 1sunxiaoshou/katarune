@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
+  CHAT_ATTACHMENT_LIMITS,
+  assetSchema,
   initializeThreadResponseSchema,
   threadListSchema,
   threadMessagesSchema,
@@ -9,7 +11,7 @@ import {
   type ThreadMetadata,
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
-import { messages, threads } from "./schema";
+import { assets, messageAssets, messages, threads } from "./schema";
 import type {
   KataruneDatabase,
   ThreadRepository,
@@ -124,6 +126,13 @@ export function createThreadRepository(
     },
     deleteThread: (threadId, characterId) => {
       fetchThread(threadId, characterId);
+      const candidateAssetIds = database
+        .selectDistinct({ assetId: messageAssets.assetId })
+        .from(messageAssets)
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(eq(messages.threadId, threadId))
+        .all()
+        .map(({ assetId }) => assetId);
       database
         .delete(threads)
         .where(
@@ -133,6 +142,7 @@ export function createThreadRepository(
           ),
         )
         .run();
+      return candidateAssetIds;
     },
     loadThreadMessages: (threadId, characterId) => {
       fetchThread(threadId, characterId);
@@ -150,9 +160,45 @@ export function createThreadRepository(
           .all(),
       });
     },
-    appendThreadMessage: ({ threadId, characterId, message }) => {
+    appendThreadMessage: ({ threadId, characterId, message, assetIds }) => {
       fetchThread(threadId, characterId);
       database.transaction((transaction) => {
+        const referencedAssets =
+          assetIds.length === 0
+            ? []
+            : transaction
+                .select({
+                  id: assets.id,
+                  kind: assets.kind,
+                  status: assets.status,
+                  byteSize: assets.byteSize,
+                })
+                .from(assets)
+                .where(inArray(assets.id, assetIds))
+                .all();
+        if (
+          referencedAssets.length !== assetIds.length ||
+          referencedAssets.some(
+            (asset) =>
+              asset.kind !== "chat_attachment" ||
+              asset.status !== "ready" ||
+              asset.byteSize === null ||
+              asset.byteSize > CHAT_ATTACHMENT_LIMITS.maxFileBytes,
+          )
+        ) {
+          throw new Error("消息引用了不存在或不可用的聊天附件。");
+        }
+        const totalAttachmentBytes = referencedAssets.reduce(
+          (total, asset) => total + (asset.byteSize ?? 0),
+          0,
+        );
+        if (
+          totalAttachmentBytes >
+          CHAT_ATTACHMENT_LIMITS.maxTotalBytesPerMessage
+        ) {
+          throw new Error("单条消息的附件合计不能超过 50 MiB。");
+        }
+
         const existingMessage = transaction
           .select({ threadId: messages.threadId })
           .from(messages)
@@ -187,6 +233,21 @@ export function createThreadRepository(
             },
           })
           .run();
+        transaction
+          .delete(messageAssets)
+          .where(eq(messageAssets.messageId, message.id))
+          .run();
+        if (assetIds.length > 0) {
+          transaction
+            .insert(messageAssets)
+            .values(
+              assetIds.map((assetId) => ({
+                messageId: message.id,
+                assetId,
+              })),
+            )
+            .run();
+        }
         const updatedThread = transaction
           .update(threads)
           .set({ lastMessageAt: now, updatedAt: now })
@@ -206,7 +267,19 @@ export function createThreadRepository(
     },
     deleteThreadMessages: (threadId, characterId, messageIds) => {
       fetchThread(threadId, characterId);
-      if (messageIds.length === 0) return;
+      if (messageIds.length === 0) return [];
+      const candidateAssetIds = database
+        .selectDistinct({ assetId: messageAssets.assetId })
+        .from(messageAssets)
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(
+          and(
+            eq(messages.threadId, threadId),
+            inArray(messages.id, messageIds),
+          ),
+        )
+        .all()
+        .map(({ assetId }) => assetId);
       database
         .delete(messages)
         .where(
@@ -216,6 +289,39 @@ export function createThreadRepository(
           ),
         )
         .run();
+      return candidateAssetIds;
+    },
+    fetchThreadChatAttachment: (threadId, characterId, assetId) => {
+      fetchThread(threadId, characterId);
+      const asset = database
+        .select({
+          id: assets.id,
+          kind: assets.kind,
+          status: assets.status,
+          mimeType: assets.mimeType,
+          byteSize: assets.byteSize,
+          sha256: assets.sha256,
+          originalName: assets.originalName,
+          createdAt: assets.createdAt,
+          updatedAt: assets.updatedAt,
+        })
+        .from(assets)
+        .innerJoin(messageAssets, eq(messageAssets.assetId, assets.id))
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(
+          and(
+            eq(assets.id, assetId),
+            eq(assets.kind, "chat_attachment"),
+            eq(messages.threadId, threadId),
+          ),
+        )
+        .get();
+      if (asset === undefined) {
+        throw new Error(
+          `Chat attachment "${assetId}" was not found in thread "${threadId}".`,
+        );
+      }
+      return assetSchema.parse(asset);
     },
   };
 }

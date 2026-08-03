@@ -119,6 +119,7 @@ describe("shared IPC contracts", () => {
         threadId: "thread-1",
         characterId: "00000000-0000-4000-8000-000000000001",
         message: storedMessage,
+        assetIds: [],
       }),
     ).toMatchObject({ message: { format: "ai-sdk/v6" } });
     expect(threadMessagesSchema.parse({ messages: [storedMessage] })).toMatchObject({
@@ -153,6 +154,7 @@ describe("shared IPC contracts", () => {
     expect(
       assetSchema.parse({
         id: activeCharacter.portraitAssetId,
+        kind: "character_portrait",
         status: "ready",
         mimeType: "image/png",
         byteSize: 128,
@@ -165,6 +167,7 @@ describe("shared IPC contracts", () => {
     expect(
       assetSchema.safeParse({
         id: activeCharacter.portraitAssetId,
+        kind: "character_portrait",
         status: "ready",
         mimeType: null,
         byteSize: null,

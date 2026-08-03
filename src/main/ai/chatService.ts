@@ -2,7 +2,9 @@ import {
   stepCountIs,
   ToolLoopAgent,
   createAgentUIStreamResponse,
+  validateUIMessages,
   type LanguageModel,
+  type Experimental_DownloadFunction,
   type ToolSet,
 } from "ai";
 import type { FrontendTools as AISDKFrontendTools } from "@assistant-ui/react-ai-sdk";
@@ -14,16 +16,34 @@ import type {
   GenerateThreadTitleResponse,
 } from "../../shared/ipc";
 import type { Character } from "../../shared/characters";
+import {
+  ChatAttachmentError,
+  type AssetService,
+} from "../assets/assetService";
+import type { ChatImageProcessor } from "../assets/chatImageProcessor";
 import type { DatabaseRuntime } from "../database/database";
 import type { AiRuntime, ResolvedLanguageModel } from "./runtime";
 import {
   kataruneAiToolkit,
   type KataruneAiToolkitToolsOptions,
 } from "./toolkit";
+import {
+  ChatAttachmentRunBudget,
+  createChatAttachmentDownload,
+  createViewChatImageTools,
+  projectChatAttachmentMessages,
+} from "./chatAttachments";
+
+export { createChatAttachmentDownload } from "./chatAttachments";
 
 export type ChatServiceDatabase = Pick<
   DatabaseRuntime,
-  "fetchCharacter" | "fetchThread" | "getAppSettings" | "renameThread"
+  | "fetchCharacter"
+  | "fetchThread"
+  | "fetchAsset"
+  | "fetchThreadChatAttachment"
+  | "getAppSettings"
+  | "renameThread"
 >;
 export type ChatServiceAiRuntime = Pick<AiRuntime, "resolveLanguageModel">;
 
@@ -50,6 +70,11 @@ interface CreateChatServiceOptions {
   readonly environmentSource?: ChatEnvironmentSource;
   readonly toolkit?: {
     tools(options?: KataruneAiToolkitToolsOptions): Promise<ToolSet>;
+  };
+  readonly attachmentDownload?: Experimental_DownloadFunction;
+  readonly attachmentSupport?: {
+    readonly assetService: Pick<AssetService, "readChatAttachment">;
+    readonly imageProcessor: ChatImageProcessor;
   };
 }
 
@@ -100,6 +125,7 @@ function createCharacterAgent(
   character: Character,
   model: LanguageModel,
   tools: ToolSet,
+  attachmentDownload?: Experimental_DownloadFunction,
 ): ToolLoopAgent<ChatCallOptions, ToolSet> {
   return new ToolLoopAgent<ChatCallOptions, ToolSet>({
     id: `character-${character.id}`,
@@ -112,9 +138,11 @@ function createCharacterAgent(
         character.systemPrompt,
         `Current date: ${options.currentDate}`,
         `Time zone: ${options.timeZone}`,
+        "When view_chat_image fails, do not retry the same attachment in this response. Explain that the current model may not support historical image input and ask the user to attach the image again or switch models.",
       ].join("\n"),
     }),
     tools,
+    experimental_download: attachmentDownload,
     stopWhen: stepCountIs(8),
   });
 }
@@ -210,8 +238,52 @@ function buildTitlePrompt(request: GenerateThreadTitleRequest): string {
   return `请为下面的对话生成一个简短的会话标题：\n\n${transcript}`;
 }
 
-export function sanitizeChatError(error: unknown): string {
-  if (error instanceof PublicChatError) return error.message;
+function isUnsupportedAttachmentError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AI_UnsupportedFunctionalityError"
+  );
+}
+
+function attachmentNames(messages: readonly unknown[]): readonly string[] {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (typeof message !== "object" || message === null || !("parts" in message)) {
+      continue;
+    }
+    const parts = message.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      if (
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "file" &&
+        "filename" in part &&
+        typeof part.filename === "string" &&
+        part.filename.length > 0
+      ) {
+        names.add(part.filename);
+      }
+    }
+  }
+  return [...names];
+}
+
+export function sanitizeChatError(
+  error: unknown,
+  filenames: readonly string[] = [],
+): string {
+  if (error instanceof PublicChatError || error instanceof ChatAttachmentError) {
+    return error.message;
+  }
+  if (isUnsupportedAttachmentError(error)) {
+    return filenames.length > 0
+      ? `当前模型不支持附件“${filenames.join("”、“")}”，请移除附件或更换模型后重试。`
+      : "当前模型无法读取历史图片，请重新附图或更换模型。";
+  }
   return "模型回复失败，请稍后重试或检查模型设置。";
 }
 
@@ -222,6 +294,8 @@ export function createChatService({
   createTitleAgent = createCharacterTitleAgent,
   environmentSource = systemChatEnvironmentSource,
   toolkit = kataruneAiToolkit,
+  attachmentDownload,
+  attachmentSupport,
 }: CreateChatServiceOptions): ChatService {
   return {
     createResponse: async (request, abortSignal) => {
@@ -247,20 +321,66 @@ export function createChatService({
         );
       }
 
-      const tools = await toolkit.tools({
+      const budget = new ChatAttachmentRunBudget();
+      const imageTools =
+        attachmentSupport === undefined
+          ? {}
+          : createViewChatImageTools({
+              database,
+              assetService: attachmentSupport.assetService,
+              imageProcessor: attachmentSupport.imageProcessor,
+              budget,
+              threadId: request.threadId,
+              characterId: request.characterId,
+            });
+      const baseTools = await toolkit.tools({
         frontend: toAISDKFrontendTools(request.frontendTools),
         providerContext: {
           provider: model.provider,
           modelId: model.modelId,
         },
       });
-      const agent = createAgent(character, model, tools);
+      const imageToolCollision = Object.keys(imageTools).find((name) =>
+        Object.hasOwn(baseTools, name),
+      );
+      if (imageToolCollision !== undefined) {
+        throw new PublicChatError(
+          `工具“${imageToolCollision}”与受信任的历史图片工具冲突。`,
+        );
+      }
+      const tools = { ...baseTools, ...imageTools };
+      const validatedMessages = await validateUIMessages({
+        messages: request.messages,
+      });
+      const projected = projectChatAttachmentMessages(
+        validatedMessages,
+        database,
+        request.threadId,
+        request.characterId,
+      );
+      const responseAttachmentDownload =
+        attachmentDownload ??
+        (attachmentSupport === undefined
+          ? undefined
+          : createChatAttachmentDownload(
+              database,
+              attachmentSupport.assetService,
+              budget,
+              projected.currentAssetIds,
+            ));
+      const agent = createAgent(
+        character,
+        model,
+        tools,
+        responseAttachmentDownload,
+      );
+      const filenames = attachmentNames(projected.messages);
       return createAgentUIStreamResponse({
         agent,
-        uiMessages: request.messages,
+        uiMessages: projected.messages,
         options: resolveChatCallOptions(environmentSource),
         abortSignal,
-        onError: sanitizeChatError,
+        onError: (error) => sanitizeChatError(error, filenames),
       });
     },
     generateTitle: async (request) => {

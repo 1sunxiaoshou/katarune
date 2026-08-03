@@ -80,6 +80,12 @@ export function handleAssetRequest(
   if (asset.status !== "ready") {
     return response(404);
   }
+  if (
+    asset.kind === "chat_attachment" &&
+    !asset.mimeType.startsWith("image/")
+  ) {
+    return response(415);
+  }
 
   let path: string;
   try {

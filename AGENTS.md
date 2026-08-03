@@ -18,7 +18,7 @@ ATRI Chat 是参考实现、行为基准和资产来源，不是必须保持代�
 
 ## 当前阶段
 
-项目已经完成 P1 技术验证基线与 P2 最小垂直闭环，已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用、可恢复会话和首个真实 TTS Provider；角色与资产管理、多会话等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、真实 Fish Audio TTS、Electron 集成测试和 Windows x64 unpacked 产物验证。Windows 安装包格式、签名与更新配置、通用附件发送、长期记忆系统和最终分发方案仍待验证或决定。ASR、流式语音与双向会话尚未实现。VRM 仍是目标能力，但当前原型暂缓实现，先独立调查技术路线。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
+项目已经完成 P1 技术验证基线与 P2 最小垂直闭环，已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用、可恢复会话和首个真实 TTS Provider；角色与资产管理、多会话及聊天附件最小闭环等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、真实 Fish Audio TTS、Electron 集成测试和 Windows x64 unpacked 产物验证。聊天附件已实现本地复制托管、消息引用、当前消息临时字节物化和历史图片工具按需读取，但跨 Provider 文件能力仍需逐项验证；Windows 安装包格式、签名与更新配置、长期记忆系统和最终分发方案仍待验证或决定。ASR、流式语音与双向会话尚未实现。VRM 仍是目标能力，但当前原型暂缓实现，先独立调查技术路线。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
 
 ## Agent Skills
 

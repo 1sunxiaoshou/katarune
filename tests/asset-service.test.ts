@@ -34,6 +34,7 @@ function readyAsset(byteSize: number): Asset {
   const now = new Date("2026-07-24T00:00:00.000Z");
   return {
     id: assetId,
+    kind: "character_portrait",
     status: "ready",
     mimeType: "image/png",
     byteSize,
@@ -91,6 +92,7 @@ describe("generic asset service and protocol", () => {
     const now = new Date("2026-07-24T00:00:00.000Z");
     const missing = (id: string): Asset => ({
       id,
+      kind: "character_portrait",
       status: "missing",
       mimeType: null,
       byteSize: null,
@@ -264,5 +266,132 @@ describe("generic asset service and protocol", () => {
     expect(committed.id).toBe(staged.id);
     expect(existsSync(service.resolveManagedPath(staged.id))).toBe(true);
     expect(() => service.resolveStagedPortrait(staged.id)).toThrow(/不存在或已失效/);
+  });
+
+  it("copies arbitrary chat attachment bytes, normalizes MIME, verifies integrity, and releases drafts", () => {
+    const userDataPath = tempDirectory();
+    const service = createAssetService({
+      userDataPath,
+      characterResourcesPath: join(process.cwd(), "resources", "characters"),
+    });
+    const assets = new Map<string, Asset>();
+    const referenced = new Set<string>();
+    const now = new Date("2026-08-02T00:00:00.000Z");
+    const database = {
+      registerReadyAsset: (registration: {
+        id: string;
+        kind: "chat_attachment";
+        mimeType: string;
+        byteSize: number;
+        sha256: string;
+        originalName: string;
+      }) => {
+        const asset: Asset = {
+          ...registration,
+          status: "ready",
+          createdAt: now,
+          updatedAt: now,
+        };
+        assets.set(asset.id, asset);
+        return asset;
+      },
+      fetchAsset: (id: string) => {
+        const asset = assets.get(id);
+        if (asset === undefined) throw new Error("not found");
+        return asset;
+      },
+      deleteUnreferencedChatAttachment: (id: string) => {
+        if (referenced.has(id)) return false;
+        return assets.delete(id);
+      },
+      listUnreferencedChatAttachmentIds: () =>
+        [...assets.keys()].filter((id) => !referenced.has(id)),
+    } as unknown as DatabaseRuntime;
+
+    const imported = service.importChatAttachment(
+      {
+        name: "测试数据.bin",
+        mediaType: "",
+        data: new Uint8Array([0, 1, 2, 3]),
+      },
+      database,
+    );
+
+    expect(imported).toMatchObject({
+      kind: "chat_attachment",
+      status: "ready",
+      mimeType: "application/octet-stream",
+      originalName: "测试数据.bin",
+      byteSize: 4,
+    });
+    expect(service.resolveManagedPath(imported.id)).toBe(
+      join(userDataPath, "assets", imported.id),
+    );
+    expect(service.readChatAttachment(imported.id, database)).toMatchObject({
+      mediaType: "application/octet-stream",
+      filename: "测试数据.bin",
+    });
+
+    referenced.add(imported.id);
+    expect(service.releaseChatAttachment(imported.id, database)).toBe(false);
+    expect(existsSync(service.resolveManagedPath(imported.id))).toBe(true);
+    referenced.delete(imported.id);
+    expect(service.releaseChatAttachment(imported.id, database)).toBe(true);
+    expect(existsSync(service.resolveManagedPath(imported.id))).toBe(false);
+    expect(assets.has(imported.id)).toBe(false);
+
+    const zeroByte = service.importChatAttachment(
+      {
+        name: "empty.unknown",
+        mediaType: "application/x-unknown",
+        data: new Uint8Array(),
+      },
+      database,
+    );
+    expect(zeroByte.byteSize).toBe(0);
+    expect(service.readChatAttachment(zeroByte.id, database).data).toHaveLength(0);
+    service.cleanupUnreferencedChatAttachments(database);
+    expect(assets.has(zeroByte.id)).toBe(false);
+    expect(existsSync(service.resolveManagedPath(zeroByte.id))).toBe(false);
+  });
+
+  it("rejects tampered chat attachment bytes and does not serve non-images", () => {
+    const userDataPath = tempDirectory();
+    const service = createAssetService({
+      userDataPath,
+      characterResourcesPath: join(process.cwd(), "resources", "characters"),
+    });
+    let imported: Asset | undefined;
+    const database = {
+      registerReadyAsset: (registration: Record<string, unknown>) => {
+        imported = {
+          ...registration,
+          status: "ready",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as Asset;
+        return imported;
+      },
+      fetchAsset: () => imported,
+    } as unknown as DatabaseRuntime;
+    const asset = service.importChatAttachment(
+      {
+        name: "notes.txt",
+        mediaType: "text/plain",
+        data: new TextEncoder().encode("safe"),
+      },
+      database,
+    );
+    expect(
+      handleAssetRequest(
+        new Request(`katarune-asset://asset/${asset.id}`),
+        database,
+        service,
+      ).status,
+    ).toBe(415);
+    writeFileSync(service.resolveManagedPath(asset.id), "tampered");
+    expect(() => service.readChatAttachment(asset.id, database)).toThrow(
+      /完整性校验失败/,
+    );
   });
 });

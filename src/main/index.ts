@@ -92,6 +92,7 @@ void app.whenReady().then(() => {
     },
   });
   assetService.reconcile(databaseRuntime, defaultCharacterConfig);
+  assetService.cleanupUnreferencedChatAttachments(databaseRuntime);
   return Promise.all([
     createCredentialStore({
       userDataPath: app.getPath("userData"),

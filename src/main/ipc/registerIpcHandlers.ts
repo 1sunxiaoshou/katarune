@@ -22,7 +22,7 @@ export function registerIpcHandlers(
   const speechRequests = new SpeechRequestRegistry();
 
   registerAppHandlers(database, aiRuntime);
-  registerChatHandlers(database, aiRuntime, chatStreams);
+  registerChatHandlers(database, aiRuntime, chatStreams, assetService);
   registerSpeechHandlers(speechService, speechRequests);
   registerProviderHandlers(database, aiRuntime, credentialStore);
   registerCharacterHandlers(database, assetService, chatStreams);

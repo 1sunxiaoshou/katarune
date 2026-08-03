@@ -4,6 +4,7 @@ import type {
   AppSettings,
   AppState,
   Asset,
+  AssetKind,
   Character,
   CharacterList,
   CreateCharacterRequest,
@@ -67,7 +68,7 @@ export interface DatabaseRuntime {
     characterId: string,
     status: "regular" | "archived",
   ): void;
-  deleteThread(threadId: string, characterId: string): void;
+  deleteThread(threadId: string, characterId: string): readonly string[];
   loadThreadMessages(
     threadId: string,
     characterId: string,
@@ -77,7 +78,12 @@ export interface DatabaseRuntime {
     threadId: string,
     characterId: string,
     messageIds: readonly string[],
-  ): void;
+  ): readonly string[];
+  fetchThreadChatAttachment(
+    threadId: string,
+    characterId: string,
+    assetId: string,
+  ): Asset;
   listProviderConfigs(): ProviderConfigList;
   createProviderConfig(
     request: CreateProviderConfigRequest,
@@ -113,6 +119,9 @@ export interface DatabaseRuntime {
     asset?: ReadyAssetRegistration,
   ): Character;
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
+  registerReadyAsset(asset: ReadyAssetRegistration): Asset;
+  deleteUnreferencedChatAttachment(id: string): boolean;
+  listUnreferencedChatAttachmentIds(): readonly string[];
   close(): void;
 }
 
@@ -138,6 +147,7 @@ export interface AssetMetadata {
 export interface ReadyAssetRegistration extends AssetMetadata {
   readonly id: string;
   readonly storageKey: string;
+  readonly kind: AssetKind;
 }
 
 export type AppStateRepository = Pick<
@@ -159,6 +169,7 @@ export type ThreadRepository = Pick<
   | "loadThreadMessages"
   | "appendThreadMessage"
   | "deleteThreadMessages"
+  | "fetchThreadChatAttachment"
 >;
 export type ProviderRepository = Pick<
   DatabaseRuntime,
@@ -188,5 +199,10 @@ export type CharacterRepository = Pick<
 >;
 export type AssetRepository = Pick<
   DatabaseRuntime,
-  "fetchAsset" | "listAssets" | "markAssetReady"
+  | "fetchAsset"
+  | "listAssets"
+  | "markAssetReady"
+  | "registerReadyAsset"
+  | "deleteUnreferencedChatAttachment"
+  | "listUnreferencedChatAttachmentIds"
 >;
