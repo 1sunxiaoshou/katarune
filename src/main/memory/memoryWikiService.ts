@@ -28,6 +28,7 @@ const CHARACTER_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WINDOWS_RESERVED_NAME_PATTERN =
   /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const WINDOWS_INVALID_FILENAME_CHARACTER_PATTERN = /[<>:"|?*]/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export type MemoryWikiScope =
@@ -178,7 +179,7 @@ function assertSafeSegment(segment: string): void {
     segment.startsWith(".") ||
     segment.endsWith(".") ||
     segment.endsWith(" ") ||
-    segment.includes(":") ||
+    WINDOWS_INVALID_FILENAME_CHARACTER_PATTERN.test(segment) ||
     CONTROL_CHARACTER_PATTERN.test(segment) ||
     WINDOWS_RESERVED_NAME_PATTERN.test(segment)
   ) {

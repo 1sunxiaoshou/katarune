@@ -243,8 +243,17 @@ describe("Memory Wiki service", () => {
     "topics/CON.md",
     "topics/secret.txt",
     ".hidden.md",
+    "topics/a?.md",
+    "topics/a*.md",
+    "topics/a<.md",
+    "topics/a>.md",
+    'topics/a".md',
+    "topics/a|.md",
+    "topics/a:.md",
   ])("rejects unsafe page path %s", (page) => {
-    expect(() => normalizeMemoryWikiPagePath(page)).toThrow(MemoryWikiError);
+    expect(() => normalizeMemoryWikiPagePath(page)).toThrow(
+      expect.objectContaining({ code: "invalid_page" }),
+    );
   });
 
   it("rejects delete, move, multi-file, oversized, and case-conflicting writes", async () => {
