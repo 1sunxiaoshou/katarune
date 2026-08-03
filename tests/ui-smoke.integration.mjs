@@ -307,6 +307,83 @@ function registerMockHandlers() {
         const serializedMessages = JSON.stringify(request.messages);
         const isSecondCharacter = request.characterId === secondCharacter.id;
         const isCrossCharacterRun = serializedMessages.includes("跨角色");
+        const shouldRenderMemoryTool =
+          serializedMessages.includes("测试记忆工具") &&
+          !serializedMessages.includes("wiki_search");
+        if (shouldRenderMemoryTool) {
+          writer.write({ type: "start-step" });
+          const toolCalls = [
+            {
+              id: "memory-search-call",
+              name: "wiki_search",
+              input: { query: "不应显示的搜索词" },
+              output: {
+                status: "ok",
+                results: [
+                  {
+                    page: "profile.md",
+                    line: 2,
+                    excerpt: "不应显示的记忆正文",
+                    revision: `sha256:${"a".repeat(64)}`,
+                  },
+                ],
+                truncated: false,
+              },
+            },
+            {
+              id: "memory-get-call",
+              name: "wiki_get",
+              input: { page: "profile.md" },
+              output: {
+                status: "found",
+                page: "profile.md",
+                revision: `sha256:${"a".repeat(64)}`,
+                totalLines: 2,
+                startLine: 1,
+                endLine: 2,
+                content: "不应显示的读取正文",
+              },
+            },
+            {
+              id: "memory-patch-call",
+              name: "wiki_apply_patch",
+              input: {
+                baseRevision: `sha256:${"a".repeat(64)}`,
+                patch: "*** Begin Patch\\n*** Update File: profile.md\\n@@\\n-secret\\n+不应显示的补丁\\n*** End Patch",
+              },
+              output: {
+                status: "applied",
+                page: "profile.md",
+                revision: `sha256:${"b".repeat(64)}`,
+              },
+            },
+          ];
+          for (const toolCall of toolCalls) {
+            writer.write({
+              type: "tool-input-start",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+            });
+            writer.write({
+              type: "tool-input-delta",
+              toolCallId: toolCall.id,
+              inputTextDelta: JSON.stringify(toolCall.input),
+            });
+            writer.write({
+              type: "tool-input-available",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              input: toolCall.input,
+            });
+            writer.write({
+              type: "tool-output-available",
+              toolCallId: toolCall.id,
+              output: toolCall.output,
+            });
+          }
+          writer.write({ type: "finish-step" });
+          writer.write({ type: "start-step" });
+        }
         writer.write({ type: "text-start", id: "mock-text" });
         writer.write({
           type: "text-delta",
@@ -319,6 +396,7 @@ function registerMockHandlers() {
           delta: `${isCrossCharacterRun ? "跨角色" : ""}抵达：${request.threadId}。`,
         });
         writer.write({ type: "text-end", id: "mock-text" });
+        if (shouldRenderMemoryTool) writer.write({ type: "finish-step" });
       },
     });
     const response = createUIMessageStreamResponse({ stream });
@@ -750,7 +828,52 @@ async function run() {
       );
     });
 
+    await runStep("render private Memory Wiki tool status", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
+          input,
+          '测试记忆工具',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="Send message"]');
+      await waitForText(
+        window,
+        '[data-slot="aui_thread-viewport"]',
+        "已搜索记忆",
+      );
+      await waitForText(
+        window,
+        '[data-slot="aui_thread-viewport"]',
+        "已读取记忆",
+      );
+      await waitForText(
+        window,
+        '[data-slot="aui_thread-viewport"]',
+        "已更新记忆",
+      );
+      assert.equal(
+        await window.webContents.executeJavaScript(`(() => {
+          const text = document.querySelector('[data-slot="aui_thread-viewport"]')?.textContent ?? '';
+          return [
+            '不应显示的搜索词',
+            '不应显示的记忆正文',
+            '不应显示的读取正文',
+            '不应显示的补丁',
+          ].some((secret) => text.includes(secret));
+        })()`),
+        false,
+      );
+      await waitUntil(
+        "Memory Wiki response stream completion",
+        () => activeChatStreamCount === 0,
+      );
+      await waitForSelector(window, 'button[aria-label="Send message"]');
+    });
+
     await runStep("import attachments from picker, drop, and clipboard", async () => {
+      await waitForSelector(window, 'button[aria-label="Add Attachment"]');
       await window.webContents.executeJavaScript(`(() => {
         const originalClick = HTMLInputElement.prototype.click;
         HTMLInputElement.prototype.click = function () {
@@ -761,8 +884,8 @@ async function run() {
           this.dispatchEvent(new Event('change', { bubbles: true }));
           HTMLInputElement.prototype.click = originalClick;
         };
-        document.querySelector('button[aria-label="Add Attachment"]').click();
       })()`);
+      await clickSelector(window, 'button[aria-label="Add Attachment"]');
       await waitUntil(
         "picker attachment import",
         () => importedAttachmentRequests.length === 1,
@@ -785,12 +908,14 @@ async function run() {
         "drop attachment import",
         () => importedAttachmentRequests.length === 2,
       );
+      await waitForSelector(window, ".aui-composer-attachments .aui-attachment-root");
       await clickSelector(window, ".aui-composer-attachments .aui-attachment-tile-remove");
       await waitUntil(
         "drop attachment release",
         () => releasedAttachmentIds.includes(importedAttachmentIds[1]),
       );
 
+      await waitForSelector(window, ".aui-composer-input");
       await window.webContents.executeJavaScript(`(() => {
         const transfer = new DataTransfer();
         transfer.items.add(new File(['paste'], '粘贴文件.dat'));
@@ -802,6 +927,7 @@ async function run() {
         "clipboard attachment import",
         () => importedAttachmentRequests.length === 3,
       );
+      await waitForSelector(window, ".aui-composer-attachments .aui-attachment-root");
       assert.equal(importedAttachmentRequests[1].mediaType, "application/octet-stream");
       assert.deepEqual(
         [...importedAttachmentRequests[2].data],

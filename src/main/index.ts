@@ -12,6 +12,10 @@ import { createAssetService } from "./assets/assetService";
 import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
+import {
+  createMemoryWikiService,
+  type MemoryWikiService,
+} from "./memory/memoryWikiService";
 import { createCredentialStore } from "./security/credentialStore";
 import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
 import { createTtsCache } from "./speech/ttsCache";
@@ -71,8 +75,9 @@ function createMainWindow(): BrowserWindow {
 let databaseRuntime: DatabaseRuntime | undefined;
 let aiRuntime: AiRuntime | undefined;
 let speechRequests: SpeechRequestRegistry | undefined;
+let memoryWiki: MemoryWikiService | undefined;
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   const characterResourcesPath = app.isPackaged
     ? join(process.resourcesPath, "characters")
     : join(app.getAppPath(), "resources", "characters");
@@ -93,6 +98,10 @@ void app.whenReady().then(() => {
   });
   assetService.reconcile(databaseRuntime, defaultCharacterConfig);
   assetService.cleanupUnreferencedChatAttachments(databaseRuntime);
+  memoryWiki = createMemoryWikiService({ userDataPath: app.getPath("userData") });
+  await memoryWiki.initialize(
+    databaseRuntime.listCharacters().characters.map((character) => character.id),
+  );
   return Promise.all([
     createCredentialStore({
       userDataPath: app.getPath("userData"),
@@ -105,8 +114,8 @@ void app.whenReady().then(() => {
     Promise.resolve(assetService),
   ]);
 }).then(async ([credentialStore, assetService]) => {
-  if (databaseRuntime === undefined) {
-    throw new Error("Database runtime was not initialized.");
+  if (databaseRuntime === undefined || memoryWiki === undefined) {
+    throw new Error("Database or Memory Wiki runtime was not initialized.");
   }
   Menu.setApplicationMenu(null);
   aiRuntime = await createAiRuntime({ database: databaseRuntime, credentialStore });
@@ -135,6 +144,7 @@ void app.whenReady().then(() => {
     credentialStore,
     assetService,
     speechService,
+    memoryWiki,
   );
   createMainWindow();
 

@@ -25,6 +25,7 @@ ATRI Chat 是产品行为和资产参考，不是需要保持代码或数据兼�
 - 可配置的模型供应商、安全凭据、模型发现、模型检查与连接验证。
 - 基于 AI SDK 和 assistant-ui 的真实流式回复、工具循环与原生 Markdown/工具界面。
 - 按角色隔离的多会话、后台并发生成、自动标题和 SQLite 重启恢复。
+- 按角色隔离的本地 Markdown Memory Wiki、核心记忆注入、词法检索、局部读取和 revision 安全补丁更新。
 - 角色创建、编辑、删除、系统提示词、模型选择、立绘导入与卡片取景。
 - 聊天附件的本地复制托管、消息引用、图片预览、当前消息临时物化与历史图片按需读取。
 - 应用默认语言模型；角色未指定模型时继承默认模型。
@@ -36,7 +37,7 @@ ATRI Chat 是产品行为和资产参考，不是需要保持代码或数据兼�
 ## 当前限制
 
 - 附件能否被模型理解仍取决于当前 Provider 与模型能力；不支持视觉或文件输入的模型可能忽略附件并给出警告。
-- 会话历史已经持久化，但长期记忆的提取、检索、更新、遗忘和用户控制仍在设计中。
+- 长期记忆首版由角色自主维护；尚无独立浏览、手动编辑、版本恢复、语义检索或跨角色共享用户画像。
 - ASR、流式语音和可打断的双向语音会话尚未实现。
 - VRM 仍是目标能力，当前原型暂缓，渲染与驱动路线尚未确定。
 - 在线更新、发布托管、Windows 签名、macOS 公证和跨平台实机验收尚未完成。
@@ -77,6 +78,7 @@ npm run test:ui
 ## 数据与隐私
 
 - SQLite、角色资产、会话和应用设置保存在 Electron 的应用 `userData` 目录。
+- 每个角色的长期记忆以明文 Markdown 保存在 `userData/memory/agents/<character-id>/`；角色之间隔离，renderer 不获得真实路径或文件权限。
 - API Key 与 Token 由 Electron `safeStorage` 加密，SQLite 只保存不透明凭据引用。
 - renderer 不能读取数据库、凭据文件或用户文件的真实路径，只能通过最小化的类型安全 IPC 使用受信任能力。
 - 主题、自动朗读、减少动态效果等设备偏好保存在当前 Electron profile 的 `localStorage`。
@@ -95,7 +97,7 @@ Electron Desktop
 │   └── Shared Zod-validated IPC Bridge
 └── Trusted Main Process
     ├── AI SDK Agent and Provider Registry
-    ├── Tools and Speech Capabilities
+    ├── Tools, Role-scoped Memory Wiki and Speech Capabilities
     ├── SQLite / Drizzle Repositories
     ├── Credential Store
     └── Managed Assets and Protocols
@@ -105,7 +107,7 @@ Electron Desktop
 
 - AI SDK 负责模型调用、工具调用、流式输出和基础 Agent 循环。
 - assistant-ui 负责聊天 Runtime、消息交互和工具 UI 基础能力。
-- SQLite 是会话、角色、模型配置和产品设置的本地事实来源。
+- SQLite 是会话、角色、模型配置和产品设置的本地事实来源；角色级 Markdown Wiki 是长期记忆正文的事实来源。
 - 言奏自研部分集中在角色、资产、记忆策略、语音协调、桌面能力和安全策略。
 
 更完整的版本与边界说明见[技术选型](docs/02-架构/技术选型.md)和[决策记录](docs/01-决策/决策记录.md)。
@@ -117,7 +119,7 @@ Electron Desktop
 | P0 · 项目准备 | 进行中 | 基础定位与规范已建立；名称检查和许可证仍待确定 |
 | P1 · 技术验证 | 已完成 | Electron、SQLite、AI SDK、assistant-ui 与测试基线已验证 |
 | P2 · 最小垂直闭环 | 已完成 | 模型、工具、持久化会话和首个真实 TTS Provider 已贯通 |
-| P3 · 现有能力接入 | 进行中 | 角色、多会话、设置、附件和分发基线已推进；记忆、ASR 等仍待完成 |
+| P3 · 现有能力接入 | 进行中 | 角色、多会话、设置、附件、长期记忆工具和分发基线已推进；ASR 等仍待完成 |
 | P4 · 核心体验 | 未开始 | VRM、角色状态协调、长期记忆体验与桌面权限策略 |
 | P5 · 生态扩展 | 未开始 | MCP、外部 Harness 协议与第三方扩展边界 |
 
