@@ -68,7 +68,7 @@ export interface DatabaseRuntime {
     characterId: string,
     status: "regular" | "archived",
   ): void;
-  deleteThread(threadId: string, characterId: string): void;
+  deleteThread(threadId: string, characterId: string): readonly string[];
   loadThreadMessages(
     threadId: string,
     characterId: string,
@@ -78,7 +78,12 @@ export interface DatabaseRuntime {
     threadId: string,
     characterId: string,
     messageIds: readonly string[],
-  ): void;
+  ): readonly string[];
+  fetchThreadChatAttachment(
+    threadId: string,
+    characterId: string,
+    assetId: string,
+  ): Asset;
   listProviderConfigs(): ProviderConfigList;
   createProviderConfig(
     request: CreateProviderConfigRequest,
@@ -164,6 +169,7 @@ export type ThreadRepository = Pick<
   | "loadThreadMessages"
   | "appendThreadMessage"
   | "deleteThreadMessages"
+  | "fetchThreadChatAttachment"
 >;
 export type ProviderRepository = Pick<
   DatabaseRuntime,

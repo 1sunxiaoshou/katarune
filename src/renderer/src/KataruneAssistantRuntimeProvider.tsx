@@ -22,6 +22,7 @@ import type { Character } from "../../shared/ipc";
 import { useCharacterSession } from "./characters/CharacterSessionProvider";
 import { KataruneChatTransport } from "./chat/KataruneChatTransport";
 import { KataruneAttachmentAdapter } from "./chat/KataruneAttachmentAdapter";
+import { ViewChatImageToolUI } from "./chat/ViewChatImageToolUI";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
 import { KataruneSpeechSynthesisAdapter } from "./speech/KataruneSpeechSynthesisAdapter";
 import {
@@ -157,6 +158,7 @@ function CharacterRuntimeHost({
         {active ? (
           <>
             <AutoReadReplies />
+            <ViewChatImageToolUI />
             {children}
           </>
         ) : null}

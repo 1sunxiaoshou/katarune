@@ -280,9 +280,31 @@ try {
     false,
     "消息引用存在时不得释放附件",
   );
-  runtime.deleteThreadMessages(threadId, initialCharacterId, [
-    "message-with-attachment",
-  ]);
+  assert.equal(
+    runtime.fetchThreadChatAttachment(
+      threadId,
+      initialCharacterId,
+      attachmentId,
+    ).id,
+    attachmentId,
+    "历史图片工具应只能通过会话范围查询附件",
+  );
+  assert.throws(
+    () =>
+      runtime?.fetchThreadChatAttachment(
+        "another-thread",
+        initialCharacterId,
+        attachmentId,
+      ),
+    /not found/,
+  );
+  assert.deepEqual(
+    runtime.deleteThreadMessages(threadId, initialCharacterId, [
+      "message-with-attachment",
+    ]),
+    [attachmentId],
+    "删除消息只应返回本次可能失去引用的附件",
+  );
   assert.equal(
     runtime.deleteUnreferencedChatAttachment(attachmentId),
     true,
@@ -704,7 +726,11 @@ try {
   assert.equal(updatedProviderConfig.credentialRef, credentialReference);
   assert.equal(updatedProviderConfig.enabled, false);
 
-  runtime.deleteThread(threadId, restoredCharacterId);
+  assert.deepEqual(
+    runtime.deleteThread(threadId, restoredCharacterId),
+    [persistentAttachmentId],
+    "删除会话只应返回该会话引用过的附件",
+  );
   assert.throws(
     () => runtime?.loadThreadMessages(threadId, restoredCharacterId),
     /not found/,

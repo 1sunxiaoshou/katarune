@@ -56,6 +56,12 @@ function createDatabase(
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
+    fetchAsset: vi.fn(() => {
+      throw new Error("asset not found");
+    }),
+    fetchThreadChatAttachment: vi.fn(() => {
+      throw new Error("thread attachment not found");
+    }),
     renameThread: vi.fn(),
   };
 }
@@ -152,6 +158,42 @@ describe("chat service", () => {
         ["说明.pdf"],
       ),
     ).toContain("说明.pdf");
+    expect(
+      sanitizeChatError({ name: "AI_UnsupportedFunctionalityError" }),
+    ).toContain("历史图片");
+  });
+
+  it("exposes the historical image tool for every resolved language model", async () => {
+    const model = createModel(() => undefined);
+    const service = createChatService({
+      database: createDatabase(),
+      aiRuntime: { resolveLanguageModel: () => model },
+      attachmentSupport: {
+        assetService: {
+          readChatAttachment: () => ({
+            data: new Uint8Array([1]),
+            mediaType: "image/png",
+            filename: "历史图片.png",
+          }),
+        },
+        imageProcessor: {
+          prepare: (data, mediaType) => ({ data, mediaType }),
+        },
+      },
+    });
+
+    await (
+      await service.createResponse(request, new AbortController().signal)
+    ).text();
+
+    expect(model.doStreamCalls[0]?.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "view_chat_image",
+          type: "function",
+        }),
+      ]),
+    );
   });
 
   it("uses the database character model and instructions to produce an AI SDK SSE stream", async () => {
@@ -328,6 +370,150 @@ describe("chat service", () => {
     expect(streamText).toContain("read_test_value");
     expect(streamText).toContain("Time received");
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain("received");
+  });
+
+  it("sends a historical image only to the model step after the image tool call", async () => {
+    let callCount = 0;
+    const prompts: unknown[] = [];
+    const historicalImageId = "11111111-1111-4111-8111-111111111111";
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        prompts.push(options.prompt);
+        callCount += 1;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              if (callCount === 1) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "view-call-1",
+                  toolName: "view_chat_image",
+                  input: JSON.stringify({
+                    attachmentId: historicalImageId,
+                    detail: "high",
+                  }),
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "tool-calls", raw: undefined },
+                  usage: {
+                    inputTokens: {
+                      total: 1,
+                      noCache: 1,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
+                    outputTokens: {
+                      total: 1,
+                      text: undefined,
+                      reasoning: undefined,
+                    },
+                  },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-image" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text-image",
+                  delta: "看到了历史图片",
+                });
+                controller.enqueue({ type: "text-end", id: "text-image" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: undefined },
+                  usage: {
+                    inputTokens: {
+                      total: 1,
+                      noCache: 1,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
+                    outputTokens: {
+                      total: 1,
+                      text: 1,
+                      reasoning: undefined,
+                    },
+                  },
+                });
+              }
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    const database = createDatabase();
+    const historicalAsset = {
+      id: historicalImageId,
+      kind: "chat_attachment" as const,
+      status: "ready" as const,
+      mimeType: "image/png",
+      byteSize: 3,
+      sha256: "a".repeat(64),
+      originalName: "历史图片.png",
+      createdAt: new Date("2026-08-03T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-03T00:00:00.000Z"),
+    };
+    database.fetchAsset = vi.fn(() => historicalAsset);
+    database.fetchThreadChatAttachment = vi.fn(() => historicalAsset);
+    const service = createChatService({
+      database,
+      aiRuntime: { resolveLanguageModel: () => model },
+      attachmentSupport: {
+        assetService: {
+          readChatAttachment: () => ({
+            data: new Uint8Array([1, 2, 3]),
+            mediaType: "image/png",
+            filename: "历史图片.png",
+          }),
+        },
+        imageProcessor: {
+          prepare: (data) => ({
+            data: new Uint8Array([...data, 4]),
+            mediaType: "image/png",
+          }),
+        },
+      },
+    });
+    const response = await service.createResponse(
+      {
+        ...request,
+        messages: [
+          {
+            id: "historical-message",
+            role: "user",
+            parts: [
+              { type: "text", text: "保存这张图" },
+              {
+                type: "file",
+                mediaType: "image/png",
+                filename: "历史图片.png",
+                url: `katarune-asset://asset/${historicalImageId}`,
+              },
+            ],
+          },
+          {
+            id: "historical-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "好的" }],
+          },
+          {
+            id: "current-message",
+            role: "user",
+            parts: [{ type: "text", text: "这张图里有什么？" }],
+          },
+        ],
+      },
+      new AbortController().signal,
+    );
+    const streamText = await response.text();
+
+    expect(callCount).toBe(2);
+    expect(JSON.stringify(prompts[0])).toContain("历史图片附件");
+    expect(JSON.stringify(prompts[0])).not.toContain("AQIDBA==");
+    expect(JSON.stringify(prompts[1])).toContain("AQIDBA==");
+    expect(streamText).toContain("看到了历史图片");
+    expect(streamText).not.toContain("AQIDBA==");
   });
 
   it("rejects renderer-injected system messages", async () => {

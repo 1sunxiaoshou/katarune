@@ -2,6 +2,7 @@ import {
   stepCountIs,
   ToolLoopAgent,
   createAgentUIStreamResponse,
+  validateUIMessages,
   type LanguageModel,
   type Experimental_DownloadFunction,
   type ToolSet,
@@ -15,21 +16,34 @@ import type {
   GenerateThreadTitleResponse,
 } from "../../shared/ipc";
 import type { Character } from "../../shared/characters";
-import { parseAssetUrl } from "../../shared/assets";
 import {
   ChatAttachmentError,
   type AssetService,
 } from "../assets/assetService";
+import type { ChatImageProcessor } from "../assets/chatImageProcessor";
 import type { DatabaseRuntime } from "../database/database";
 import type { AiRuntime, ResolvedLanguageModel } from "./runtime";
 import {
   kataruneAiToolkit,
   type KataruneAiToolkitToolsOptions,
 } from "./toolkit";
+import {
+  ChatAttachmentRunBudget,
+  createChatAttachmentDownload,
+  createViewChatImageTools,
+  projectChatAttachmentMessages,
+} from "./chatAttachments";
+
+export { createChatAttachmentDownload } from "./chatAttachments";
 
 export type ChatServiceDatabase = Pick<
   DatabaseRuntime,
-  "fetchCharacter" | "fetchThread" | "getAppSettings" | "renameThread"
+  | "fetchCharacter"
+  | "fetchThread"
+  | "fetchAsset"
+  | "fetchThreadChatAttachment"
+  | "getAppSettings"
+  | "renameThread"
 >;
 export type ChatServiceAiRuntime = Pick<AiRuntime, "resolveLanguageModel">;
 
@@ -58,6 +72,10 @@ interface CreateChatServiceOptions {
     tools(options?: KataruneAiToolkitToolsOptions): Promise<ToolSet>;
   };
   readonly attachmentDownload?: Experimental_DownloadFunction;
+  readonly attachmentSupport?: {
+    readonly assetService: Pick<AssetService, "readChatAttachment">;
+    readonly imageProcessor: ChatImageProcessor;
+  };
 }
 
 class PublicChatError extends Error {}
@@ -120,6 +138,7 @@ function createCharacterAgent(
         character.systemPrompt,
         `Current date: ${options.currentDate}`,
         `Time zone: ${options.timeZone}`,
+        "When view_chat_image fails, do not retry the same attachment in this response. Explain that the current model may not support historical image input and ask the user to attach the image again or switch models.",
       ].join("\n"),
     }),
     tools,
@@ -260,31 +279,12 @@ export function sanitizeChatError(
   if (error instanceof PublicChatError || error instanceof ChatAttachmentError) {
     return error.message;
   }
-  if (isUnsupportedAttachmentError(error) && filenames.length > 0) {
-    return `当前模型不支持附件“${filenames.join("”、“")}”，请移除附件或更换模型后重试。`;
+  if (isUnsupportedAttachmentError(error)) {
+    return filenames.length > 0
+      ? `当前模型不支持附件“${filenames.join("”、“")}”，请移除附件或更换模型后重试。`
+      : "当前模型无法读取历史图片，请重新附图或更换模型。";
   }
   return "模型回复失败，请稍后重试或检查模型设置。";
-}
-
-export function createChatAttachmentDownload(
-  database: DatabaseRuntime,
-  assetService: Pick<AssetService, "readChatAttachment">,
-): Experimental_DownloadFunction {
-  return async (requests) =>
-    Promise.all(
-      requests.map(async ({ url, isUrlSupportedByModel }) => {
-        const assetId = parseAssetUrl(url);
-        if (assetId !== null) {
-          const attachment = assetService.readChatAttachment(assetId, database);
-          return {
-            data: attachment.data,
-            mediaType: attachment.mediaType,
-          };
-        }
-        if (isUrlSupportedByModel) return null;
-        throw new ChatAttachmentError("附件引用无效或不受言奏托管。");
-      }),
-    );
 }
 
 export function createChatService({
@@ -295,6 +295,7 @@ export function createChatService({
   environmentSource = systemChatEnvironmentSource,
   toolkit = kataruneAiToolkit,
   attachmentDownload,
+  attachmentSupport,
 }: CreateChatServiceOptions): ChatService {
   return {
     createResponse: async (request, abortSignal) => {
@@ -320,18 +321,63 @@ export function createChatService({
         );
       }
 
-      const tools = await toolkit.tools({
+      const budget = new ChatAttachmentRunBudget();
+      const imageTools =
+        attachmentSupport === undefined
+          ? {}
+          : createViewChatImageTools({
+              database,
+              assetService: attachmentSupport.assetService,
+              imageProcessor: attachmentSupport.imageProcessor,
+              budget,
+              threadId: request.threadId,
+              characterId: request.characterId,
+            });
+      const baseTools = await toolkit.tools({
         frontend: toAISDKFrontendTools(request.frontendTools),
         providerContext: {
           provider: model.provider,
           modelId: model.modelId,
         },
       });
-      const agent = createAgent(character, model, tools, attachmentDownload);
-      const filenames = attachmentNames(request.messages);
+      const imageToolCollision = Object.keys(imageTools).find((name) =>
+        Object.hasOwn(baseTools, name),
+      );
+      if (imageToolCollision !== undefined) {
+        throw new PublicChatError(
+          `工具“${imageToolCollision}”与受信任的历史图片工具冲突。`,
+        );
+      }
+      const tools = { ...baseTools, ...imageTools };
+      const validatedMessages = await validateUIMessages({
+        messages: request.messages,
+      });
+      const projected = projectChatAttachmentMessages(
+        validatedMessages,
+        database,
+        request.threadId,
+        request.characterId,
+      );
+      const responseAttachmentDownload =
+        attachmentDownload ??
+        (attachmentSupport === undefined
+          ? undefined
+          : createChatAttachmentDownload(
+              database,
+              attachmentSupport.assetService,
+              budget,
+              projected.currentAssetIds,
+            ));
+      const agent = createAgent(
+        character,
+        model,
+        tools,
+        responseAttachmentDownload,
+      );
+      const filenames = attachmentNames(projected.messages);
       return createAgentUIStreamResponse({
         agent,
-        uiMessages: request.messages,
+        uiMessages: projected.messages,
         options: resolveChatCallOptions(environmentSource),
         abortSignal,
         onError: (error) => sanitizeChatError(error, filenames),

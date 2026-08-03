@@ -63,7 +63,7 @@ export interface AssetService {
   ): Asset;
   readChatAttachment(
     assetId: string,
-    database: DatabaseRuntime,
+    database: Pick<DatabaseRuntime, "fetchAsset">,
   ): ChatAttachmentBytes;
   releaseChatAttachment(assetId: string, database: DatabaseRuntime): boolean;
   cleanupUnreferencedChatAttachments(database: DatabaseRuntime): void;

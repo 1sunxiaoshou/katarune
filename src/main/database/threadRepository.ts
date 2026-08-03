@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   CHAT_ATTACHMENT_LIMITS,
+  assetSchema,
   initializeThreadResponseSchema,
   threadListSchema,
   threadMessagesSchema,
@@ -125,6 +126,13 @@ export function createThreadRepository(
     },
     deleteThread: (threadId, characterId) => {
       fetchThread(threadId, characterId);
+      const candidateAssetIds = database
+        .selectDistinct({ assetId: messageAssets.assetId })
+        .from(messageAssets)
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(eq(messages.threadId, threadId))
+        .all()
+        .map(({ assetId }) => assetId);
       database
         .delete(threads)
         .where(
@@ -134,6 +142,7 @@ export function createThreadRepository(
           ),
         )
         .run();
+      return candidateAssetIds;
     },
     loadThreadMessages: (threadId, characterId) => {
       fetchThread(threadId, characterId);
@@ -258,7 +267,19 @@ export function createThreadRepository(
     },
     deleteThreadMessages: (threadId, characterId, messageIds) => {
       fetchThread(threadId, characterId);
-      if (messageIds.length === 0) return;
+      if (messageIds.length === 0) return [];
+      const candidateAssetIds = database
+        .selectDistinct({ assetId: messageAssets.assetId })
+        .from(messageAssets)
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(
+          and(
+            eq(messages.threadId, threadId),
+            inArray(messages.id, messageIds),
+          ),
+        )
+        .all()
+        .map(({ assetId }) => assetId);
       database
         .delete(messages)
         .where(
@@ -268,6 +289,39 @@ export function createThreadRepository(
           ),
         )
         .run();
+      return candidateAssetIds;
+    },
+    fetchThreadChatAttachment: (threadId, characterId, assetId) => {
+      fetchThread(threadId, characterId);
+      const asset = database
+        .select({
+          id: assets.id,
+          kind: assets.kind,
+          status: assets.status,
+          mimeType: assets.mimeType,
+          byteSize: assets.byteSize,
+          sha256: assets.sha256,
+          originalName: assets.originalName,
+          createdAt: assets.createdAt,
+          updatedAt: assets.updatedAt,
+        })
+        .from(assets)
+        .innerJoin(messageAssets, eq(messageAssets.assetId, assets.id))
+        .innerJoin(messages, eq(messages.id, messageAssets.messageId))
+        .where(
+          and(
+            eq(assets.id, assetId),
+            eq(assets.kind, "chat_attachment"),
+            eq(messages.threadId, threadId),
+          ),
+        )
+        .get();
+      if (asset === undefined) {
+        throw new Error(
+          `Chat attachment "${assetId}" was not found in thread "${threadId}".`,
+        );
+      }
+      return assetSchema.parse(asset);
     },
   };
 }

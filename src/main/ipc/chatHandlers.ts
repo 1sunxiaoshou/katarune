@@ -15,14 +15,12 @@ import {
   setThreadStatusRequestSchema,
   threadIdRequestSchema,
 } from "../../shared/ipc";
-import {
-  createChatAttachmentDownload,
-  createChatService,
-} from "../ai/chatService";
+import { createChatService } from "../ai/chatService";
 import { ChatStreamRegistry, startChatStream } from "../ai/chatStream";
 import type { AiRuntime } from "../ai/runtime";
 import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
+import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
 
 export function registerChatHandlers(
   database: DatabaseRuntime,
@@ -33,7 +31,10 @@ export function registerChatHandlers(
   const chatService = createChatService({
     database,
     aiRuntime,
-    attachmentDownload: createChatAttachmentDownload(database, assetService),
+    attachmentSupport: {
+      assetService,
+      imageProcessor: createElectronChatImageProcessor(),
+    },
   });
 
   ipcMain.handle(IPC_CHANNELS.importChatAttachment, (_event, value: unknown) => {
@@ -77,8 +78,10 @@ export function registerChatHandlers(
   ipcMain.handle(IPC_CHANNELS.deleteThread, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     chatStreams.cancelThread(characterId, threadId);
-    database.deleteThread(threadId, characterId);
-    assetService.cleanupUnreferencedChatAttachments(database);
+    const candidateAssetIds = database.deleteThread(threadId, characterId);
+    for (const assetId of candidateAssetIds) {
+      assetService.releaseChatAttachment(assetId, database);
+    }
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.loadThreadMessages, (_event, value: unknown) => {
@@ -93,8 +96,14 @@ export function registerChatHandlers(
   ipcMain.handle(IPC_CHANNELS.deleteThreadMessages, (_event, value: unknown) => {
     const { threadId, characterId, messageIds } =
       deleteThreadMessagesRequestSchema.parse(value);
-    database.deleteThreadMessages(threadId, characterId, messageIds);
-    assetService.cleanupUnreferencedChatAttachments(database);
+    const candidateAssetIds = database.deleteThreadMessages(
+      threadId,
+      characterId,
+      messageIds,
+    );
+    for (const assetId of candidateAssetIds) {
+      assetService.releaseChatAttachment(assetId, database);
+    }
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.on(IPC_CHANNELS.startChatStream, (event, value: unknown) => {
