@@ -41,7 +41,7 @@ export function SettingsPage({
 
   return (
     <main
-      className="settings-page relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
+      className="settings-page scrollbar-hidden relative h-full min-h-0 overflow-y-auto bg-background md:overflow-hidden"
       data-testid="settings-page"
       id="main-content"
     >
@@ -89,7 +89,7 @@ export function SettingsPage({
         </aside>
 
         <div
-          className="min-h-0 md:overflow-y-auto"
+          className="scrollbar-hidden min-h-0 md:overflow-y-auto"
           data-testid="settings-content"
         >
           <TabsContent className="settings-tab-panel h-full" value="general">

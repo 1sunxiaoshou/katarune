@@ -734,7 +734,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="min-h-0 overflow-y-auto pb-12" key={item.value} value={item.value}>
+            <TabsContent className="scrollbar-hidden min-h-0 overflow-y-auto pb-12" data-testid="model-list-scroll" key={item.value} value={item.value}>
               {modelRows(item.value)}
             </TabsContent>
           ))}
@@ -782,7 +782,7 @@ function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.E
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
+            <TabsContent className="scrollbar-hidden grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
               {message}
             </TabsContent>
           ))}
@@ -822,8 +822,8 @@ export function ModelManagement({
   );
 
   return (
-    <section className="grid w-full gap-6 lg:h-full lg:grid-cols-[15rem_minmax(0,1fr)]" aria-labelledby="model-settings-title" data-testid="model-management">
-      <Card className="rounded-none border ring-0 lg:h-full" size="sm">
+    <section className="grid w-full gap-6 lg:h-full lg:min-h-0 lg:grid-cols-[15rem_minmax(0,1fr)]" aria-labelledby="model-settings-title" data-testid="model-management">
+      <Card className="rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
         <CardHeader>
           <CardTitle style={{ alignSelf: "center", gridRow: "span 2" }}>模型供应商</CardTitle>
           <CardAction>
@@ -832,11 +832,11 @@ export function ModelManagement({
             </TooltipIconButton>
           </CardAction>
         </CardHeader>
-        <CardContent className="flex min-h-0 flex-1 flex-col" data-testid="provider-list">
+        <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="provider-list">
           {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">正在读取配置……</p>}
           {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
           {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
-          <div className="relative isolate grid gap-2">
+          <div className="scrollbar-hidden relative isolate grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1" data-testid="provider-list-scroll">
             {selectedProviderIndex >= 0 ? (
               <span
                 aria-hidden="true"
@@ -880,7 +880,7 @@ export function ModelManagement({
         </CardContent>
       </Card>
 
-      <div className="min-w-0 lg:h-full">
+      <div className="min-w-0 lg:h-full lg:min-h-0">
         <div className="sr-only" id="model-settings-title">模型设置</div>
         {selectedProvider !== undefined ? (
           <ModelSettings

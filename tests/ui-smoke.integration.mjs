@@ -1043,7 +1043,30 @@ async function run() {
         ),
         1,
       );
-
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`(() => {
+          const scrollStyle = (element) => {
+            if (element === null) throw new Error('Missing settings scroll container');
+            const style = getComputedStyle(element);
+            return {
+              overflowY: style.overflowY,
+              scrollbarWidth: style.scrollbarWidth,
+            };
+          };
+          const modelList = [...document.querySelectorAll('[data-testid="model-list-scroll"]')]
+            .find((element) => getComputedStyle(element).display !== 'none');
+          return {
+            settings: scrollStyle(document.querySelector('[data-testid="settings-content"]')),
+            providers: scrollStyle(document.querySelector('[data-testid="provider-list-scroll"]')),
+            models: scrollStyle(modelList ?? null),
+          };
+        })()`),
+        {
+          settings: { overflowY: "auto", scrollbarWidth: "none" },
+          providers: { overflowY: "auto", scrollbarWidth: "none" },
+          models: { overflowY: "auto", scrollbarWidth: "none" },
+        },
+      );
     });
   } finally {
     if (!window.isDestroyed()) window.destroy();
