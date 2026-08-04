@@ -1,0 +1,9 @@
+{
+  "name": "Katarune.Avatar.Runtime",
+  "rootNamespace": "Katarune.Avatar",
+  "references": [
+    "Kirurobo.UniWindowController",
+    "UniGLTF",
+    "VRM10"
+  ]
+}

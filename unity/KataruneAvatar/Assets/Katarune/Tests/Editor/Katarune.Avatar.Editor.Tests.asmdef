@@ -1,0 +1,7 @@
+{
+  "name": "Katarune.Avatar.Editor.Tests",
+  "rootNamespace": "Katarune.Avatar.Tests",
+  "references": ["Katarune.Avatar.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

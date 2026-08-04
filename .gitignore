@@ -33,3 +33,24 @@ Thumbs.db
 *.temp
 .cache/
 .playwright-cli/
+
+# Unity generated state and local build output
+unity/**/Library/
+unity/**/Temp/
+unity/**/Obj/
+unity/**/Logs/
+unity/**/UserSettings/
+unity/**/MemoryCaptures/
+unity/**/Recordings/
+unity/**/Builds/
+unity/**/*.csproj
+unity/**/*.sln
+unity/**/*.suo
+unity/**/*.user
+unity/**/*.pidb
+unity/**/*.booproj
+unity/**/.vs/
+unity/**/*.vrm
+unity/**/*.vrma
+unity/**/*.bvh
+unity/**/*.fbx

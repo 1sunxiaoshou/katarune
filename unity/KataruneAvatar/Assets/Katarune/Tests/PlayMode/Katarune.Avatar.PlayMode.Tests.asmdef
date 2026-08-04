@@ -1,0 +1,6 @@
+{
+  "name": "Katarune.Avatar.PlayMode.Tests",
+  "rootNamespace": "Katarune.Avatar.Tests",
+  "references": ["Katarune.Avatar.Runtime"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

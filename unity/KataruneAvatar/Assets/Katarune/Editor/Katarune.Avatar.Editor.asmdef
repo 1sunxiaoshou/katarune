@@ -1,0 +1,6 @@
+{
+  "name": "Katarune.Avatar.Editor",
+  "rootNamespace": "Katarune.Avatar.Editor",
+  "references": ["Unity.RenderPipelines.Universal.Runtime"],
+  "includePlatforms": ["Editor"]
+}
