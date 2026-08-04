@@ -1,6 +1,14 @@
-import { EyeIcon, EyeOffIcon } from "lucide-react";
+import { ChevronDownIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -12,9 +20,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ProviderLogo } from "@/components/provider-logo";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import {
   clearNotificationScope,
@@ -55,6 +65,7 @@ export function ProviderDialog({
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [providerTypeOpen, setProviderTypeOpen] = useState(false);
   const credentialRequired =
     getProviderCredentialRequirement(providerType).credentialMode === "required";
   const credentialInputRequired =
@@ -139,9 +150,66 @@ export function ProviderDialog({
 
           <div className="grid gap-2">
             <Label htmlFor="provider-type">类型 <span className="text-destructive" aria-hidden="true">*</span></Label>
-            <NativeSelect id="provider-type" className="w-full" disabled={editing} required value={providerType} onChange={(event) => changeProviderType(event.target.value as ProviderType)}>
-              {PROVIDER_TYPES.map((type) => <NativeSelectOption key={type} value={type}>{PROVIDER_CATALOG[type].label}</NativeSelectOption>)}
-            </NativeSelect>
+            <Popover open={providerTypeOpen} onOpenChange={setProviderTypeOpen}>
+              <PopoverTrigger
+                id="provider-type"
+                data-testid="provider-type-trigger"
+                type="button"
+                role="combobox"
+                aria-expanded={providerTypeOpen}
+                aria-haspopup="listbox"
+                disabled={editing}
+                className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-input bg-background px-3 py-2 text-left shadow-xs outline-none transition-[border-color,box-shadow,background-color] hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:opacity-60"
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center text-foreground">
+                  <ProviderLogo providerType={providerType} className="size-[1.125rem]" />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate font-medium">{PROVIDER_CATALOG[providerType].label}</span>
+                  <span className="truncate text-xs text-muted-foreground">{PROVIDER_CATALOG[providerType].description}</span>
+                </span>
+                <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 in-aria-expanded:rotate-180" aria-hidden="true" />
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={6}
+                className="w-(--anchor-width) min-w-80 overflow-hidden rounded-xl p-0 shadow-lg"
+              >
+                <Command defaultValue={providerType}>
+                  <CommandInput data-testid="provider-type-search" placeholder="搜索供应商…" aria-label="搜索供应商" autoFocus />
+                  <CommandList className="max-h-72">
+                    <CommandEmpty>没有匹配的供应商。</CommandEmpty>
+                    <CommandGroup className="p-1.5">
+                      {PROVIDER_TYPES.map((type) => {
+                        const descriptor = PROVIDER_CATALOG[type];
+                        return (
+                          <CommandItem
+                            key={type}
+                            data-testid={`provider-type-option-${type}`}
+                            value={type}
+                            keywords={[descriptor.label, descriptor.description]}
+                            data-checked={providerType === type}
+                            className="items-center gap-3 rounded-lg px-2.5 py-2"
+                            onSelect={() => {
+                              changeProviderType(type);
+                              setProviderTypeOpen(false);
+                            }}
+                          >
+                            <span className="flex size-7 shrink-0 items-center justify-center text-foreground">
+                              <ProviderLogo providerType={type} className="size-[1.125rem]" />
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col gap-0.5 pr-5">
+                              <span className="truncate font-medium">{descriptor.label}</span>
+                              <span className="truncate text-xs text-muted-foreground">{descriptor.description}</span>
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="grid gap-2">
