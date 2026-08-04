@@ -9,8 +9,7 @@ namespace Katarune.Avatar
         private Camera _camera;
         private GameObject _floor;
         private Material _floorMaterial;
-        private GameObject _keyLight;
-        private GameObject _fillLight;
+        private AvatarLightingRig _lightingRig;
         private Bounds _framedBounds;
         private bool _hasFramedBounds;
         private Vector2Int _lastScreenSize;
@@ -36,14 +35,18 @@ namespace Katarune.Avatar
             _camera.nearClipPlane = 0.01f;
             _camera.farClipPlane = 100f;
 
-            var key = CreateDirectionalLight("Avatar Key Light", 1.05f, new Color(1f, 0.93f, 0.88f));
-            _keyLight = key.gameObject;
-            key.transform.rotation = Quaternion.Euler(35f, -35f, 0f);
-            var fill = CreateDirectionalLight("Avatar Fill Light", 0.55f, new Color(0.62f, 0.72f, 1f));
-            _fillLight = fill.gameObject;
-            fill.transform.rotation = Quaternion.Euler(15f, 145f, 0f);
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.36f, 0.38f, 0.46f);
+            _lightingRig = gameObject.AddComponent<AvatarLightingRig>();
+            _lightingRig.Configure();
+        }
+
+        public void SetActivityLighting(AvatarActivityState activity)
+        {
+            _lightingRig?.SetActivity(activity);
+        }
+
+        public void SetRenderQuality(AvatarRenderQuality quality)
+        {
+            _lightingRig?.SetQuality(quality);
         }
 
         public Bounds Frame(GameObject avatar)
@@ -92,17 +95,6 @@ namespace Katarune.Avatar
             ScreenCapture.CaptureScreenshot(fullPath);
         }
 
-        private static Light CreateDirectionalLight(string name, float intensity, Color color)
-        {
-            var lightObject = new GameObject(name);
-            var light = lightObject.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.intensity = intensity;
-            light.color = color;
-            light.shadows = LightShadows.Soft;
-            return light;
-        }
-
         private void LateUpdate()
         {
             if (!_hasFramedBounds || _camera == null) return;
@@ -135,8 +127,6 @@ namespace Katarune.Avatar
         {
             if (_floorMaterial != null) Destroy(_floorMaterial);
             if (_floor != null) Destroy(_floor);
-            if (_keyLight != null) Destroy(_keyLight);
-            if (_fillLight != null) Destroy(_fillLight);
         }
     }
 }

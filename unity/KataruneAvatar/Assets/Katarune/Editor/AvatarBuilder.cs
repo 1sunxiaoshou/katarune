@@ -7,6 +7,7 @@ using UnityEditor.Build.Reporting;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using VRM10.MToon10;
 
 namespace Katarune.Avatar.Editor
 {
@@ -26,6 +27,7 @@ namespace Katarune.Avatar.Editor
             Directory.CreateDirectory(outputDirectory);
             ConfigurePlayer();
             ConfigureTransparentUrp();
+            ConfigureNprAssets();
             PreserveRuntimeShaders();
             var scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
             if (scenes.Length == 0) throw new InvalidOperationException("At least one enabled scene is required for the avatar build.");
@@ -42,6 +44,45 @@ namespace Katarune.Avatar.Editor
                 throw new InvalidOperationException($"Avatar build failed with result {report.summary.result} and {report.summary.totalErrors} errors.");
             }
             Debug.Log($"KATARUNE_AVATAR_BUILD_READY path={outputPath} bytes={report.summary.totalSize}");
+        }
+
+        [MenuItem("Katarune/配置角色 NPR 渲染")]
+        public static void ConfigureNprAssets()
+        {
+            EnsureDefaultVisualProfile();
+            EnsureMToonOutlineFeature("Assets/Settings/PC_Renderer.asset");
+            EnsureMToonOutlineFeature("Assets/Settings/Mobile_Renderer.asset");
+            AssetDatabase.SaveAssets();
+            Debug.Log("KATARUNE_AVATAR_NPR_ASSETS_READY");
+        }
+
+        private static void EnsureDefaultVisualProfile()
+        {
+            const string resourcesFolder = "Assets/Katarune/Resources";
+            const string profilePath = resourcesFolder + "/AvatarVisualProfile.asset";
+            if (!AssetDatabase.IsValidFolder(resourcesFolder))
+            {
+                AssetDatabase.CreateFolder("Assets/Katarune", "Resources");
+            }
+            if (AssetDatabase.LoadAssetAtPath<AvatarVisualProfile>(profilePath) != null) return;
+
+            var profile = ScriptableObject.CreateInstance<AvatarVisualProfile>();
+            profile.name = "AvatarVisualProfile";
+            AssetDatabase.CreateAsset(profile, profilePath);
+        }
+
+        private static void EnsureMToonOutlineFeature(string rendererDataPath)
+        {
+            var rendererData = AssetDatabase.LoadAssetAtPath<ScriptableRendererData>(rendererDataPath)
+                ?? throw new InvalidOperationException($"URP renderer data was not found: {rendererDataPath}");
+            if (rendererData.rendererFeatures.Any(feature => feature is MToonOutlineRenderFeature)) return;
+
+            var outlineFeature = ScriptableObject.CreateInstance<MToonOutlineRenderFeature>();
+            outlineFeature.name = "MToon Outline";
+            outlineFeature.Create();
+            AssetDatabase.AddObjectToAsset(outlineFeature, rendererData);
+            rendererData.rendererFeatures.Add(outlineFeature);
+            EditorUtility.SetDirty(rendererData);
         }
 
         private static void ConfigurePlayer()

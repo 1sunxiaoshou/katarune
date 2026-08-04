@@ -32,6 +32,20 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
+        public void ParseRecognizesNprOptions()
+        {
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--render-quality", "medium", "--no-npr" });
+            Assert.That(options.RenderQuality, Is.EqualTo(AvatarRenderQuality.Medium));
+            Assert.That(options.NprEnabled, Is.False);
+        }
+
+        [Test]
+        public void ParseRejectsUnknownRenderQuality()
+        {
+            Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--render-quality", "cinematic" }));
+        }
+
+        [Test]
         public void ParseRejectsMissingPathValue()
         {
             Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--vrm" }));

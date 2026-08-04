@@ -29,6 +29,7 @@ namespace Katarune.Avatar
     {
         private readonly AvatarSceneRig _sceneRig;
         private readonly AvatarBehaviorController _behavior;
+        private readonly AvatarVisualController _visuals;
         private readonly CancellationToken _lifetimeToken;
         private readonly AvatarLoadRequestGate _requestGate = new AvatarLoadRequestGate();
         private CancellationTokenSource _loadCancellation;
@@ -37,10 +38,12 @@ namespace Katarune.Avatar
         public AvatarRuntimeSession(
             AvatarSceneRig sceneRig,
             AvatarBehaviorController behavior,
+            AvatarVisualController visuals,
             CancellationToken lifetimeToken)
         {
             _sceneRig = sceneRig ?? throw new ArgumentNullException(nameof(sceneRig));
             _behavior = behavior ?? throw new ArgumentNullException(nameof(behavior));
+            _visuals = visuals ?? throw new ArgumentNullException(nameof(visuals));
             _lifetimeToken = lifetimeToken;
         }
 
@@ -64,6 +67,7 @@ namespace Katarune.Avatar
 
             Vrm10Instance loaded = null;
             UniVrmAvatarDriver loadedDriver = null;
+            AvatarVisualInstance loadedVisuals = null;
             try
             {
                 var fullPath = ResolveModelPath(path);
@@ -79,10 +83,13 @@ namespace Katarune.Avatar
                 if (runtimeInstance == null) throw new InvalidOperationException("The loaded avatar has no RuntimeGltfInstance.");
                 runtimeInstance.EnableUpdateWhenOffscreen();
                 loadedDriver = new UniVrmAvatarDriver(loaded);
+                loadedVisuals = _visuals.Prepare(loaded.gameObject);
                 if (!_requestGate.IsCurrent(request) || cancellationToken.IsCancellationRequested)
                 {
                     loadedDriver.Dispose();
                     loadedDriver = null;
+                    loadedVisuals.Dispose();
+                    loadedVisuals = null;
                     UnityEngine.Object.Destroy(loaded.gameObject);
                     loaded = null;
                     return;
@@ -98,6 +105,8 @@ namespace Katarune.Avatar
                 loaded = null;
                 _behavior.Bind(loadedDriver);
                 loadedDriver = null;
+                _visuals.Commit(loadedVisuals);
+                loadedVisuals = null;
                 if (previous != null)
                 {
                     previous.gameObject.SetActive(false);
@@ -131,6 +140,7 @@ namespace Katarune.Avatar
             finally
             {
                 loadedDriver?.Dispose();
+                loadedVisuals?.Dispose();
                 if (loaded != null) UnityEngine.Object.Destroy(loaded.gameObject);
             }
         }
@@ -140,6 +150,7 @@ namespace Katarune.Avatar
             _requestGate.Invalidate();
             CancelPendingLoad();
             _behavior.Unbind();
+            _visuals.Unbind();
             if (_avatar != null) UnityEngine.Object.Destroy(_avatar.gameObject);
             _avatar = null;
             ModelPath = null;

@@ -10,6 +10,7 @@ namespace Katarune.Avatar
         private AvatarCommandLine _options;
         private AvatarSceneRig _sceneRig;
         private AvatarBehaviorController _behavior;
+        private AvatarVisualController _visuals;
         private AvatarRuntimeSession _session;
         private AvatarDebugPanel _debugPanel;
         private AvatarWindow _avatarWindow;
@@ -18,6 +19,7 @@ namespace Katarune.Avatar
 
         public AvatarRuntimeSession Session => _session;
         public AvatarBehaviorController Behavior => _behavior;
+        public AvatarVisualController Visuals => _visuals;
         public AvatarDebugPanel DebugPanel => _debugPanel;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -39,11 +41,18 @@ namespace Katarune.Avatar
                 if (_options.TransparentWindow) _avatarWindow = gameObject.AddComponent<AvatarWindow>();
 
                 _behavior = gameObject.AddComponent<AvatarBehaviorController>();
-                _session = new AvatarRuntimeSession(_sceneRig, _behavior, destroyCancellationToken);
+                _visuals = gameObject.AddComponent<AvatarVisualController>();
+                _visuals.Configure(
+                    _sceneRig,
+                    _behavior,
+                    quality: _options.RenderQuality,
+                    enabled: _options.NprEnabled);
+                _session = new AvatarRuntimeSession(_sceneRig, _behavior, _visuals, destroyCancellationToken);
                 _debugPanel = gameObject.AddComponent<AvatarDebugPanel>();
                 _debugPanel.Configure(
                     _session,
                     _behavior,
+                    _visuals,
                     _options.ModelPath,
                     (Application.isEditor || _options.DebugUi) && string.IsNullOrWhiteSpace(_options.ScreenshotPath),
                     !string.IsNullOrWhiteSpace(_options.ScreenshotPath),

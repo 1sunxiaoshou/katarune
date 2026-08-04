@@ -11,7 +11,9 @@ namespace Katarune.Avatar
             bool exitAfterCapture,
             bool exitOnError,
             bool transparentWindow,
-            bool debugUi)
+            bool debugUi,
+            bool nprEnabled,
+            AvatarRenderQuality renderQuality)
         {
             ModelPath = modelPath;
             ScreenshotPath = screenshotPath;
@@ -19,6 +21,8 @@ namespace Katarune.Avatar
             ExitOnError = exitOnError;
             TransparentWindow = transparentWindow;
             DebugUi = debugUi;
+            NprEnabled = nprEnabled;
+            RenderQuality = renderQuality;
         }
 
         public string ModelPath { get; }
@@ -27,6 +31,8 @@ namespace Katarune.Avatar
         public bool ExitOnError { get; }
         public bool TransparentWindow { get; }
         public bool DebugUi { get; }
+        public bool NprEnabled { get; }
+        public AvatarRenderQuality RenderQuality { get; }
 
         public static AvatarCommandLine Parse(string[] args)
         {
@@ -38,6 +44,8 @@ namespace Katarune.Avatar
             var exitOnError = false;
             var transparentWindow = true;
             var debugUi = false;
+            var nprEnabled = true;
+            var renderQuality = AvatarRenderQuality.High;
             for (var index = 0; index < args.Length; index += 1)
             {
                 switch (args[index])
@@ -60,10 +68,37 @@ namespace Katarune.Avatar
                     case "--debug-ui":
                         debugUi = true;
                         break;
+                    case "--no-npr":
+                        nprEnabled = false;
+                        break;
+                    case "--render-quality":
+                        renderQuality = ReadRenderQuality(args, ref index);
+                        break;
                 }
             }
 
-            return new AvatarCommandLine(modelPath, screenshotPath, exitAfterCapture, exitOnError, transparentWindow, debugUi);
+            return new AvatarCommandLine(
+                modelPath,
+                screenshotPath,
+                exitAfterCapture,
+                exitOnError,
+                transparentWindow,
+                debugUi,
+                nprEnabled,
+                renderQuality);
+        }
+
+        private static AvatarRenderQuality ReadRenderQuality(string[] args, ref int index)
+        {
+            var valueIndex = index + 1;
+            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
+            {
+                throw new ArgumentException("--render-quality requires low, medium, or high.", nameof(args));
+            }
+
+            index = valueIndex;
+            if (Enum.TryParse(args[valueIndex], true, out AvatarRenderQuality quality)) return quality;
+            throw new ArgumentException("--render-quality requires low, medium, or high.", nameof(args));
         }
 
         private static string ReadPathValue(string[] args, ref int index, string option)

@@ -33,9 +33,11 @@ namespace Katarune.Avatar.Tests
             var sceneRig = gameObject.AddComponent<AvatarSceneRig>();
             sceneRig.Configure(false);
             var controller = gameObject.AddComponent<AvatarBehaviorController>();
-            var session = new AvatarRuntimeSession(sceneRig, controller, CancellationToken.None);
+            var visuals = gameObject.AddComponent<AvatarVisualController>();
+            visuals.Configure(sceneRig, controller);
+            var session = new AvatarRuntimeSession(sceneRig, controller, visuals, CancellationToken.None);
             var panel = gameObject.AddComponent<AvatarDebugPanel>();
-            panel.Configure(session, controller, null, false, false, true);
+            panel.Configure(session, controller, visuals, null, false, false, true);
 
             panel.ToggleVisible();
             Assert.That(panel.Visible, Is.True);

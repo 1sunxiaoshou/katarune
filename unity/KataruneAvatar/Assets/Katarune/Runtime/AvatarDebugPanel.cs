@@ -9,6 +9,7 @@ namespace Katarune.Avatar
         private const float MaximumPanelHeight = 920f;
         private AvatarRuntimeSession _session;
         private AvatarBehaviorController _behavior;
+        private AvatarVisualController _visuals;
         private string _modelPath = string.Empty;
         private bool _captureMode;
         private bool _handleHotkey;
@@ -34,6 +35,7 @@ namespace Katarune.Avatar
         public void Configure(
             AvatarRuntimeSession session,
             AvatarBehaviorController behavior,
+            AvatarVisualController visuals,
             string initialModelPath,
             bool visible,
             bool captureMode,
@@ -41,6 +43,7 @@ namespace Katarune.Avatar
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _behavior = behavior ?? throw new ArgumentNullException(nameof(behavior));
+            _visuals = visuals ?? throw new ArgumentNullException(nameof(visuals));
             _modelPath = initialModelPath ?? string.Empty;
             _captureMode = captureMode;
             _handleHotkey = handleHotkey;
@@ -96,6 +99,7 @@ namespace Katarune.Avatar
         {
             _scroll = GUILayout.BeginScrollView(_scroll);
             DrawRuntimeSection();
+            DrawVisualSection();
             DrawActivitySection();
             DrawAffectSection();
             DrawMotionSection();
@@ -103,6 +107,57 @@ namespace Katarune.Avatar
             DrawMouthSection();
             GUILayout.EndScrollView();
             GUI.DragWindow(new Rect(0f, 0f, _windowRect.width, 36f));
+        }
+
+        private void DrawVisualSection()
+        {
+            DrawSectionTitle("角色渲染（NPR）");
+            var settings = _visuals.Settings;
+            var enabled = GUILayout.Toggle(settings.Enabled, "启用言奏角色 NPR", _toggleStyle);
+            if (enabled != settings.Enabled) _visuals.SetEnabled(enabled);
+
+            GUILayout.BeginHorizontal();
+            DrawQualityButton(AvatarRenderQuality.Low, "低");
+            DrawQualityButton(AvatarRenderQuality.Medium, "中");
+            DrawQualityButton(AvatarRenderQuality.High, "高");
+            GUILayout.EndHorizontal();
+
+            var outline = GUILayout.Toggle(settings.OutlineEnabled, "轮廓描边", _toggleStyle);
+            if (outline != settings.OutlineEnabled) _visuals.SetOutlineEnabled(outline);
+            var hairHighlight = GUILayout.Toggle(settings.HairHighlightEnabled, "程序化头发高光", _toggleStyle);
+            if (hairHighlight != settings.HairHighlightEnabled) _visuals.SetHairHighlightEnabled(hairHighlight);
+
+            var styleStrength = DrawSlider("风格化强度", settings.StyleStrength, 0f, 1f);
+            if (!Mathf.Approximately(styleStrength, settings.StyleStrength)) _visuals.SetStyleStrength(styleStrength);
+            var rimIntensity = DrawSlider("边缘光强度", settings.RimIntensity, 0f, 1.5f);
+            if (!Mathf.Approximately(rimIntensity, settings.RimIntensity)) _visuals.SetRimIntensity(rimIntensity);
+            var outlineIntensity = DrawSlider("描边宽度", settings.OutlineIntensity, 0f, 1.5f);
+            if (!Mathf.Approximately(outlineIntensity, settings.OutlineIntensity)) _visuals.SetOutlineIntensity(outlineIntensity);
+            var hairIntensity = DrawSlider("头发高光", settings.HairHighlightIntensity, 0f, 1.5f);
+            if (!Mathf.Approximately(hairIntensity, settings.HairHighlightIntensity)) _visuals.SetHairHighlightIntensity(hairIntensity);
+
+            var statistics = _visuals.Statistics;
+            if (statistics != null)
+            {
+                GUILayout.Label(
+                    $"材质：{statistics.Styled}/{statistics.Total} 已适配    "
+                    + $"脸 {statistics.GetCount(AvatarMaterialRole.Face)} · 皮肤 {statistics.GetCount(AvatarMaterialRole.Skin)} · "
+                    + $"头发 {statistics.GetCount(AvatarMaterialRole.Hair)} · 眼睛 {statistics.GetCount(AvatarMaterialRole.Eye)}",
+                    _labelStyle);
+            }
+            if (GUILayout.Button("重置渲染参数", _buttonStyle)) _visuals.ResetVisuals();
+            GUILayout.Space(14f);
+        }
+
+        private void DrawQualityButton(AvatarRenderQuality quality, string label)
+        {
+            var previous = GUI.color;
+            if (_visuals.Settings.Quality == quality) GUI.color = new Color(0.68f, 0.82f, 1f);
+            if (GUILayout.Button($"{label}画质", _buttonStyle) && _visuals.Settings.Quality != quality)
+            {
+                _visuals.SetQuality(quality);
+            }
+            GUI.color = previous;
         }
 
         private void DrawRuntimeSection()

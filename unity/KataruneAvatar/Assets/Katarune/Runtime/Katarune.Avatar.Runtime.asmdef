@@ -4,6 +4,7 @@
   "references": [
     "Kirurobo.UniWindowController",
     "UniGLTF",
-    "VRM10"
+    "VRM10",
+    "VRM10.MToon10"
   ]
 }
