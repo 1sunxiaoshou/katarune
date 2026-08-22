@@ -14,16 +14,19 @@ namespace Katarune.Avatar.Editor
         public CharacterRigCapabilities RequiredCapabilities;
         public BehaviorChannelClaim[] ChannelClaims;
         public string ClipGuid;
+        public string AvatarMaskGuid;
         public BehaviorClipSegment Entry;
         public BehaviorClipSegment Loop;
+        public int LoopIterations;
         public BehaviorSyncPoint[] SyncPoints;
+        public string ExitSyncPoint;
         public BehaviorClipSegment Exit;
         public string[] HotUpdateParameters;
         public BehaviorFallbackStrategy FallbackStrategy;
         public string FallbackBehaviorId;
         public BehaviorAssetLicense License;
 
-        public void Configure(BehaviorDefinitionAsset asset, AnimationClip clip)
+        public void Configure(BehaviorDefinitionAsset asset, AnimationClip clip, AvatarMask avatarMask)
         {
             asset.Configure(
                 SchemaVersion,
@@ -32,9 +35,12 @@ namespace Katarune.Avatar.Editor
                 RequiredCapabilities,
                 ChannelClaims,
                 clip,
+                avatarMask,
                 Entry,
                 Loop,
+                LoopIterations,
                 SyncPoints,
+                ExitSyncPoint,
                 Exit,
                 HotUpdateParameters,
                 FallbackStrategy,
@@ -48,8 +54,8 @@ namespace Katarune.Avatar.Editor
         private static readonly string[] RootFields =
         {
             "schemaVersion", "behaviorId", "version", "requiredCapabilities",
-            "channelClaims", "clipGuid", "entry", "loop", "syncPoints", "exit",
-            "hotUpdateParameters", "fallbackStrategy", "fallbackBehaviorId", "license",
+            "channelClaims", "clipGuid", "entry", "loop", "loopIterations", "syncPoints", "exitSyncPoint", "exit",
+            "avatarMaskGuid", "hotUpdateParameters", "fallbackStrategy", "fallbackBehaviorId", "license",
         };
 
         public static BehaviorDefinitionSource Parse(string json)
@@ -81,11 +87,14 @@ namespace Katarune.Avatar.Editor
                     RequireArray(root, "channelClaims", "$"),
                     "$.channelClaims"),
                 ClipGuid = RequireString(root, "clipGuid", "$"),
+                AvatarMaskGuid = OptionalString(root, "avatarMaskGuid", "$"),
                 Entry = ReadOptionalSegment(root, "entry", "$"),
                 Loop = ReadOptionalSegment(root, "loop", "$"),
+                LoopIterations = RequireInteger(root, "loopIterations", "$"),
                 SyncPoints = ReadSyncPoints(
                     RequireArray(root, "syncPoints", "$"),
                     "$.syncPoints"),
+                ExitSyncPoint = OptionalString(root, "exitSyncPoint", "$"),
                 Exit = ReadOptionalSegment(root, "exit", "$"),
                 HotUpdateParameters = ReadStrings(
                     RequireArray(root, "hotUpdateParameters", "$"),
@@ -177,7 +186,8 @@ namespace Katarune.Avatar.Editor
                 value,
                 path,
                 "distribution", "sourceName", "sourceUri", "author", "licenseId",
-                "licenseUri", "notes");
+                "licenseUri", "acquiredOn", "originalFormat", "commercialUseAllowed",
+                "modificationAllowed", "redistributionAllowed", "repositoryPolicy", "notes");
             return new BehaviorAssetLicense(
                 ReadDistribution(RequireString(value, "distribution", path), path + ".distribution"),
                 RequireString(value, "sourceName", path),
@@ -185,6 +195,12 @@ namespace Katarune.Avatar.Editor
                 RequireString(value, "author", path),
                 RequireString(value, "licenseId", path),
                 OptionalString(value, "licenseUri", path),
+                RequireString(value, "acquiredOn", path),
+                RequireString(value, "originalFormat", path),
+                RequireBoolean(value, "commercialUseAllowed", path),
+                RequireBoolean(value, "modificationAllowed", path),
+                RequireBoolean(value, "redistributionAllowed", path),
+                RequireString(value, "repositoryPolicy", path),
                 OptionalString(value, "notes", path));
         }
 

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "behaviorId": "katarune.body.quiet-idle",
   "version": 1,
   "requiredCapabilities": [
@@ -20,6 +20,7 @@
     "startSeconds": 0.4,
     "endSeconds": 9.2
   },
+  "loopIterations": 0,
   "syncPoints": [
     {
       "name": "loop.end",
@@ -27,6 +28,7 @@
       "safeExit": true
     }
   ],
+  "exitSyncPoint": "loop.end",
   "exit": {
     "startSeconds": 9.2,
     "endSeconds": 9.6
@@ -41,6 +43,12 @@
     "author": "Katarune contributors and Unity Technologies",
     "licenseId": "Unity Companion License",
     "licenseUri": "https://unity.com/legal/licenses/unity-companion-license",
+    "acquiredOn": "2026-08-22",
+    "originalFormat": "Unity AnimationClip",
+    "commercialUseAllowed": true,
+    "modificationAllowed": true,
+    "redistributionAllowed": true,
+    "repositoryPolicy": "Generated normalized Unity clip is tracked; the Timeline package reference remains the reproducible source.",
     "notes": "Unity-dependent prototype asset; project-wide public license remains undecided."
   }
 }

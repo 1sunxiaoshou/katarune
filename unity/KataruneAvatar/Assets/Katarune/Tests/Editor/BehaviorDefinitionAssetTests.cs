@@ -49,8 +49,8 @@ namespace Katarune.Avatar.Tests
         {
             var json = File.ReadAllText(Path.GetFullPath(DefinitionPath));
             json = json.Replace(
-                "\"schemaVersion\": 1,",
-                "\"schemaVersion\": 1, \"unexpectedField\": true,");
+                "\"schemaVersion\": 2,",
+                "\"schemaVersion\": 2, \"unexpectedField\": true,");
 
             var error = Assert.Throws<BehaviorDefinitionImportException>(
                 () => BehaviorDefinitionSourceParser.Parse(json));
@@ -172,8 +172,11 @@ namespace Katarune.Avatar.Tests
                 },
                 clip,
                 null,
+                null,
                 new BehaviorClipSegment(0f, 0.8f),
+                1,
                 syncPoints ?? Array.Empty<BehaviorSyncPoint>(),
+                syncPoints != null && syncPoints.Any(point => point.SafeExit) ? "exit.safe" : string.Empty,
                 new BehaviorClipSegment(0.8f, 1f),
                 Array.Empty<string>(),
                 BehaviorFallbackStrategy.None,
@@ -185,6 +188,12 @@ namespace Katarune.Avatar.Tests
                     "Katarune tests",
                     "test-only",
                     string.Empty,
+                    "2026-08-22",
+                    "generated Unity AnimationClip",
+                    false,
+                    true,
+                    false,
+                    "Test fixture is not shipped.",
                     string.Empty));
             return definition;
         }

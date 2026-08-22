@@ -27,8 +27,11 @@ namespace Katarune.Avatar
         MissingChannelClaim,
         ChannelConflict,
         MissingClip,
+        MissingAvatarMask,
         InvalidSegment,
+        InvalidLoopIterations,
         InvalidSyncPoint,
+        InvalidExitSyncPoint,
         InvalidHotUpdateParameter,
         InvalidFallback,
         InvalidLicenseMetadata,
@@ -99,6 +102,12 @@ namespace Katarune.Avatar
         [SerializeField] private string _author;
         [SerializeField] private string _licenseId;
         [SerializeField] private string _licenseUri;
+        [SerializeField] private string _acquiredOn;
+        [SerializeField] private string _originalFormat;
+        [SerializeField] private bool _commercialUseAllowed;
+        [SerializeField] private bool _modificationAllowed;
+        [SerializeField] private bool _redistributionAllowed;
+        [SerializeField] private string _repositoryPolicy;
         [SerializeField] private string _notes;
 
         internal BehaviorAssetLicense(
@@ -108,6 +117,12 @@ namespace Katarune.Avatar
             string author,
             string licenseId,
             string licenseUri,
+            string acquiredOn,
+            string originalFormat,
+            bool commercialUseAllowed,
+            bool modificationAllowed,
+            bool redistributionAllowed,
+            string repositoryPolicy,
             string notes)
         {
             _distribution = distribution;
@@ -116,6 +131,12 @@ namespace Katarune.Avatar
             _author = author;
             _licenseId = licenseId;
             _licenseUri = licenseUri;
+            _acquiredOn = acquiredOn;
+            _originalFormat = originalFormat;
+            _commercialUseAllowed = commercialUseAllowed;
+            _modificationAllowed = modificationAllowed;
+            _redistributionAllowed = redistributionAllowed;
+            _repositoryPolicy = repositoryPolicy;
             _notes = notes;
         }
 
@@ -125,12 +146,18 @@ namespace Katarune.Avatar
         public string Author => _author;
         public string LicenseId => _licenseId;
         public string LicenseUri => _licenseUri;
+        public string AcquiredOn => _acquiredOn;
+        public string OriginalFormat => _originalFormat;
+        public bool CommercialUseAllowed => _commercialUseAllowed;
+        public bool ModificationAllowed => _modificationAllowed;
+        public bool RedistributionAllowed => _redistributionAllowed;
+        public string RepositoryPolicy => _repositoryPolicy;
         public string Notes => _notes;
     }
 
     public sealed class BehaviorDefinitionAsset : ScriptableObject
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 2;
 
         [SerializeField] private int _schemaVersion;
         [SerializeField] private string _behaviorId;
@@ -139,10 +166,16 @@ namespace Katarune.Avatar
         [SerializeField] private BehaviorChannelClaim[] _channelClaims =
             Array.Empty<BehaviorChannelClaim>();
         [SerializeField] private AnimationClip _clip;
+        [SerializeField] private AvatarMask _avatarMask;
+        [SerializeField] private bool _hasEntry;
         [SerializeField] private BehaviorClipSegment _entry;
+        [SerializeField] private bool _hasLoop;
         [SerializeField] private BehaviorClipSegment _loop;
+        [SerializeField] private int _loopIterations;
         [SerializeField] private BehaviorSyncPoint[] _syncPoints =
             Array.Empty<BehaviorSyncPoint>();
+        [SerializeField] private string _exitSyncPoint;
+        [SerializeField] private bool _hasExit;
         [SerializeField] private BehaviorClipSegment _exit;
         [SerializeField] private string[] _hotUpdateParameters = Array.Empty<string>();
         [SerializeField] private BehaviorFallbackStrategy _fallbackStrategy;
@@ -156,11 +189,28 @@ namespace Katarune.Avatar
         public IReadOnlyList<BehaviorChannelClaim> ChannelClaims =>
             Array.AsReadOnly(_channelClaims ?? Array.Empty<BehaviorChannelClaim>());
         public AnimationClip Clip => _clip;
-        public BehaviorClipSegment Entry => _entry;
-        public BehaviorClipSegment Loop => _loop;
+        public AvatarMask AvatarMask => _avatarMask;
+        public BehaviorClipSegment Entry => _hasEntry ? _entry : null;
+        public BehaviorClipSegment Loop => _hasLoop ? _loop : null;
+        public int LoopIterations => _loopIterations;
+        public float NaturalDurationSeconds
+        {
+            get
+            {
+                if (Loop != null && _loopIterations == 0) return float.PositiveInfinity;
+                var result = SegmentDuration(Entry) + SegmentDuration(Exit);
+                if (Loop != null) result += SegmentDuration(Loop) * _loopIterations;
+                if (Loop != null && TryGetExitSyncPoint(out var exitPoint))
+                {
+                    result += exitPoint.TimeSeconds - Loop.StartSeconds;
+                }
+                return result;
+            }
+        }
         public IReadOnlyList<BehaviorSyncPoint> SyncPoints =>
             Array.AsReadOnly(_syncPoints ?? Array.Empty<BehaviorSyncPoint>());
-        public BehaviorClipSegment Exit => _exit;
+        public string ExitSyncPoint => _exitSyncPoint;
+        public BehaviorClipSegment Exit => _hasExit ? _exit : null;
         public IReadOnlyList<string> HotUpdateParameters =>
             Array.AsReadOnly(_hotUpdateParameters ?? Array.Empty<string>());
         public BehaviorFallbackStrategy FallbackStrategy => _fallbackStrategy;
@@ -204,9 +254,12 @@ namespace Katarune.Avatar
             CharacterRigCapabilities requiredCapabilities,
             BehaviorChannelClaim[] channelClaims,
             AnimationClip clip,
+            AvatarMask avatarMask,
             BehaviorClipSegment entry,
             BehaviorClipSegment loop,
+            int loopIterations,
             BehaviorSyncPoint[] syncPoints,
+            string exitSyncPoint,
             BehaviorClipSegment exit,
             string[] hotUpdateParameters,
             BehaviorFallbackStrategy fallbackStrategy,
@@ -219,15 +272,40 @@ namespace Katarune.Avatar
             _requiredCapabilities = requiredCapabilities;
             _channelClaims = channelClaims ?? Array.Empty<BehaviorChannelClaim>();
             _clip = clip;
+            _avatarMask = avatarMask;
+            _hasEntry = entry != null;
             _entry = entry;
+            _hasLoop = loop != null;
             _loop = loop;
+            _loopIterations = loopIterations;
             _syncPoints = syncPoints ?? Array.Empty<BehaviorSyncPoint>();
+            _exitSyncPoint = exitSyncPoint;
+            _hasExit = exit != null;
             _exit = exit;
             _hotUpdateParameters = hotUpdateParameters ?? Array.Empty<string>();
             _fallbackStrategy = fallbackStrategy;
             _fallbackBehaviorId = fallbackBehaviorId;
             _license = license;
         }
+
+        public bool TryGetExitSyncPoint(out BehaviorSyncPoint point)
+        {
+            for (var index = 0; index < _syncPoints.Length; index += 1)
+            {
+                var candidate = _syncPoints[index];
+                if (candidate != null
+                    && string.Equals(candidate.Name, _exitSyncPoint, StringComparison.Ordinal))
+                {
+                    point = candidate;
+                    return true;
+                }
+            }
+            point = null;
+            return false;
+        }
+
+        private static float SegmentDuration(BehaviorClipSegment segment) =>
+            segment == null ? 0f : segment.EndSeconds - segment.StartSeconds;
     }
 
     public readonly struct BehaviorDefinitionValidationError
@@ -299,7 +377,10 @@ namespace Katarune.Avatar
             }
             ValidateClaims(definition, errors);
             ValidateClip(definition, errors);
+            ValidateLoopIterations(definition, errors);
+            ValidateAvatarMask(definition, errors);
             ValidateSyncPoints(definition, errors);
+            ValidateExitSyncPoint(definition, errors);
             ValidateHotUpdates(definition, errors);
             ValidateFallback(definition, errors);
             ValidateLicense(definition, errors);
@@ -370,6 +451,40 @@ namespace Katarune.Avatar
             }
         }
 
+        private static void ValidateAvatarMask(
+            BehaviorDefinitionAsset definition,
+            List<BehaviorDefinitionValidationError> errors)
+        {
+            var claimsUpperBody = false;
+            for (var index = 0; index < definition.ChannelClaims.Count; index += 1)
+            {
+                var claim = definition.ChannelClaims[index];
+                if (claim != null && claim.Channel == PerformanceChannel.GestureUpperBody)
+                {
+                    claimsUpperBody = true;
+                    break;
+                }
+            }
+
+            if (claimsUpperBody && definition.AvatarMask == null)
+            {
+                Add(errors, BehaviorDefinitionValidationErrorCode.MissingAvatarMask,
+                    $"Behavior '{definition.BehaviorId}' claims the upper-body gesture channel but has no Avatar Mask.");
+            }
+        }
+
+        private static void ValidateLoopIterations(
+            BehaviorDefinitionAsset definition,
+            List<BehaviorDefinitionValidationError> errors)
+        {
+            if (definition.LoopIterations < 0
+                || (definition.Loop == null && definition.LoopIterations != 0))
+            {
+                Add(errors, BehaviorDefinitionValidationErrorCode.InvalidLoopIterations,
+                    $"Behavior '{definition.BehaviorId}' has invalid loop iteration count {definition.LoopIterations}.");
+            }
+        }
+
         private static bool ValidateSegment(
             string name,
             BehaviorClipSegment segment,
@@ -437,6 +552,29 @@ namespace Katarune.Avatar
             }
         }
 
+        private static void ValidateExitSyncPoint(
+            BehaviorDefinitionAsset definition,
+            List<BehaviorDefinitionValidationError> errors)
+        {
+            var hasSafePoint = false;
+            for (var index = 0; index < definition.SyncPoints.Count; index += 1)
+            {
+                hasSafePoint |= definition.SyncPoints[index] != null
+                    && definition.SyncPoints[index].SafeExit;
+            }
+            if (!hasSafePoint && string.IsNullOrEmpty(definition.ExitSyncPoint)) return;
+            if (!definition.TryGetExitSyncPoint(out var point)
+                || !point.SafeExit
+                || definition.Exit == null
+                || definition.Loop == null
+                || point.TimeSeconds < definition.Loop.StartSeconds
+                || point.TimeSeconds > definition.Loop.EndSeconds)
+            {
+                Add(errors, BehaviorDefinitionValidationErrorCode.InvalidExitSyncPoint,
+                    $"Behavior '{definition.BehaviorId}' must map its exit segment to a safe sync point inside the loop.");
+            }
+        }
+
         private static void ValidateFallback(
             BehaviorDefinitionAsset definition,
             List<BehaviorDefinitionValidationError> errors)
@@ -462,6 +600,15 @@ namespace Katarune.Avatar
                 || string.IsNullOrWhiteSpace(license.SourceName)
                 || string.IsNullOrWhiteSpace(license.Author)
                 || string.IsNullOrWhiteSpace(license.LicenseId)
+                || string.IsNullOrWhiteSpace(license.AcquiredOn)
+                || !DateTime.TryParseExact(
+                    license.AcquiredOn,
+                    "yyyy-MM-dd",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None,
+                    out _)
+                || string.IsNullOrWhiteSpace(license.OriginalFormat)
+                || string.IsNullOrWhiteSpace(license.RepositoryPolicy)
                 || (license.Distribution != BehaviorAssetDistribution.DevOnly
                     && string.IsNullOrWhiteSpace(license.LicenseUri)))
             {

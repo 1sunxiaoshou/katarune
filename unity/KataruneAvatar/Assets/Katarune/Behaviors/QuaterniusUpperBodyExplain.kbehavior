@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "behaviorId": "katarune.gesture.explain",
+  "version": 1,
+  "requiredCapabilities": [
+    "HumanoidBody"
+  ],
+  "channelClaims": [
+    {
+      "channel": "GestureUpperBody",
+      "occupancy": "Additive"
+    }
+  ],
+  "clipGuid": "0f11bef37c3b9e94799c43f99c7c5554",
+  "avatarMaskGuid": "b53504dae627b8c4a82b16f234f50e3b",
+  "entry": {
+    "startSeconds": 0.0,
+    "endSeconds": 0.35
+  },
+  "loopIterations": 0,
+  "syncPoints": [
+    {
+      "name": "stroke",
+      "timeSeconds": 1.2,
+      "safeExit": false
+    }
+  ],
+  "exit": {
+    "startSeconds": 0.35,
+    "endSeconds": 2.9333334
+  },
+  "hotUpdateParameters": [
+    "weight"
+  ],
+  "fallbackStrategy": "UseBehavior",
+  "fallbackBehaviorId": "katarune.body.quiet-idle",
+  "license": {
+    "distribution": "commercial-candidate",
+    "sourceName": "Universal Animation Library 1 Standard - Idle_Talking",
+    "sourceUri": "https://quaternius.com/packs/universalanimationlibrary.html",
+    "author": "Quaternius",
+    "licenseId": "CC0-1.0",
+    "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "acquiredOn": "2026-08-22",
+    "originalFormat": "FBX",
+    "commercialUseAllowed": true,
+    "modificationAllowed": true,
+    "redistributionAllowed": true,
+    "repositoryPolicy": "Track only the normalized Unity AnimationClip and AvatarMask; keep the original UAL1 FBX in the Git-ignored local source area.",
+    "notes": "Quaternius universal humanoid skeleton; upper-body mask excludes root, legs, head and IK so gaze and visemes remain orthogonal."
+  }
+}

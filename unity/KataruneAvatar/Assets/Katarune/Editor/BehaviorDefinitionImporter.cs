@@ -13,6 +13,7 @@ namespace Katarune.Avatar.Editor
         MissingField,
         InvalidField,
         MissingClip,
+        MissingAvatarMask,
         ValidationFailed,
     }
 
@@ -55,9 +56,29 @@ namespace Katarune.Avatar.Editor
                         $"Behavior '{source.BehaviorId}' clip GUID '{source.ClipGuid}' does not resolve to an AnimationClip.");
                 }
 
+                AvatarMask avatarMask = null;
+                if (!string.IsNullOrEmpty(source.AvatarMaskGuid))
+                {
+                    var maskPath = AssetDatabase.GUIDToAssetPath(source.AvatarMaskGuid);
+                    if (string.IsNullOrEmpty(maskPath))
+                    {
+                        throw new BehaviorDefinitionImportException(
+                            BehaviorDefinitionImportErrorCode.MissingAvatarMask,
+                            $"Behavior '{source.BehaviorId}' references missing Avatar Mask GUID '{source.AvatarMaskGuid}'.");
+                    }
+                    context.DependsOnSourceAsset(maskPath);
+                    avatarMask = AssetDatabase.LoadAssetAtPath<AvatarMask>(maskPath);
+                    if (avatarMask == null)
+                    {
+                        throw new BehaviorDefinitionImportException(
+                            BehaviorDefinitionImportErrorCode.MissingAvatarMask,
+                            $"Behavior '{source.BehaviorId}' Avatar Mask GUID '{source.AvatarMaskGuid}' does not resolve to an AvatarMask.");
+                    }
+                }
+
                 var asset = ScriptableObject.CreateInstance<BehaviorDefinitionAsset>();
                 asset.name = source.BehaviorId;
-                source.Configure(asset, clip);
+                source.Configure(asset, clip, avatarMask);
                 var validation = BehaviorDefinitionAssetValidator.Validate(
                     asset,
                     CharacterRigCapabilities.All,
