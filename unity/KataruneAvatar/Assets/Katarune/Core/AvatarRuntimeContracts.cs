@@ -278,31 +278,56 @@ namespace Katarune.Avatar
             bool libraryAvailable,
             bool authoredBaseActive,
             AvatarPresetAction? currentAction,
-            ulong actionSequence)
+            ulong actionSequence,
+            long performanceRevision = 0,
+            int activePerformanceCount = 0,
+            int queuedPerformanceCount = 0,
+            string performanceDiagnostics = null)
         {
             LibraryAvailable = libraryAvailable;
             AuthoredBaseActive = authoredBaseActive;
             CurrentAction = currentAction;
             ActionSequence = actionSequence;
+            PerformanceRevision = performanceRevision;
+            ActivePerformanceCount = activePerformanceCount;
+            QueuedPerformanceCount = queuedPerformanceCount;
+            PerformanceDiagnostics = performanceDiagnostics ?? string.Empty;
         }
 
         public bool LibraryAvailable { get; }
         public bool AuthoredBaseActive { get; }
         public AvatarPresetAction? CurrentAction { get; }
         public ulong ActionSequence { get; }
+        public long PerformanceRevision { get; }
+        public int ActivePerformanceCount { get; }
+        public int QueuedPerformanceCount { get; }
+        public string PerformanceDiagnostics { get; }
 
         public bool Equals(AvatarMotionSnapshot other) =>
             LibraryAvailable == other.LibraryAvailable
             && AuthoredBaseActive == other.AuthoredBaseActive
             && CurrentAction == other.CurrentAction
-            && ActionSequence == other.ActionSequence;
+            && ActionSequence == other.ActionSequence
+            && PerformanceRevision == other.PerformanceRevision
+            && ActivePerformanceCount == other.ActivePerformanceCount
+            && QueuedPerformanceCount == other.QueuedPerformanceCount
+            && string.Equals(PerformanceDiagnostics, other.PerformanceDiagnostics, StringComparison.Ordinal);
 
         public override bool Equals(object obj) => obj is AvatarMotionSnapshot other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(
-            LibraryAvailable,
-            AuthoredBaseActive,
-            CurrentAction,
-            ActionSequence);
+        public override int GetHashCode()
+        {
+            var first = HashCode.Combine(
+                LibraryAvailable,
+                AuthoredBaseActive,
+                CurrentAction,
+                ActionSequence);
+            return HashCode.Combine(
+                first,
+                PerformanceRevision,
+                ActivePerformanceCount,
+                QueuedPerformanceCount,
+                PerformanceDiagnostics);
+        }
     }
 
     public readonly struct AvatarModelInfo : IEquatable<AvatarModelInfo>
@@ -398,6 +423,12 @@ namespace Katarune.Avatar
         void ResetBehavior();
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
         void CancelAction();
+        BehaviorRequestResult RequestBehavior(
+            BehaviorIntent intent,
+            PerformanceRequestPolicy policy = PerformanceRequestPolicy.Queue);
+        PerformanceTransitionOutcome ApplyPerformanceCommand(
+            string instanceId,
+            PerformanceCommand command);
     }
 
     public interface IAvatarMotionPoseSource
@@ -412,11 +443,18 @@ namespace Katarune.Avatar
         AvatarActionCapabilities Actions { get; }
         AvatarPresetAction? CurrentAction { get; }
         ulong ActionSequence { get; }
+        long PerformanceRevision { get; }
+        int ActivePerformanceCount { get; }
+        int QueuedPerformanceCount { get; }
+        string PerformanceDiagnostics { get; }
         event Action Changed;
 
         void SetActivity(AvatarActivityState activity);
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
         void CancelAction();
+        BehaviorRequestResult RequestBehavior(BehaviorIntent intent, PerformanceRequestPolicy policy);
+        PerformanceTransitionOutcome ApplyPerformanceCommand(string instanceId, PerformanceCommand command);
+        void CancelAllBehaviors();
         void Tick(float deltaTime);
     }
 

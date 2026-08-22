@@ -279,6 +279,41 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
+        public void BehaviorBeforeModelIsUnavailableWithoutSnapshotMutation()
+        {
+            var result = _facade.RequestBehavior(new BehaviorIntent(
+                "intent-explain",
+                "katarune.gesture.explain",
+                BehaviorIntentSource.User));
+
+            Assert.That(result.Outcome, Is.EqualTo(BehaviorRequestOutcome.Unavailable));
+            Assert.That(_facade.Snapshot.Revision, Is.Zero);
+        }
+
+        [Test]
+        public async Task BehaviorRequestsAndCommandsPublishAuthoritativePerformanceSnapshot()
+        {
+            var motion = new FakeMotion();
+            _loader.Enqueue(new FakePreparedModel("behavior.vrm", motion: motion));
+            await _facade.LoadAsync("behavior.vrm");
+
+            var request = _facade.RequestBehavior(new BehaviorIntent(
+                "intent-explain",
+                "katarune.gesture.explain",
+                BehaviorIntentSource.User));
+
+            Assert.That(request.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
+            Assert.That(_facade.Snapshot.Motion.ActivePerformanceCount, Is.EqualTo(1));
+            Assert.That(_facade.Snapshot.Motion.PerformanceDiagnostics, Does.Contain("state=Running"));
+
+            Assert.That(
+                _facade.ApplyPerformanceCommand(request.InstanceId, PerformanceCommand.CancelImmediate()),
+                Is.EqualTo(PerformanceTransitionOutcome.Applied));
+            Assert.That(_facade.Snapshot.Motion.ActivePerformanceCount, Is.Zero);
+            Assert.That(_facade.Snapshot.Motion.PerformanceDiagnostics, Does.Contain("CancelledImmediate"));
+        }
+
+        [Test]
         public async Task PresentationChangedDuringLoadIsPreparedBeforeCandidateIsShown()
         {
             var delayed = new TaskCompletionSource<AvatarLoadCandidate>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -366,6 +401,10 @@ namespace Katarune.Avatar.Tests
             public float ProceduralArmWeight => 0f;
             public AvatarPresetAction? CurrentAction { get; private set; }
             public ulong ActionSequence { get; private set; }
+            public long PerformanceRevision { get; private set; }
+            public int ActivePerformanceCount { get; private set; }
+            public int QueuedPerformanceCount => 0;
+            public string PerformanceDiagnostics { get; private set; } = string.Empty;
             public event Action Changed;
             public int DisposeCount { get; private set; }
 
@@ -384,6 +423,33 @@ namespace Katarune.Avatar.Tests
                 if (!CurrentAction.HasValue) return;
                 CurrentAction = null;
                 Changed?.Invoke();
+            }
+
+            public BehaviorRequestResult RequestBehavior(
+                BehaviorIntent intent,
+                PerformanceRequestPolicy policy)
+            {
+                PerformanceRevision += 1;
+                ActivePerformanceCount = 1;
+                PerformanceDiagnostics = "instance-fake behavior=katarune.gesture.explain state=Running";
+                Changed?.Invoke();
+                return new BehaviorRequestResult(BehaviorRequestOutcome.Started, "instance-fake");
+            }
+
+            public PerformanceTransitionOutcome ApplyPerformanceCommand(
+                string instanceId,
+                PerformanceCommand command)
+            {
+                if (instanceId != "instance-fake") return PerformanceTransitionOutcome.Rejected;
+                PerformanceRevision += 1;
+                ActivePerformanceCount = 0;
+                PerformanceDiagnostics = "instance-fake state=Cancelled end=CancelledImmediate";
+                Changed?.Invoke();
+                return PerformanceTransitionOutcome.Applied;
+            }
+            public void CancelAllBehaviors()
+            {
+                ActivePerformanceCount = 0;
             }
 
             public void Tick(float deltaTime) { }

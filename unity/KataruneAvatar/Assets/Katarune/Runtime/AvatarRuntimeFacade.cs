@@ -100,6 +100,7 @@ namespace Katarune.Avatar
             _behavior.ResetBehavior();
             _behavior.SetManualVisemes(default);
             _motions.CancelAction();
+            _motions.CancelAllBehaviors();
             _motions.SetActivity(_behavior.Settings.Activity);
             _sceneRig.SetActivityLighting(_behavior.Settings.Activity);
             PublishIfChanged();
@@ -131,6 +132,28 @@ namespace Katarune.Avatar
         {
             ThrowIfDisposed();
             _motions.CancelAction();
+        }
+
+        public BehaviorRequestResult RequestBehavior(
+            BehaviorIntent intent,
+            PerformanceRequestPolicy policy = PerformanceRequestPolicy.Queue)
+        {
+            ThrowIfDisposed();
+            if (_session.State != AvatarRuntimeState.Ready)
+            {
+                return new BehaviorRequestResult(
+                    BehaviorRequestOutcome.Unavailable,
+                    error: "An avatar must be ready before requesting a behavior.");
+            }
+            return _motions.RequestBehavior(intent, policy);
+        }
+
+        public PerformanceTransitionOutcome ApplyPerformanceCommand(
+            string instanceId,
+            PerformanceCommand command)
+        {
+            ThrowIfDisposed();
+            return _motions.ApplyPerformanceCommand(instanceId, command);
         }
 
         private static AvatarBehaviorSettings Normalize(AvatarBehaviorSettings settings)

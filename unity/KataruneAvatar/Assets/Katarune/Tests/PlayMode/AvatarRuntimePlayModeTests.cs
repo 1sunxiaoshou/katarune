@@ -321,6 +321,13 @@ namespace Katarune.Avatar.Tests
                     Snapshot.Presentation,
                     new AvatarMotionSnapshot(true, true, null, Snapshot.Motion.ActionSequence));
             }
+            public BehaviorRequestResult RequestBehavior(
+                BehaviorIntent intent,
+                PerformanceRequestPolicy policy = PerformanceRequestPolicy.Queue) =>
+                new BehaviorRequestResult(BehaviorRequestOutcome.Unavailable);
+            public PerformanceTransitionOutcome ApplyPerformanceCommand(
+                string instanceId,
+                PerformanceCommand command) => PerformanceTransitionOutcome.Rejected;
             public void Dispose() { }
 
             private void ReplaceSnapshot(
