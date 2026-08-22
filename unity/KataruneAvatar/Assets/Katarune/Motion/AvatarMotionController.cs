@@ -45,10 +45,16 @@ namespace Katarune.Avatar
             }
         }
 
-        internal IAvatarMotionInstance Prepare(Animator animator)
+        internal IAvatarMotionInstance Prepare(ICharacterRigBinding rigBinding)
         {
             if (!LibraryAvailable) return null;
-            return new AvatarMotionInstance(animator, _library, _activity);
+            if (rigBinding == null) throw new ArgumentNullException(nameof(rigBinding));
+            if ((rigBinding.Capabilities & CharacterRigCapabilities.HumanoidBody) == 0)
+            {
+                throw new InvalidOperationException(
+                    "The character rig does not provide Humanoid body playback.");
+            }
+            return new AvatarMotionInstance(rigBinding.HumanoidAnimator, _library, _activity);
         }
 
         internal IAvatarMotionInstance ReplaceActive(IAvatarMotionInstance next, bool notify = true)

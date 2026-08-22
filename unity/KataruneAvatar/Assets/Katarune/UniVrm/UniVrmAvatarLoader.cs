@@ -55,12 +55,8 @@ namespace Katarune.Avatar
 
                 runtimeInstance.EnableUpdateWhenOffscreen();
                 driver = new UniVrmAvatarDriver(loaded);
-                var controlRigAnimator = loaded.Runtime?.ControlRig?.ControlRigAnimator;
-                if (controlRigAnimator == null)
-                {
-                    throw new InvalidOperationException("The VRM control rig has no Animator.");
-                }
-                motion = _motions.Prepare(controlRigAnimator);
+                var rigBinding = CreateRigBinding(loaded);
+                motion = _motions.Prepare(rigBinding);
                 visual = _visuals.Prepare(loaded.gameObject, presentation);
                 var bounds = MeasureBounds(loaded.gameObject);
                 var capabilities = ReadCapabilities(driver, motion);
@@ -140,6 +136,19 @@ namespace Katarune.Avatar
             return new AvatarCapabilitySet(
                 affects,
                 motion?.Actions ?? AvatarActionCapabilities.None);
+        }
+
+        private static ICharacterRigBinding CreateRigBinding(Vrm10Instance loaded)
+        {
+            var animator = loaded.Runtime?.ControlRig?.ControlRigAnimator;
+            if (animator == null)
+            {
+                throw new InvalidOperationException("The VRM control rig has no Animator.");
+            }
+
+            return new HumanoidCharacterRigBinding(
+                animator,
+                CharacterRigCapabilities.HumanoidBody);
         }
     }
 

@@ -3,6 +3,7 @@
   "rootNamespace": "Katarune.Avatar.Editor",
   "references": [
     "Katarune.Avatar.Core",
+    "Katarune.Avatar.Motion",
     "Katarune.Avatar.Runtime",
     "Katarune.Avatar.UniVrm",
     "Unity.RenderPipelines.Universal.Runtime",

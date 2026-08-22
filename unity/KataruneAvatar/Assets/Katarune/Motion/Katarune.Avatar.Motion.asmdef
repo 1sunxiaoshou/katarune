@@ -1,0 +1,7 @@
+{
+  "name": "Katarune.Avatar.Motion",
+  "rootNamespace": "Katarune.Avatar",
+  "references": [
+    "Katarune.Avatar.Core"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "behaviorId": "katarune.body.quiet-idle",
+  "version": 1,
+  "requiredCapabilities": [
+    "HumanoidBody"
+  ],
+  "channelClaims": [
+    {
+      "channel": "BodyBase",
+      "occupancy": "Exclusive"
+    }
+  ],
+  "clipGuid": "9949b817ffa279644ad7655304178053",
+  "entry": {
+    "startSeconds": 0.0,
+    "endSeconds": 0.4
+  },
+  "loop": {
+    "startSeconds": 0.4,
+    "endSeconds": 9.2
+  },
+  "syncPoints": [
+    {
+      "name": "loop.end",
+      "timeSeconds": 9.2,
+      "safeExit": true
+    }
+  ],
+  "exit": {
+    "startSeconds": 9.2,
+    "endSeconds": 9.6
+  },
+  "hotUpdateParameters": [],
+  "fallbackStrategy": "None",
+  "fallbackBehaviorId": "",
+  "license": {
+    "distribution": "prototype-distributable",
+    "sourceName": "KataruneQuietIdle generated from Unity Timeline HumanoidDefault",
+    "sourceUri": "Packages/com.unity.timeline/Editor/StyleSheets/res/HumanoidDefault.anim",
+    "author": "Katarune contributors and Unity Technologies",
+    "licenseId": "Unity Companion License",
+    "licenseUri": "https://unity.com/legal/licenses/unity-companion-license",
+    "notes": "Unity-dependent prototype asset; project-wide public license remains undecided."
+  }
+}

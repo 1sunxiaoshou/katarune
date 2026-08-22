@@ -30,13 +30,21 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 需要对比另一套动作源时，可下载 [Motifect Daily Life Motion Pack](https://motifect.itch.io/motifect-daily-life-motion-pack)，在同一导入窗口选择 ZIP 后执行 `Import Motifect alternate set`。该包没有中性 Idle 和 Cough，因此导入器保留言奏待机与现有咳嗽，只替换倾听、思考、说话、挥手、解释和庆祝。运行时不再包含全量动作浏览器，HUD 与未来 AI 均只能请求四个正式白名单动作。Motifect 原始 FBX 不得作为独立动作素材重新分发。
 
+## Behavior definition assets
+
+`Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior` 是首个版本化行为定义源。Unity 的严格导入器将 `.kbehavior` JSON 编译为 `BehaviorDefinitionAsset`，并解析其中的 Clip GUID；替换动作文件时只需修改定义中的 GUID，不需要增加动作名称分支。定义同时声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、命名同步点、热更新参数、回退策略和许可证元数据。未知字段、缺失 Clip、非法时间、重复通道或角色能力不足会返回明确错误。
+
+许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`。当前 Quiet Idle 由项目生成，但基准姿态来自 Unity Timeline 的 `HumanoidDefault`，按 Unity Companion License 记录为可分发原型；项目整体公开许可证尚未确定，因此没有标记为商用候选。本阶段没有下载或提交新的第三方原始动作。
+
+测试模型继续从仓库外加载：将许可允许本地测试的 `.vrm` 放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。模型不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
+
 构建固定 D3D11、关闭 Flip Model/HDR，并启用 URP Alpha Processing。可用 `--screenshot <png>`、`--exit-after-capture` 和 `--exit-on-error` 执行自动烟测；`--activity idle|listening|thinking|speaking` 可指定待拍状态，`--capture-delay <seconds>` 可在 0–30 秒范围内延迟截图以观察动作主体。截图模式会强制隐藏 HUD。加载器接受 VRM 1.0，也允许 UniVRM 在运行时迁移 VRM 0.x。
 
 ## Runtime design
 
 - `IAvatarRuntimeFacade` 是 HUD 和未来输入适配器的唯一入口，公开带 `Revision` 的不可变语义状态快照；每帧姿态单独通过 `CurrentPose` 读取。
 - `AvatarRuntimeSession` 负责隐藏候选对象的 `prepare → validate → commit` 事务。连续加载通过请求序号和取消令牌仲裁；失败提交恢复旧 Driver、Visual、Motion 与 Framing，成功后才释放旧角色。
-- `AvatarMotionController` 与每模型 `AvatarMotionInstance` 使用 PlayableGraph 混合状态循环和 latest-wins 单次动作；所有动作关闭 Root Motion。
+- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用 PlayableGraph 混合状态循环和 latest-wins 单次动作；所有动作关闭 Root Motion。UniVrm 只负责从 Control Rig 构造 Binding。
 - `UniVrmAvatarDriver` 隔离 UniVRM 表情、视线和标准化骨骼接口；作者动作独占四肢姿态，程序化层只向躯干与头部追加微动作。没有 authored pose 时，程序化层才从捕获基准姿态控制手臂。
 - `AvatarPoseFrame` 的水平视线使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免不同模型/相机朝向导致左右镜像。
 - `AvatarBehaviorController` 生成与输入源无关的 `AvatarPoseFrame`，执行顺序位于 UniVRM `LateUpdate` 之前。
@@ -45,7 +53,7 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 - `AvatarLightingRig` 提供无阴影的柔和主光与中性环境光，并按活动状态做小幅平滑调整。
 - `AvatarWindow` 负责全屏主显示器适配、置顶、UI Toolkit Button 局部命中、点击穿透和 Windows Player 的全局 F1 HUD 热键。
 - `AvatarHudController` 只订阅 Facade Snapshot 并调用 Facade；UXML、USS、Painter2D 装饰、SVG 图标和字体均可在 UI Builder 中继续编辑。
-- 程序集分为 `Katarune.Avatar.Core`、`Katarune.Avatar.UniVrm` 与 `Katarune.Avatar.Runtime`；Core 不引用 UniVRM 或 UniWindowController。
+- 程序集分为 `Katarune.Avatar.Core`、`Katarune.Avatar.Motion`、`Katarune.Avatar.UniVrm` 与 `Katarune.Avatar.Runtime`；Core 和 Motion 不引用 UniVRM 或 UniWindowController。
 - Camera Post Processing 和场景 Global Volume 均关闭；URP 默认 Volume Profile 保持为空，原始材质基线不经过 Bloom、Vignette、Tonemapping 或 Motion Blur。
 
 ## Test

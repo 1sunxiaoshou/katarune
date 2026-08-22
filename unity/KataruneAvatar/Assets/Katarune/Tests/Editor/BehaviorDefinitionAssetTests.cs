@@ -1,0 +1,203 @@
+using System;
+using System.IO;
+using System.Linq;
+using Katarune.Avatar.Editor;
+using NUnit.Framework;
+using UnityEditor;
+using UnityEngine;
+
+namespace Katarune.Avatar.Tests
+{
+    public sealed class BehaviorDefinitionAssetTests
+    {
+        private const string DefinitionPath =
+            "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
+
+        [Test]
+        public void QuietIdleDefinitionImportsAndValidates()
+        {
+            var definition = AssetDatabase.LoadAssetAtPath<BehaviorDefinitionAsset>(DefinitionPath);
+
+            Assert.That(definition, Is.Not.Null);
+            Assert.That(definition.BehaviorId, Is.EqualTo("katarune.body.quiet-idle"));
+            Assert.That(definition.Version, Is.EqualTo(1));
+            Assert.That(definition.Clip, Is.Not.Null);
+            Assert.That(definition.RequiredCapabilities, Is.EqualTo(CharacterRigCapabilities.HumanoidBody));
+            Assert.That(definition.ChannelClaims.Count, Is.EqualTo(1));
+            Assert.That(definition.ChannelClaims[0].Channel, Is.EqualTo(PerformanceChannel.BodyBase));
+            Assert.That(definition.ChannelClaims[0].Occupancy, Is.EqualTo(PerformanceChannelOccupancy.Exclusive));
+            Assert.That(definition.SyncPoints.Single().SafeExit, Is.True);
+            Assert.That(definition.Exit, Is.Not.Null);
+            Assert.That(definition.License.Distribution,
+                Is.EqualTo(BehaviorAssetDistribution.PrototypeDistributable));
+
+            var validation = BehaviorDefinitionAssetValidator.Validate(
+                definition,
+                CharacterRigCapabilities.HumanoidBody);
+            Assert.That(validation.IsValid, Is.True,
+                validation.IsValid ? null : validation.Errors[0].Message);
+
+            var domain = definition.CreateDomainDefinition();
+            Assert.That(domain.DefinitionId, Is.EqualTo(definition.BehaviorId));
+            Assert.That(
+                domain.ControlCapabilities.HasFlag(PerformanceControlCapabilities.SafePointExit),
+                Is.True);
+        }
+
+        [Test]
+        public void StrictSourceParserRejectsUnknownFields()
+        {
+            var json = File.ReadAllText(Path.GetFullPath(DefinitionPath));
+            json = json.Replace(
+                "\"schemaVersion\": 1,",
+                "\"schemaVersion\": 1, \"unexpectedField\": true,");
+
+            var error = Assert.Throws<BehaviorDefinitionImportException>(
+                () => BehaviorDefinitionSourceParser.Parse(json));
+
+            Assert.That(error.Code, Is.EqualTo(BehaviorDefinitionImportErrorCode.UnknownField));
+            Assert.That(error.Message, Does.Contain("$.unexpectedField"));
+        }
+
+        [Test]
+        public void ValidatorReportsMissingClip()
+        {
+            var definition = CreateDefinition(clip: null);
+
+            var validation = BehaviorDefinitionAssetValidator.Validate(
+                definition,
+                CharacterRigCapabilities.HumanoidBody);
+
+            Assert.That(validation.Errors.Select(error => error.Code),
+                Does.Contain(BehaviorDefinitionValidationErrorCode.MissingClip));
+        }
+
+        [Test]
+        public void ValidatorRejectsIllegalSyncPoint()
+        {
+            var clip = CreateOneSecondClip();
+            var definition = CreateDefinition(
+                clip,
+                syncPoints: new[] { new BehaviorSyncPoint("exit.safe", 1.5f, true) });
+
+            var validation = BehaviorDefinitionAssetValidator.Validate(
+                definition,
+                CharacterRigCapabilities.HumanoidBody);
+
+            Assert.That(validation.Errors.Select(error => error.Code),
+                Does.Contain(BehaviorDefinitionValidationErrorCode.InvalidSyncPoint));
+        }
+
+        [Test]
+        public void ValidatorRejectsDuplicateChannelClaims()
+        {
+            var definition = CreateDefinition(
+                CreateOneSecondClip(),
+                claims: new[]
+                {
+                    new BehaviorChannelClaim(
+                        PerformanceChannel.BodyBase,
+                        PerformanceChannelOccupancy.Exclusive),
+                    new BehaviorChannelClaim(
+                        PerformanceChannel.BodyBase,
+                        PerformanceChannelOccupancy.Shared),
+                });
+
+            var validation = BehaviorDefinitionAssetValidator.Validate(
+                definition,
+                CharacterRigCapabilities.HumanoidBody);
+
+            Assert.That(validation.Errors.Select(error => error.Code),
+                Does.Contain(BehaviorDefinitionValidationErrorCode.ChannelConflict));
+        }
+
+        [Test]
+        public void ValidatorReportsMissingCharacterCapabilities()
+        {
+            var definition = CreateDefinition(
+                CreateOneSecondClip(),
+                requiredCapabilities: CharacterRigCapabilities.HumanoidBody
+                    | CharacterRigCapabilities.Gaze);
+
+            var validation = BehaviorDefinitionAssetValidator.Validate(
+                definition,
+                CharacterRigCapabilities.HumanoidBody);
+
+            var error = validation.Errors.Single(candidate =>
+                candidate.Code == BehaviorDefinitionValidationErrorCode.CapabilityMismatch);
+            Assert.That(error.Message, Does.Contain("Gaze"));
+        }
+
+        [Test]
+        public void GenericMotionAssemblyDoesNotReferenceUniVrm()
+        {
+            var assembly = typeof(AvatarMotionController).Assembly;
+
+            Assert.That(assembly.GetName().Name, Is.EqualTo("Katarune.Avatar.Motion"));
+            Assert.That(typeof(AvatarMotionLibrary).Assembly, Is.SameAs(assembly));
+            Assert.That(typeof(ICharacterRigBinding).Assembly, Is.SameAs(assembly));
+            Assert.That(
+                assembly.GetReferencedAssemblies().Select(reference => reference.Name),
+                Does.Not.Contain("Katarune.Avatar.UniVrm"));
+        }
+
+        [Test]
+        public void DistributionMetadataDistinguishesThreeReadinessClasses()
+        {
+            Assert.That(Enum.GetValues(typeof(BehaviorAssetDistribution)), Is.EquivalentTo(new[]
+            {
+                BehaviorAssetDistribution.DevOnly,
+                BehaviorAssetDistribution.PrototypeDistributable,
+                BehaviorAssetDistribution.CommercialCandidate,
+            }));
+        }
+
+        private static BehaviorDefinitionAsset CreateDefinition(
+            AnimationClip clip,
+            CharacterRigCapabilities requiredCapabilities = CharacterRigCapabilities.HumanoidBody,
+            BehaviorChannelClaim[] claims = null,
+            BehaviorSyncPoint[] syncPoints = null)
+        {
+            var definition = ScriptableObject.CreateInstance<BehaviorDefinitionAsset>();
+            definition.Configure(
+                BehaviorDefinitionAsset.CurrentSchemaVersion,
+                "test.behavior",
+                1,
+                requiredCapabilities,
+                claims ?? new[]
+                {
+                    new BehaviorChannelClaim(
+                        PerformanceChannel.BodyBase,
+                        PerformanceChannelOccupancy.Exclusive),
+                },
+                clip,
+                null,
+                new BehaviorClipSegment(0f, 0.8f),
+                syncPoints ?? Array.Empty<BehaviorSyncPoint>(),
+                new BehaviorClipSegment(0.8f, 1f),
+                Array.Empty<string>(),
+                BehaviorFallbackStrategy.None,
+                string.Empty,
+                new BehaviorAssetLicense(
+                    BehaviorAssetDistribution.DevOnly,
+                    "test",
+                    string.Empty,
+                    "Katarune tests",
+                    "test-only",
+                    string.Empty,
+                    string.Empty));
+            return definition;
+        }
+
+        private static AnimationClip CreateOneSecondClip()
+        {
+            var clip = new AnimationClip();
+            clip.SetCurve(
+                string.Empty,
+                typeof(Transform),
+                "m_LocalPosition.x",
+                AnimationCurve.Linear(0f, 0f, 1f, 0f));
+            return clip;
+        }
+    }
+}

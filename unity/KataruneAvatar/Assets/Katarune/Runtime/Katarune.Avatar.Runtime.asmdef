@@ -3,6 +3,7 @@
   "rootNamespace": "Katarune.Avatar",
   "references": [
     "Katarune.Avatar.Core",
+    "Katarune.Avatar.Motion",
     "Katarune.Avatar.UniVrm",
     "Kirurobo.UniWindowController"
   ]

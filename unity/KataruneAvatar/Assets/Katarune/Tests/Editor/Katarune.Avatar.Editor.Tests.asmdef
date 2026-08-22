@@ -4,6 +4,7 @@
   "references": [
     "Katarune.Avatar.Core",
     "Katarune.Avatar.Editor",
+    "Katarune.Avatar.Motion",
     "Katarune.Avatar.Runtime",
     "Katarune.Avatar.UniVrm",
     "VRM10.MToon10"
