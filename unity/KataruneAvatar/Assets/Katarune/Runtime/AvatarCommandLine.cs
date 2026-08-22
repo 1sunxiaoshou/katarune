@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 
 namespace Katarune.Avatar
@@ -11,18 +12,22 @@ namespace Katarune.Avatar
             bool exitAfterCapture,
             bool exitOnError,
             bool transparentWindow,
-            bool debugUi,
-            bool nprEnabled,
-            AvatarRenderQuality renderQuality)
+            bool softOutlineEnabled,
+            AvatarLightingMode lightingMode,
+            AvatarActivityState initialActivity,
+            float captureDelaySeconds,
+            AvatarPresetAction? initialAction)
         {
             ModelPath = modelPath;
             ScreenshotPath = screenshotPath;
             ExitAfterCapture = exitAfterCapture;
             ExitOnError = exitOnError;
             TransparentWindow = transparentWindow;
-            DebugUi = debugUi;
-            NprEnabled = nprEnabled;
-            RenderQuality = renderQuality;
+            SoftOutlineEnabled = softOutlineEnabled;
+            LightingMode = lightingMode;
+            InitialActivity = initialActivity;
+            CaptureDelaySeconds = captureDelaySeconds;
+            InitialAction = initialAction;
         }
 
         public string ModelPath { get; }
@@ -30,9 +35,11 @@ namespace Katarune.Avatar
         public bool ExitAfterCapture { get; }
         public bool ExitOnError { get; }
         public bool TransparentWindow { get; }
-        public bool DebugUi { get; }
-        public bool NprEnabled { get; }
-        public AvatarRenderQuality RenderQuality { get; }
+        public bool SoftOutlineEnabled { get; }
+        public AvatarLightingMode LightingMode { get; }
+        public AvatarActivityState InitialActivity { get; }
+        public float CaptureDelaySeconds { get; }
+        public AvatarPresetAction? InitialAction { get; }
 
         public static AvatarCommandLine Parse(string[] args)
         {
@@ -43,9 +50,11 @@ namespace Katarune.Avatar
             var exitAfterCapture = false;
             var exitOnError = false;
             var transparentWindow = true;
-            var debugUi = false;
-            var nprEnabled = true;
-            var renderQuality = AvatarRenderQuality.High;
+            var softOutlineEnabled = false;
+            var lightingMode = AvatarLightingMode.LightDesktop;
+            var initialActivity = AvatarActivityState.Idle;
+            var captureDelaySeconds = 0f;
+            AvatarPresetAction? initialAction = null;
             for (var index = 0; index < args.Length; index += 1)
             {
                 switch (args[index])
@@ -65,14 +74,20 @@ namespace Katarune.Avatar
                     case "--opaque-window":
                         transparentWindow = false;
                         break;
-                    case "--debug-ui":
-                        debugUi = true;
+                    case "--soft-outline":
+                        softOutlineEnabled = true;
                         break;
-                    case "--no-npr":
-                        nprEnabled = false;
+                    case "--lighting":
+                        lightingMode = ReadLightingMode(args, ref index);
                         break;
-                    case "--render-quality":
-                        renderQuality = ReadRenderQuality(args, ref index);
+                    case "--activity":
+                        initialActivity = ReadActivity(args, ref index);
+                        break;
+                    case "--capture-delay":
+                        captureDelaySeconds = ReadCaptureDelay(args, ref index);
+                        break;
+                    case "--action":
+                        initialAction = ReadAction(args, ref index);
                         break;
                 }
             }
@@ -83,22 +98,98 @@ namespace Katarune.Avatar
                 exitAfterCapture,
                 exitOnError,
                 transparentWindow,
-                debugUi,
-                nprEnabled,
-                renderQuality);
+                softOutlineEnabled,
+                lightingMode,
+                initialActivity,
+                captureDelaySeconds,
+                initialAction);
         }
 
-        private static AvatarRenderQuality ReadRenderQuality(string[] args, ref int index)
+        private static AvatarPresetAction ReadAction(string[] args, ref int index)
         {
             var valueIndex = index + 1;
             if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
             {
-                throw new ArgumentException("--render-quality requires low, medium, or high.", nameof(args));
+                throw new ArgumentException(
+                    "--action requires greet-wave, explain, celebrate or cough.",
+                    nameof(args));
+            }
+            index = valueIndex;
+            switch (args[valueIndex].ToLowerInvariant())
+            {
+                case "greet-wave": return AvatarPresetAction.GreetWave;
+                case "explain": return AvatarPresetAction.Explain;
+                case "celebrate": return AvatarPresetAction.Celebrate;
+                case "cough": return AvatarPresetAction.Cough;
+                default:
+                    throw new ArgumentException(
+                        "--action requires greet-wave, explain, celebrate or cough.",
+                        nameof(args));
+            }
+        }
+
+        private static float ReadCaptureDelay(string[] args, ref int index)
+        {
+            var valueIndex = index + 1;
+            if (valueIndex >= args.Length
+                || !float.TryParse(
+                    args[valueIndex],
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out var seconds)
+                || seconds < 0f
+                || seconds > 30f)
+            {
+                throw new ArgumentException(
+                    "--capture-delay requires a number from 0 to 30 seconds.",
+                    nameof(args));
+            }
+            index = valueIndex;
+            return seconds;
+        }
+
+        private static AvatarActivityState ReadActivity(string[] args, ref int index)
+        {
+            var valueIndex = index + 1;
+            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
+            {
+                throw new ArgumentException(
+                    "--activity requires idle, listening, thinking or speaking.",
+                    nameof(args));
             }
 
             index = valueIndex;
-            if (Enum.TryParse(args[valueIndex], true, out AvatarRenderQuality quality)) return quality;
-            throw new ArgumentException("--render-quality requires low, medium, or high.", nameof(args));
+            switch (args[valueIndex].ToLowerInvariant())
+            {
+                case "idle": return AvatarActivityState.Idle;
+                case "listening": return AvatarActivityState.Listening;
+                case "thinking": return AvatarActivityState.Thinking;
+                case "speaking": return AvatarActivityState.Speaking;
+                default:
+                    throw new ArgumentException(
+                        "--activity requires idle, listening, thinking or speaking.",
+                        nameof(args));
+            }
+        }
+
+        private static AvatarLightingMode ReadLightingMode(string[] args, ref int index)
+        {
+            var valueIndex = index + 1;
+            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
+            {
+                throw new ArgumentException("--lighting requires light or dark.", nameof(args));
+            }
+
+            index = valueIndex;
+            switch (args[valueIndex].ToLowerInvariant())
+            {
+                case "light":
+                    return AvatarLightingMode.LightDesktop;
+                case "dark":
+                    return AvatarLightingMode.DarkDesktop;
+                default:
+                    throw new ArgumentException("--lighting requires light or dark.", nameof(args));
+            }
         }
 
         private static string ReadPathValue(string[] args, ref int index, string option)

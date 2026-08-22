@@ -2,7 +2,9 @@
   "name": "Katarune.Avatar.Editor",
   "rootNamespace": "Katarune.Avatar.Editor",
   "references": [
+    "Katarune.Avatar.Core",
     "Katarune.Avatar.Runtime",
+    "Katarune.Avatar.UniVrm",
     "Unity.RenderPipelines.Universal.Runtime",
     "VRM10.MToon10"
   ],

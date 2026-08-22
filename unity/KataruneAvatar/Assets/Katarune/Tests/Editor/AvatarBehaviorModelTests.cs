@@ -72,8 +72,7 @@ namespace Katarune.Avatar.Tests
         public void ManualGazeIsClampedToSafeRange()
         {
             var model = CreateModel();
-            model.GazeMode = AvatarGazeMode.Manual;
-            model.ManualGaze = new Vector2(100f, -100f);
+            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, new Vector2(100f, -100f)));
 
             var frame = model.Tick(2f, Vector2.zero);
             Assert.That(frame.GazeYaw, Is.InRange(17.9f, 18f));
@@ -84,17 +83,16 @@ namespace Katarune.Avatar.Tests
         public void GazeModesSwitchSmoothlyWithinLimits()
         {
             var model = CreateModel();
-            model.GazeMode = AvatarGazeMode.Pointer;
+            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Pointer, Vector2.zero));
             var earlyPointer = model.Tick(0.01f, Vector2.one);
             Assert.That(earlyPointer.GazeYaw, Is.GreaterThan(0f).And.LessThan(18f));
 
-            model.GazeMode = AvatarGazeMode.Manual;
-            model.ManualGaze = new Vector2(-18f, -10f);
+            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, new Vector2(-18f, -10f)));
             var manual = model.Tick(1f, Vector2.one);
             Assert.That(manual.GazeYaw, Is.InRange(-18f, 18f));
             Assert.That(manual.GazePitch, Is.InRange(-10f, 10f));
 
-            model.GazeMode = AvatarGazeMode.Auto;
+            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Auto, Vector2.zero));
             var automatic = model.Tick(1f, Vector2.zero);
             Assert.That(automatic.GazeYaw, Is.InRange(-18f, 18f));
             Assert.That(automatic.GazePitch, Is.InRange(-10f, 10f));
@@ -138,7 +136,7 @@ namespace Katarune.Avatar.Tests
         public void ManualMouthWorksWithoutSpeaking()
         {
             var model = CreateModel();
-            model.AutoMouthEnabled = false;
+            model.ApplySettings(model.Settings.WithMouth(false, model.MouthIntensity));
             model.SetManualVisemes(1f, 0f, 0f, 0f, 0f);
 
             var frame = model.Tick(0.5f, Vector2.zero);
@@ -168,7 +166,7 @@ namespace Katarune.Avatar.Tests
             var model = CreateModel();
             model.SetActivity(AvatarActivityState.Speaking);
             model.SetAffect(AvatarAffectPreset.Angry, 1f);
-            model.GazeMode = AvatarGazeMode.Manual;
+            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, Vector2.zero));
             model.Reset();
 
             Assert.That(model.Activity, Is.EqualTo(AvatarActivityState.Idle));

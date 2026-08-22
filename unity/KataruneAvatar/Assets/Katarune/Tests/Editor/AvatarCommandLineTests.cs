@@ -24,25 +24,78 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void ParseAllowsOpaqueDebugWindow()
+        public void ParseAllowsOpaqueWindow()
         {
-            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--opaque-window", "--debug-ui" });
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--opaque-window" });
             Assert.That(options.TransparentWindow, Is.False);
-            Assert.That(options.DebugUi, Is.True);
         }
 
         [Test]
-        public void ParseRecognizesNprOptions()
+        public void ParseRecognizesSoftOutlineOption()
         {
-            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--render-quality", "medium", "--no-npr" });
-            Assert.That(options.RenderQuality, Is.EqualTo(AvatarRenderQuality.Medium));
-            Assert.That(options.NprEnabled, Is.False);
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--soft-outline" });
+            Assert.That(options.SoftOutlineEnabled, Is.True);
         }
 
         [Test]
-        public void ParseRejectsUnknownRenderQuality()
+        public void ParseDefaultsToOriginalMaterialsAndLightDesktopLighting()
         {
-            Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--render-quality", "cinematic" }));
+            var options = AvatarCommandLine.Parse(new[] { "app.exe" });
+            Assert.That(options.SoftOutlineEnabled, Is.False);
+            Assert.That(options.LightingMode, Is.EqualTo(AvatarLightingMode.LightDesktop));
+        }
+
+        [Test]
+        public void ParseRecognizesDarkDesktopLighting()
+        {
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--lighting", "dark" });
+            Assert.That(options.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
+        }
+
+        [Test]
+        public void ParseRecognizesInitialActivityForVisualSmokeTests()
+        {
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--activity", "thinking" });
+
+            Assert.That(options.InitialActivity, Is.EqualTo(AvatarActivityState.Thinking));
+        }
+
+        [Test]
+        public void ParseRejectsUnknownInitialActivity()
+        {
+            Assert.Throws<ArgumentException>(() =>
+                AvatarCommandLine.Parse(new[] { "app.exe", "--activity", "dancing" }));
+        }
+
+        [Test]
+        public void ParseRecognizesCaptureDelayForVisualSmokeTests()
+        {
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--capture-delay", "1.5" });
+
+            Assert.That(options.CaptureDelaySeconds, Is.EqualTo(1.5f));
+        }
+
+        [TestCase("-1")]
+        [TestCase("31")]
+        [TestCase("later")]
+        public void ParseRejectsInvalidCaptureDelay(string value)
+        {
+            Assert.Throws<ArgumentException>(() =>
+                AvatarCommandLine.Parse(new[] { "app.exe", "--capture-delay", value }));
+        }
+
+        [Test]
+        public void ParseRecognizesInitialActionForVisualSmokeTests()
+        {
+            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--action", "greet-wave" });
+
+            Assert.That(options.InitialAction, Is.EqualTo(AvatarPresetAction.GreetWave));
+        }
+
+        [Test]
+        public void ParseRejectsUnknownLightingMode()
+        {
+            Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--lighting", "studio" }));
         }
 
         [Test]

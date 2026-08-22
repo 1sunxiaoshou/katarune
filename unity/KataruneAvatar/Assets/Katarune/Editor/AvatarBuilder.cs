@@ -27,7 +27,7 @@ namespace Katarune.Avatar.Editor
             Directory.CreateDirectory(outputDirectory);
             ConfigurePlayer();
             ConfigureTransparentUrp();
-            ConfigureNprAssets();
+            ConfigureAvatarRenderingAssets();
             PreserveRuntimeShaders();
             var scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
             if (scenes.Length == 0) throw new InvalidOperationException("At least one enabled scene is required for the avatar build.");
@@ -37,7 +37,7 @@ namespace Katarune.Avatar.Editor
                 scenes = scenes,
                 locationPathName = outputPath,
                 target = BuildTarget.StandaloneWindows64,
-                options = BuildOptions.CleanBuildCache,
+                options = BuildOptions.None,
             });
             if (report.summary.result != BuildResult.Succeeded)
             {
@@ -46,14 +46,14 @@ namespace Katarune.Avatar.Editor
             Debug.Log($"KATARUNE_AVATAR_BUILD_READY path={outputPath} bytes={report.summary.totalSize}");
         }
 
-        [MenuItem("Katarune/配置角色 NPR 渲染")]
-        public static void ConfigureNprAssets()
+        [MenuItem("Katarune/配置角色渲染")]
+        public static void ConfigureAvatarRenderingAssets()
         {
             EnsureDefaultVisualProfile();
             EnsureMToonOutlineFeature("Assets/Settings/PC_Renderer.asset");
             EnsureMToonOutlineFeature("Assets/Settings/Mobile_Renderer.asset");
             AssetDatabase.SaveAssets();
-            Debug.Log("KATARUNE_AVATAR_NPR_ASSETS_READY");
+            Debug.Log("KATARUNE_AVATAR_RENDERING_ASSETS_READY");
         }
 
         private static void EnsureDefaultVisualProfile()

@@ -12,17 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29c2ec196eba8aa48a8ad28aaa5d2677, type: 3}
   m_Name: AvatarVisualProfile
   m_EditorClassIdentifier: Katarune.Avatar.Runtime::Katarune.Avatar.AvatarVisualProfile
-  styleStrength: 0.82
-  rimIntensity: 0.72
-  outlineIntensity: 0.78
-  hairHighlightIntensity: 0.58
-  quality: 2
-  outlineEnabled: 1
-  hairHighlightEnabled: 1
-  warmShadowTint: {r: 0.86, g: 0.72, b: 0.76, a: 1}
-  coolShadowTint: {r: 0.69, g: 0.75, b: 0.9, a: 1}
-  neutralShadowTint: {r: 0.76, g: 0.78, b: 0.86, a: 1}
-  warmRimColor: {r: 1, g: 0.77, b: 0.68, a: 1}
-  coolRimColor: {r: 0.55, g: 0.72, b: 1, a: 1}
-  hairHighlightColor: {r: 0.76, g: 0.83, b: 1, a: 1}
+  outlineIntensity: 0.55
+  outlineColorBlend: 0.86
+  outlineLightingMix: 0.18
+  genericWidth: 0.0012
+  faceWidth: 0.0008
+  skinWidth: 0.001
+  hairWidth: 0.0015
+  clothingWidth: 0.0013
   materialOverrides: []

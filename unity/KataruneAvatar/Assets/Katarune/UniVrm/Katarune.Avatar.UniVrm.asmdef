@@ -1,0 +1,10 @@
+{
+  "name": "Katarune.Avatar.UniVrm",
+  "rootNamespace": "Katarune.Avatar",
+  "references": [
+    "Katarune.Avatar.Core",
+    "UniGLTF",
+    "VRM10",
+    "VRM10.MToon10"
+  ]
+}

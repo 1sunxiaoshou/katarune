@@ -1,7 +1,13 @@
 {
   "name": "Katarune.Avatar.Editor.Tests",
   "rootNamespace": "Katarune.Avatar.Tests",
-  "references": ["Katarune.Avatar.Runtime"],
+  "references": [
+    "Katarune.Avatar.Core",
+    "Katarune.Avatar.Editor",
+    "Katarune.Avatar.Runtime",
+    "Katarune.Avatar.UniVrm",
+    "VRM10.MToon10"
+  ],
   "includePlatforms": ["Editor"],
   "optionalUnityReferences": ["TestAssemblies"]
 }

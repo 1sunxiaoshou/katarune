@@ -16,7 +16,14 @@ namespace Katarune.Avatar
 
         private bool _transparent;
 
-        public void Configure(bool transparent)
+        public AvatarLightingMode LightingMode => _lightingRig != null
+            ? _lightingRig.Mode
+            : AvatarLightingMode.LightDesktop;
+        internal AvatarActivityState LightingActivity => _lightingRig != null
+            ? _lightingRig.Activity
+            : AvatarActivityState.Idle;
+
+        public void Configure(bool transparent, AvatarLightingMode lightingMode = AvatarLightingMode.LightDesktop)
         {
             _transparent = transparent;
             _camera = Camera.main;
@@ -29,14 +36,18 @@ namespace Katarune.Avatar
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.backgroundColor = transparent
                 ? new Color(0f, 0f, 0f, 0f)
-                : new Color(0.018f, 0.022f, 0.032f, 1f);
+                : new Color(0.91f, 0.915f, 0.96f, 1f);
             _camera.fieldOfView = 30f;
             _camera.allowHDR = false;
+            _camera.allowMSAA = true;
             _camera.nearClipPlane = 0.01f;
             _camera.farClipPlane = 100f;
 
             _lightingRig = gameObject.AddComponent<AvatarLightingRig>();
             _lightingRig.Configure();
+            _lightingRig.SetMode(lightingMode);
+            EnsureOpaqueFloor();
+            ApplyOpaqueBackdrop(lightingMode);
         }
 
         public void SetActivityLighting(AvatarActivityState activity)
@@ -44,9 +55,10 @@ namespace Katarune.Avatar
             _lightingRig?.SetActivity(activity);
         }
 
-        public void SetRenderQuality(AvatarRenderQuality quality)
+        public void SetLightingMode(AvatarLightingMode mode)
         {
-            _lightingRig?.SetQuality(quality);
+            _lightingRig?.SetMode(mode);
+            ApplyOpaqueBackdrop(mode);
         }
 
         public Bounds Frame(GameObject avatar)
@@ -58,28 +70,56 @@ namespace Katarune.Avatar
             var bounds = renderers[0].bounds;
             for (var index = 1; index < renderers.Length; index += 1) bounds.Encapsulate(renderers[index].bounds);
 
+            ActivateFraming(bounds);
+            return bounds;
+        }
+
+        internal AvatarFramingState CaptureFraming()
+        {
+            return new AvatarFramingState(
+                _hasFramedBounds,
+                _framedBounds,
+                _camera != null ? _camera.transform.position : Vector3.zero,
+                _camera != null ? _camera.transform.rotation : Quaternion.identity,
+                _floor != null && _floor.activeSelf,
+                _floor != null ? _floor.transform.position : Vector3.zero,
+                _floor != null ? _floor.transform.localScale : Vector3.one);
+        }
+
+        internal void RestoreFraming(AvatarFramingState state)
+        {
+            _hasFramedBounds = state.HasBounds;
+            _framedBounds = state.Bounds;
+            if (_camera != null)
+            {
+                _camera.transform.SetPositionAndRotation(state.CameraPosition, state.CameraRotation);
+            }
+            if (_floor != null)
+            {
+                _floor.SetActive(state.FloorActive);
+                _floor.transform.position = state.FloorPosition;
+                _floor.transform.localScale = state.FloorScale;
+            }
+            _lastScreenSize = new Vector2Int(Screen.width, Screen.height);
+        }
+
+        internal void ActivateFraming(Bounds bounds)
+        {
             _framedBounds = bounds;
             _hasFramedBounds = true;
             ApplyFraming(bounds);
-
-            if (!_transparent && _floor == null)
-            {
-                _floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
-                _floor.name = "Avatar Floor";
-                var collider = _floor.GetComponent<Collider>();
-                if (collider != null) Destroy(collider);
-                var shader = Shader.Find("Universal Render Pipeline/Lit")
-                    ?? throw new InvalidOperationException("URP Lit shader was not found.");
-                _floorMaterial = new Material(shader) { color = new Color(0.19f, 0.18f, 0.22f) };
-                _floor.GetComponent<Renderer>().sharedMaterial = _floorMaterial;
-            }
-
             if (_floor != null)
             {
+                _floor.SetActive(true);
                 _floor.transform.position = new Vector3(bounds.center.x, bounds.min.y - 0.006f, bounds.center.z);
                 _floor.transform.localScale = Vector3.one * Mathf.Max(0.8f, bounds.size.y * 0.7f);
             }
-            return bounds;
+        }
+
+        internal void ClearFraming()
+        {
+            _hasFramedBounds = false;
+            if (_floor != null) _floor.SetActive(false);
         }
 
         public static float GetDesiredViewportCenterX(float aspect)
@@ -123,10 +163,74 @@ namespace Katarune.Avatar
             _lastScreenSize = new Vector2Int(Screen.width, Screen.height);
         }
 
+        private void ApplyOpaqueBackdrop(AvatarLightingMode mode)
+        {
+            if (_transparent) return;
+            if (_camera != null) _camera.backgroundColor = GetBackgroundColor(mode);
+            if (_floorMaterial != null) _floorMaterial.color = GetFloorColor(mode);
+        }
+
+        private void EnsureOpaqueFloor()
+        {
+            if (_transparent || _floor != null) return;
+            _floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            _floor.name = "Avatar Floor";
+            var collider = _floor.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+            var shader = Shader.Find("Universal Render Pipeline/Lit")
+                ?? throw new InvalidOperationException("URP Lit shader was not found.");
+            _floorMaterial = new Material(shader) { color = GetFloorColor(LightingMode) };
+            _floor.GetComponent<Renderer>().sharedMaterial = _floorMaterial;
+            _floor.SetActive(false);
+        }
+
+        private static Color GetBackgroundColor(AvatarLightingMode mode)
+        {
+            return mode == AvatarLightingMode.DarkDesktop
+                ? new Color(0.018f, 0.022f, 0.032f, 1f)
+                : new Color(0.91f, 0.915f, 0.96f, 1f);
+        }
+
+        private static Color GetFloorColor(AvatarLightingMode mode)
+        {
+            return mode == AvatarLightingMode.DarkDesktop
+                ? new Color(0.19f, 0.18f, 0.22f)
+                : new Color(0.78f, 0.79f, 0.86f);
+        }
+
         private void OnDestroy()
         {
             if (_floorMaterial != null) Destroy(_floorMaterial);
             if (_floor != null) Destroy(_floor);
+        }
+
+        internal readonly struct AvatarFramingState
+        {
+            public AvatarFramingState(
+                bool hasBounds,
+                Bounds bounds,
+                Vector3 cameraPosition,
+                Quaternion cameraRotation,
+                bool floorActive,
+                Vector3 floorPosition,
+                Vector3 floorScale)
+            {
+                HasBounds = hasBounds;
+                Bounds = bounds;
+                CameraPosition = cameraPosition;
+                CameraRotation = cameraRotation;
+                FloorActive = floorActive;
+                FloorPosition = floorPosition;
+                FloorScale = floorScale;
+            }
+
+            public bool HasBounds { get; }
+            public Bounds Bounds { get; }
+            public Vector3 CameraPosition { get; }
+            public Quaternion CameraRotation { get; }
+            public bool FloorActive { get; }
+            public Vector3 FloorPosition { get; }
+            public Vector3 FloorScale { get; }
         }
     }
 }
