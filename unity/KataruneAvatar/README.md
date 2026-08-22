@@ -32,9 +32,27 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 ## Behavior definition assets
 
-`Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior` 是首个版本化行为定义源。Unity 的严格导入器将 `.kbehavior` JSON 编译为 `BehaviorDefinitionAsset`，并解析其中的 Clip GUID；替换动作文件时只需修改定义中的 GUID，不需要增加动作名称分支。定义同时声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、命名同步点、热更新参数、回退策略和许可证元数据。未知字段、缺失 Clip、非法时间、重复通道或角色能力不足会返回明确错误。
+`Assets/Katarune/Behaviors` 下的版本化行为定义源统一由严格 `.kbehavior` 导入器编译为 `BehaviorDefinitionAsset`。定义通过 GUID 引用单个 Clip 和可选 Avatar Mask，并声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、有限循环次数、命名同步点、退出段对应的安全点、热更新参数、回退策略和许可证元数据。替换动作文件时只需修改定义，不需要增加动作枚举或运行时名称分支；未知字段、缺失资源、非法时间/安全点、重复通道或角色能力不足会返回明确错误。
 
-许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`。当前 Quiet Idle 由项目生成，但基准姿态来自 Unity Timeline 的 `HumanoidDefault`，按 Unity Companion License 记录为可分发原型；项目整体公开许可证尚未确定，因此没有标记为商用候选。本阶段没有下载或提交新的第三方原始动作。
+许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`，并保存取得日期、原始格式、商用/修改/再分发权和仓库策略。Quiet Idle 由项目生成，基准姿态来自 Unity Timeline `HumanoidDefault`，按 Unity Companion License 记录为可分发原型；解释与短舞蹈样片来自 CC0 1.0 的 Quaternius UAL1。仓库只保存规范化 Unity Clip 与 Mask，原始 FBX 仍被 Git 忽略。
+
+## Phase C behavior samples
+
+首轮三样片是 `KataruneQuietIdle`、UAL1 `Idle_Talking` 规范化的上半身解释手势和 UAL1 `Dance` 规范化的短全身表演。解释手势的 Avatar Mask 排除根节点、腿、头和 IK；短表演重复一秒循环十五次，在下一次 0.5 秒稳定站姿进入一秒退出段，随后回到 Quiet Idle。它们只用于资产与 PlayableGraph 压力验证，尚未接入 D 阶段调度器；现有四态与白名单动作仍是运行基线。
+
+从官方 UAL1 Standard 包按上文流程导入本地源后，可重复生成仓库中的规范化样片：
+
+```powershell
+unity run . --editor-version 6000.3.11f1 --timeout 600 -- -nographics -executeMethod Katarune.Avatar.Editor.PhaseCBehaviorSampleGenerator.GenerateAndSave
+```
+
+在隔离的批处理场景中生成六张 Humanoid 蒙皮预览帧：
+
+```powershell
+unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeMethod Katarune.Avatar.Editor.PhaseCBehaviorPreviewCapture.Capture
+```
+
+预览输出位于被忽略的 `TestResults/phase-c-preview`，包含待机首尾、上半身叠加、舞蹈循环、退出中点和恢复待机。生成器会验证本地 CC0 许可证，固定 Root/Motion 曲线，并拒绝退出插值过冲；它只映射 UAL1 源 Clip 名称，不影响运行时定义解析。
 
 测试模型继续从仓库外加载：将许可允许本地测试的 `.vrm` 放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。模型不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
 
