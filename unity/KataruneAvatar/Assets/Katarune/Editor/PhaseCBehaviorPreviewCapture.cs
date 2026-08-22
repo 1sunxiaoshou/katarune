@@ -16,7 +16,7 @@ namespace Katarune.Avatar.Editor
         private const string IdlePath =
             "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
         private const string ExplainPath =
-            "Assets/Katarune/Behaviors/QuaterniusUpperBodyExplain.kbehavior";
+            "Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior";
         private const string DancePath =
             "Assets/Katarune/Behaviors/QuaterniusShortDance.kbehavior";
 
@@ -69,8 +69,8 @@ namespace Katarune.Avatar.Editor
                 CaptureSingle(camera, animator, idle.Clip, 0.01, Path.Combine(output, "idle-start.png"));
                 CaptureSingle(camera, animator, idle.Clip, idle.Clip.length - 0.01,
                     Path.Combine(output, "idle-loop-end.png"));
-                CaptureLayered(camera, animator, idle, explain, 2.0,
-                    Path.Combine(output, "upper-body-explain.png"));
+                CaptureSingle(camera, animator, explain.Clip, 2.0,
+                    Path.Combine(output, "full-body-explain.png"));
                 CaptureSingle(camera, animator, dance.Clip, 0.5,
                     Path.Combine(output, "short-dance-loop.png"));
                 CaptureSingle(camera, animator, dance.Clip, 1.5,
@@ -133,63 +133,6 @@ namespace Katarune.Avatar.Editor
             {
                 if (!allowRetry) throw new InvalidOperationException($"Preview render stayed empty: {path}");
                 CaptureSingle(camera, animator, clip, time, path, allowRetry: false);
-            }
-        }
-
-        private static void CaptureLayered(
-            Camera camera,
-            Animator animator,
-            BehaviorDefinitionAsset idle,
-            BehaviorDefinitionAsset overlay,
-            double time,
-            string path)
-        {
-            CaptureLayered(camera, animator, idle, overlay, time, path, allowRetry: true);
-        }
-
-        private static void CaptureLayered(
-            Camera camera,
-            Animator animator,
-            BehaviorDefinitionAsset idle,
-            BehaviorDefinitionAsset overlay,
-            double time,
-            string path,
-            bool allowRetry)
-        {
-            animator.Rebind();
-            animator.Update(0f);
-            var graph = PlayableGraph.Create("Phase C preview layered");
-            var captured = false;
-            try
-            {
-                graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-                var idlePlayable = AnimationClipPlayable.Create(graph, idle.Clip);
-                var overlayPlayable = AnimationClipPlayable.Create(graph, overlay.Clip);
-                idlePlayable.SetTime(time);
-                idlePlayable.SetSpeed(0d);
-                overlayPlayable.SetTime(time);
-                overlayPlayable.SetSpeed(0d);
-                var mixer = AnimationLayerMixerPlayable.Create(graph, 2);
-                graph.Connect(idlePlayable, 0, mixer, 0);
-                graph.Connect(overlayPlayable, 0, mixer, 1);
-                mixer.SetInputWeight(0, 1f);
-                mixer.SetInputWeight(1, 1f);
-                mixer.SetLayerMaskFromAvatarMask(1, overlay.AvatarMask);
-                var output = AnimationPlayableOutput.Create(graph, "Humanoid", animator);
-                output.SetSourcePlayable(mixer);
-                graph.Play();
-                graph.Evaluate(0.01f);
-                graph.Evaluate(0.01f);
-                captured = Render(camera, animator, path);
-            }
-            finally
-            {
-                if (graph.IsValid()) graph.Destroy();
-            }
-            if (!captured)
-            {
-                if (!allowRetry) throw new InvalidOperationException($"Preview render stayed empty: {path}");
-                CaptureLayered(camera, animator, idle, overlay, time, path, allowRetry: false);
             }
         }
 

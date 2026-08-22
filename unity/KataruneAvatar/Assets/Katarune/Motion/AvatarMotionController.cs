@@ -188,6 +188,10 @@ namespace Katarune.Avatar
         internal const float BaseFadeSeconds = 0.25f;
         internal const float ActionFadeInSeconds = 0.18f;
         internal const float ActionFadeOutSeconds = 0.20f;
+        internal const float PerformanceFadeInSeconds = 0.20f;
+        internal const float PerformanceFadeOutSeconds = 0.25f;
+        internal const float PerformanceSafeExitFadeOutSeconds = 0.20f;
+        internal const float PerformanceImmediateCancelFadeOutSeconds = 0.12f;
 
         private readonly Animator _animator;
         private readonly AvatarMotionLibrary _library;
@@ -200,6 +204,7 @@ namespace Katarune.Avatar
         private PlayableGraph _graph;
         private AnimationMixerPlayable _baseMixer;
         private AnimationMixerPlayable _actionMixer;
+        private AnimationMixerPlayable _performanceMixer;
         private AnimationLayerMixerPlayable _finalMixer;
         private readonly Dictionary<string, ScheduledPlayable> _scheduledPlayables =
             new Dictionary<string, ScheduledPlayable>(StringComparer.Ordinal);
@@ -212,6 +217,7 @@ namespace Katarune.Avatar
         private float _actionElapsed;
         private float _actionDuration;
         private float _actionWeight;
+        private float _performanceWeight;
         private bool _actionEnding;
         private bool _overlayActive;
         private AvatarActivityState _activity;
@@ -262,11 +268,14 @@ namespace Katarune.Avatar
             _graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
             _baseMixer = AnimationMixerPlayable.Create(_graph, 2);
             _actionMixer = AnimationMixerPlayable.Create(_graph, 2);
-            _finalMixer = AnimationLayerMixerPlayable.Create(_graph, 2);
+            _performanceMixer = AnimationMixerPlayable.Create(_graph, 2);
+            _finalMixer = AnimationLayerMixerPlayable.Create(_graph, 3);
             _graph.Connect(_baseMixer, 0, _finalMixer, 0);
             _graph.Connect(_actionMixer, 0, _finalMixer, 1);
+            _graph.Connect(_performanceMixer, 0, _finalMixer, 2);
             _finalMixer.SetInputWeight(0, 1f);
             _finalMixer.SetInputWeight(1, 0f);
+            _finalMixer.SetInputWeight(2, 0f);
             var output = AnimationPlayableOutput.Create(_graph, "Avatar Humanoid Motion", _animator);
             output.SetSourcePlayable(_finalMixer);
             _activity = initialActivity;
@@ -281,13 +290,12 @@ namespace Katarune.Avatar
 
         public event Action Changed;
 
-        public AvatarActionCapabilities Actions => _performances.ContainsDefinition("katarune.gesture.explain")
+        public AvatarActionCapabilities Actions => _performances.ContainsDefinition("katarune.performance.explain")
             ? (_library?.Actions ?? AvatarActionCapabilities.None) & ~AvatarActionCapabilities.Explain
             : _library?.Actions ?? AvatarActionCapabilities.None;
         public bool HasAuthoredBodyPose => !_disposed && _graph.IsValid();
-        public float ProceduralBodyWeight => HasActiveFullBodyPerformance()
-            ? 0f
-            : GetProceduralWeight(_activity) * (1f - _actionWeight);
+        public float ProceduralBodyWeight => GetProceduralWeight(_activity)
+            * (1f - Mathf.Max(_actionWeight, _performanceWeight));
         public float ProceduralArmWeight => 0f;
         public AvatarPresetAction? CurrentAction { get; private set; }
         public ulong ActionSequence { get; private set; }
@@ -312,11 +320,11 @@ namespace Katarune.Avatar
         {
             ThrowIfDisposed();
             if (action == AvatarPresetAction.Explain
-                && _performances.ContainsDefinition("katarune.gesture.explain"))
+                && _performances.ContainsDefinition("katarune.performance.explain"))
             {
                 return new AvatarActionRequestResult(
                     AvatarActionRequestOutcome.Unavailable,
-                    "The legacy Explain action was replaced by behavior 'katarune.gesture.explain'.");
+                    "The legacy Explain action was replaced by behavior 'katarune.performance.explain'.");
             }
             if (HasScheduledBodyWork())
             {
@@ -402,6 +410,7 @@ namespace Katarune.Avatar
             TickBaseBlend(deltaTime);
             TickActionBlend(deltaTime);
             _performances.Tick(deltaTime);
+            TickScheduledBlend(deltaTime);
 
             if (_overlayActive && !_actionEnding)
             {
@@ -565,19 +574,24 @@ namespace Katarune.Avatar
             BehaviorDefinitionAsset definition,
             float clipTime)
         {
+            if (!ClaimsFullBody(definition) || definition.AvatarMask != null)
+            {
+                throw new InvalidOperationException(
+                    $"Scheduled body behavior '{definition.BehaviorId}' must currently be an unmasked full-body performance.");
+            }
             var input = FindScheduledInput();
-            if (input >= _finalMixer.GetInputCount()) _finalMixer.SetInputCount(input + 1);
+            if (input >= _performanceMixer.GetInputCount())
+                _performanceMixer.SetInputCount(input + 1);
             var playable = AnimationClipPlayable.Create(_graph, definition.Clip);
             playable.SetApplyFootIK(true);
             playable.SetApplyPlayableIK(false);
             playable.SetSpeed(0d);
             playable.SetTime(clipTime);
-            _graph.Connect(playable, 0, _finalMixer, input);
-            _finalMixer.SetInputWeight(input, 1f);
-            _finalMixer.SetLayerAdditive((uint)input, false);
-            if (definition.AvatarMask != null)
-                _finalMixer.SetLayerMaskFromAvatarMask((uint)input, definition.AvatarMask);
-            _scheduledPlayables.Add(instanceId, new ScheduledPlayable(input, playable));
+            _graph.Connect(playable, 0, _performanceMixer, input);
+            _performanceMixer.SetInputWeight(input, 0f);
+            var scheduled = new ScheduledPlayable(input, playable);
+            scheduled.BeginFade(1f, PerformanceFadeInSeconds);
+            _scheduledPlayables.Add(instanceId, scheduled);
         }
 
         void IBehaviorPerformanceSink.SetTime(string instanceId, float clipTime)
@@ -592,25 +606,87 @@ namespace Katarune.Avatar
             // Clip time is authored by BehaviorPlaybackCursor, so pausing is represented by not advancing it.
         }
 
-        void IBehaviorPerformanceSink.End(string instanceId, bool immediate)
+        void IBehaviorPerformanceSink.End(string instanceId, PerformanceEndReason reason)
         {
             if (!_scheduledPlayables.TryGetValue(instanceId, out var scheduled)) return;
-            _scheduledPlayables.Remove(instanceId);
-            _finalMixer.SetInputWeight(scheduled.Input, 0f);
-            if (scheduled.Playable.IsValid())
+            scheduled.Ended = true;
+            scheduled.BeginFade(0f, FadeOutSeconds(reason));
+        }
+
+        private void TickScheduledBlend(float deltaTime)
+        {
+            if (_scheduledPlayables.Count == 0)
             {
-                _graph.Disconnect(_finalMixer, scheduled.Input);
+                _performanceWeight = 0f;
+                _finalMixer.SetInputWeight(2, 0f);
+                return;
+            }
+
+            List<string> completed = null;
+            var totalWeight = 0f;
+            foreach (var pair in _scheduledPlayables)
+            {
+                var scheduled = pair.Value;
+                scheduled.Tick(deltaTime);
+                totalWeight += scheduled.Weight;
+                if (scheduled.Ended && scheduled.Weight <= 0f)
+                    (completed ??= new List<string>()).Add(pair.Key);
+            }
+
+            var normalizedTotal = Mathf.Max(0.0001f, totalWeight);
+            foreach (var scheduled in _scheduledPlayables.Values)
+            {
+                _performanceMixer.SetInputWeight(
+                    scheduled.Input,
+                    scheduled.Weight / normalizedTotal);
+            }
+            _performanceWeight = Mathf.Clamp01(totalWeight);
+            _finalMixer.SetInputWeight(2, _performanceWeight);
+
+            if (completed == null) return;
+            for (var index = 0; index < completed.Count; index += 1)
+            {
+                var instanceId = completed[index];
+                var scheduled = _scheduledPlayables[instanceId];
+                _scheduledPlayables.Remove(instanceId);
+                if (!scheduled.Playable.IsValid()) continue;
+                _graph.Disconnect(_performanceMixer, scheduled.Input);
                 _graph.DestroyPlayable(scheduled.Playable);
+                _performanceMixer.SetInputWeight(scheduled.Input, 0f);
             }
         }
 
         private int FindScheduledInput()
         {
-            for (var input = 2; input < _finalMixer.GetInputCount(); input += 1)
+            for (var input = 0; input < _performanceMixer.GetInputCount(); input += 1)
             {
-                if (!_finalMixer.GetInput(input).IsValid()) return input;
+                if (!_performanceMixer.GetInput(input).IsValid()) return input;
             }
-            return _finalMixer.GetInputCount();
+            return _performanceMixer.GetInputCount();
+        }
+
+        private static bool ClaimsFullBody(BehaviorDefinitionAsset definition)
+        {
+            for (var index = 0; index < definition.ChannelClaims.Count; index += 1)
+            {
+                if (definition.ChannelClaims[index].Channel
+                    == PerformanceChannel.BodyFullPerformance) return true;
+            }
+            return false;
+        }
+
+        private static float FadeOutSeconds(PerformanceEndReason reason)
+        {
+            switch (reason)
+            {
+                case PerformanceEndReason.CancelledImmediate:
+                case PerformanceEndReason.Failed:
+                    return PerformanceImmediateCancelFadeOutSeconds;
+                case PerformanceEndReason.ExitedAtSafePoint:
+                    return PerformanceSafeExitFadeOutSeconds;
+                default:
+                    return PerformanceFadeOutSeconds;
+            }
         }
 
         private bool HasScheduledBodyWork()
@@ -627,19 +703,9 @@ namespace Katarune.Avatar
             return false;
         }
 
-        private bool HasActiveFullBodyPerformance()
-        {
-            var instances = _performances.Scheduler.ActiveInstances;
-            for (var index = 0; index < instances.Count; index += 1)
-            {
-                if (instances[index].Plan.Claims(PerformanceChannel.BodyFullPerformance)) return true;
-            }
-            return false;
-        }
-
         private void OnPerformanceChanged() => Changed?.Invoke();
 
-        private readonly struct ScheduledPlayable
+        private sealed class ScheduledPlayable
         {
             public ScheduledPlayable(int input, AnimationClipPlayable playable)
             {
@@ -649,6 +715,31 @@ namespace Katarune.Avatar
 
             public int Input { get; }
             public AnimationClipPlayable Playable { get; }
+            public float Weight { get; private set; }
+            public bool Ended { get; set; }
+
+            private float _startWeight;
+            private float _targetWeight;
+            private float _duration;
+            private float _elapsed;
+
+            public void BeginFade(float targetWeight, float duration)
+            {
+                _startWeight = Weight;
+                _targetWeight = Mathf.Clamp01(targetWeight);
+                _duration = Mathf.Max(0f, duration);
+                _elapsed = 0f;
+                if (_duration <= 0f) Weight = _targetWeight;
+            }
+
+            public void Tick(float deltaTime)
+            {
+                if (Mathf.Approximately(Weight, _targetWeight)) return;
+                _elapsed += Mathf.Max(0f, deltaTime);
+                var progress = _duration <= 0f ? 1f : Mathf.Clamp01(_elapsed / _duration);
+                Weight = Mathf.Lerp(_startWeight, _targetWeight,
+                    Mathf.SmoothStep(0f, 1f, progress));
+            }
         }
     }
 }

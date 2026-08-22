@@ -15,7 +15,7 @@ namespace Katarune.Avatar.Tests
         private const string IdlePath =
             "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
         private const string ExplainPath =
-            "Assets/Katarune/Behaviors/QuaterniusUpperBodyExplain.kbehavior";
+            "Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior";
         private const string DancePath =
             "Assets/Katarune/Behaviors/QuaterniusShortDance.kbehavior";
 
@@ -27,7 +27,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(definitions.Select(definition => definition.BehaviorId), Is.EquivalentTo(new[]
             {
                 "katarune.body.quiet-idle",
-                "katarune.gesture.explain",
+                "katarune.performance.explain",
                 "katarune.performance.short-dance",
             }));
             foreach (var definition in definitions)
@@ -42,21 +42,17 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void ExplainUsesUpperBodyMaskWithoutOwningHeadOrLegs()
+        public void ExplainUsesExclusiveFullBodyWithoutMask()
         {
             var definition = Load(ExplainPath);
             var claim = definition.ChannelClaims.Single();
 
-            Assert.That(claim.Channel, Is.EqualTo(PerformanceChannel.GestureUpperBody));
-            Assert.That(claim.Occupancy, Is.EqualTo(PerformanceChannelOccupancy.Additive));
-            Assert.That(definition.AvatarMask, Is.Not.Null);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.Body), Is.True);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArm), Is.True);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm), Is.True);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.Head), Is.False);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.Root), Is.False);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftLeg), Is.False);
-            Assert.That(definition.AvatarMask.GetHumanoidBodyPartActive(AvatarMaskBodyPart.RightLeg), Is.False);
+            Assert.That(claim.Channel, Is.EqualTo(PerformanceChannel.BodyFullPerformance));
+            Assert.That(claim.Occupancy, Is.EqualTo(PerformanceChannelOccupancy.Exclusive));
+            Assert.That(definition.AvatarMask, Is.Null);
+            Assert.That(AnimationUtility.GetCurveBindings(definition.Clip),
+                Has.Some.Matches<EditorCurveBinding>(binding =>
+                    binding.propertyName.Contains("Upper Leg")));
         }
 
         [Test]
@@ -152,7 +148,7 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void LocalHumanoidGraphAppliesUpperBodyMaskAndSafeExitSegment()
+        public void LocalHumanoidGraphPlaysBothFullBodySamplesAndSafeExitSegment()
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
                 PhaseCBehaviorSampleGenerator.SourcePath);
@@ -165,28 +161,25 @@ namespace Katarune.Avatar.Tests
             var explain = Load(ExplainPath);
             var dance = Load(DancePath);
             var baseOnly = Object.Instantiate(prefab);
-            var layered = Object.Instantiate(prefab);
+            var sampled = Object.Instantiate(prefab);
             try
             {
                 var baseAnimator = RequireAnimator(baseOnly);
-                var layeredAnimator = RequireAnimator(layered);
+                var sampledAnimator = RequireAnimator(sampled);
                 using (var baseGraph = CreateSingleClipGraph(baseAnimator, idle.Clip, 2.0))
-                using (var layeredGraph = CreateLayeredGraph(layeredAnimator, idle, explain, 2.0))
+                using (var explainGraph = CreateSingleClipGraph(sampledAnimator, explain.Clip, 2.0))
                 {
                     baseGraph.Graph.Evaluate(0.01f);
-                    layeredGraph.Graph.Evaluate(0.01f);
-                    AssertBoneUnchanged(baseAnimator, layeredAnimator, HumanBodyBones.Head, 0.05f);
-                    AssertBoneUnchanged(baseAnimator, layeredAnimator, HumanBodyBones.LeftUpperLeg, 0.05f);
-                    Assert.That(BoneAngle(baseAnimator, layeredAnimator, HumanBodyBones.LeftUpperArm),
-                        Is.GreaterThan(0.25f));
+                    explainGraph.Graph.Evaluate(0.01f);
+                    Assert.That(MaxBodyBoneAngle(baseAnimator, sampledAnimator), Is.GreaterThan(5f));
                 }
 
                 using (var baseGraph = CreateSingleClipGraph(baseAnimator, idle.Clip, 0.5))
-                using (var performance = CreateSingleClipGraph(layeredAnimator, dance.Clip, 0.5))
+                using (var performance = CreateSingleClipGraph(sampledAnimator, dance.Clip, 0.5))
                 {
                     baseGraph.Graph.Evaluate(0.01f);
                     performance.Graph.Evaluate(0f);
-                    Assert.That(MaxBodyBoneAngle(baseAnimator, layeredAnimator), Is.GreaterThan(5f));
+                    Assert.That(MaxBodyBoneAngle(baseAnimator, sampledAnimator), Is.GreaterThan(5f));
                     performance.Playable.SetTime(dance.Exit.StartSeconds + 0.5f);
                     performance.Graph.Evaluate(0f);
                     performance.Playable.SetTime(dance.Exit.EndSeconds);
@@ -197,7 +190,7 @@ namespace Katarune.Avatar.Tests
             finally
             {
                 Object.DestroyImmediate(baseOnly);
-                Object.DestroyImmediate(layered);
+                Object.DestroyImmediate(sampled);
             }
         }
 
@@ -234,41 +227,6 @@ namespace Katarune.Avatar.Tests
             output.SetSourcePlayable(playable);
             graph.Play();
             return new GraphHandle(graph, playable);
-        }
-
-        private static GraphHandle CreateLayeredGraph(
-            Animator animator,
-            BehaviorDefinitionAsset idle,
-            BehaviorDefinitionAsset overlay,
-            double time)
-        {
-            var graph = PlayableGraph.Create("Phase C upper-body smoke");
-            graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
-            var idlePlayable = AnimationClipPlayable.Create(graph, idle.Clip);
-            var overlayPlayable = AnimationClipPlayable.Create(graph, overlay.Clip);
-            idlePlayable.SetTime(time);
-            idlePlayable.SetSpeed(0d);
-            overlayPlayable.SetTime(time);
-            overlayPlayable.SetSpeed(0d);
-            var mixer = AnimationLayerMixerPlayable.Create(graph, 2);
-            graph.Connect(idlePlayable, 0, mixer, 0);
-            graph.Connect(overlayPlayable, 0, mixer, 1);
-            mixer.SetInputWeight(0, 1f);
-            mixer.SetInputWeight(1, 1f);
-            mixer.SetLayerMaskFromAvatarMask(1, overlay.AvatarMask);
-            var output = AnimationPlayableOutput.Create(graph, "Humanoid", animator);
-            output.SetSourcePlayable(mixer);
-            graph.Play();
-            return new GraphHandle(graph, overlayPlayable);
-        }
-
-        private static void AssertBoneUnchanged(
-            Animator expected,
-            Animator actual,
-            HumanBodyBones bone,
-            float tolerance)
-        {
-            Assert.That(BoneAngle(expected, actual, bone), Is.LessThan(tolerance), bone.ToString());
         }
 
         private static float BoneAngle(Animator expected, Animator actual, HumanBodyBones bone) =>

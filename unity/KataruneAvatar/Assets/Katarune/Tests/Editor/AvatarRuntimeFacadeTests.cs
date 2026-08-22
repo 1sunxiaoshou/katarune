@@ -283,7 +283,7 @@ namespace Katarune.Avatar.Tests
         {
             var result = _facade.RequestBehavior(new BehaviorIntent(
                 "intent-explain",
-                "katarune.gesture.explain",
+                "katarune.performance.explain",
                 BehaviorIntentSource.User));
 
             Assert.That(result.Outcome, Is.EqualTo(BehaviorRequestOutcome.Unavailable));
@@ -299,7 +299,7 @@ namespace Katarune.Avatar.Tests
 
             var request = _facade.RequestBehavior(new BehaviorIntent(
                 "intent-explain",
-                "katarune.gesture.explain",
+                "katarune.performance.explain",
                 BehaviorIntentSource.User));
 
             Assert.That(request.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
@@ -431,7 +431,7 @@ namespace Katarune.Avatar.Tests
             {
                 PerformanceRevision += 1;
                 ActivePerformanceCount = 1;
-                PerformanceDiagnostics = "instance-fake behavior=katarune.gesture.explain state=Running";
+                PerformanceDiagnostics = "instance-fake behavior=katarune.performance.explain state=Running";
                 Changed?.Invoke();
                 return new BehaviorRequestResult(BehaviorRequestOutcome.Started, "instance-fake");
             }

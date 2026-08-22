@@ -18,8 +18,8 @@ namespace Katarune.Avatar.Editor
             EnsureDirectory(SceneDirectory);
             GenerateCatalog();
             GenerateScene(
-                $"{SceneDirectory}/PhaseD_SpeakingWithGesture.unity",
-                PhaseDAcceptanceScenario.SpeakingWithGesture);
+                $"{SceneDirectory}/PhaseD_SpeakingWithFullBodyExplain.unity",
+                PhaseDAcceptanceScenario.SpeakingWithFullBodyExplain);
             GenerateScene(
                 $"{SceneDirectory}/PhaseD_DanceInterruption.unity",
                 PhaseDAcceptanceScenario.DanceInterruption);
@@ -33,7 +33,7 @@ namespace Katarune.Avatar.Editor
             var definitions = new[]
             {
                 Load("Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior"),
-                Load("Assets/Katarune/Behaviors/QuaterniusUpperBodyExplain.kbehavior"),
+                Load("Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior"),
                 Load("Assets/Katarune/Behaviors/QuaterniusShortDance.kbehavior"),
             };
             var catalog = AssetDatabase.LoadAssetAtPath<BehaviorDefinitionCatalog>(CatalogPath);

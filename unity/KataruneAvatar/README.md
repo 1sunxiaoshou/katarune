@@ -32,17 +32,17 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 ## Behavior definition assets
 
-`Assets/Katarune/Behaviors` 下的版本化行为定义源统一由严格 `.kbehavior` 导入器编译为 `BehaviorDefinitionAsset`。定义通过 GUID 引用单个 Clip 和可选 Avatar Mask，并声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、有限循环次数、命名同步点、退出段对应的安全点、热更新参数、回退策略和许可证元数据。替换动作文件时只需修改定义，不需要增加动作枚举或运行时名称分支；未知字段、缺失资源、非法时间/安全点、重复通道或角色能力不足会返回明确错误。
+`Assets/Katarune/Behaviors` 下的版本化行为定义源统一由严格 `.kbehavior` 导入器编译为 `BehaviorDefinitionAsset`。定义通过 GUID 引用单个 Clip 和可选 Avatar Mask，并声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、有限循环次数、命名同步点、退出段对应的安全点、热更新参数、回退策略和许可证元数据。Avatar Mask 只用于经过验证的局部动作，不能把任意全身 Clip 自动变成上半身手势。替换动作文件时只需修改定义，不需要增加动作枚举或运行时名称分支；未知字段、缺失资源、非法时间/安全点、重复通道或角色能力不足会返回明确错误。
 
-许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`，并保存取得日期、原始格式、商用/修改/再分发权和仓库策略。Quiet Idle 由项目生成，基准姿态来自 Unity Timeline `HumanoidDefault`，按 Unity Companion License 记录为可分发原型；解释与短舞蹈样片来自 CC0 1.0 的 Quaternius UAL1。仓库只保存规范化 Unity Clip 与 Mask，原始 FBX 仍被 Git 忽略。
+许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`，并保存取得日期、原始格式、商用/修改/再分发权和仓库策略。Quiet Idle 由项目生成，基准姿态来自 Unity Timeline `HumanoidDefault`，按 Unity Companion License 记录为可分发原型；解释与短舞蹈样片来自 CC0 1.0 的 Quaternius UAL1。仓库只保存规范化 Unity Clip，原始 FBX 仍被 Git 忽略。
 
 ## Phase C behavior samples
 
-首轮三样片是 `KataruneQuietIdle`、UAL1 `Idle_Talking` 规范化的上半身解释手势和 UAL1 `Dance` 规范化的短全身表演。解释手势的 Avatar Mask 排除根节点、腿、头和 IK；短表演重复一秒循环十五次，在下一次 0.5 秒稳定站姿进入一秒退出段，随后回到 Quiet Idle。D 阶段调度垂直切片已通过 Resources 行为目录接入三样片；现有四态继续提供基础姿态，未被样片覆盖的旧预设动作只作互斥技术基线。
+首轮三样片是 `KataruneQuietIdle`、UAL1 `Idle_Talking` 规范化的全身解释动作和 UAL1 `Dance` 规范化的短全身表演。`Idle_Talking` 的头、躯干、手臂与腿共同构成动作，因此使用 `Body.FullPerformance` 独占通道且不套 Avatar Mask；短表演重复一秒循环十五次，在下一次 0.5 秒稳定站姿进入一秒退出段，随后回到 Quiet Idle。D 阶段调度垂直切片已通过 Resources 行为目录接入三样片；现有四态继续提供基础姿态，未被样片覆盖的旧预设动作只作互斥技术基线。
 
 ## Phase D acceptance scenes
 
-`Assets/Katarune/Scenes/Acceptance/PhaseD_SpeakingWithGesture.unity` 和 `PhaseD_DanceInterruption.unity` 可在 Unity 中独立运行。通过 HUD 选择仓库外 VRM，或以 `--vrm "C:/path/to/avatar.vrm"` 启动；场景左上角会显示权威实例状态、播放阶段、同步点、通道所有者和终态原因。第一个场景自动组合说话活动、调试口型、默认凝视和解释手势；第二个场景先在 `exit.safe` 安全退出并提升互斥队列，再对新实例执行立即取消。两者都不接 Electron 或真实音频。
+`Assets/Katarune/Scenes/Acceptance/PhaseD_SpeakingWithFullBodyExplain.unity` 和 `PhaseD_DanceInterruption.unity` 可在 Unity 中独立运行。通过 HUD 选择仓库外 VRM，或以 `--vrm "C:/path/to/avatar.vrm"` 启动；场景左上角会显示权威实例状态、播放阶段、同步点、通道所有者和终态原因。第一个场景自动组合说话活动、调试口型、默认凝视和全身解释动作；第二个场景先在 `exit.safe` 安全退出并提升互斥队列，再对新实例执行立即取消。调度表演采用 SmoothStep 固定时长混合：淡入 0.20 秒、自然回待机 0.25 秒、安全退出回待机 0.20 秒、立即取消视觉缓冲 0.12 秒。两者都不接 Electron 或真实音频。
 
 行为请求只通过 `IAvatarRuntimeFacade.RequestBehavior` 提交稳定 behavior ID，暂停、继续、立即取消和安全退出通过 `ApplyPerformanceCommand` 作用于实例 ID。新行为调度器是通道所有权的唯一写入点；旧预设动作与调度身体实例互斥，已被行为资产替代的旧 Explain 能力不再发布。场景和 Resources 目录可由 `Katarune > Generate Phase D Acceptance Assets` 重建。
 
@@ -58,7 +58,7 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -nographics -executeMe
 unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeMethod Katarune.Avatar.Editor.PhaseCBehaviorPreviewCapture.Capture
 ```
 
-预览输出位于被忽略的 `TestResults/phase-c-preview`，包含待机首尾、上半身叠加、舞蹈循环、退出中点和恢复待机。生成器会验证本地 CC0 许可证，固定 Root/Motion 曲线，并拒绝退出插值过冲；它只映射 UAL1 源 Clip 名称，不影响运行时定义解析。
+预览输出位于被忽略的 `TestResults/phase-c-preview`，包含待机首尾、全身解释、舞蹈循环、退出中点和恢复待机。生成器会验证本地 CC0 许可证，固定 Root/Motion 曲线，并拒绝退出插值过冲；它只映射 UAL1 源 Clip 名称，不影响运行时定义解析。
 
 测试模型继续从仓库外加载：将许可允许本地测试的 `.vrm` 放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。模型不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
 
@@ -68,7 +68,7 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeM
 
 - `IAvatarRuntimeFacade` 是 HUD 和未来输入适配器的唯一入口，公开带 `Revision` 的不可变语义状态快照；每帧姿态单独通过 `CurrentPose` 读取。
 - `AvatarRuntimeSession` 负责隐藏候选对象的 `prepare → validate → commit` 事务。连续加载通过请求序号和取消令牌仲裁；失败提交恢复旧 Driver、Visual、Motion 与 Framing，成功后才释放旧角色。
-- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用单一 PlayableGraph 混合基础活动、调度全身表演、带 Mask 的上半身手势和仍未迁移的互斥预设动作；所有动作关闭 Root Motion。UniVrm 只负责从 Control Rig 构造 Binding。
+- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用单一 PlayableGraph 混合基础活动、归一化的调度全身表演和仍未迁移的互斥预设动作；所有动作关闭 Root Motion。上半身通道与可选 Mask 仍是资产能力，但当前无真实专用样片。UniVrm 只负责从 Control Rig 构造 Binding。
 - `UniVrmAvatarDriver` 隔离 UniVRM 表情、视线和标准化骨骼接口；作者动作独占四肢姿态，程序化层只向躯干与头部追加微动作。没有 authored pose 时，程序化层才从捕获基准姿态控制手臂。
 - `AvatarPoseFrame` 的水平视线使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免不同模型/相机朝向导致左右镜像。
 - `AvatarBehaviorController` 生成与输入源无关的 `AvatarPoseFrame`，执行顺序位于 UniVRM `LateUpdate` 之前。

@@ -5,7 +5,7 @@ namespace Katarune.Avatar
 {
     public enum PhaseDAcceptanceScenario
     {
-        SpeakingWithGesture,
+        SpeakingWithFullBodyExplain,
         DanceInterruption,
     }
 
@@ -26,13 +26,13 @@ namespace Katarune.Avatar
             _runtime ??= FindFirstObjectByType<AvatarBootstrap>()?.Runtime;
             if (_runtime == null || _runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) return;
             _stepElapsed += Time.deltaTime;
-            if (_scenario == PhaseDAcceptanceScenario.SpeakingWithGesture)
-                TickSpeakingWithGesture();
+            if (_scenario == PhaseDAcceptanceScenario.SpeakingWithFullBodyExplain)
+                TickSpeakingWithFullBodyExplain();
             else
                 TickDanceInterruption();
         }
 
-        private void TickSpeakingWithGesture()
+        private void TickSpeakingWithFullBodyExplain()
         {
             if (_step == 0)
             {
@@ -41,22 +41,22 @@ namespace Katarune.Avatar
                     .WithGaze(AvatarGazeMode.Auto, Vector2.zero));
                 _runtime.SetManualVisemes(new AvatarVisemeWeights(0.7f, 0.1f, 0f, 0.2f, 0f));
                 var result = _runtime.RequestBehavior(new BehaviorIntent(
-                    "acceptance-speaking-gesture",
-                    "katarune.gesture.explain",
+                    "acceptance-speaking-full-body-explain",
+                    "katarune.performance.explain",
                     BehaviorIntentSource.Application));
                 _firstInstanceId = result.InstanceId;
-                _status = $"Gesture request: {result.Outcome} {result.Error}";
+                _status = $"Full-body explain request: {result.Outcome} {result.Error}";
                 _step = result.Outcome == BehaviorRequestOutcome.Started ? 1 : -1;
                 _stepElapsed = 0f;
                 return;
             }
             if (_step == 1
                 && _runtime.Snapshot.Motion.PerformanceDiagnostics.Contains(
-                    $"{_firstInstanceId} behavior=katarune.gesture.explain state=Completed"))
+                    $"{_firstInstanceId} behavior=katarune.performance.explain state=Completed"))
             {
                 _runtime.SetManualVisemes(default);
                 _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithActivity(AvatarActivityState.Idle));
-                _status = "PASS: gesture completed; speaking/gaze/viseme defaults were restored independently.";
+                _status = "PASS: full-body explain completed; gaze and visemes remained independent.";
                 _step = 2;
             }
         }

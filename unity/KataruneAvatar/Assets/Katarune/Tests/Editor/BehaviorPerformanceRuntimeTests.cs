@@ -7,8 +7,8 @@ namespace Katarune.Avatar.Tests
 {
     public sealed class BehaviorPerformanceRuntimeTests
     {
-        private const string GesturePath =
-            "Assets/Katarune/Behaviors/QuaterniusUpperBodyExplain.kbehavior";
+        private const string ExplainPath =
+            "Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior";
         private const string DancePath =
             "Assets/Katarune/Behaviors/QuaterniusShortDance.kbehavior";
 
@@ -21,7 +21,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(catalog.Definitions, Has.Count.EqualTo(3));
             Assert.That(
                 AssetDatabase.LoadAssetAtPath<SceneAsset>(
-                    "Assets/Katarune/Scenes/Acceptance/PhaseD_SpeakingWithGesture.unity"),
+                    "Assets/Katarune/Scenes/Acceptance/PhaseD_SpeakingWithFullBodyExplain.unity"),
                 Is.Not.Null);
             Assert.That(
                 AssetDatabase.LoadAssetAtPath<SceneAsset>(
@@ -32,7 +32,7 @@ namespace Katarune.Avatar.Tests
         [Test]
         public void DuplicateDefinitionVersionIsRejectedDuringResolution()
         {
-            var definition = Load(GesturePath);
+            var definition = Load(ExplainPath);
 
             Assert.Throws<System.InvalidOperationException>(() =>
                 new BehaviorPerformanceRuntime(
@@ -42,15 +42,15 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void UpperBodyGestureCompletesWithoutTouchingUnclaimedChannels()
+        public void FullBodyExplainCompletesAndReleasesExclusiveChannel()
         {
             var sink = new RecordingSink();
-            using var runtime = CreateRuntime(sink, Load(GesturePath));
+            using var runtime = CreateRuntime(sink, Load(ExplainPath));
 
-            var result = runtime.Request(Intent("gesture", "katarune.gesture.explain"));
+            var result = runtime.Request(Intent("explain", "katarune.performance.explain"));
             Assert.That(result.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
             Assert.That(runtime.Scheduler.ChannelOwners, Has.Exactly(1).Matches<PerformanceChannelOwner>(
-                owner => owner.Channel == PerformanceChannel.GestureUpperBody));
+                owner => owner.Channel == PerformanceChannel.BodyFullPerformance));
 
             runtime.Tick(3f);
 
@@ -89,7 +89,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(sink.Events, Is.EqualTo(new[]
             {
                 $"begin:{first.InstanceId}",
-                $"end:{first.InstanceId}:False",
+                $"end:{first.InstanceId}:{PerformanceEndReason.ExitedAtSafePoint}",
                 $"begin:{second.InstanceId}",
             }));
         }
@@ -111,7 +111,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(sink.Events, Is.EqualTo(new[]
             {
                 $"begin:{dance.InstanceId}",
-                $"end:{dance.InstanceId}:True",
+                $"end:{dance.InstanceId}:{PerformanceEndReason.CancelledImmediate}",
             }));
             Assert.That(runtime.Scheduler.ChannelOwners, Is.Empty);
         }
@@ -142,9 +142,9 @@ namespace Katarune.Avatar.Tests
             public void SetTime(string instanceId, float clipTime) { }
             public void SetPaused(string instanceId, bool paused) { }
 
-            public void End(string instanceId, bool immediate)
+            public void End(string instanceId, PerformanceEndReason reason)
             {
-                Events.Add($"end:{instanceId}:{immediate}");
+                Events.Add($"end:{instanceId}:{reason}");
                 Ended.Add(instanceId);
             }
         }

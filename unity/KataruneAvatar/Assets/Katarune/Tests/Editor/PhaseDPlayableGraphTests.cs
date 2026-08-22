@@ -35,12 +35,12 @@ namespace Katarune.Avatar.Tests
                     catalog.Definitions,
                     CharacterRigCapabilities.All,
                     AvatarActivityState.Speaking);
-                var gesture = motion.RequestBehavior(new BehaviorIntent(
-                    "graph-gesture",
-                    "katarune.gesture.explain",
+                var explain = motion.RequestBehavior(new BehaviorIntent(
+                    "graph-explain",
+                    "katarune.performance.explain",
                     BehaviorIntentSource.Application), PerformanceRequestPolicy.Queue);
 
-                Assert.That(gesture.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
+                Assert.That(explain.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
                 Assert.That(motion.ActivePerformanceCount, Is.EqualTo(1));
                 Assert.That(motion.RequestAction(AvatarPresetAction.Explain).Outcome,
                     Is.EqualTo(AvatarActionRequestOutcome.Unavailable));
@@ -53,11 +53,23 @@ namespace Katarune.Avatar.Tests
                     "katarune.performance.short-dance",
                     BehaviorIntentSource.User), PerformanceRequestPolicy.Queue);
                 Assert.That(dance.Outcome, Is.EqualTo(BehaviorRequestOutcome.Started));
-                Assert.That(motion.ProceduralBodyWeight, Is.Zero);
+                var proceduralBeforeFade = motion.ProceduralBodyWeight;
+                Assert.That(proceduralBeforeFade, Is.GreaterThan(0f));
+                motion.Tick(AvatarMotionInstance.PerformanceFadeInSeconds * 0.5f);
+                Assert.That(motion.ProceduralBodyWeight,
+                    Is.InRange(0f, proceduralBeforeFade));
+                motion.Tick(AvatarMotionInstance.PerformanceFadeInSeconds * 0.5f);
+                Assert.That(motion.ProceduralBodyWeight, Is.Zero.Within(0.0001f));
                 Assert.That(
                     motion.ApplyPerformanceCommand(dance.InstanceId, PerformanceCommand.CancelImmediate()),
                     Is.EqualTo(PerformanceTransitionOutcome.Applied));
-                Assert.That(motion.ProceduralBodyWeight, Is.GreaterThan(0f));
+                Assert.That(motion.ProceduralBodyWeight, Is.Zero.Within(0.0001f));
+                motion.Tick(AvatarMotionInstance.PerformanceImmediateCancelFadeOutSeconds * 0.5f);
+                Assert.That(motion.ProceduralBodyWeight,
+                    Is.InRange(0.0001f, proceduralBeforeFade - 0.0001f));
+                motion.Tick(AvatarMotionInstance.PerformanceImmediateCancelFadeOutSeconds * 0.5f);
+                Assert.That(motion.ProceduralBodyWeight,
+                    Is.EqualTo(proceduralBeforeFade).Within(0.0001f));
             }
             finally
             {

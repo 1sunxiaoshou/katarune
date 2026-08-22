@@ -14,11 +14,9 @@ namespace Katarune.Avatar.Editor
         internal const string SourceLicensePath =
             "Assets/KataruneLocal/Motions/Source/UAL1-License.txt";
         internal const string ExplainClipPath =
-            "Assets/Katarune/Motions/Samples/QuaterniusUpperBodyExplain.anim";
+            "Assets/Katarune/Motions/Samples/QuaterniusFullBodyExplain.anim";
         internal const string PerformanceClipPath =
             "Assets/Katarune/Motions/Samples/QuaterniusShortDance.anim";
-        internal const string UpperBodyMaskPath =
-            "Assets/Katarune/Motions/Samples/UpperBodyGesture.mask";
         internal const int PerformanceLoopIterations = 15;
         internal const float PerformanceClipDurationSeconds = 2f;
         internal const float PerformanceExitStartSeconds = 1f;
@@ -43,11 +41,10 @@ namespace Katarune.Avatar.Editor
             EnsureAssetFolder("Assets/Katarune/Motions/Samples");
             CreateOrReplace(BuildExplainClip(talking), ExplainClipPath);
             CreateOrReplace(BuildPerformanceClip(dance, quietIdle), PerformanceClipPath);
-            CreateOrReplace(BuildUpperBodyMask(), UpperBodyMaskPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             Debug.Log(
-                $"KATARUNE_PHASE_C_SAMPLES_READY explain={ExplainClipPath} performance={PerformanceClipPath} mask={UpperBodyMaskPath}");
+                $"KATARUNE_PHASE_C_SAMPLES_READY explain={ExplainClipPath} performance={PerformanceClipPath}");
         }
 
         internal static AnimationClip BuildExplainClip(AnimationClip source)
@@ -55,7 +52,7 @@ namespace Katarune.Avatar.Editor
             if (source == null) throw new ArgumentNullException(nameof(source));
             var result = new AnimationClip
             {
-                name = "QuaterniusUpperBodyExplain",
+                name = "QuaterniusFullBodyExplain",
                 frameRate = source.frameRate > 0f ? source.frameRate : SampleRate,
                 wrapMode = WrapMode.Once,
             };
@@ -132,21 +129,6 @@ namespace Katarune.Avatar.Editor
             result.EnsureQuaternionContinuity();
             SetLoopTime(result, false);
             return result;
-        }
-
-        internal static AvatarMask BuildUpperBodyMask()
-        {
-            var mask = new AvatarMask { name = "UpperBodyGesture" };
-            for (var index = 0; index < (int)AvatarMaskBodyPart.LastBodyPart; index += 1)
-            {
-                mask.SetHumanoidBodyPartActive((AvatarMaskBodyPart)index, false);
-            }
-            mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.Body, true);
-            mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArm, true);
-            mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm, true);
-            mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftFingers, true);
-            mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightFingers, true);
-            return mask;
         }
 
         private static Dictionary<EditorCurveBinding, AnimationCurve> GetCurves(AnimationClip clip)

@@ -1,18 +1,17 @@
 {
   "schemaVersion": 2,
-  "behaviorId": "katarune.gesture.explain",
-  "version": 1,
+  "behaviorId": "katarune.performance.explain",
+  "version": 2,
   "requiredCapabilities": [
     "HumanoidBody"
   ],
   "channelClaims": [
     {
-      "channel": "GestureUpperBody",
-      "occupancy": "Additive"
+      "channel": "BodyFullPerformance",
+      "occupancy": "Exclusive"
     }
   ],
   "clipGuid": "0f11bef37c3b9e94799c43f99c7c5554",
-  "avatarMaskGuid": "b53504dae627b8c4a82b16f234f50e3b",
   "entry": {
     "startSeconds": 0.0,
     "endSeconds": 0.35
@@ -46,7 +45,7 @@
     "commercialUseAllowed": true,
     "modificationAllowed": true,
     "redistributionAllowed": true,
-    "repositoryPolicy": "Track only the normalized Unity AnimationClip and AvatarMask; keep the original UAL1 FBX in the Git-ignored local source area.",
-    "notes": "Quaternius universal humanoid skeleton; upper-body mask excludes root, legs, head and IK so gaze and visemes remain orthogonal."
+    "repositoryPolicy": "Track only the normalized Unity AnimationClip; keep the original UAL1 FBX in the Git-ignored local source area.",
+    "notes": "Quaternius universal humanoid skeleton; Idle_Talking is authored as a full-body motion and is therefore played unmasked. Gaze, expressions and visemes remain orthogonal non-body channels."
   }
 }

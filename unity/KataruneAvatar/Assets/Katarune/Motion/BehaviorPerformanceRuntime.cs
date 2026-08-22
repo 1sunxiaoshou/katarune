@@ -10,7 +10,7 @@ namespace Katarune.Avatar
         void Begin(string instanceId, BehaviorDefinitionAsset definition, float clipTime);
         void SetTime(string instanceId, float clipTime);
         void SetPaused(string instanceId, bool paused);
-        void End(string instanceId, bool immediate);
+        void End(string instanceId, PerformanceEndReason reason);
     }
 
     internal sealed class BehaviorPerformanceRuntime : IDisposable
@@ -185,7 +185,8 @@ namespace Katarune.Avatar
             _scheduler.Started -= OnStarted;
             _scheduler.Ended -= OnEnded;
             _scheduler.Changed -= OnChanged;
-            foreach (var pair in _records) _sink.End(pair.Key, immediate: true);
+            foreach (var pair in _records)
+                _sink.End(pair.Key, PerformanceEndReason.CancelledImmediate);
             _records.Clear();
         }
 
@@ -216,10 +217,7 @@ namespace Katarune.Avatar
         {
             if (_records.Remove(instance.InstanceId))
             {
-                _sink.End(
-                    instance.InstanceId,
-                    instance.EndReason == PerformanceEndReason.CancelledImmediate
-                    || instance.EndReason == PerformanceEndReason.Failed);
+                _sink.End(instance.InstanceId, instance.EndReason);
                 Changed?.Invoke();
             }
         }
