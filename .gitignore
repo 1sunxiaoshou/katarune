@@ -6,6 +6,8 @@ dist/
 dist-verify/
 out/
 build/
+/Builds/
+/Temp/
 coverage/
 .turbo/
 target/

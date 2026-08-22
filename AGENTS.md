@@ -18,7 +18,7 @@ ATRI Chat 是参考实现、行为基准和资产来源，不是必须保持代�
 
 ## 当前阶段
 
-项目已经完成 P1 技术验证基线与 P2 最小垂直闭环，已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用、可恢复会话和首个真实 TTS Provider；角色与资产管理、多会话、聊天附件及角色级 Memory Wiki 最小闭环等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、真实 Fish Audio TTS、Electron 集成测试和 Windows x64 unpacked 产物验证。聊天附件已实现本地复制托管、消息引用、当前消息临时字节物化和历史图片工具按需读取，但跨 Provider 文件能力仍需逐项验证；长期记忆首版已实现角色隔离的 Markdown Wiki、核心页注入、词法检索、局部读取、revision 补丁与紧凑工具 UI，独立管理页、版本恢复和语义检索仍待后续评估；首版桌面分发目标、安装包格式和无签名 Windows x64 NSIS 基线已经确定并验证，更新 Runtime 与发布后端、签名、公证和跨平台实机验收仍待完成。ASR、流式语音与双向会话尚未实现。VRM 已建立独立 Unity Runtime，并完成 Windows 全屏透明点击穿透覆盖层、右侧自适应取景、原子模型生命周期、标准化 Control Rig、活动状态、表情、视线、眨眼、微动作、调试伪口型和通用 MToon NPR 的第一阶段基线；模型专属脸部 SDF/遮罩、Electron 生命周期、跨进程控制协议、真实音频与动作资产链路仍待确定。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
+项目已经完成 P1 技术验证基线与 P2 最小垂直闭环，已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用、可恢复会话和首个真实 TTS Provider；角色与资产管理、多会话、聊天附件及角色级 Memory Wiki 最小闭环等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、真实 Fish Audio TTS、Electron 集成测试和 Windows x64 unpacked 产物验证。聊天附件已实现本地复制托管、消息引用、当前消息临时字节物化和历史图片工具按需读取，但跨 Provider 文件能力仍需逐项验证；长期记忆首版已实现角色隔离的 Markdown Wiki、核心页注入、词法检索、局部读取、revision 补丁与紧凑工具 UI，独立管理页、版本恢复和语义检索仍待后续评估；首版桌面分发目标、安装包格式和无签名 Windows x64 NSIS 基线已经确定并验证，更新 Runtime 与发布后端、签名、公证和跨平台实机验收仍待完成。ASR、流式语音与双向会话尚未实现。VRM 已建立独立 Unity Runtime，并完成 Windows 全屏透明点击穿透覆盖层、右侧自适应取景、原子模型生命周期、标准化 Control Rig、活动状态、表情、视线、眨眼、微动作、调试伪口型和原始材质桌面渲染的第一阶段基线；模型专属脸部 SDF/遮罩、Electron 生命周期、跨进程控制协议、真实音频与动作资产链路仍待确定。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
 
 ## Agent Skills
 
@@ -28,12 +28,15 @@ ATRI Chat 是参考实现、行为基准和资产来源，不是必须保持代�
 
 - AI SDK：`vercel/ai`
 - assistant-ui：`assistant-ui/skills`
+- Unity：`Unity-Technologies/skills`，当前只按需安装 `unity-cli`
 
 规范与官方入口：
 
 - <https://ai-sdk.dev/docs/getting-started/coding-agents>
 - <https://github.com/vercel/ai>
 - <https://github.com/assistant-ui/skills>
+- <https://github.com/Unity-Technologies/skills>
+- <https://docs.unity3d.com/>
 - <https://agentskills.io/home>
 - <https://www.skills.sh/docs/cli>
 
@@ -46,13 +49,16 @@ npx skills experimental_install
 npx skills list --json
 ```
 
-不要以全局 Skill 代替项目级 Skill。不要在普通功能任务中自动执行 `skills update`；Skill 更新必须作为独立维护任务，检查来源、风险提示、文件 diff 和锁文件变化后再接受。
+不要以全局 Skill 代替项目级 Skill。所有新增 Skill 都只能安装到本仓库的 `.agents/skills/` 并写入 `skills-lock.json`，不得使用 `--global` / `-g`。不要批量安装当前任务无关的 Skill，也不要在普通功能任务中自动执行 `skills update`；Skill 安装和更新必须检查来源、风险提示、文件 diff 和锁文件变化后再接受。
 
 ### 使用规则
 
 - AI SDK 相关任务必须使用 `.agents/skills/ai-sdk/SKILL.md`。
 - assistant-ui 的跨领域问题先使用 `.agents/skills/assistant-ui/SKILL.md`，再按它的路由选择最具体的 Skill。
 - 初次集成使用 `setup`；Runtime 与状态使用 `runtime`；UI 组合使用 `primitives`；工具及工具 UI 使用 `tools`；流协议使用 `streaming`；会话侧栏使用 `thread-list`；升级使用 `update`。
+- Unity CLI、Editor 连接、构建或测试任务必须使用 `.agents/skills/unity-cli/SKILL.md`。
+- 讨论、规划、实现或评审某项 Unity 功能前，先读取项目的 `ProjectVersion.txt` 和 `Packages/manifest.json`，再查询与该版本和功能对应的 Unity 官方 Manual、Scripting API 或包文档；不得只依赖模型记忆或泛化教程。第三方包同时核对其官方上游文档和项目锁定源码。
+- Unity 官方其他 Skill 只在当前任务明确涉及其领域且仓库尚未安装时，从 `Unity-Technologies/skills` 按单项安装到本仓库；不得为了备用一次性安装全部 Unity Skills。
 - 只在任务确实涉及某一领域时加载对应 Skill，不要一次读取全部 Skills。
 - 使用 Skill 时仍须核对项目锁定版本的 `node_modules` 源码、类型定义与官方文档。
 - 不允许混用不同 AI SDK 或 assistant-ui 大版本的 API 示例。
