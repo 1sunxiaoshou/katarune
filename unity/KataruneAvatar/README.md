@@ -2,7 +2,7 @@
 
 言奏 VRM 的独立 Unity Runtime。当前基线为 Unity `6000.3.11f1`、URP `17.3.0`、UniVRM `0.131.0` 与 UniWindowController `0.9.8`。
 
-Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和预设动作技术闭环，不依赖 Electron 或音频。Runtime 支持外部 VRM 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动四种活动状态、四个白名单单次动作、六种情感预设、呼吸、重心摆动、自动眨眼、三种视线模式和调试伪口型。没有安装本地动作库时，四态身体表现完整回退到程序化实现。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 2× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
+Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和预设动作技术闭环，不依赖 Electron 或音频。Runtime 支持外部 VRM 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动四种活动状态、迁移期白名单动作、六种情感预设、呼吸、重心摆动、自动眨眼、三种视线模式和调试伪口型。没有安装 Git 忽略的本地旧动作库时，仓库内行为目录仍提供 Quiet Idle 基础身体、解释手势和短表演；未覆盖的旧预设动作关闭，程序化层继续提供活动差异和微动作。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 2× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
 
 ## Build
 
@@ -38,7 +38,13 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 ## Phase C behavior samples
 
-首轮三样片是 `KataruneQuietIdle`、UAL1 `Idle_Talking` 规范化的上半身解释手势和 UAL1 `Dance` 规范化的短全身表演。解释手势的 Avatar Mask 排除根节点、腿、头和 IK；短表演重复一秒循环十五次，在下一次 0.5 秒稳定站姿进入一秒退出段，随后回到 Quiet Idle。它们只用于资产与 PlayableGraph 压力验证，尚未接入 D 阶段调度器；现有四态与白名单动作仍是运行基线。
+首轮三样片是 `KataruneQuietIdle`、UAL1 `Idle_Talking` 规范化的上半身解释手势和 UAL1 `Dance` 规范化的短全身表演。解释手势的 Avatar Mask 排除根节点、腿、头和 IK；短表演重复一秒循环十五次，在下一次 0.5 秒稳定站姿进入一秒退出段，随后回到 Quiet Idle。D 阶段调度垂直切片已通过 Resources 行为目录接入三样片；现有四态继续提供基础姿态，未被样片覆盖的旧预设动作只作互斥技术基线。
+
+## Phase D acceptance scenes
+
+`Assets/Katarune/Scenes/Acceptance/PhaseD_SpeakingWithGesture.unity` 和 `PhaseD_DanceInterruption.unity` 可在 Unity 中独立运行。通过 HUD 选择仓库外 VRM，或以 `--vrm "C:/path/to/avatar.vrm"` 启动；场景左上角会显示权威实例状态、播放阶段、同步点、通道所有者和终态原因。第一个场景自动组合说话活动、调试口型、默认凝视和解释手势；第二个场景先在 `exit.safe` 安全退出并提升互斥队列，再对新实例执行立即取消。两者都不接 Electron 或真实音频。
+
+行为请求只通过 `IAvatarRuntimeFacade.RequestBehavior` 提交稳定 behavior ID，暂停、继续、立即取消和安全退出通过 `ApplyPerformanceCommand` 作用于实例 ID。新行为调度器是通道所有权的唯一写入点；旧预设动作与调度身体实例互斥，已被行为资产替代的旧 Explain 能力不再发布。场景和 Resources 目录可由 `Katarune > Generate Phase D Acceptance Assets` 重建。
 
 从官方 UAL1 Standard 包按上文流程导入本地源后，可重复生成仓库中的规范化样片：
 
@@ -62,7 +68,7 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeM
 
 - `IAvatarRuntimeFacade` 是 HUD 和未来输入适配器的唯一入口，公开带 `Revision` 的不可变语义状态快照；每帧姿态单独通过 `CurrentPose` 读取。
 - `AvatarRuntimeSession` 负责隐藏候选对象的 `prepare → validate → commit` 事务。连续加载通过请求序号和取消令牌仲裁；失败提交恢复旧 Driver、Visual、Motion 与 Framing，成功后才释放旧角色。
-- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用 PlayableGraph 混合状态循环和 latest-wins 单次动作；所有动作关闭 Root Motion。UniVrm 只负责从 Control Rig 构造 Binding。
+- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用单一 PlayableGraph 混合基础活动、调度全身表演、带 Mask 的上半身手势和仍未迁移的互斥预设动作；所有动作关闭 Root Motion。UniVrm 只负责从 Control Rig 构造 Binding。
 - `UniVrmAvatarDriver` 隔离 UniVRM 表情、视线和标准化骨骼接口；作者动作独占四肢姿态，程序化层只向躯干与头部追加微动作。没有 authored pose 时，程序化层才从捕获基准姿态控制手臂。
 - `AvatarPoseFrame` 的水平视线使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免不同模型/相机朝向导致左右镜像。
 - `AvatarBehaviorController` 生成与输入源无关的 `AvatarPoseFrame`，执行顺序位于 UniVRM `LateUpdate` 之前。
@@ -85,4 +91,4 @@ unity test . --mode PlayMode --output ./Logs/playmode-results.xml --editor-versi
 
 模型文件和构建产物不进入版本控制。测试模型的许可元数据可能比同目录说明更严格；只能本地验证，不得随项目分发。
 
-当前非目标包括 Electron 接入、跨进程控制协议、窗口拖动、多显示器产品策略、真实音频、音素识别、VRMA/运行时自定义动作、动作队列、模型专属绑定、Root Motion、情绪模型和端到端形体生成。模型专属脸部 SDF、材质 ID/遮罩、自有角色 Shader 和 Alpha 安全的局部后处理留待下一阶段；调试伪口型只是未来音频时间线的输入替身。
+当前非目标包括 Electron 接入、跨进程控制协议、多显示器产品策略、真实音频、音素识别、VRMA/运行时自定义动作、模型专属绑定、Root Motion、情绪模型和端到端形体生成。模型专属脸部 SDF、材质 ID/遮罩、自有角色 Shader 和 Alpha 安全的局部后处理留待后续；调试伪口型只是未来音频时间线的输入替身。
