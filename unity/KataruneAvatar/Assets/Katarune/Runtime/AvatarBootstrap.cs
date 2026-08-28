@@ -7,6 +7,8 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarBootstrap : MonoBehaviour
     {
+        internal const string LocalDefaultModelFileName = "初音未来.vrm";
+
         private AvatarCommandLine _options;
         private AvatarSceneRig _sceneRig;
         private AvatarBehaviorController _behavior;
@@ -97,7 +99,8 @@ namespace Katarune.Avatar
                     _avatarWindow.SetHudVisible(_hud.Visible);
                 }
 
-                if (!string.IsNullOrWhiteSpace(_options.ModelPath)) _ = _facade.LoadAsync(_options.ModelPath);
+                var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
+                if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
             }
             catch (Exception error)
             {
@@ -161,6 +164,19 @@ namespace Katarune.Avatar
 
             Debug.LogError($"Timed out waiting for screenshot: {_options.ScreenshotPath}");
             if (_options.ExitAfterCapture) Application.Quit(2);
+        }
+
+        internal static string ResolveInitialModelPath(string requestedPath, string assetsPath)
+        {
+            if (!string.IsNullOrWhiteSpace(requestedPath)) return requestedPath;
+            if (string.IsNullOrWhiteSpace(assetsPath)) return null;
+
+            var localDefaultPath = Path.GetFullPath(Path.Combine(
+                assetsPath,
+                "KataruneLocal",
+                "Models",
+                LocalDefaultModelFileName));
+            return File.Exists(localDefaultPath) ? localDefaultPath : null;
         }
 
         private void OnDestroy()

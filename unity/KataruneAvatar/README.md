@@ -2,7 +2,9 @@
 
 言奏 VRM 的独立 Unity Runtime。当前基线为 Unity `6000.3.11f1`、URP `17.3.0`、UniVRM `0.131.0` 与 UniWindowController `0.9.8`。
 
-Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环，不依赖 Electron 或音频。Runtime 支持外部 VRM 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动一个稳定基础姿态、高层行为请求、六种表情预设、呼吸、重心摆动、自动眨眼、三种视线模式和外部口型输入。没有安装 Git 忽略的本地动作库时，角色保留程序化稳定姿态，作者动画与动作按钮显示为不可用。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 2× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
+Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环，不依赖 Electron 或音频。Runtime 只支持外部 VRM 1.0 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动一个稳定基础姿态、高层行为请求、六种表情预设、呼吸、重心摆动、自动眨眼、三种视线模式和外部口型输入。没有安装 Git 忽略的本地动作库时，角色保留程序化稳定姿态，作者动画与动作按钮显示为不可用。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 4× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
+
+开发环境可将本机默认模型放在 Git 忽略的 `Assets/KataruneLocal/Models/初音未来.vrm`；未传入 `--vrm` 时 Runtime 会加载它，命令行显式路径始终优先。当前模型的许可禁止再分发和商业使用，因此该目录不进入版本控制，只允许进入本机测试 Player；不得把包含该模型的构建作为公开产物分发。
 
 ## Build
 
@@ -18,7 +20,7 @@ unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Edit
 
 Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，角色根据窗口宽高比缩放并位于右侧安全区。UI Toolkit HUD 启动时只显示左下黑色四角星入口；左上 `#E9ECEF` 无描边状态卡默认关闭，可在“更多”中切换，开启后以纯黑头像占位、模型名和胶囊控件显示当前表情及动作。点击四角星以错峰动画展开“模型、表情、动作、更多”，再点击分类展开第二圈；按钮文字只在悬停时以无尾巴黑底白字 Tooltip 显示。按住四角星可以在全屏范围拖动独立锚点，菜单靠近不同屏幕边缘或角落时自动朝内展开。全局 F1 显示或隐藏整个 HUD，截图模式始终隐藏 HUD。
 
-窗口使用 UI Toolkit 内置运行时事件系统，不创建旧 uGUI EventSystem。UniWindowController 自动帧尾 Raycast 关闭；Windows 薄适配器把原生光标转换为 Panel 坐标并只 Pick 圆形 Button，顶部状态、人物和透明区域继续穿透到桌面。按住中央入口后通过 Pointer Capture 保持交互，并在帧末采样最新光标移动锚点，不使用全屏透明捕获面。`AvatarRadialMenu` 使用 UXML 配置一、二级半径、扫过角和安全边距，靠边时生成朝内半圆，靠角时生成朝内四分之一圆。HUD 隐藏时整个覆盖层强制点击穿透。模型入口使用原生文件选择器单选 `.vrm`；其他入口可切换六种表情、本地可用动作、亮色/暗色桌面灯光及柔和描边。`--opaque-window` 只用于调试，`--lighting light|dark` 和 `--soft-outline` 仍可指定启动表现。当前统一使用 PC 2× MSAA 基线。
+窗口使用 UI Toolkit 内置运行时事件系统，不创建旧 uGUI EventSystem。UniWindowController 自动帧尾 Raycast 关闭；Windows 薄适配器把原生光标转换为 Panel 坐标并只 Pick 圆形 Button，顶部状态、人物和透明区域继续穿透到桌面。按住中央入口后通过 Pointer Capture 保持交互，并在帧末采样最新光标移动锚点，不使用全屏透明捕获面。`AvatarRadialMenu` 使用 UXML 配置一、二级半径、扫过角和安全边距，靠边时生成朝内半圆，靠角时生成朝内四分之一圆。HUD 隐藏时整个覆盖层强制点击穿透。模型入口使用原生文件选择器单选 `.vrm`；其他入口可切换六种表情、本地可用动作、亮色/暗色桌面灯光及柔和描边。`--opaque-window` 只用于调试，`--lighting light|dark` 和 `--soft-outline` 仍可指定启动表现。当前统一使用 PC 4× MSAA 基线。
 
 ## Local motion preview
 
@@ -60,9 +62,9 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeM
 
 预览输出位于被忽略的 `TestResults/phase-c-preview`，包含待机首尾、全身解释、舞蹈循环、退出中点和恢复待机。生成器会验证本地 CC0 许可证，固定 Root/Motion 曲线，并拒绝退出插值过冲；它只映射 UAL1 源 Clip 名称，不影响运行时定义解析。
 
-测试模型继续从仓库外加载：将许可允许本地测试的 `.vrm` 放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。模型不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
+除本机默认模型外，其他测试模型继续从仓库外加载：将许可允许本地测试的 VRM 1.0 文件放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。它们不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
 
-构建固定 D3D11、关闭 Flip Model/HDR，并启用 URP Alpha Processing。可用 `--screenshot <png>`、`--exit-after-capture` 和 `--exit-on-error` 执行自动烟测；`--capture-delay <seconds>` 可在 0–30 秒范围内延迟截图以观察动作主体。截图模式会强制隐藏 HUD。加载器接受 VRM 1.0，也允许 UniVRM 在运行时迁移 VRM 0.x。
+构建固定 D3D11、关闭 Flip Model/HDR，并启用 URP Alpha Processing。可用 `--screenshot <png>`、`--exit-after-capture` 和 `--exit-on-error` 执行自动烟测；`--capture-delay <seconds>` 可在 0–30 秒范围内延迟截图以观察动作主体。截图模式会强制隐藏 HUD。加载器只接受 VRM 1.0，不执行 VRM 0.x 运行时迁移。
 
 ## Runtime design
 

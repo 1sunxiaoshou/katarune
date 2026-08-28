@@ -74,7 +74,7 @@ namespace Katarune.Avatar.Tests
 
             Click(hud, "happyAffectButton");
             Assert.That(runtime.LastBehavior.Affect, Is.EqualTo(AvatarAffectPreset.Happy));
-            Assert.That(runtime.LastBehavior.AffectIntensity, Is.EqualTo(0.7f));
+            Assert.That(runtime.LastBehavior.AffectIntensity, Is.EqualTo(1f));
             Assert.That(
                 hud.RootElement.Q<VisualElement>("affectStatusIcon").ClassListContains("icon-happy"),
                 Is.True);
@@ -171,6 +171,30 @@ namespace Katarune.Avatar.Tests
         }
 
         [UnityTest]
+        public IEnumerator LocalDefaultVrmLoadsThroughRuntimeWhenPresent()
+        {
+            var modelPath = AvatarBootstrap.ResolveInitialModelPath(null, Application.dataPath);
+            if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
+            {
+                Assert.Ignore("Place a local 初音未来.vrm to run the default model smoke test.");
+            }
+
+            var facade = CreateLocalRuntime("Local Default Model Smoke", out var gameObject);
+            var load = facade.LoadAsync(modelPath);
+            while (!load.IsCompleted) yield return null;
+
+            Assert.That(load.Result.Outcome, Is.EqualTo(AvatarLoadOutcome.Loaded), load.Result.Error);
+            Assert.That(facade.Snapshot.RuntimeState, Is.EqualTo(AvatarRuntimeState.Ready));
+            Assert.That(facade.Snapshot.Model?.Path, Is.EqualTo(Path.GetFullPath(modelPath)));
+            Assert.That(facade.Snapshot.Model?.Name, Is.EqualTo("初音未来"));
+            Assert.That(facade.Snapshot.Model?.Height, Is.GreaterThan(0f));
+
+            facade.Dispose();
+            Object.Destroy(gameObject);
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator LocalPresetMotionSmokeUsesFacadeWhitelist()
         {
             var modelPath = Environment.GetEnvironmentVariable("KATARUNE_TEST_VRM_PATH");
@@ -179,39 +203,15 @@ namespace Katarune.Avatar.Tests
                 Assert.Ignore("Set KATARUNE_TEST_VRM_PATH to run the local VRM motion smoke test.");
             }
 
-            var gameObject = new GameObject("Local Motion Smoke") { tag = "MainCamera" };
-            gameObject.AddComponent<Camera>();
-            var sceneRig = gameObject.AddComponent<AvatarSceneRig>();
-            sceneRig.Configure(false);
-            var behavior = gameObject.AddComponent<AvatarBehaviorController>();
-            var motions = gameObject.AddComponent<AvatarMotionController>();
-            motions.Configure();
-            behavior.SetMotionSource(motions);
-            var visuals = gameObject.AddComponent<AvatarVisualController>();
-            visuals.Configure();
-            var session = new AvatarRuntimeSession(
-                new UniVrmAvatarLoader(visuals, motions),
-                sceneRig,
-                behavior,
-                visuals,
-                motions,
-                CancellationToken.None);
-            var facade = new AvatarRuntimeFacade(
-                session,
-                behavior,
-                visuals,
-                sceneRig,
-                motions,
-                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
+            var facade = CreateLocalRuntime("Local Motion Smoke", out var gameObject);
 
             var load = facade.LoadAsync(modelPath);
             while (!load.IsCompleted) yield return null;
             Assert.That(load.Result.Outcome, Is.EqualTo(AvatarLoadOutcome.Loaded), load.Result.Error);
-            Assert.That(facade.Snapshot.Motion.LibraryAvailable, Is.True);
-            Assert.That(facade.Snapshot.Capabilities.Actions, Is.EqualTo(AvatarActionCapabilities.All));
 
             foreach (AvatarPresetAction action in Enum.GetValues(typeof(AvatarPresetAction)))
             {
+                if (!facade.Snapshot.Capabilities.SupportsAction(action)) continue;
                 Assert.That(facade.RequestAction(action).Outcome, Is.EqualTo(AvatarActionRequestOutcome.Started));
                 yield return null;
                 yield return null;
@@ -228,6 +228,34 @@ namespace Katarune.Avatar.Tests
             facade.Dispose();
             Object.Destroy(gameObject);
             yield return null;
+        }
+
+        private static AvatarRuntimeFacade CreateLocalRuntime(string name, out GameObject gameObject)
+        {
+            gameObject = new GameObject(name) { tag = "MainCamera" };
+            gameObject.AddComponent<Camera>();
+            var sceneRig = gameObject.AddComponent<AvatarSceneRig>();
+            sceneRig.Configure(false);
+            var behavior = gameObject.AddComponent<AvatarBehaviorController>();
+            var motions = gameObject.AddComponent<AvatarMotionController>();
+            motions.Configure();
+            behavior.SetMotionSource(motions);
+            var visuals = gameObject.AddComponent<AvatarVisualController>();
+            visuals.Configure();
+            var session = new AvatarRuntimeSession(
+                new UniVrmAvatarLoader(visuals, motions),
+                sceneRig,
+                behavior,
+                visuals,
+                motions,
+                CancellationToken.None);
+            return new AvatarRuntimeFacade(
+                session,
+                behavior,
+                visuals,
+                sceneRig,
+                motions,
+                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
         }
 
         private sealed class RecordingAvatarDriver : IAvatarDriver

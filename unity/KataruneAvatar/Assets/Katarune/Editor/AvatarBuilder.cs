@@ -43,7 +43,34 @@ namespace Katarune.Avatar.Editor
             {
                 throw new InvalidOperationException($"Avatar build failed with result {report.summary.result} and {report.summary.totalErrors} errors.");
             }
+            CopyLocalDefaultModel(outputPath);
             Debug.Log($"KATARUNE_AVATAR_BUILD_READY path={outputPath} bytes={report.summary.totalSize}");
+        }
+
+        private static void CopyLocalDefaultModel(string playerPath)
+        {
+            var sourcePath = Path.GetFullPath(Path.Combine(
+                Application.dataPath,
+                "KataruneLocal",
+                "Models",
+                AvatarBootstrap.LocalDefaultModelFileName));
+            if (!File.Exists(sourcePath))
+            {
+                Debug.LogWarning($"KATARUNE_LOCAL_DEFAULT_MODEL_MISSING path={sourcePath}");
+                return;
+            }
+
+            var playerDirectory = Path.GetDirectoryName(playerPath)
+                ?? throw new InvalidOperationException("The player directory could not be resolved.");
+            var dataDirectory = Path.Combine(
+                playerDirectory,
+                Path.GetFileNameWithoutExtension(playerPath) + "_Data",
+                "KataruneLocal",
+                "Models");
+            Directory.CreateDirectory(dataDirectory);
+            var destinationPath = Path.Combine(dataDirectory, AvatarBootstrap.LocalDefaultModelFileName);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+            Debug.Log($"KATARUNE_LOCAL_DEFAULT_MODEL_COPIED path={destinationPath}");
         }
 
         [MenuItem("Katarune/配置角色渲染")]

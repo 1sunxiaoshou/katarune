@@ -88,5 +88,59 @@ namespace Katarune.Avatar.Tests
         {
             Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--vrm" }));
         }
+
+        [Test]
+        public void DefaultModelResolutionPrefersTheCommandLinePath()
+        {
+            const string requestedPath = "C:/Models/Explicit.vrm";
+
+            Assert.That(
+                AvatarBootstrap.ResolveInitialModelPath(requestedPath, "C:/Project/Assets"),
+                Is.EqualTo(requestedPath));
+        }
+
+        [Test]
+        public void DefaultModelResolutionUsesTheLocalIgnoredModelWhenPresent()
+        {
+            var assetsPath = Path.Combine(
+                Path.GetTempPath(),
+                "katarune-avatar-tests",
+                Guid.NewGuid().ToString("N"),
+                "Assets");
+            var modelPath = Path.Combine(
+                assetsPath,
+                "KataruneLocal",
+                "Models",
+                AvatarBootstrap.LocalDefaultModelFileName);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(modelPath)!);
+                File.WriteAllBytes(modelPath, new byte[] { 0x56, 0x52, 0x4D });
+
+                Assert.That(
+                    AvatarBootstrap.ResolveInitialModelPath(null, assetsPath),
+                    Is.EqualTo(Path.GetFullPath(modelPath)));
+            }
+            finally
+            {
+                var testRoot = Directory.GetParent(assetsPath)?.FullName;
+                if (!string.IsNullOrWhiteSpace(testRoot) && Directory.Exists(testRoot))
+                {
+                    Directory.Delete(testRoot, recursive: true);
+                }
+            }
+        }
+
+        [Test]
+        public void DefaultModelResolutionLeavesTheRuntimeEmptyWhenNoLocalModelExists()
+        {
+            var assetsPath = Path.Combine(
+                Path.GetTempPath(),
+                "katarune-avatar-tests",
+                Guid.NewGuid().ToString("N"),
+                "Assets");
+
+            Assert.That(AvatarBootstrap.ResolveInitialModelPath(null, assetsPath), Is.Null);
+        }
     }
 }

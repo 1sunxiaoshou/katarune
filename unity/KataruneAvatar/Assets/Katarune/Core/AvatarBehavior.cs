@@ -90,6 +90,7 @@ namespace Katarune.Avatar
         private const float BlinkClosedSeconds = 0.04f;
         private const float BlinkOpeningSeconds = 0.11f;
         private const float DoubleBlinkPauseSeconds = 0.09f;
+        private const float ExpressionResponseSeconds = 0.12f;
 
         private readonly IAvatarRandom _random;
         private readonly AvatarPoseFrame _frame = new AvatarPoseFrame();
@@ -329,7 +330,7 @@ namespace Katarune.Avatar
         private void UpdateExpression(float deltaTime)
         {
             var targetIndex = Affect == AvatarAffectPreset.Neutral ? -1 : (int)Affect - 1;
-            var blend = 1f - Mathf.Exp(-deltaTime / 0.2f);
+            var blend = 1f - Mathf.Exp(-deltaTime / ExpressionResponseSeconds);
             for (var index = 0; index < _expressionWeights.Length; index += 1)
             {
                 var target = index == targetIndex ? Mathf.Clamp01(AffectIntensity) : 0f;

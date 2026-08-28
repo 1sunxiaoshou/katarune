@@ -42,7 +42,7 @@ namespace Katarune.Avatar
         private const string VisibleClass = "is-visible";
         private const string SelectedClass = "is-selected";
         private const string StatusHudHiddenClass = "is-status-hidden";
-        private const float ComfortableAffectIntensity = 0.7f;
+        private const float DefaultAffectIntensity = 1f;
         private static readonly string[] AffectIconClasses =
         {
             "icon-neutral",
@@ -347,7 +347,7 @@ namespace Katarune.Avatar
 
         private void ApplyAffect(AvatarAffectPreset affect)
         {
-            var intensity = affect == AvatarAffectPreset.Neutral ? 0f : ComfortableAffectIntensity;
+            var intensity = affect == AvatarAffectPreset.Neutral ? 0f : DefaultAffectIntensity;
             _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, intensity));
         }
 

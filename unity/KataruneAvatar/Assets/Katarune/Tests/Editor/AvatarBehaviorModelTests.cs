@@ -99,6 +99,17 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
+        public void AffectTransitionUsesFastResponse()
+        {
+            var model = CreateModel();
+            model.SetAffect(AvatarAffectPreset.Happy, 1f);
+
+            model.Tick(0.12f, Vector2.zero);
+
+            Assert.That(model.CurrentFrame.Happy, Is.EqualTo(1f - Mathf.Exp(-1f)).Within(0.001f));
+        }
+
+        [Test]
         public void MouthRemainsClosedWithoutVisemeInput()
         {
             var model = CreateModel();

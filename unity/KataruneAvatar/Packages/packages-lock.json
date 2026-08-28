@@ -141,7 +141,7 @@
     },
     "com.unity.ugui": {
       "version": "2.0.0",
-      "depth": 1,
+      "depth": 2,
       "source": "builtin",
       "dependencies": {
         "com.unity.modules.ui": "1.0.0",
@@ -158,16 +158,6 @@
         "com.unity.modules.imageconversion": "1.0.0",
         "com.unity.test-framework": "1.4.6",
         "com.unity.mathematics": "1.2.6"
-      },
-      "hash": "3b99078d26b362733ad9bf463f98c83b8a1b4c9f"
-    },
-    "com.vrmc.univrm": {
-      "version": "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM#v0.131.0",
-      "depth": 0,
-      "source": "git",
-      "dependencies": {
-        "com.vrmc.gltf": "0.131.0",
-        "com.unity.ugui": "1.0.0"
       },
       "hash": "3b99078d26b362733ad9bf463f98c83b8a1b4c9f"
     },

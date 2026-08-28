@@ -41,7 +41,7 @@ namespace Katarune.Avatar
             {
                 loaded = await Vrm10.LoadPathAsync(
                     fullPath,
-                    canLoadVrm0X: true,
+                    canLoadVrm0X: false,
                     showMeshes: false,
                     awaitCaller: new RuntimeOnlyAwaitCaller(),
                     ct: cancellationToken);
@@ -72,7 +72,7 @@ namespace Katarune.Avatar
                     motion,
                     bounds,
                     fullPath,
-                    Path.GetFileName(fullPath),
+                    Path.GetFileNameWithoutExtension(fullPath),
                     capabilities);
                 loaded = null;
                 driver = null;
