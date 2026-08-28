@@ -54,7 +54,6 @@ namespace Katarune.Avatar
         };
         private readonly Dictionary<HudCategory, Button> _categoryButtons = new();
         private readonly Dictionary<HudCategory, VisualElement> _categoryGroups = new();
-        private readonly Dictionary<AvatarActivityState, Button> _activityButtons = new();
         private readonly Dictionary<AvatarAffectPreset, Button> _affectButtons = new();
         private readonly Dictionary<AvatarPresetAction, Button> _actionButtons = new();
 
@@ -184,7 +183,6 @@ namespace Katarune.Avatar
             RegisterCategory(HudCategory.Model, "modelCategoryButton", "modelMenu");
             RegisterCategory(HudCategory.Affect, "affectCategoryButton", "affectMenu");
             RegisterCategory(HudCategory.Action, "actionCategoryButton", "actionMenu");
-            RegisterCategory(HudCategory.Activity, "activityCategoryButton", "activityMenu");
             RegisterCategory(HudCategory.More, "moreCategoryButton", "moreMenu");
 
             _selectModelButton = Require<Button>("selectModelButton");
@@ -207,11 +205,6 @@ namespace Katarune.Avatar
             RegisterAction(AvatarPresetAction.Cough, "coughButton");
             _cancelActionButton = Require<Button>("cancelActionButton");
             _cancelActionButton.clicked += () => _runtime.CancelAction();
-
-            RegisterActivity(AvatarActivityState.Idle, "idleActivityButton");
-            RegisterActivity(AvatarActivityState.Listening, "listeningActivityButton");
-            RegisterActivity(AvatarActivityState.Thinking, "thinkingActivityButton");
-            RegisterActivity(AvatarActivityState.Speaking, "speakingActivityButton");
 
             _lightDesktopButton = Require<Button>("lightDesktopButton");
             _darkDesktopButton = Require<Button>("darkDesktopButton");
@@ -254,14 +247,6 @@ namespace Katarune.Avatar
             var button = Require<Button>(buttonName);
             _actionButtons.Add(action, button);
             button.clicked += () => RequestAction(action);
-        }
-
-        private void RegisterActivity(AvatarActivityState activity, string buttonName)
-        {
-            var button = Require<Button>(buttonName);
-            _activityButtons.Add(activity, button);
-            button.clicked += () =>
-                _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithActivity(activity));
         }
 
         private void TogglePrimaryMenu()
@@ -420,11 +405,6 @@ namespace Katarune.Avatar
             _reloadModelButton.SetEnabled(snapshot.Model.HasValue && !loading);
             _unloadModelButton.SetEnabled(snapshot.Model.HasValue && !loading);
 
-            foreach (var pair in _activityButtons)
-            {
-                pair.Value.SetEnabled(ready);
-                pair.Value.EnableInClassList(SelectedClass, snapshot.Behavior.Activity == pair.Key);
-            }
             foreach (var pair in _affectButtons)
             {
                 pair.Value.SetEnabled(ready && snapshot.Capabilities.SupportsAffect(pair.Key));
@@ -492,19 +472,8 @@ namespace Katarune.Avatar
                 return $"{GetActionLabel(snapshot.Motion.CurrentAction.Value)}中";
             }
             return snapshot.RuntimeState == AvatarRuntimeState.Ready
-                ? GetActivityLabel(snapshot.Behavior.Activity)
+                ? "基础姿态"
                 : "无动作";
-        }
-
-        private static string GetActivityLabel(AvatarActivityState activity)
-        {
-            return activity switch
-            {
-                AvatarActivityState.Listening => "倾听中",
-                AvatarActivityState.Thinking => "思考中",
-                AvatarActivityState.Speaking => "说话中",
-                _ => "待机中",
-            };
         }
 
         private static string GetActionLabel(AvatarPresetAction action)
@@ -532,7 +501,6 @@ namespace Katarune.Avatar
             Model,
             Affect,
             Action,
-            Activity,
             More,
         }
     }

@@ -5,27 +5,6 @@ namespace Katarune.Avatar.Tests
 {
     public sealed class AvatarBehaviorModelTests
     {
-        [TestCase(AvatarActivityState.Idle, AvatarActivityState.Listening)]
-        [TestCase(AvatarActivityState.Listening, AvatarActivityState.Thinking)]
-        [TestCase(AvatarActivityState.Thinking, AvatarActivityState.Speaking)]
-        [TestCase(AvatarActivityState.Speaking, AvatarActivityState.Idle)]
-        public void ActivityTransitionCompletesInQuarterSecond(
-            AvatarActivityState start,
-            AvatarActivityState target)
-        {
-            var model = CreateModel();
-            model.SetActivity(start);
-            model.Tick(AvatarBehaviorModel.StateTransitionSeconds, Vector2.zero);
-            model.SetActivity(target);
-
-            var partial = model.Tick(0.1f, Vector2.zero);
-            Assert.That(partial.Activity, Is.EqualTo(target));
-            Assert.That(partial.TransitionProgress, Is.InRange(0.39f, 0.41f));
-
-            var completed = model.Tick(0.15f, Vector2.zero);
-            Assert.That(completed.TransitionProgress, Is.EqualTo(1f).Within(0.001f));
-        }
-
         [Test]
         public void AutomaticBlinkClosesAndReopens()
         {
@@ -120,28 +99,24 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void SpeakingGeneratesMouthMotionAndIdleClosesIt()
+        public void MouthRemainsClosedWithoutVisemeInput()
         {
             var model = CreateModel();
-            model.SetActivity(AvatarActivityState.Speaking);
-            var speaking = model.Tick(0.2f, Vector2.zero);
-            Assert.That(SumMouth(speaking), Is.GreaterThan(0.05f));
-
-            model.SetActivity(AvatarActivityState.Idle);
-            var idle = model.Tick(1f, Vector2.zero);
-            Assert.That(SumMouth(idle), Is.LessThan(0.001f));
+            Assert.That(SumMouth(model.Tick(2f, Vector2.zero)), Is.LessThan(0.001f));
         }
 
         [Test]
-        public void ManualMouthWorksWithoutSpeaking()
+        public void ManualVisemesDriveAndReleaseMouthIndependently()
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithMouth(false, model.MouthIntensity));
             model.SetManualVisemes(1f, 0f, 0f, 0f, 0f);
 
             var frame = model.Tick(0.5f, Vector2.zero);
             Assert.That(frame.Aa, Is.GreaterThan(0.99f));
             Assert.That(frame.Ih, Is.LessThan(0.001f));
+
+            model.SetManualVisemes(default(AvatarVisemeWeights));
+            Assert.That(SumMouth(model.Tick(0.5f, Vector2.zero)), Is.LessThan(0.001f));
         }
 
         [Test]
@@ -164,12 +139,11 @@ namespace Katarune.Avatar.Tests
         public void ResetRestoresDefaultBehavior()
         {
             var model = CreateModel();
-            model.SetActivity(AvatarActivityState.Speaking);
             model.SetAffect(AvatarAffectPreset.Angry, 1f);
             model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, Vector2.zero));
+            model.SetManualVisemes(1f, 0f, 0f, 0f, 0f);
             model.Reset();
 
-            Assert.That(model.Activity, Is.EqualTo(AvatarActivityState.Idle));
             Assert.That(model.Affect, Is.EqualTo(AvatarAffectPreset.Neutral));
             Assert.That(model.GazeMode, Is.EqualTo(AvatarGazeMode.Auto));
             Assert.That(SumMouth(model.CurrentFrame), Is.EqualTo(0f));

@@ -50,7 +50,6 @@ namespace Katarune.Avatar
             return _driver == null || _driver.SupportsAffect(preset);
         }
 
-        public void SetActivity(AvatarActivityState activity) => Model.SetActivity(activity);
         public void SetAffect(AvatarAffectPreset affect, float intensity) => Model.SetAffect(affect, intensity);
         public void ApplySettings(AvatarBehaviorSettings settings) => Model.ApplySettings(settings);
         public void SetManualVisemes(AvatarVisemeWeights weights) => Model.SetManualVisemes(weights);

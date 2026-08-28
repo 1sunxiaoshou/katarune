@@ -64,7 +64,6 @@ namespace Katarune.Avatar.Tests
             var changes = 0;
             _facade.Changed += _ => changes += 1;
             var requested = new AvatarBehaviorSettings(
-                AvatarActivityState.Speaking,
                 AvatarAffectPreset.Happy,
                 4f,
                 true,
@@ -73,9 +72,7 @@ namespace Katarune.Avatar.Tests
                 8f,
                 -2f,
                 AvatarGazeMode.Manual,
-                new Vector2(100f, -100f),
-                false,
-                3f);
+                new Vector2(100f, -100f));
 
             _facade.ApplyBehavior(requested);
             var snapshot = _facade.Snapshot;
@@ -86,7 +83,6 @@ namespace Katarune.Avatar.Tests
             Assert.That(snapshot.Behavior.BreathingIntensity, Is.EqualTo(2f));
             Assert.That(snapshot.Behavior.SwayIntensity, Is.EqualTo(0f));
             Assert.That(snapshot.Behavior.ManualGaze, Is.EqualTo(new Vector2(18f, -10f)));
-            Assert.That(snapshot.Behavior.MouthIntensity, Is.EqualTo(1f));
 
             _facade.ApplyBehavior(snapshot.Behavior);
             Assert.That(_facade.Snapshot.Revision, Is.EqualTo(1));
@@ -407,8 +403,6 @@ namespace Katarune.Avatar.Tests
             public string PerformanceDiagnostics { get; private set; } = string.Empty;
             public event Action Changed;
             public int DisposeCount { get; private set; }
-
-            public void SetActivity(AvatarActivityState activity) { }
 
             public AvatarActionRequestResult RequestAction(AvatarPresetAction action)
             {

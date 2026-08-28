@@ -250,12 +250,8 @@
     transition-delay: 0.05s;
 }
 
-.primary-activity {
-    transition-delay: 0.075s;
-}
-
 .primary-more {
-    transition-delay: 0.1s;
+    transition-delay: 0.075s;
 }
 
 .secondary-button {
@@ -382,10 +378,6 @@
     background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/action.svg");
 }
 
-.icon-activity {
-    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/activity.svg");
-}
-
 .icon-more {
     background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/more.svg");
 }
@@ -469,27 +461,6 @@
 
 .icon-stop {
     background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/circle-stop.svg");
-}
-
-.icon-coffee {
-    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/coffee.svg");
-}
-
-.icon-ear {
-    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/ear.svg");
-}
-
-.icon-brain {
-    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/brain.svg");
-}
-
-.secondary-button > .icon-brain {
-    width: 25px;
-    height: 25px;
-}
-
-.icon-speaking {
-    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/message-circle.svg");
 }
 
 .icon-sun {

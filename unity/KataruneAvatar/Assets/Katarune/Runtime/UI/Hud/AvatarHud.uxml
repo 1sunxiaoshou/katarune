@@ -18,7 +18,6 @@
                 <hud:AvatarHudIconButton name="modelCategoryButton" tooltip="模型" icon-class="icon-model" class="radial-button primary-button primary-model" />
                 <hud:AvatarHudIconButton name="affectCategoryButton" tooltip="表情" icon-class="icon-affect" class="radial-button primary-button primary-affect" />
                 <hud:AvatarHudIconButton name="actionCategoryButton" tooltip="动作" icon-class="icon-action" class="radial-button primary-button primary-action" />
-                <hud:AvatarHudIconButton name="activityCategoryButton" tooltip="状态" icon-class="icon-activity" class="radial-button primary-button primary-activity" />
                 <hud:AvatarHudIconButton name="moreCategoryButton" tooltip="更多" icon-class="icon-more" class="radial-button primary-button primary-more" />
             </ui:VisualElement>
 
@@ -43,13 +42,6 @@
                 <hud:AvatarHudIconButton name="celebrateButton" tooltip="庆祝" icon-class="icon-party" class="radial-button secondary-button secondary-slot-2" />
                 <hud:AvatarHudIconButton name="coughButton" tooltip="咳嗽" icon-class="icon-wind" class="radial-button secondary-button secondary-slot-3" />
                 <hud:AvatarHudIconButton name="cancelActionButton" tooltip="停止当前动作" icon-class="icon-stop" class="radial-button secondary-button secondary-slot-4" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="activityMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="idleActivityButton" tooltip="待机" icon-class="icon-coffee" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="listeningActivityButton" tooltip="倾听" icon-class="icon-ear" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="thinkingActivityButton" tooltip="思考" icon-class="icon-brain" class="radial-button secondary-button secondary-slot-3" />
-                <hud:AvatarHudIconButton name="speakingActivityButton" tooltip="说话" icon-class="icon-speaking" class="radial-button secondary-button secondary-slot-4" />
             </ui:VisualElement>
 
             <ui:VisualElement name="moreMenu" class="menu-group secondary-menu" picking-mode="Ignore">

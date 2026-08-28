@@ -70,7 +70,6 @@ namespace Katarune.Avatar.Tests
             var library = ScriptableObject.CreateInstance<AvatarMotionLibrary>();
             var idle = new AnimationClip { name = "Idle" };
             var talking = new AnimationClip { name = "Talking" };
-            var thinking = new AnimationClip { name = "Thinking" };
             var wave = new AnimationClip { name = "Wave" };
             var celebrate = new AnimationClip { name = "Celebrate" };
             celebrate.SetCurve(
@@ -81,9 +80,6 @@ namespace Katarune.Avatar.Tests
             var cough = new AnimationClip { name = "Cough" };
             library.Configure(
                 idle,
-                idle,
-                thinking,
-                talking,
                 new[]
                 {
                     new AvatarActionDefinition(AvatarPresetAction.GreetWave, wave),
@@ -94,15 +90,14 @@ namespace Katarune.Avatar.Tests
 
             Assert.That(library.IsValid, Is.True);
             Assert.That(library.Actions, Is.EqualTo(AvatarActionCapabilities.All));
-            Assert.That(library.TryGetBase(AvatarActivityState.Thinking, out var thinkingResult), Is.True);
-            Assert.That(thinkingResult, Is.SameAs(thinking));
+            Assert.That(library.TryGetBase(out var baseResult), Is.True);
+            Assert.That(baseResult, Is.SameAs(idle));
             Assert.That(library.TryGetAction(AvatarPresetAction.Celebrate, out var action), Is.True);
             Assert.That(action.Duration, Is.EqualTo(3f));
 
             Object.DestroyImmediate(library);
             Object.DestroyImmediate(idle);
             Object.DestroyImmediate(talking);
-            Object.DestroyImmediate(thinking);
             Object.DestroyImmediate(wave);
             Object.DestroyImmediate(celebrate);
             Object.DestroyImmediate(cough);

@@ -32,8 +32,6 @@ namespace Katarune.Avatar
             _presentation = Normalize(presentation);
             _session.Changed += OnSessionChanged;
             _motions.Changed += OnMotionChanged;
-            _motions.SetActivity(_behavior.Settings.Activity);
-            _sceneRig.SetActivityLighting(_behavior.Settings.Activity);
             Snapshot = CreateSnapshot(_revision);
         }
 
@@ -61,8 +59,6 @@ namespace Katarune.Avatar
             var normalized = Normalize(settings);
             if (_behavior.Settings.Equals(normalized)) return;
             _behavior.ApplySettings(normalized);
-            _sceneRig.SetActivityLighting(normalized.Activity);
-            _motions.SetActivity(normalized.Activity);
             PublishIfChanged();
         }
 
@@ -101,8 +97,6 @@ namespace Katarune.Avatar
             _behavior.SetManualVisemes(default);
             _motions.CancelAction();
             _motions.CancelAllBehaviors();
-            _motions.SetActivity(_behavior.Settings.Activity);
-            _sceneRig.SetActivityLighting(_behavior.Settings.Activity);
             PublishIfChanged();
         }
 
@@ -158,11 +152,9 @@ namespace Katarune.Avatar
 
         private static AvatarBehaviorSettings Normalize(AvatarBehaviorSettings settings)
         {
-            ValidateEnum(settings.Activity, nameof(settings.Activity));
             ValidateEnum(settings.Affect, nameof(settings.Affect));
             ValidateEnum(settings.GazeMode, nameof(settings.GazeMode));
             return new AvatarBehaviorSettings(
-                settings.Activity,
                 settings.Affect,
                 Mathf.Clamp01(settings.AffectIntensity),
                 settings.BreathingEnabled,
@@ -173,9 +165,7 @@ namespace Katarune.Avatar
                 settings.GazeMode,
                 new Vector2(
                     Mathf.Clamp(settings.ManualGaze.x, -18f, 18f),
-                    Mathf.Clamp(settings.ManualGaze.y, -10f, 10f)),
-                settings.AutoMouthEnabled,
-                Mathf.Clamp01(settings.MouthIntensity));
+                    Mathf.Clamp(settings.ManualGaze.y, -10f, 10f)));
         }
 
         private static AvatarPresentationSettings Normalize(AvatarPresentationSettings settings)

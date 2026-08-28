@@ -5,7 +5,7 @@ namespace Katarune.Avatar
 {
     public enum PhaseDAcceptanceScenario
     {
-        SpeakingWithFullBodyExplain,
+        SpeechWithFullBodyExplain,
         DanceInterruption,
     }
 
@@ -26,18 +26,17 @@ namespace Katarune.Avatar
             _runtime ??= FindFirstObjectByType<AvatarBootstrap>()?.Runtime;
             if (_runtime == null || _runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) return;
             _stepElapsed += Time.deltaTime;
-            if (_scenario == PhaseDAcceptanceScenario.SpeakingWithFullBodyExplain)
-                TickSpeakingWithFullBodyExplain();
+            if (_scenario == PhaseDAcceptanceScenario.SpeechWithFullBodyExplain)
+                TickSpeechWithFullBodyExplain();
             else
                 TickDanceInterruption();
         }
 
-        private void TickSpeakingWithFullBodyExplain()
+        private void TickSpeechWithFullBodyExplain()
         {
             if (_step == 0)
             {
                 _runtime.ApplyBehavior(_runtime.Snapshot.Behavior
-                    .WithActivity(AvatarActivityState.Speaking)
                     .WithGaze(AvatarGazeMode.Auto, Vector2.zero));
                 _runtime.SetManualVisemes(new AvatarVisemeWeights(0.7f, 0.1f, 0f, 0.2f, 0f));
                 var result = _runtime.RequestBehavior(new BehaviorIntent(
@@ -55,7 +54,6 @@ namespace Katarune.Avatar
                     $"{_firstInstanceId} behavior=katarune.performance.explain state=Completed"))
             {
                 _runtime.SetManualVisemes(default);
-                _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithActivity(AvatarActivityState.Idle));
                 _status = "PASS: full-body explain completed; gaze and visemes remained independent.";
                 _step = 2;
             }

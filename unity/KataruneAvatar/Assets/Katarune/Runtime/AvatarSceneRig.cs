@@ -19,9 +19,6 @@ namespace Katarune.Avatar
         public AvatarLightingMode LightingMode => _lightingRig != null
             ? _lightingRig.Mode
             : AvatarLightingMode.LightDesktop;
-        internal AvatarActivityState LightingActivity => _lightingRig != null
-            ? _lightingRig.Activity
-            : AvatarActivityState.Idle;
 
         public void Configure(bool transparent, AvatarLightingMode lightingMode = AvatarLightingMode.LightDesktop)
         {
@@ -48,11 +45,6 @@ namespace Katarune.Avatar
             _lightingRig.SetMode(lightingMode);
             EnsureOpaqueFloor();
             ApplyOpaqueBackdrop(lightingMode);
-        }
-
-        public void SetActivityLighting(AvatarActivityState activity)
-        {
-            _lightingRig?.SetActivity(activity);
         }
 
         public void SetLightingMode(AvatarLightingMode mode)

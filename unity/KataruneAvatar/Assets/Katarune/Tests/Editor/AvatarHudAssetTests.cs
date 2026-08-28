@@ -207,22 +207,20 @@ namespace Katarune.Avatar.Tests
         {
             "centralMenuButton",
             "modelCategoryButton", "affectCategoryButton", "actionCategoryButton",
-            "activityCategoryButton", "moreCategoryButton",
+            "moreCategoryButton",
             "selectModelButton", "reloadModelButton", "unloadModelButton",
             "neutralAffectButton", "happyAffectButton", "relaxedAffectButton",
             "sadAffectButton", "angryAffectButton", "surprisedAffectButton",
             "greetWaveButton", "explainButton", "celebrateButton", "coughButton", "cancelActionButton",
-            "idleActivityButton", "listeningActivityButton", "thinkingActivityButton", "speakingActivityButton",
             "lightDesktopButton", "darkDesktopButton", "softOutlineButton", "statusHudButton", "resetBehaviorButton",
         };
 
         private static readonly IReadOnlyList<string> RequiredIcons = new[]
         {
-            "model", "affect", "action", "activity", "more",
+            "model", "affect", "action", "more",
             "neutral", "happy", "relaxed", "sad", "angry", "surprised",
             "folder-open", "refresh-cw", "trash-2",
             "hand", "message-circle-more", "party-popper", "wind", "circle-stop",
-            "coffee", "ear", "brain", "message-circle",
             "sun", "moon", "circle-dashed", "panel-top", "rotate-ccw",
         };
     }

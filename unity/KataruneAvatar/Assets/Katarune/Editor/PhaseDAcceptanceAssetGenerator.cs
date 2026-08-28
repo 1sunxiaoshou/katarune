@@ -19,7 +19,7 @@ namespace Katarune.Avatar.Editor
             GenerateCatalog();
             GenerateScene(
                 $"{SceneDirectory}/PhaseD_SpeakingWithFullBodyExplain.unity",
-                PhaseDAcceptanceScenario.SpeakingWithFullBodyExplain);
+                PhaseDAcceptanceScenario.SpeechWithFullBodyExplain);
             GenerateScene(
                 $"{SceneDirectory}/PhaseD_DanceInterruption.unity",
                 PhaseDAcceptanceScenario.DanceInterruption);

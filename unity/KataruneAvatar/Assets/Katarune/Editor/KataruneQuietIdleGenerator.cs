@@ -113,13 +113,6 @@ namespace Katarune.Avatar.Editor
                 AvatarMotionLibraryImporter.LibraryAssetPath);
             if (library == null || !library.IsValid) return;
 
-            if (!library.TryGetBase(AvatarActivityState.Listening, out var listening)
-                || !library.TryGetBase(AvatarActivityState.Thinking, out var thinking)
-                || !library.TryGetBase(AvatarActivityState.Speaking, out var speaking))
-            {
-                throw new InvalidOperationException("The installed local motion library has incomplete base motions.");
-            }
-
             var actions = new List<AvatarActionDefinition>();
             foreach (AvatarPresetAction action in Enum.GetValues(typeof(AvatarPresetAction)))
             {
@@ -131,7 +124,7 @@ namespace Katarune.Avatar.Editor
                     definition.Speed));
             }
 
-            library.Configure(quietIdle, listening, thinking, speaking, actions.ToArray());
+            library.Configure(quietIdle, actions.ToArray());
             EditorUtility.SetDirty(library);
         }
 

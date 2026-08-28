@@ -18,9 +18,7 @@ namespace Katarune.Avatar.Editor
 
         private static readonly MotifectMotion[] MotifectMotions =
         {
-            new MotifectMotion("nod_yes.fbx", "Motifect_Listening", loop: true),
-            new MotifectMotion("check_phone_standing.fbx", "Motifect_Thinking", loop: true),
-            new MotifectMotion("present_to_audience.fbx", "Motifect_Speaking", loop: true),
+            new MotifectMotion("present_to_audience.fbx", "Motifect_Explain", loop: false),
             new MotifectMotion("wave_hello.fbx", "Motifect_GreetWave", loop: false),
             new MotifectMotion("stretch_morning.fbx", "Motifect_Celebrate", loop: false),
         };
@@ -62,7 +60,7 @@ namespace Katarune.Avatar.Editor
 
         private void OnGUI()
         {
-            EditorGUILayout.LabelField("Katarune quiet idle + Quaternius technical samples", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Quaternius local preset preview", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 "Select the Standard ZIP archives or extracted pack folders. Imported files are stored under Assets/KataruneLocal and are ignored by Git.",
                 MessageType.Info);
@@ -80,7 +78,7 @@ namespace Katarune.Avatar.Editor
             EditorGUILayout.Space(14f);
             EditorGUILayout.LabelField("Motifect Daily Life alternate sample", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Imports alternate listening, thinking, speaking, greeting and celebrate clips. The stable baseline Idle and Cough clips remain in use.",
+                "Imports alternate action clips for local preview. The stable base loop and Cough action remain in use.",
                 MessageType.Info);
             DrawSource("Motifect Daily Life", ref _motifectSource);
             GUILayout.FlexibleSpace();
@@ -139,15 +137,13 @@ namespace Katarune.Avatar.Editor
 
                 var ual1Asset = $"{LocalRoot}/Source/{Ual1FileName}";
                 var ual2Asset = $"{LocalRoot}/Source/{Ual2FileName}";
-                ConfigureModelImporter(ual1Asset, "Idle", "Idle_Talking");
-                ConfigureModelImporter(ual2Asset, "Idle_FoldArms", "Idle_Pose_Arms");
+                ConfigureModelImporter(ual1Asset, "Idle");
+                ConfigureModelImporter(ual2Asset);
 
                 var ual1Clips = LoadClips(ual1Asset);
                 var ual2Clips = LoadClips(ual2Asset);
-                var quietIdle = KataruneQuietIdleGenerator.CreateOrUpdateClip();
-                var neutralIdle = RequireClip(ual1Clips, "Idle");
+                var baseClip = RequireClip(ual1Clips, "Idle");
                 var talking = RequireClip(ual1Clips, "Idle_Talking");
-                var foldedArmsIdle = RequireClip(ual2Clips, "Idle_FoldArms", "Idle_Pose_Arms");
                 var wave = FindClip(ual2Clips, "Wave");
                 if (wave == null)
                 {
@@ -170,10 +166,7 @@ namespace Katarune.Avatar.Editor
                     AssetDatabase.CreateAsset(library, LibraryAssetPath);
                 }
                 library.Configure(
-                    quietIdle,
-                    neutralIdle,
-                    foldedArmsIdle,
-                    talking,
+                    baseClip,
                     new[]
                     {
                         new AvatarActionDefinition(AvatarPresetAction.GreetWave, wave),
@@ -202,7 +195,10 @@ namespace Katarune.Avatar.Editor
                     "Import the Quaternius baseline first. Motifect has no neutral Idle or Cough clip, so the alternate set intentionally preserves those two baseline motions.");
             }
             var ual2Clips = LoadClips($"{LocalRoot}/Source/{Ual2FileName}");
-            var idle = KataruneQuietIdleGenerator.CreateOrUpdateClip();
+            if (!library.TryGetBase(out var baseClip))
+            {
+                throw new InvalidOperationException("The existing motion library has no valid base loop.");
+            }
             if (!library.TryGetAction(AvatarPresetAction.Cough, out var oldCough) || oldCough?.Clip == null)
             {
                 throw new InvalidOperationException("The existing motion library has no valid Cough clip.");
@@ -236,10 +232,7 @@ namespace Katarune.Avatar.Editor
                 }
 
                 library.Configure(
-                    idle,
-                    motifectClips["nod_yes.fbx"],
-                    motifectClips["check_phone_standing.fbx"],
-                    motifectClips["present_to_audience.fbx"],
+                    baseClip,
                     new[]
                     {
                         new AvatarActionDefinition(

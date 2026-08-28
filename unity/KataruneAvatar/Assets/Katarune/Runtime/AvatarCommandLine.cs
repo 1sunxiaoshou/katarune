@@ -14,7 +14,6 @@ namespace Katarune.Avatar
             bool transparentWindow,
             bool softOutlineEnabled,
             AvatarLightingMode lightingMode,
-            AvatarActivityState initialActivity,
             float captureDelaySeconds,
             AvatarPresetAction? initialAction)
         {
@@ -25,7 +24,6 @@ namespace Katarune.Avatar
             TransparentWindow = transparentWindow;
             SoftOutlineEnabled = softOutlineEnabled;
             LightingMode = lightingMode;
-            InitialActivity = initialActivity;
             CaptureDelaySeconds = captureDelaySeconds;
             InitialAction = initialAction;
         }
@@ -37,7 +35,6 @@ namespace Katarune.Avatar
         public bool TransparentWindow { get; }
         public bool SoftOutlineEnabled { get; }
         public AvatarLightingMode LightingMode { get; }
-        public AvatarActivityState InitialActivity { get; }
         public float CaptureDelaySeconds { get; }
         public AvatarPresetAction? InitialAction { get; }
 
@@ -52,7 +49,6 @@ namespace Katarune.Avatar
             var transparentWindow = true;
             var softOutlineEnabled = false;
             var lightingMode = AvatarLightingMode.LightDesktop;
-            var initialActivity = AvatarActivityState.Idle;
             var captureDelaySeconds = 0f;
             AvatarPresetAction? initialAction = null;
             for (var index = 0; index < args.Length; index += 1)
@@ -80,9 +76,6 @@ namespace Katarune.Avatar
                     case "--lighting":
                         lightingMode = ReadLightingMode(args, ref index);
                         break;
-                    case "--activity":
-                        initialActivity = ReadActivity(args, ref index);
-                        break;
                     case "--capture-delay":
                         captureDelaySeconds = ReadCaptureDelay(args, ref index);
                         break;
@@ -100,7 +93,6 @@ namespace Katarune.Avatar
                 transparentWindow,
                 softOutlineEnabled,
                 lightingMode,
-                initialActivity,
                 captureDelaySeconds,
                 initialAction);
         }
@@ -146,30 +138,6 @@ namespace Katarune.Avatar
             }
             index = valueIndex;
             return seconds;
-        }
-
-        private static AvatarActivityState ReadActivity(string[] args, ref int index)
-        {
-            var valueIndex = index + 1;
-            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
-            {
-                throw new ArgumentException(
-                    "--activity requires idle, listening, thinking or speaking.",
-                    nameof(args));
-            }
-
-            index = valueIndex;
-            switch (args[valueIndex].ToLowerInvariant())
-            {
-                case "idle": return AvatarActivityState.Idle;
-                case "listening": return AvatarActivityState.Listening;
-                case "thinking": return AvatarActivityState.Thinking;
-                case "speaking": return AvatarActivityState.Speaking;
-                default:
-                    throw new ArgumentException(
-                        "--activity requires idle, listening, thinking or speaking.",
-                        nameof(args));
-            }
         }
 
         private static AvatarLightingMode ReadLightingMode(string[] args, ref int index)

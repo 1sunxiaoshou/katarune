@@ -10,10 +10,8 @@ namespace Katarune.Avatar
         private Light _key;
         private LightingState _current;
         private LightingState _target;
-        private AvatarActivityState _activity = AvatarActivityState.Idle;
 
         public AvatarLightingMode Mode { get; private set; } = AvatarLightingMode.LightDesktop;
-        internal AvatarActivityState Activity => _activity;
 
         public void Configure()
         {
@@ -24,22 +22,16 @@ namespace Katarune.Avatar
 
             RenderSettings.sun = _key;
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            _current = GetState(_activity, Mode);
+            _current = GetState(Mode);
             _target = _current;
             Apply(_current);
-        }
-
-        public void SetActivity(AvatarActivityState activity)
-        {
-            _activity = activity;
-            _target = GetState(_activity, Mode);
         }
 
         public void SetMode(AvatarLightingMode mode)
         {
             if (Mode == mode) return;
             Mode = mode;
-            _target = GetState(_activity, Mode);
+            _target = GetState(Mode);
         }
 
         private void Update()
@@ -57,50 +49,18 @@ namespace Katarune.Avatar
             RenderSettings.ambientLight = state.AmbientColor;
         }
 
-        private static LightingState GetState(AvatarActivityState activity, AvatarLightingMode mode)
+        private static LightingState GetState(AvatarLightingMode mode)
         {
             if (mode == AvatarLightingMode.DarkDesktop)
             {
-                switch (activity)
-                {
-                    case AvatarActivityState.Listening:
-                        return new LightingState(
-                            0.94f, new Color(1f, 0.96f, 0.92f),
-                            new Color(0.34f, 0.35f, 0.39f));
-                    case AvatarActivityState.Thinking:
-                        return new LightingState(
-                            0.86f, new Color(0.94f, 0.95f, 1f),
-                            new Color(0.3f, 0.31f, 0.36f));
-                    case AvatarActivityState.Speaking:
-                        return new LightingState(
-                            0.97f, new Color(1f, 0.95f, 0.9f),
-                            new Color(0.35f, 0.355f, 0.4f));
-                    default:
-                        return new LightingState(
-                            0.9f, new Color(1f, 0.97f, 0.94f),
-                            new Color(0.32f, 0.33f, 0.38f));
-                }
+                return new LightingState(
+                    0.9f, new Color(1f, 0.97f, 0.94f),
+                    new Color(0.32f, 0.33f, 0.38f));
             }
 
-            switch (activity)
-            {
-                case AvatarActivityState.Listening:
-                    return new LightingState(
-                        1.18f, new Color(1f, 0.99f, 0.97f),
-                        new Color(0.69f, 0.695f, 0.72f));
-                case AvatarActivityState.Thinking:
-                    return new LightingState(
-                        1.1f, new Color(0.98f, 0.985f, 1f),
-                        new Color(0.65f, 0.66f, 0.7f));
-                case AvatarActivityState.Speaking:
-                    return new LightingState(
-                        1.2f, new Color(1f, 0.985f, 0.96f),
-                        new Color(0.7f, 0.7f, 0.73f));
-                default:
-                    return new LightingState(
-                        1.15f, new Color(1f, 0.99f, 0.97f),
-                        new Color(0.67f, 0.68f, 0.71f));
-            }
+            return new LightingState(
+                1.15f, new Color(1f, 0.99f, 0.97f),
+                new Color(0.67f, 0.68f, 0.71f));
         }
 
         private static Light CreateDirectionalLight(string name, Color color)

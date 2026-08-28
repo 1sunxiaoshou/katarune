@@ -21,13 +21,13 @@ namespace Katarune.Avatar.Tests
             var controller = gameObject.AddComponent<AvatarBehaviorController>();
             var driver = new RecordingAvatarDriver();
             controller.Bind(driver);
-            controller.SetActivity(AvatarActivityState.Speaking);
+            controller.SetAffect(AvatarAffectPreset.Happy, 1f);
 
             yield return null;
             yield return null;
 
             Assert.That(driver.ApplyCount, Is.GreaterThan(0));
-            Assert.That(driver.LastFrame.Activity, Is.EqualTo(AvatarActivityState.Speaking));
+            Assert.That(driver.LastFrame.Happy, Is.GreaterThan(0f));
             Object.Destroy(gameObject);
             yield return null;
         }
@@ -80,8 +80,6 @@ namespace Katarune.Avatar.Tests
                 Is.True);
             Click(hud, "neutralAffectButton");
             Assert.That(runtime.LastBehavior.AffectIntensity, Is.Zero);
-            Click(hud, "speakingActivityButton");
-            Assert.That(runtime.LastBehavior.Activity, Is.EqualTo(AvatarActivityState.Speaking));
             Click(hud, "greetWaveButton");
             Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.GreetWave));
             Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("挥手中"));
@@ -135,7 +133,7 @@ namespace Katarune.Avatar.Tests
         }
 
         [UnityTest]
-        public IEnumerator FacadeActivityChangeDrivesLightingWithoutVisualCoordination()
+        public IEnumerator FacadePresentationChangeDrivesLighting()
         {
             var gameObject = new GameObject("Facade Lighting Test") { tag = "MainCamera" };
             gameObject.AddComponent<Camera>();
@@ -162,10 +160,11 @@ namespace Katarune.Avatar.Tests
                 motions,
                 new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
 
-            facade.ApplyBehavior(facade.Snapshot.Behavior.WithActivity(AvatarActivityState.Speaking));
+            facade.ApplyPresentation(
+                facade.Snapshot.Presentation.WithLightingMode(AvatarLightingMode.DarkDesktop));
             yield return null;
 
-            Assert.That(sceneRig.LightingActivity, Is.EqualTo(AvatarActivityState.Speaking));
+            Assert.That(sceneRig.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
             facade.Dispose();
             Object.Destroy(gameObject);
             yield return null;

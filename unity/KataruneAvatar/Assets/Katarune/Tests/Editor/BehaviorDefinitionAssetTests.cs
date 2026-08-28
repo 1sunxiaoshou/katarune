@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using Katarune.Avatar.Editor;
 using NUnit.Framework;
-using UnityEditor;
 using UnityEngine;
 
 namespace Katarune.Avatar.Tests
@@ -12,37 +11,6 @@ namespace Katarune.Avatar.Tests
     {
         private const string DefinitionPath =
             "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
-
-        [Test]
-        public void QuietIdleDefinitionImportsAndValidates()
-        {
-            var definition = AssetDatabase.LoadAssetAtPath<BehaviorDefinitionAsset>(DefinitionPath);
-
-            Assert.That(definition, Is.Not.Null);
-            Assert.That(definition.BehaviorId, Is.EqualTo("katarune.body.quiet-idle"));
-            Assert.That(definition.Version, Is.EqualTo(1));
-            Assert.That(definition.Clip, Is.Not.Null);
-            Assert.That(definition.RequiredCapabilities, Is.EqualTo(CharacterRigCapabilities.HumanoidBody));
-            Assert.That(definition.ChannelClaims.Count, Is.EqualTo(1));
-            Assert.That(definition.ChannelClaims[0].Channel, Is.EqualTo(PerformanceChannel.BodyBase));
-            Assert.That(definition.ChannelClaims[0].Occupancy, Is.EqualTo(PerformanceChannelOccupancy.Exclusive));
-            Assert.That(definition.SyncPoints.Single().SafeExit, Is.True);
-            Assert.That(definition.Exit, Is.Not.Null);
-            Assert.That(definition.License.Distribution,
-                Is.EqualTo(BehaviorAssetDistribution.PrototypeDistributable));
-
-            var validation = BehaviorDefinitionAssetValidator.Validate(
-                definition,
-                CharacterRigCapabilities.HumanoidBody);
-            Assert.That(validation.IsValid, Is.True,
-                validation.IsValid ? null : validation.Errors[0].Message);
-
-            var domain = definition.CreateDomainDefinition();
-            Assert.That(domain.DefinitionId, Is.EqualTo(definition.BehaviorId));
-            Assert.That(
-                domain.ControlCapabilities.HasFlag(PerformanceControlCapabilities.SafePointExit),
-                Is.True);
-        }
 
         [Test]
         public void StrictSourceParserRejectsUnknownFields()

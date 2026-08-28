@@ -53,21 +53,6 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void ParseRecognizesInitialActivityForVisualSmokeTests()
-        {
-            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--activity", "thinking" });
-
-            Assert.That(options.InitialActivity, Is.EqualTo(AvatarActivityState.Thinking));
-        }
-
-        [Test]
-        public void ParseRejectsUnknownInitialActivity()
-        {
-            Assert.Throws<ArgumentException>(() =>
-                AvatarCommandLine.Parse(new[] { "app.exe", "--activity", "dancing" }));
-        }
-
-        [Test]
         public void ParseRecognizesCaptureDelayForVisualSmokeTests()
         {
             var options = AvatarCommandLine.Parse(new[] { "app.exe", "--capture-delay", "1.5" });

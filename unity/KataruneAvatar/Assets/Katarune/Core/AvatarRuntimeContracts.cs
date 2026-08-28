@@ -99,7 +99,6 @@ namespace Katarune.Avatar
     public readonly struct AvatarBehaviorSettings : IEquatable<AvatarBehaviorSettings>
     {
         public AvatarBehaviorSettings(
-            AvatarActivityState activity,
             AvatarAffectPreset affect,
             float affectIntensity,
             bool breathingEnabled,
@@ -108,11 +107,8 @@ namespace Katarune.Avatar
             float breathingIntensity,
             float swayIntensity,
             AvatarGazeMode gazeMode,
-            Vector2 manualGaze,
-            bool autoMouthEnabled,
-            float mouthIntensity)
+            Vector2 manualGaze)
         {
-            Activity = activity;
             Affect = affect;
             AffectIntensity = affectIntensity;
             BreathingEnabled = breathingEnabled;
@@ -122,12 +118,9 @@ namespace Katarune.Avatar
             SwayIntensity = swayIntensity;
             GazeMode = gazeMode;
             ManualGaze = manualGaze;
-            AutoMouthEnabled = autoMouthEnabled;
-            MouthIntensity = mouthIntensity;
         }
 
         public static AvatarBehaviorSettings Default => new AvatarBehaviorSettings(
-            AvatarActivityState.Idle,
             AvatarAffectPreset.Neutral,
             0f,
             true,
@@ -136,11 +129,8 @@ namespace Katarune.Avatar
             1f,
             1f,
             AvatarGazeMode.Auto,
-            Vector2.zero,
-            true,
-            0.8f);
+            Vector2.zero);
 
-        public AvatarActivityState Activity { get; }
         public AvatarAffectPreset Affect { get; }
         public float AffectIntensity { get; }
         public bool BreathingEnabled { get; }
@@ -150,16 +140,10 @@ namespace Katarune.Avatar
         public float SwayIntensity { get; }
         public AvatarGazeMode GazeMode { get; }
         public Vector2 ManualGaze { get; }
-        public bool AutoMouthEnabled { get; }
-        public float MouthIntensity { get; }
-
-        public AvatarBehaviorSettings WithActivity(AvatarActivityState value) => new AvatarBehaviorSettings(
-            value, Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, GazeMode, ManualGaze, AutoMouthEnabled, MouthIntensity);
 
         public AvatarBehaviorSettings WithAffect(AvatarAffectPreset value, float intensity) => new AvatarBehaviorSettings(
-            Activity, value, intensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, GazeMode, ManualGaze, AutoMouthEnabled, MouthIntensity);
+            value, intensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
+            BreathingIntensity, SwayIntensity, GazeMode, ManualGaze);
 
         public AvatarBehaviorSettings WithMotion(
             bool breathingEnabled,
@@ -167,21 +151,16 @@ namespace Katarune.Avatar
             bool swayEnabled,
             float breathingIntensity,
             float swayIntensity) => new AvatarBehaviorSettings(
-            Activity, Affect, AffectIntensity, breathingEnabled, blinkingEnabled, swayEnabled,
-            breathingIntensity, swayIntensity, GazeMode, ManualGaze, AutoMouthEnabled, MouthIntensity);
+            Affect, AffectIntensity, breathingEnabled, blinkingEnabled, swayEnabled,
+            breathingIntensity, swayIntensity, GazeMode, ManualGaze);
 
         public AvatarBehaviorSettings WithGaze(AvatarGazeMode mode, Vector2 manualGaze) => new AvatarBehaviorSettings(
-            Activity, Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, mode, manualGaze, AutoMouthEnabled, MouthIntensity);
-
-        public AvatarBehaviorSettings WithMouth(bool autoMouthEnabled, float mouthIntensity) => new AvatarBehaviorSettings(
-            Activity, Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, GazeMode, ManualGaze, autoMouthEnabled, mouthIntensity);
+            Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
+            BreathingIntensity, SwayIntensity, mode, manualGaze);
 
         public bool Equals(AvatarBehaviorSettings other)
         {
-            return Activity == other.Activity
-                && Affect == other.Affect
+            return Affect == other.Affect
                 && AffectIntensity.Equals(other.AffectIntensity)
                 && BreathingEnabled == other.BreathingEnabled
                 && BlinkingEnabled == other.BlinkingEnabled
@@ -189,9 +168,7 @@ namespace Katarune.Avatar
                 && BreathingIntensity.Equals(other.BreathingIntensity)
                 && SwayIntensity.Equals(other.SwayIntensity)
                 && GazeMode == other.GazeMode
-                && ManualGaze.Equals(other.ManualGaze)
-                && AutoMouthEnabled == other.AutoMouthEnabled
-                && MouthIntensity.Equals(other.MouthIntensity);
+                && ManualGaze.Equals(other.ManualGaze);
         }
 
         public override bool Equals(object obj) => obj is AvatarBehaviorSettings other && Equals(other);
@@ -199,9 +176,9 @@ namespace Katarune.Avatar
         public override int GetHashCode()
         {
             var first = HashCode.Combine(
-                Activity, Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled,
+                Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled,
                 SwayEnabled, BreathingIntensity, SwayIntensity);
-            return HashCode.Combine(first, GazeMode, ManualGaze, AutoMouthEnabled, MouthIntensity);
+            return HashCode.Combine(first, GazeMode, ManualGaze);
         }
     }
 
@@ -449,7 +426,6 @@ namespace Katarune.Avatar
         string PerformanceDiagnostics { get; }
         event Action Changed;
 
-        void SetActivity(AvatarActivityState activity);
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
         void CancelAction();
         BehaviorRequestResult RequestBehavior(BehaviorIntent intent, PerformanceRequestPolicy policy);

@@ -3,14 +3,6 @@ using UnityEngine;
 
 namespace Katarune.Avatar
 {
-    public enum AvatarActivityState
-    {
-        Idle,
-        Listening,
-        Thinking,
-        Speaking,
-    }
-
     public enum AvatarAffectPreset
     {
         Neutral,
@@ -67,8 +59,6 @@ namespace Katarune.Avatar
         public bool HasAuthoredBodyPose;
         public float ProceduralBodyWeight = 1f;
         public float ProceduralArmWeight = 1f;
-        public AvatarActivityState Activity;
-        public float TransitionProgress;
         public float Blink;
         public float GazeYaw;
         public float GazePitch;
@@ -96,8 +86,6 @@ namespace Katarune.Avatar
 
     public sealed class AvatarBehaviorModel
     {
-        public const float StateTransitionSeconds = 0.25f;
-
         private const float BlinkClosingSeconds = 0.07f;
         private const float BlinkClosedSeconds = 0.04f;
         private const float BlinkOpeningSeconds = 0.11f;
@@ -110,9 +98,6 @@ namespace Katarune.Avatar
         private readonly float[] _mouthTargets = new float[5];
         private readonly float[] _manualMouth = new float[5];
 
-        private AvatarActivityProfile _fromProfile;
-        private AvatarActivityProfile _toProfile;
-        private float _transitionElapsed;
         private float _elapsed;
         private float _swaySeed;
         private float _blinkWait;
@@ -123,7 +108,6 @@ namespace Katarune.Avatar
         private float _gazeWait;
         private Vector2 _autoGazeTarget;
         private Vector2 _smoothedGaze;
-        private float _mouthWait;
 
         public AvatarBehaviorModel(IAvatarRandom random = null)
         {
@@ -131,22 +115,18 @@ namespace Katarune.Avatar
             Reset();
         }
 
-        public AvatarActivityState Activity { get; private set; }
         public AvatarAffectPreset Affect { get; private set; }
         public AvatarGazeMode GazeMode { get; private set; }
         public float AffectIntensity { get; private set; }
         public bool BreathingEnabled { get; private set; }
         public bool BlinkingEnabled { get; private set; }
         public bool SwayEnabled { get; private set; }
-        public bool AutoMouthEnabled { get; private set; }
         public float BreathingIntensity { get; private set; }
         public float SwayIntensity { get; private set; }
-        public float MouthIntensity { get; private set; }
         public Vector2 ManualGaze { get; private set; }
         public AvatarPoseFrame CurrentFrame => _frame;
 
         public AvatarBehaviorSettings Settings => new AvatarBehaviorSettings(
-            Activity,
             Affect,
             AffectIntensity,
             BreathingEnabled,
@@ -155,19 +135,7 @@ namespace Katarune.Avatar
             BreathingIntensity,
             SwayIntensity,
             GazeMode,
-            ManualGaze,
-            AutoMouthEnabled,
-            MouthIntensity);
-
-        public void SetActivity(AvatarActivityState activity)
-        {
-            if (Activity == activity) return;
-            _fromProfile = GetBlendedProfile();
-            _toProfile = GetProfile(activity);
-            _transitionElapsed = 0f;
-            Activity = activity;
-            if (activity != AvatarActivityState.Speaking && AutoMouthEnabled) ClearMouthTargets();
-        }
+            ManualGaze);
 
         public void SetAffect(AvatarAffectPreset affect, float intensity)
         {
@@ -177,7 +145,6 @@ namespace Katarune.Avatar
 
         public void ApplySettings(AvatarBehaviorSettings settings)
         {
-            SetActivity(settings.Activity);
             SetAffect(settings.Affect, settings.AffectIntensity);
             BreathingEnabled = settings.BreathingEnabled;
             BlinkingEnabled = settings.BlinkingEnabled;
@@ -188,10 +155,6 @@ namespace Katarune.Avatar
             ManualGaze = new Vector2(
                 Mathf.Clamp(settings.ManualGaze.x, -18f, 18f),
                 Mathf.Clamp(settings.ManualGaze.y, -10f, 10f));
-            AutoMouthEnabled = settings.AutoMouthEnabled;
-            MouthIntensity = Mathf.Clamp01(settings.MouthIntensity);
-            if (!AutoMouthEnabled) return;
-            Array.Clear(_manualMouth, 0, _manualMouth.Length);
         }
 
         public void SetManualVisemes(float aa, float ih, float ou, float ee, float oh)
@@ -215,21 +178,15 @@ namespace Katarune.Avatar
 
         public void Reset()
         {
-            Activity = AvatarActivityState.Idle;
             Affect = AvatarAffectPreset.Neutral;
             GazeMode = AvatarGazeMode.Auto;
             AffectIntensity = 0f;
             BreathingEnabled = true;
             BlinkingEnabled = true;
             SwayEnabled = true;
-            AutoMouthEnabled = true;
             BreathingIntensity = 1f;
             SwayIntensity = 1f;
-            MouthIntensity = 0.8f;
             ManualGaze = Vector2.zero;
-            _fromProfile = GetProfile(Activity);
-            _toProfile = _fromProfile;
-            _transitionElapsed = StateTransitionSeconds;
             _elapsed = 0f;
             _swaySeed = _random.Range(0f, 100f);
             _blinkStage = 0;
@@ -240,24 +197,18 @@ namespace Katarune.Avatar
             _gazeWait = 0f;
             _autoGazeTarget = Vector2.zero;
             _smoothedGaze = Vector2.zero;
-            _mouthWait = 0f;
             Array.Clear(_expressionWeights, 0, _expressionWeights.Length);
             Array.Clear(_mouthWeights, 0, _mouthWeights.Length);
             Array.Clear(_mouthTargets, 0, _mouthTargets.Length);
             Array.Clear(_manualMouth, 0, _manualMouth.Length);
-            WriteFrame(GetProfile(Activity), Vector2.zero, 0f, 0f);
-            _frame.TransitionProgress = 1f;
+            WriteFrame(AvatarBasePoseProfile.Default, Vector2.zero, 0f, 0f);
         }
 
         public AvatarPoseFrame Tick(float deltaTime, Vector2 pointerNormalized)
         {
             deltaTime = Mathf.Max(0f, deltaTime);
             _elapsed += deltaTime;
-            _transitionElapsed = Mathf.Min(StateTransitionSeconds, _transitionElapsed + deltaTime);
-            var profile = GetBlendedProfile();
-            var transitionProgress = StateTransitionSeconds <= 0f
-                ? 1f
-                : Mathf.Clamp01(_transitionElapsed / StateTransitionSeconds);
+            var profile = AvatarBasePoseProfile.Default;
 
             UpdateBlink(deltaTime);
             var gaze = UpdateGaze(deltaTime, pointerNormalized, profile);
@@ -271,16 +222,7 @@ namespace Katarune.Avatar
                 : 0f;
 
             WriteFrame(profile, gaze, breathing, sway);
-            _frame.TransitionProgress = transitionProgress;
             return _frame;
-        }
-
-        private AvatarActivityProfile GetBlendedProfile()
-        {
-            var progress = StateTransitionSeconds <= 0f
-                ? 1f
-                : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_transitionElapsed / StateTransitionSeconds));
-            return AvatarActivityProfile.Lerp(_fromProfile, _toProfile, progress);
         }
 
         private void UpdateBlink(float deltaTime)
@@ -351,7 +293,7 @@ namespace Katarune.Avatar
             _blinkWait = _random.Range(2.5f, 6f);
         }
 
-        private Vector2 UpdateGaze(float deltaTime, Vector2 pointerNormalized, AvatarActivityProfile profile)
+        private Vector2 UpdateGaze(float deltaTime, Vector2 pointerNormalized, AvatarBasePoseProfile profile)
         {
             Vector2 target;
             switch (GazeMode)
@@ -397,33 +339,7 @@ namespace Katarune.Avatar
 
         private void UpdateMouth(float deltaTime)
         {
-            if (AutoMouthEnabled)
-            {
-                if (Activity == AvatarActivityState.Speaking)
-                {
-                    _mouthWait -= deltaTime;
-                    if (_mouthWait <= 0f)
-                    {
-                        ClearMouthTargets();
-                        var primary = _random.Range(0, _mouthTargets.Length);
-                        _mouthTargets[primary] = _random.Range(0.35f, 1f) * MouthIntensity;
-                        if (_random.Range(0f, 1f) < 0.3f)
-                        {
-                            var secondary = (primary + _random.Range(1, _mouthTargets.Length)) % _mouthTargets.Length;
-                            _mouthTargets[secondary] = _random.Range(0.08f, 0.28f) * MouthIntensity;
-                        }
-                        _mouthWait = _random.Range(0.08f, 0.18f);
-                    }
-                }
-                else
-                {
-                    ClearMouthTargets();
-                }
-            }
-            else
-            {
-                Array.Copy(_manualMouth, _mouthTargets, _mouthTargets.Length);
-            }
+            Array.Copy(_manualMouth, _mouthTargets, _mouthTargets.Length);
 
             var blend = 1f - Mathf.Exp(-deltaTime / 0.055f);
             for (var index = 0; index < _mouthWeights.Length; index += 1)
@@ -432,14 +348,8 @@ namespace Katarune.Avatar
             }
         }
 
-        private void ClearMouthTargets()
+        private void WriteFrame(AvatarBasePoseProfile profile, Vector2 gaze, float breathing, float sway)
         {
-            Array.Clear(_mouthTargets, 0, _mouthTargets.Length);
-        }
-
-        private void WriteFrame(AvatarActivityProfile profile, Vector2 gaze, float breathing, float sway)
-        {
-            _frame.Activity = Activity;
             _frame.Blink = _blinkWeight;
             _frame.GazeYaw = gaze.x;
             _frame.GazePitch = gaze.y;
@@ -457,9 +367,6 @@ namespace Katarune.Avatar
             var bodyEnergy = profile.BodyEnergy;
             var breathPitch = breathing * 0.45f * bodyEnergy;
             var swayRoll = sway * 0.55f * bodyEnergy;
-            var speakingPulse = Activity == AvatarActivityState.Speaking
-                ? Mathf.Sin(_elapsed * 4.2f) * 0.35f * bodyEnergy
-                : 0f;
             _frame.HipsPositionOffset = new Vector3(sway * 0.0015f, breathing * 0.0018f, 0f);
             _frame.SpineEuler = new Vector3(profile.SpinePitch + breathPitch, sway * 0.28f, swayRoll * 0.3f);
             _frame.ChestEuler = new Vector3(profile.ChestPitch + breathPitch * 0.8f, sway * 0.35f, swayRoll);
@@ -467,7 +374,7 @@ namespace Katarune.Avatar
             var avatarYaw = AvatarCoordinateSpace.ViewportYawToAvatarYaw(gaze.x);
             _frame.NeckEuler = new Vector3(profile.HeadPitch * 0.25f + gaze.y * -0.08f, avatarYaw * 0.08f, profile.HeadTilt * 0.35f);
             _frame.HeadEuler = new Vector3(
-                profile.HeadPitch + gaze.y * -0.16f + speakingPulse,
+                profile.HeadPitch + gaze.y * -0.16f,
                 avatarYaw * 0.33f,
                 profile.HeadTilt + sway * 0.35f);
             _frame.LeftUpperArmEuler = new Vector3(0f, profile.ArmForward, 72f - profile.ArmOpenness);
@@ -476,24 +383,9 @@ namespace Katarune.Avatar
             _frame.RightLowerArmEuler = new Vector3(0f, 8f + bodyEnergy * 2f, 0f);
         }
 
-        private static AvatarActivityProfile GetProfile(AvatarActivityState state)
+        private readonly struct AvatarBasePoseProfile
         {
-            switch (state)
-            {
-                case AvatarActivityState.Listening:
-                    return new AvatarActivityProfile(0.24f, 0.16f, 0.42f, -1.2f, 0.8f, 0.2f, 2f, 4f, 5f, new Vector2(0f, 0f), 8f, 5f, 1.2f, 2.4f, 0.11f);
-                case AvatarActivityState.Thinking:
-                    return new AvatarActivityProfile(0.18f, 0.1f, 0.48f, 1.2f, 2.8f, 3f, -2f, 2f, 2f, new Vector2(-6f, 3f), 7f, 4f, 0.7f, 1.5f, 0.18f);
-                case AvatarActivityState.Speaking:
-                    return new AvatarActivityProfile(0.3f, 0.22f, 0.75f, -0.4f, 0.4f, 0.4f, 3f, 6f, 7f, new Vector2(0f, 0f), 10f, 6f, 0.65f, 1.4f, 0.09f);
-                default:
-                    return new AvatarActivityProfile(0.22f, 0.12f, 0.34f, 0f, 0f, 0f, 0f, 0f, 0f, new Vector2(0f, 0f), 9f, 5f, 0.9f, 2.2f, 0.14f);
-            }
-        }
-
-        private readonly struct AvatarActivityProfile
-        {
-            public AvatarActivityProfile(
+            public AvatarBasePoseProfile(
                 float breathFrequency,
                 float swayFrequency,
                 float bodyEnergy,
@@ -543,25 +435,22 @@ namespace Katarune.Avatar
             public float GazeHoldMaximum { get; }
             public float GazeResponse { get; }
 
-            public static AvatarActivityProfile Lerp(AvatarActivityProfile from, AvatarActivityProfile to, float amount)
-            {
-                return new AvatarActivityProfile(
-                    Mathf.Lerp(from.BreathFrequency, to.BreathFrequency, amount),
-                    Mathf.Lerp(from.SwayFrequency, to.SwayFrequency, amount),
-                    Mathf.Lerp(from.BodyEnergy, to.BodyEnergy, amount),
-                    Mathf.Lerp(from.SpinePitch, to.SpinePitch, amount),
-                    Mathf.Lerp(from.ChestPitch, to.ChestPitch, amount),
-                    Mathf.Lerp(from.HeadPitch, to.HeadPitch, amount),
-                    Mathf.Lerp(from.HeadTilt, to.HeadTilt, amount),
-                    Mathf.Lerp(from.ArmForward, to.ArmForward, amount),
-                    Mathf.Lerp(from.ArmOpenness, to.ArmOpenness, amount),
-                    Vector2.Lerp(from.GazeOffset, to.GazeOffset, amount),
-                    Mathf.Lerp(from.GazeYawRange, to.GazeYawRange, amount),
-                    Mathf.Lerp(from.GazePitchRange, to.GazePitchRange, amount),
-                    Mathf.Lerp(from.GazeHoldMinimum, to.GazeHoldMinimum, amount),
-                    Mathf.Lerp(from.GazeHoldMaximum, to.GazeHoldMaximum, amount),
-                    Mathf.Lerp(from.GazeResponse, to.GazeResponse, amount));
-            }
+            public static AvatarBasePoseProfile Default => new AvatarBasePoseProfile(
+                0.22f,
+                0.12f,
+                0.34f,
+                0f,
+                0f,
+                0f,
+                0f,
+                0f,
+                0f,
+                Vector2.zero,
+                9f,
+                5f,
+                0.9f,
+                2.2f,
+                0.14f);
         }
     }
 }

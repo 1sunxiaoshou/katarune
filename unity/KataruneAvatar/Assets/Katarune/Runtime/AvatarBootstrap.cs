@@ -17,7 +17,6 @@ namespace Katarune.Avatar
         private AvatarHudController _hud;
         private AvatarWindow _avatarWindow;
         private bool _captureStarted;
-        private bool _initialActivityApplied;
         private bool _initialActionRequested;
         private bool _quitRequested;
 
@@ -111,15 +110,6 @@ namespace Katarune.Avatar
         {
             if (_facade == null || _options == null) return;
             var snapshot = _facade.Snapshot;
-            if (!_initialActivityApplied && snapshot.RuntimeState == AvatarRuntimeState.Ready)
-            {
-                _initialActivityApplied = true;
-                if (_options.InitialActivity != AvatarActivityState.Idle)
-                {
-                    _facade.ApplyBehavior(
-                        snapshot.Behavior.WithActivity(_options.InitialActivity));
-                }
-            }
             if (!_initialActionRequested
                 && _options.InitialAction.HasValue
                 && snapshot.RuntimeState == AvatarRuntimeState.Ready)

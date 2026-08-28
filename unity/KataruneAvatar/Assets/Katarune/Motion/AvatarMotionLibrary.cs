@@ -6,17 +6,10 @@ namespace Katarune.Avatar
     [CreateAssetMenu(fileName = "AvatarMotionLibrary", menuName = "Katarune/Avatar Motion Library")]
     public sealed class AvatarMotionLibrary : ScriptableObject
     {
-        [SerializeField] private AnimationClip _idle;
-        [SerializeField] private AnimationClip _listening;
-        [SerializeField] private AnimationClip _thinking;
-        [SerializeField] private AnimationClip _speaking;
+        [SerializeField] private AnimationClip _baseClip;
         [SerializeField] private AvatarActionDefinition[] _actions = Array.Empty<AvatarActionDefinition>();
 
-        public bool IsValid => _idle != null
-            && _listening != null
-            && _thinking != null
-            && _speaking != null
-            && Actions == AvatarActionCapabilities.All;
+        public bool IsValid => _baseClip != null;
 
         public AvatarActionCapabilities Actions
         {
@@ -32,15 +25,9 @@ namespace Katarune.Avatar
             }
         }
 
-        public bool TryGetBase(AvatarActivityState activity, out AnimationClip clip)
+        public bool TryGetBase(out AnimationClip clip)
         {
-            switch (activity)
-            {
-                case AvatarActivityState.Listening: clip = _listening; break;
-                case AvatarActivityState.Thinking: clip = _thinking; break;
-                case AvatarActivityState.Speaking: clip = _speaking; break;
-                default: clip = _idle; break;
-            }
+            clip = _baseClip;
             return clip != null;
         }
 
@@ -59,16 +46,10 @@ namespace Katarune.Avatar
         }
 
         internal void Configure(
-            AnimationClip idle,
-            AnimationClip listening,
-            AnimationClip thinking,
-            AnimationClip speaking,
+            AnimationClip baseClip,
             AvatarActionDefinition[] actions)
         {
-            _idle = idle;
-            _listening = listening;
-            _thinking = thinking;
-            _speaking = speaking;
+            _baseClip = baseClip;
             _actions = actions ?? Array.Empty<AvatarActionDefinition>();
         }
     }
