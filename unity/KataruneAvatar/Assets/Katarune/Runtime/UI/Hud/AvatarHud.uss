@@ -250,8 +250,16 @@
     transition-delay: 0.05s;
 }
 
-.primary-more {
+.primary-gaze {
     transition-delay: 0.075s;
+}
+
+.primary-showcase {
+    transition-delay: 0.1s;
+}
+
+.primary-more {
+    transition-delay: 0.125s;
 }
 
 .secondary-button {
@@ -380,6 +388,14 @@
 
 .icon-more {
     background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/more.svg");
+}
+
+.icon-eye {
+    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/eye.svg");
+}
+
+.icon-showcase-turntable {
+    background-image: url("project://database/Assets/Katarune/Runtime/UI/Hud/Icons/showcase-turntable.svg");
 }
 
 .primary-more > .radial-icon {

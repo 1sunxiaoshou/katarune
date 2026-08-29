@@ -13,6 +13,7 @@ namespace Katarune.Avatar
         private UniWindowController _window;
         private bool _hudVisible;
         private bool _hudPointerInteractionActive;
+        private bool _characterShowcaseInteractionActive;
         private bool _f1WasDown;
         private bool _windowEventsSubscribed;
         private VisualElement _hudRoot;
@@ -41,6 +42,12 @@ namespace Katarune.Avatar
         internal void SetHudPointerInteractionActive(bool active)
         {
             _hudPointerInteractionActive = active;
+            ApplyInteractionMode();
+        }
+
+        internal void SetCharacterShowcaseInteractionActive(bool active)
+        {
+            _characterShowcaseInteractionActive = active;
             ApplyInteractionMode();
         }
 
@@ -118,6 +125,11 @@ namespace Katarune.Avatar
             if (_window == null) return;
             _window.hitTestType = UniWindowController.HitTestType.None;
             _window.isHitTestEnabled = false;
+            if (_characterShowcaseInteractionActive)
+            {
+                SetClickThrough(false);
+                return;
+            }
             if (!_hudVisible || _hudPointerInteractionActive)
             {
                 SetClickThrough(!_hudPointerInteractionActive);
@@ -130,6 +142,11 @@ namespace Katarune.Avatar
         private void RefreshHudHitTest()
         {
             if (_window == null) return;
+            if (_characterShowcaseInteractionActive)
+            {
+                SetClickThrough(false);
+                return;
+            }
             if (!_hudVisible)
             {
                 SetClickThrough(true);

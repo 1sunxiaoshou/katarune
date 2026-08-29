@@ -1,5 +1,4 @@
 using NUnit.Framework;
-using UnityEditor;
 using UnityEngine;
 
 namespace Katarune.Avatar.Tests
@@ -103,51 +102,5 @@ namespace Katarune.Avatar.Tests
             Object.DestroyImmediate(cough);
         }
 
-        [Test]
-        public void QuietIdleIsAClosedSubtleHumanoidLoopWithStaticArmsAndRoot()
-        {
-            var clip = Katarune.Avatar.Editor.KataruneQuietIdleGenerator.BuildClip();
-
-            Assert.That(clip.isHumanMotion, Is.True);
-            Assert.That(clip.length, Is.EqualTo(
-                Katarune.Avatar.Editor.KataruneQuietIdleGenerator.DurationSeconds).Within(0.001f));
-            Assert.That(AnimationUtility.GetAnimationClipSettings(clip).loopTime, Is.True);
-
-            var chest = GetMuscleCurve(clip, "UpperChest Front-Back");
-            Assert.That(chest.Evaluate(0f), Is.EqualTo(chest.Evaluate(clip.length)).Within(0.0001f));
-            Assert.That(GetRange(chest), Is.GreaterThan(0.01f).And.LessThan(0.04f));
-
-            var arm = GetMuscleCurve(clip, "Left Arm Down-Up");
-            Assert.That(GetRange(arm), Is.LessThan(0.0001f));
-
-            var root = AnimationUtility.GetEditorCurve(
-                clip,
-                EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), "RootT.x"));
-            Assert.That(root, Is.Not.Null);
-            Assert.That(GetRange(root), Is.LessThan(0.0001f));
-
-            Object.DestroyImmediate(clip);
-        }
-
-        private static AnimationCurve GetMuscleCurve(AnimationClip clip, string name)
-        {
-            var curve = AnimationUtility.GetEditorCurve(
-                clip,
-                EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), name));
-            Assert.That(curve, Is.Not.Null, name);
-            return curve;
-        }
-
-        private static float GetRange(AnimationCurve curve)
-        {
-            var minimum = float.PositiveInfinity;
-            var maximum = float.NegativeInfinity;
-            foreach (var key in curve.keys)
-            {
-                minimum = Mathf.Min(minimum, key.value);
-                maximum = Mathf.Max(maximum, key.value);
-            }
-            return maximum - minimum;
-        }
     }
 }

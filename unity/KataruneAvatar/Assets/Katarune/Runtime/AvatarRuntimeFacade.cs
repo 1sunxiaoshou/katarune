@@ -153,19 +153,11 @@ namespace Katarune.Avatar
         private static AvatarBehaviorSettings Normalize(AvatarBehaviorSettings settings)
         {
             ValidateEnum(settings.Affect, nameof(settings.Affect));
-            ValidateEnum(settings.GazeMode, nameof(settings.GazeMode));
             return new AvatarBehaviorSettings(
                 settings.Affect,
                 Mathf.Clamp01(settings.AffectIntensity),
-                settings.BreathingEnabled,
                 settings.BlinkingEnabled,
-                settings.SwayEnabled,
-                Mathf.Clamp(settings.BreathingIntensity, 0f, 2f),
-                Mathf.Clamp(settings.SwayIntensity, 0f, 2f),
-                settings.GazeMode,
-                new Vector2(
-                    Mathf.Clamp(settings.ManualGaze.x, -18f, 18f),
-                    Mathf.Clamp(settings.ManualGaze.y, -10f, 10f)));
+                settings.PointerGazeTrackingEnabled);
         }
 
         private static AvatarPresentationSettings Normalize(AvatarPresentationSettings settings)

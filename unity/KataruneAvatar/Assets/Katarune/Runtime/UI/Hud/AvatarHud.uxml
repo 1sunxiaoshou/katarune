@@ -18,6 +18,8 @@
                 <hud:AvatarHudIconButton name="modelCategoryButton" tooltip="模型" icon-class="icon-model" class="radial-button primary-button primary-model" />
                 <hud:AvatarHudIconButton name="affectCategoryButton" tooltip="表情" icon-class="icon-affect" class="radial-button primary-button primary-affect" />
                 <hud:AvatarHudIconButton name="actionCategoryButton" tooltip="动作" icon-class="icon-action" class="radial-button primary-button primary-action" />
+                <hud:AvatarHudIconButton name="gazeTrackingButton" tooltip="视线跟随" icon-class="icon-eye" class="radial-button primary-button primary-gaze" />
+                <hud:AvatarHudIconButton name="showcaseControlButton" tooltip="角色展示：左拖旋转角色，滚轮平滑缩放" icon-class="icon-showcase-turntable" class="radial-button primary-button primary-showcase" />
                 <hud:AvatarHudIconButton name="moreCategoryButton" tooltip="更多" icon-class="icon-more" class="radial-button primary-button primary-more" />
             </ui:VisualElement>
 

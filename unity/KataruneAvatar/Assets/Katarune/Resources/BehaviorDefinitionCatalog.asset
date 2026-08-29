@@ -13,6 +13,5 @@ MonoBehaviour:
   m_Name: BehaviorDefinitionCatalog
   m_EditorClassIdentifier: Katarune.Avatar.Motion::Katarune.Avatar.BehaviorDefinitionCatalog
   _definitions:
-  - {fileID: -7173706183594553208, guid: c7089c1b4bfaa4d4fb65863d8ac246c0, type: 3}
   - {fileID: -7173706183594553208, guid: a1071bc4950bfb24393ab08a68c558ed, type: 3}
   - {fileID: -7173706183594553208, guid: 9f3b76fce5b57b14090acfdeefa3dbd5, type: 3}

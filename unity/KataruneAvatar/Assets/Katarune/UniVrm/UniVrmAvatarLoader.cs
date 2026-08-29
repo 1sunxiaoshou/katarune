@@ -154,6 +154,7 @@ namespace Katarune.Avatar
 
     internal interface IAvatarPreparedModel : IDisposable
     {
+        Transform RootTransform { get; }
         IAvatarDriver Driver { get; }
         IAvatarVisualInstance Visual { get; }
         IAvatarMotionInstance Motion { get; }
@@ -218,6 +219,7 @@ namespace Katarune.Avatar
 
         public Vrm10Instance Instance { get; }
         public RuntimeGltfInstance RuntimeInstance { get; }
+        public Transform RootTransform => Instance.transform;
         public IAvatarDriver Driver { get; }
         public IAvatarVisualInstance Visual { get; }
         public IAvatarMotionInstance Motion { get; }
@@ -241,7 +243,6 @@ namespace Katarune.Avatar
         {
             if (_disposed) return;
             _disposed = true;
-            Driver.ResetPose();
             Driver.Dispose();
             Visual.Dispose();
             Motion?.Dispose();

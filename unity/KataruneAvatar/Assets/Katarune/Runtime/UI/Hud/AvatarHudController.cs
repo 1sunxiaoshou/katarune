@@ -76,6 +76,8 @@ namespace Katarune.Avatar
         private Button _reloadModelButton;
         private Button _unloadModelButton;
         private Button _cancelActionButton;
+        private Button _gazeTrackingButton;
+        private Button _showcaseControlButton;
         private Button _lightDesktopButton;
         private Button _darkDesktopButton;
         private Button _softOutlineButton;
@@ -90,7 +92,9 @@ namespace Katarune.Avatar
 
         public bool Visible => _visible;
         public bool StatusHudVisible { get; private set; }
+        public bool CharacterShowcaseControlEnabled { get; private set; }
         public event Action<bool> VisibilityChanged;
+        public event Action<bool> CharacterShowcaseControlChanged;
         internal event Action<bool> PointerInteractionChanged;
 
         internal VisualElement RootElement => _root;
@@ -184,6 +188,10 @@ namespace Katarune.Avatar
             RegisterCategory(HudCategory.Affect, "affectCategoryButton", "affectMenu");
             RegisterCategory(HudCategory.Action, "actionCategoryButton", "actionMenu");
             RegisterCategory(HudCategory.More, "moreCategoryButton", "moreMenu");
+            _gazeTrackingButton = Require<Button>("gazeTrackingButton");
+            _gazeTrackingButton.clicked += TogglePointerGazeTracking;
+            _showcaseControlButton = Require<Button>("showcaseControlButton");
+            _showcaseControlButton.clicked += ToggleCharacterShowcaseControl;
 
             _selectModelButton = Require<Button>("selectModelButton");
             _reloadModelButton = Require<Button>("reloadModelButton");
@@ -372,6 +380,27 @@ namespace Katarune.Avatar
             _runtime.ApplyPresentation(presentation.WithSoftOutline(!presentation.SoftOutlineEnabled));
         }
 
+        private void TogglePointerGazeTracking()
+        {
+            SetActiveCategory(null);
+            var behavior = _runtime.Snapshot.Behavior;
+            _runtime.ApplyBehavior(behavior.WithPointerGazeTracking(!behavior.PointerGazeTrackingEnabled));
+        }
+
+        private void ToggleCharacterShowcaseControl()
+        {
+            SetActiveCategory(null);
+            SetCharacterShowcaseControlEnabled(!CharacterShowcaseControlEnabled);
+        }
+
+        private void SetCharacterShowcaseControlEnabled(bool enabled)
+        {
+            if (CharacterShowcaseControlEnabled == enabled) return;
+            CharacterShowcaseControlEnabled = enabled;
+            _showcaseControlButton?.EnableInClassList(SelectedClass, enabled);
+            CharacterShowcaseControlChanged?.Invoke(enabled);
+        }
+
         private void ToggleStatusHud() => SetStatusHudVisible(!StatusHudVisible);
 
         private void SetStatusHudVisible(bool visible)
@@ -401,6 +430,7 @@ namespace Katarune.Avatar
 
             var ready = snapshot.RuntimeState == AvatarRuntimeState.Ready;
             var loading = snapshot.RuntimeState == AvatarRuntimeState.Loading;
+            if (!ready) SetCharacterShowcaseControlEnabled(false);
             _selectModelButton.SetEnabled(!loading);
             _reloadModelButton.SetEnabled(snapshot.Model.HasValue && !loading);
             _unloadModelButton.SetEnabled(snapshot.Model.HasValue && !loading);
@@ -428,6 +458,20 @@ namespace Katarune.Avatar
             _softOutlineButton.EnableInClassList(
                 SelectedClass,
                 snapshot.Presentation.SoftOutlineEnabled);
+            _gazeTrackingButton.EnableInClassList(
+                SelectedClass,
+                snapshot.Behavior.PointerGazeTrackingEnabled);
+            _showcaseControlButton.SetEnabled(ready);
+            _showcaseControlButton.EnableInClassList(SelectedClass, CharacterShowcaseControlEnabled);
+        }
+
+        internal bool IsScreenPositionOverInteractiveControl(Vector2 screenPosition)
+        {
+            var panel = _root?.panel;
+            if (panel == null) return false;
+            var clientPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
+            var panelPosition = RuntimePanelUtils.ScreenToPanel(panel, clientPosition);
+            return AvatarWindow.IsInteractivePick(panel.Pick(panelPosition), _root);
         }
 
         private void SetAffectStatusIcon(AvatarAffectPreset affect)

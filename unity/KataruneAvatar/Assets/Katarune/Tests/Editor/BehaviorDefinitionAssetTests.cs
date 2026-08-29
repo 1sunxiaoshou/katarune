@@ -10,7 +10,7 @@ namespace Katarune.Avatar.Tests
     public sealed class BehaviorDefinitionAssetTests
     {
         private const string DefinitionPath =
-            "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
+            "Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior";
 
         [Test]
         public void StrictSourceParserRejectsUnknownFields()

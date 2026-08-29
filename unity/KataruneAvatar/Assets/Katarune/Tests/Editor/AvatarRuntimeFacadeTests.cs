@@ -66,13 +66,8 @@ namespace Katarune.Avatar.Tests
             var requested = new AvatarBehaviorSettings(
                 AvatarAffectPreset.Happy,
                 4f,
-                true,
                 false,
-                true,
-                8f,
-                -2f,
-                AvatarGazeMode.Manual,
-                new Vector2(100f, -100f));
+                true);
 
             _facade.ApplyBehavior(requested);
             var snapshot = _facade.Snapshot;
@@ -80,9 +75,8 @@ namespace Katarune.Avatar.Tests
             Assert.That(snapshot.Revision, Is.EqualTo(1));
             Assert.That(changes, Is.EqualTo(1));
             Assert.That(snapshot.Behavior.AffectIntensity, Is.EqualTo(1f));
-            Assert.That(snapshot.Behavior.BreathingIntensity, Is.EqualTo(2f));
-            Assert.That(snapshot.Behavior.SwayIntensity, Is.EqualTo(0f));
-            Assert.That(snapshot.Behavior.ManualGaze, Is.EqualTo(new Vector2(18f, -10f)));
+            Assert.That(snapshot.Behavior.BlinkingEnabled, Is.False);
+            Assert.That(snapshot.Behavior.PointerGazeTrackingEnabled, Is.True);
 
             _facade.ApplyBehavior(snapshot.Behavior);
             Assert.That(_facade.Snapshot.Revision, Is.EqualTo(1));
@@ -352,6 +346,7 @@ namespace Katarune.Avatar.Tests
             {
                 Path = path;
                 Name = path;
+                RootObject = new GameObject($"Fake Avatar {path}");
                 Bounds = new Bounds(Vector3.zero, new Vector3(1f, 1.7f, 1f));
                 Capabilities = capabilities ?? new AvatarCapabilitySet(AvatarAffectCapabilities.All);
                 Driver = new FakeDriver(Capabilities);
@@ -360,6 +355,8 @@ namespace Katarune.Avatar.Tests
                 Motion = motion;
             }
 
+            private GameObject RootObject { get; }
+            public Transform RootTransform => RootObject.transform;
             public IAvatarDriver Driver { get; }
             public IAvatarVisualInstance Visual { get; }
             public IAvatarMotionInstance Motion { get; }
@@ -386,6 +383,7 @@ namespace Katarune.Avatar.Tests
                 Driver.Dispose();
                 Visual.Dispose();
                 Motion?.Dispose();
+                if (RootObject != null) Object.DestroyImmediate(RootObject);
             }
         }
 

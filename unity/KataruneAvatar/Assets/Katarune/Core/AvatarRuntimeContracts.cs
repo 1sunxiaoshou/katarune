@@ -101,84 +101,49 @@ namespace Katarune.Avatar
         public AvatarBehaviorSettings(
             AvatarAffectPreset affect,
             float affectIntensity,
-            bool breathingEnabled,
             bool blinkingEnabled,
-            bool swayEnabled,
-            float breathingIntensity,
-            float swayIntensity,
-            AvatarGazeMode gazeMode,
-            Vector2 manualGaze)
+            bool pointerGazeTrackingEnabled)
         {
             Affect = affect;
             AffectIntensity = affectIntensity;
-            BreathingEnabled = breathingEnabled;
             BlinkingEnabled = blinkingEnabled;
-            SwayEnabled = swayEnabled;
-            BreathingIntensity = breathingIntensity;
-            SwayIntensity = swayIntensity;
-            GazeMode = gazeMode;
-            ManualGaze = manualGaze;
+            PointerGazeTrackingEnabled = pointerGazeTrackingEnabled;
         }
 
         public static AvatarBehaviorSettings Default => new AvatarBehaviorSettings(
             AvatarAffectPreset.Neutral,
             0f,
             true,
-            true,
-            true,
-            1f,
-            1f,
-            AvatarGazeMode.Auto,
-            Vector2.zero);
+            false);
 
         public AvatarAffectPreset Affect { get; }
         public float AffectIntensity { get; }
-        public bool BreathingEnabled { get; }
         public bool BlinkingEnabled { get; }
-        public bool SwayEnabled { get; }
-        public float BreathingIntensity { get; }
-        public float SwayIntensity { get; }
-        public AvatarGazeMode GazeMode { get; }
-        public Vector2 ManualGaze { get; }
+        public bool PointerGazeTrackingEnabled { get; }
 
         public AvatarBehaviorSettings WithAffect(AvatarAffectPreset value, float intensity) => new AvatarBehaviorSettings(
-            value, intensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, GazeMode, ManualGaze);
+            value, intensity, BlinkingEnabled, PointerGazeTrackingEnabled);
 
-        public AvatarBehaviorSettings WithMotion(
-            bool breathingEnabled,
-            bool blinkingEnabled,
-            bool swayEnabled,
-            float breathingIntensity,
-            float swayIntensity) => new AvatarBehaviorSettings(
-            Affect, AffectIntensity, breathingEnabled, blinkingEnabled, swayEnabled,
-            breathingIntensity, swayIntensity, GazeMode, ManualGaze);
+        public AvatarBehaviorSettings WithBlinking(bool blinkingEnabled) => new AvatarBehaviorSettings(
+            Affect, AffectIntensity, blinkingEnabled, PointerGazeTrackingEnabled);
 
-        public AvatarBehaviorSettings WithGaze(AvatarGazeMode mode, Vector2 manualGaze) => new AvatarBehaviorSettings(
-            Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled, SwayEnabled,
-            BreathingIntensity, SwayIntensity, mode, manualGaze);
+        public AvatarBehaviorSettings WithPointerGazeTracking(bool enabled) => new AvatarBehaviorSettings(
+            Affect, AffectIntensity, BlinkingEnabled, enabled);
 
         public bool Equals(AvatarBehaviorSettings other)
         {
             return Affect == other.Affect
                 && AffectIntensity.Equals(other.AffectIntensity)
-                && BreathingEnabled == other.BreathingEnabled
                 && BlinkingEnabled == other.BlinkingEnabled
-                && SwayEnabled == other.SwayEnabled
-                && BreathingIntensity.Equals(other.BreathingIntensity)
-                && SwayIntensity.Equals(other.SwayIntensity)
-                && GazeMode == other.GazeMode
-                && ManualGaze.Equals(other.ManualGaze);
+                && PointerGazeTrackingEnabled == other.PointerGazeTrackingEnabled;
         }
 
         public override bool Equals(object obj) => obj is AvatarBehaviorSettings other && Equals(other);
 
         public override int GetHashCode()
         {
-            var first = HashCode.Combine(
-                Affect, AffectIntensity, BreathingEnabled, BlinkingEnabled,
-                SwayEnabled, BreathingIntensity, SwayIntensity);
-            return HashCode.Combine(first, GazeMode, ManualGaze);
+            return HashCode.Combine(
+                Affect, AffectIntensity, BlinkingEnabled, PointerGazeTrackingEnabled);
         }
     }
 

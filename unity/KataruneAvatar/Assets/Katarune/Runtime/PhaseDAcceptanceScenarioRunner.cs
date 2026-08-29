@@ -37,7 +37,7 @@ namespace Katarune.Avatar
             if (_step == 0)
             {
                 _runtime.ApplyBehavior(_runtime.Snapshot.Behavior
-                    .WithGaze(AvatarGazeMode.Auto, Vector2.zero));
+                    .WithPointerGazeTracking(false));
                 _runtime.SetManualVisemes(new AvatarVisemeWeights(0.7f, 0.1f, 0f, 0.2f, 0f));
                 var result = _runtime.RequestBehavior(new BehaviorIntent(
                     "acceptance-speaking-full-body-explain",

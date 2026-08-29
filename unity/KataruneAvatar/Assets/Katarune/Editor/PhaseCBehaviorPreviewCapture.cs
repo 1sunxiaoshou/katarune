@@ -13,8 +13,6 @@ namespace Katarune.Avatar.Editor
 {
     internal static class PhaseCBehaviorPreviewCapture
     {
-        private const string IdlePath =
-            "Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior";
         private const string ExplainPath =
             "Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior";
         private const string DancePath =
@@ -29,7 +27,6 @@ namespace Katarune.Avatar.Editor
             }
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PhaseCBehaviorSampleGenerator.SourcePath)
                 ?? throw new InvalidOperationException("Import the local UAL1 Standard source first.");
-            var idle = Load(IdlePath);
             var explain = Load(ExplainPath);
             var dance = Load(DancePath);
             var output = Path.GetFullPath("TestResults/phase-c-preview");
@@ -66,17 +63,12 @@ namespace Katarune.Avatar.Editor
                 lightObject.transform.rotation = Quaternion.Euler(35f, -30f, 0f);
 
                 Frame(camera, model);
-                CaptureSingle(camera, animator, idle.Clip, 0.01, Path.Combine(output, "idle-start.png"));
-                CaptureSingle(camera, animator, idle.Clip, idle.Clip.length - 0.01,
-                    Path.Combine(output, "idle-loop-end.png"));
                 CaptureSingle(camera, animator, explain.Clip, 2.0,
                     Path.Combine(output, "full-body-explain.png"));
                 CaptureSingle(camera, animator, dance.Clip, 0.5,
                     Path.Combine(output, "short-dance-loop.png"));
                 CaptureSingle(camera, animator, dance.Clip, 1.5,
                     Path.Combine(output, "short-dance-exit.png"));
-                CaptureSingle(camera, animator, idle.Clip, 0.5,
-                    Path.Combine(output, "recovered-idle.png"));
             }
             finally
             {

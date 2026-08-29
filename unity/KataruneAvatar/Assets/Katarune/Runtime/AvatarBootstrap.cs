@@ -89,6 +89,8 @@ namespace Katarune.Avatar
                     new AvatarVrmFilePicker(),
                     string.IsNullOrWhiteSpace(_options.ScreenshotPath),
                     pointerSource);
+                _sceneRig.SetManualInputBlocker(_hud.IsScreenPositionOverInteractiveControl);
+                _hud.CharacterShowcaseControlChanged += HandleCharacterShowcaseControlChanged;
                 _hud.SetLocalShortcutEnabled(Application.isEditor || _avatarWindow == null);
                 if (_avatarWindow != null)
                 {
@@ -179,8 +181,18 @@ namespace Katarune.Avatar
             return File.Exists(localDefaultPath) ? localDefaultPath : null;
         }
 
+        private void HandleCharacterShowcaseControlChanged(bool enabled)
+        {
+            _sceneRig?.SetCharacterShowcaseControlEnabled(enabled);
+            _avatarWindow?.SetCharacterShowcaseInteractionActive(enabled);
+        }
+
         private void OnDestroy()
         {
+            if (_hud != null)
+            {
+                _hud.CharacterShowcaseControlChanged -= HandleCharacterShowcaseControlChanged;
+            }
             if (_avatarWindow != null && _hud != null)
             {
                 _avatarWindow.HudToggleRequested -= _hud.ToggleVisible;

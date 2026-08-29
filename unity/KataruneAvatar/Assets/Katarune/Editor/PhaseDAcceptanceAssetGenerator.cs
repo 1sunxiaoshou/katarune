@@ -32,7 +32,6 @@ namespace Katarune.Avatar.Editor
         {
             var definitions = new[]
             {
-                Load("Assets/Katarune/Behaviors/KataruneQuietIdle.kbehavior"),
                 Load("Assets/Katarune/Behaviors/QuaterniusFullBodyExplain.kbehavior"),
                 Load("Assets/Katarune/Behaviors/QuaterniusShortDance.kbehavior"),
             };

@@ -2,7 +2,7 @@
 
 言奏 VRM 的独立 Unity Runtime。当前基线为 Unity `6000.3.11f1`、URP `17.3.0`、UniVRM `0.131.0` 与 UniWindowController `0.9.8`。
 
-Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环，不依赖 Electron 或音频。Runtime 只支持外部 VRM 1.0 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动一个稳定基础姿态、高层行为请求、六种表情预设、呼吸、重心摆动、自动眨眼、三种视线模式和外部口型输入。没有安装 Git 忽略的本地动作库时，角色保留程序化稳定姿态，作者动画与动作按钮显示为不可用。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 4× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
+Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环，不依赖 Electron 或音频。Runtime 只支持外部 VRM 1.0 的异步加载、原子替换和卸载，并用 UniVRM 标准化 Control Rig 驱动稳定中性姿态、高层行为请求、六种表情预设、自动眨眼、默认关闭的鼠标视线跟随、Spring Bone 环境风和外部口型输入。fallback 不生成呼吸或身体微摆；视线跟随关闭时固定正前方，开启后以摄像机射线、虚拟窗口平面和 VRM 眼睛原点进行世界空间映射并持续跟随鼠标，不生成随机偏移注视。没有安装 Git 忽略的本地动作库时，角色保留中性姿态，作者动画与动作按钮显示为不可用。表情优先使用具备真实绑定的 VRM 标准预设；空预设可由模型已有的 ARKit 风格自定义键组合回退，否则在 HUD 中标记不可用。默认完全保留模型原有 MToon、贴图和描边，只由单一柔和主光与中性环境光照明；亮色桌面和暗色桌面使用独立曝光档位，PC 使用 4× MSAA。唯一可选材质调整是“柔和描边覆盖”，它只替换描边参数，不修改模型明暗、颜色或贴图。
 
 开发环境可将本机默认模型放在 Git 忽略的 `Assets/KataruneLocal/Models/初音未来.vrm`；未传入 `--vrm` 时 Runtime 会加载它，命令行显式路径始终优先。当前模型的许可禁止再分发和商业使用，因此该目录不进入版本控制，只允许进入本机测试 Player；不得把包含该模型的构建作为公开产物分发。
 
@@ -18,9 +18,9 @@ unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Edit
 ./Builds/Windows/KataruneAvatar.exe -force-d3d11 -force-d3d11-bitblt-model --vrm "C:/path/to/avatar.vrm"
 ```
 
-Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，角色根据窗口宽高比缩放并位于右侧安全区。UI Toolkit HUD 启动时只显示左下黑色四角星入口；左上 `#E9ECEF` 无描边状态卡默认关闭，可在“更多”中切换，开启后以纯黑头像占位、模型名和胶囊控件显示当前表情及动作。点击四角星以错峰动画展开“模型、表情、动作、更多”，再点击分类展开第二圈；按钮文字只在悬停时以无尾巴黑底白字 Tooltip 显示。按住四角星可以在全屏范围拖动独立锚点，菜单靠近不同屏幕边缘或角落时自动朝内展开。全局 F1 显示或隐藏整个 HUD，截图模式始终隐藏 HUD。
+Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，角色根据窗口宽高比缩放并位于右侧安全区。UI Toolkit HUD 启动时只显示左下黑色四角星入口；左上 `#E9ECEF` 无描边状态卡默认关闭，可在“更多”中切换，开启后以纯黑头像占位、模型名和胶囊控件显示当前表情及动作。点击四角星以错峰动画展开“模型、表情、动作、视线跟随、角色展示、更多”，再点击分类展开第二圈；按钮文字只在悬停时以无尾巴黑底白字 Tooltip 显示。按住四角星可以在全屏范围拖动独立锚点，菜单靠近不同屏幕边缘或角落时自动朝内展开。全局 F1 显示或隐藏整个 HUD，截图模式始终隐藏 HUD。
 
-窗口使用 UI Toolkit 内置运行时事件系统，不创建旧 uGUI EventSystem。UniWindowController 自动帧尾 Raycast 关闭；Windows 薄适配器把原生光标转换为 Panel 坐标并只 Pick 圆形 Button，顶部状态、人物和透明区域继续穿透到桌面。按住中央入口后通过 Pointer Capture 保持交互，并在帧末采样最新光标移动锚点，不使用全屏透明捕获面。`AvatarRadialMenu` 使用 UXML 配置一、二级半径、扫过角和安全边距，靠边时生成朝内半圆，靠角时生成朝内四分之一圆。HUD 隐藏时整个覆盖层强制点击穿透。模型入口使用原生文件选择器单选 `.vrm`；其他入口可切换六种表情、本地可用动作、亮色/暗色桌面灯光及柔和描边。`--opaque-window` 只用于调试，`--lighting light|dark` 和 `--soft-outline` 仍可指定启动表现。当前统一使用 PC 4× MSAA 基线。
+窗口使用 UI Toolkit 内置运行时事件系统，不创建旧 uGUI EventSystem。UniWindowController 自动帧尾 Raycast 关闭；Windows 薄适配器把原生光标转换为 Panel 坐标并只 Pick 圆形 Button，顶部状态、人物和透明区域继续穿透到桌面。按住中央入口后通过 Pointer Capture 保持交互，并在帧末采样最新光标移动锚点，不使用全屏透明捕获面。`AvatarRadialMenu` 使用 UXML 配置一、二级半径、扫过角和安全边距，靠边时生成朝内半圆，靠角时生成朝内四分之一圆。HUD 隐藏时整个覆盖层强制点击穿透。一级菜单直接提供视线跟随和默认关闭的角色展示开关；开启期间整窗接收输入，VRM 根固定在世界原点，左键水平拖动绕作者根轴旋转并带跟手阻尼与松手惯性，垂直拖动在上下各 `45°` 内俯仰观察；滚轮只平滑改变投影倍率，中键只平滑改变屏幕构图。关闭后保留当前角度、倍率和构图并恢复点击穿透。模型入口使用原生文件选择器单选 `.vrm`，其他入口可切换六种表情、本地可用动作、亮色/暗色桌面灯光及柔和描边。`--opaque-window` 只用于调试，`--lighting light|dark` 和 `--soft-outline` 仍可指定启动表现。当前统一使用 PC 4× MSAA 基线。
 
 ## Local motion preview
 
@@ -72,11 +72,12 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeM
 - `AvatarRuntimeSession` 负责隐藏候选对象的 `prepare → validate → commit` 事务。连续加载通过请求序号和取消令牌仲裁；失败提交恢复旧 Driver、Visual、Motion 与 Framing，成功后才释放旧角色。
 - `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用单一 PlayableGraph 混合基础循环、归一化的调度全身表演和互斥人工预览动作；所有动作关闭 Root Motion。上半身通道与可选 Mask 仍是资产能力，但当前无真实专用样片。UniVrm 只负责从 Control Rig 构造 Binding。
 - `UniVrmAvatarDriver` 隔离 UniVRM 表情、视线和标准化骨骼接口；作者动作独占四肢姿态，程序化层只向躯干与头部追加微动作。没有 authored pose 时，程序化层才从捕获基准姿态控制手臂。
-- `AvatarPoseFrame` 的水平视线使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免不同模型/相机朝向导致左右镜像。
+- `AvatarBehaviorController` 将鼠标像素投射到摄像机与 VRM 眼睛原点之间的虚拟窗口平面，按角色根朝向计算视线角度；`AvatarPoseFrame` 的水平视线继续使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免左右镜像。
 - `AvatarBehaviorController` 生成与输入源无关的 `AvatarPoseFrame`，执行顺序位于 UniVRM `LateUpdate` 之前。
 - `AvatarVisualController` 对候选模型执行材质分类；柔和描边开启时只覆盖四个 MToon 描边字段，关闭时精确恢复捕获值，并保留 VRM Expression 使用的原 Material 引用。
 - `AvatarVisualProfile` 只保存柔和描边参数及可选模型材质角色覆盖；默认资产位于 `Assets/Katarune/Resources`。
 - `AvatarLightingRig` 提供无阴影的柔和主光与中性环境光，只按亮色/暗色桌面表现设置调整。
+- `AvatarSceneRig` 将 VRM 根规范化到世界原点并只绕作者根轴水平旋转；模型 Bounds 只参与初始取景。受限纵向俯仰、FOV 投影倍率和 `lensShift` 构图偏移各自保存目标与阻尼状态，不会互相改写角色位置或基础画框。
 - `AvatarWindow` 负责全屏主显示器适配、置顶、UI Toolkit Button 局部命中、点击穿透和 Windows Player 的全局 F1 HUD 热键。
 - `AvatarHudController` 只订阅 Facade Snapshot 并调用 Facade；UXML、USS、Painter2D 装饰、SVG 图标和字体均可在 UI Builder 中继续编辑。
 - 程序集分为 `Katarune.Avatar.Core`、`Katarune.Avatar.Motion`、`Katarune.Avatar.UniVrm` 与 `Katarune.Avatar.Runtime`；Core 和 Motion 不引用 UniVRM 或 UniWindowController。

@@ -59,6 +59,13 @@ namespace Katarune.Avatar.Tests
             var runtime = FakeRuntimeFacade.CreateReady();
             var picker = new FakeVrmFilePicker("C:/Models/Next.vrm");
             var hud = gameObject.GetComponent<AvatarHudController>();
+            var showcaseControlChanges = 0;
+            var lastShowcaseControlState = false;
+            hud.CharacterShowcaseControlChanged += enabled =>
+            {
+                showcaseControlChanges += 1;
+                lastShowcaseControlState = enabled;
+            };
             hud.Configure(runtime, picker, true);
             yield return null;
 
@@ -69,6 +76,27 @@ namespace Katarune.Avatar.Tests
 
             Click(hud, "centralMenuButton");
             Assert.That(hud.RootElement.Q<VisualElement>("primaryMenu").ClassListContains("is-visible"), Is.True);
+            Assert.That(runtime.LastBehavior.PointerGazeTrackingEnabled, Is.False);
+            Assert.That(
+                hud.RootElement.Q<Button>("gazeTrackingButton").ClassListContains("is-selected"),
+                Is.False);
+            Click(hud, "gazeTrackingButton");
+            Assert.That(runtime.LastBehavior.PointerGazeTrackingEnabled, Is.True);
+            Assert.That(
+                hud.RootElement.Q<Button>("gazeTrackingButton").ClassListContains("is-selected"),
+                Is.True);
+            Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
+            Click(hud, "showcaseControlButton");
+            Assert.That(hud.CharacterShowcaseControlEnabled, Is.True);
+            Assert.That(lastShowcaseControlState, Is.True);
+            Assert.That(showcaseControlChanges, Is.EqualTo(1));
+            Assert.That(
+                hud.RootElement.Q<Button>("showcaseControlButton").ClassListContains("is-selected"),
+                Is.True);
+            Click(hud, "showcaseControlButton");
+            Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
+            Assert.That(lastShowcaseControlState, Is.False);
+            Assert.That(showcaseControlChanges, Is.EqualTo(2));
             Click(hud, "affectCategoryButton");
             Assert.That(hud.RootElement.Q<VisualElement>("affectMenu").ClassListContains("is-visible"), Is.True);
 

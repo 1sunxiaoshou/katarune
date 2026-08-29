@@ -31,8 +31,8 @@
   "hotUpdateParameters": [
     "weight"
   ],
-  "fallbackStrategy": "UseBehavior",
-  "fallbackBehaviorId": "katarune.body.quiet-idle",
+  "fallbackStrategy": "None",
+  "fallbackBehaviorId": "",
   "license": {
     "distribution": "commercial-candidate",
     "sourceName": "Universal Animation Library 1 Standard - Idle_Talking",

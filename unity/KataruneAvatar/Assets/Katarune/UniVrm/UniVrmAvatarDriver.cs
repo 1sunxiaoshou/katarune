@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UniGLTF.SpringBoneJobs.Blittables;
 using UniVRM10;
 using UnityEngine;
 
 namespace Katarune.Avatar
 {
-    public sealed class UniVrmAvatarDriver : IAvatarDriver
+    public sealed class UniVrmAvatarDriver : IAvatarDriver, IAvatarGazeGeometryProvider
     {
         private readonly Vrm10Instance _instance;
         private readonly Vrm10Runtime _runtime;
@@ -60,9 +61,27 @@ namespace Katarune.Avatar
                 || (_affectFallbacks.TryGetValue(preset, out var bindings) && bindings.Length > 0);
         }
 
+        public bool TryGetGazeGeometry(out AvatarGazeGeometry geometry)
+        {
+            var origin = _runtime.LookAt.LookAtOriginTransform;
+            if (origin == null || _instance == null)
+            {
+                geometry = default;
+                return false;
+            }
+
+            geometry = new AvatarGazeGeometry(origin.position, _instance.transform.rotation);
+            return true;
+        }
+
         public void Apply(AvatarPoseFrame frame)
         {
             if (frame == null) throw new ArgumentNullException(nameof(frame));
+            _runtime.SpringBone.SetModelLevel(
+                _instance.transform,
+                new BlittableModelLevel(
+                    externalForce: frame.SpringBoneExternalForce,
+                    supportsScalingAtRuntime: true));
             if (!frame.HasAuthoredBodyPose) RestoreBones();
             var bodyWeight = Mathf.Clamp01(frame.ProceduralBodyWeight);
             ApplyPosition(HumanBodyBones.Hips, frame.HipsPositionOffset, bodyWeight, frame.HasAuthoredBodyPose);
@@ -95,6 +114,9 @@ namespace Katarune.Avatar
         public void ResetPose()
         {
             RestoreBones();
+            _runtime.SpringBone.SetModelLevel(
+                _instance.transform,
+                new BlittableModelLevel(supportsScalingAtRuntime: true));
             _runtime.LookAt.SetYawPitchManually(0f, 0f);
             SetWeight(ExpressionKey.Blink, 0f);
             SetWeight(ExpressionKey.Happy, 0f);

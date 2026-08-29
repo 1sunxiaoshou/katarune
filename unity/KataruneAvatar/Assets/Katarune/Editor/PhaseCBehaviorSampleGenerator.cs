@@ -21,6 +21,8 @@ namespace Katarune.Avatar.Editor
         internal const float PerformanceClipDurationSeconds = 2f;
         internal const float PerformanceExitStartSeconds = 1f;
         internal const float PerformanceSafeExitTimeSeconds = 0.5f;
+        private const string NeutralHumanoidClipPath =
+            "Packages/com.unity.timeline/Editor/StyleSheets/res/HumanoidDefault.anim";
 
         private const float SampleRate = 30f;
 
@@ -34,13 +36,12 @@ namespace Katarune.Avatar.Editor
                 .ToArray();
             var talking = RequireClip(sourceClips, "Idle_Talking");
             var dance = RequireClip(sourceClips, "Dance");
-            var quietIdle = AssetDatabase.LoadAssetAtPath<AnimationClip>(
-                KataruneQuietIdleGenerator.GeneratedClipPath)
-                ?? throw new InvalidOperationException("Generate KataruneQuietIdle before Phase C samples.");
+            var neutral = AssetDatabase.LoadAssetAtPath<AnimationClip>(NeutralHumanoidClipPath)
+                ?? throw new InvalidOperationException("Unity's neutral Humanoid reference clip is unavailable.");
 
             EnsureAssetFolder("Assets/Katarune/Motions/Samples");
             CreateOrReplace(BuildExplainClip(talking), ExplainClipPath);
-            CreateOrReplace(BuildPerformanceClip(dance, quietIdle), PerformanceClipPath);
+            CreateOrReplace(BuildPerformanceClip(dance, neutral), PerformanceClipPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             Debug.Log(
@@ -69,15 +70,15 @@ namespace Katarune.Avatar.Editor
 
         internal static AnimationClip BuildPerformanceClip(
             AnimationClip dance,
-            AnimationClip quietIdle)
+            AnimationClip neutral)
         {
             if (dance == null) throw new ArgumentNullException(nameof(dance));
-            if (quietIdle == null) throw new ArgumentNullException(nameof(quietIdle));
+            if (neutral == null) throw new ArgumentNullException(nameof(neutral));
             if (dance.length <= 0f) throw new ArgumentException("Dance clip must not be empty.", nameof(dance));
 
             var danceCurves = GetCurves(dance);
-            var idleCurves = GetCurves(quietIdle);
-            var bindings = danceCurves.Keys.Union(idleCurves.Keys).ToArray();
+            var neutralCurves = GetCurves(neutral);
+            var bindings = danceCurves.Keys.Union(neutralCurves.Keys).ToArray();
             var result = new AnimationClip
             {
                 name = "QuaterniusShortDance",
@@ -88,12 +89,12 @@ namespace Katarune.Avatar.Editor
             foreach (var binding in bindings)
             {
                 danceCurves.TryGetValue(binding, out var danceCurve);
-                idleCurves.TryGetValue(binding, out var idleCurve);
-                if (danceCurve == null && idleCurve == null) continue;
+                neutralCurves.TryGetValue(binding, out var neutralCurve);
+                if (danceCurve == null && neutralCurve == null) continue;
 
                 if (IsRootMotionBinding(binding))
                 {
-                    var rootBaseline = idleCurve != null ? idleCurve.Evaluate(0f) : 0f;
+                    var rootBaseline = neutralCurve != null ? neutralCurve.Evaluate(0f) : 0f;
                     AnimationUtility.SetEditorCurve(
                         result,
                         binding,
@@ -102,7 +103,7 @@ namespace Katarune.Avatar.Editor
                 }
 
                 var keys = new List<Keyframe>();
-                var idleStart = Evaluate(idleCurve, danceCurve, 0f);
+                var neutralStart = Evaluate(neutralCurve, danceCurve, 0f);
                 if (danceCurve != null)
                 {
                     foreach (var sourceKey in danceCurve.keys)
@@ -114,14 +115,14 @@ namespace Katarune.Avatar.Editor
                 }
                 else
                 {
-                    keys.Add(new Keyframe(0f, idleStart));
+                    keys.Add(new Keyframe(0f, neutralStart));
                 }
                 var safeExitValue = Evaluate(
                     danceCurve,
-                    idleCurve,
+                    neutralCurve,
                     dance.length * PerformanceSafeExitTimeSeconds);
                 keys.Add(new Keyframe(PerformanceExitStartSeconds, safeExitValue, 0f, 0f));
-                keys.Add(new Keyframe(PerformanceClipDurationSeconds, idleStart, 0f, 0f));
+                keys.Add(new Keyframe(PerformanceClipDurationSeconds, neutralStart, 0f, 0f));
                 var outputCurve = new AnimationCurve(keys.ToArray());
                 AnimationUtility.SetEditorCurve(result, binding, outputCurve);
             }

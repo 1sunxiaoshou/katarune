@@ -48,33 +48,85 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void ManualGazeIsClampedToSafeRange()
+        public void PointerGazeIsClampedToSafeRange()
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, new Vector2(100f, -100f)));
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
 
-            var frame = model.Tick(2f, Vector2.zero);
-            Assert.That(frame.GazeYaw, Is.InRange(17.9f, 18f));
-            Assert.That(frame.GazePitch, Is.InRange(-10f, -9.9f));
+            var frame = model.Tick(2f, new Vector2(100f, -100f));
+            var combined = CombinedGaze(frame);
+            Assert.That(combined.x, Is.InRange(17.9f, 18f));
+            Assert.That(combined.y, Is.InRange(-10f, -9.9f));
+            Assert.That(frame.GazeYaw, Is.LessThan(combined.x));
+            Assert.That(frame.GazePitch, Is.GreaterThan(combined.y));
         }
 
         [Test]
-        public void GazeModesSwitchSmoothlyWithinLimits()
+        public void EyesLeadBeforeHeadFollowsLargeGazeShift()
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Pointer, Vector2.zero));
-            var earlyPointer = model.Tick(0.01f, Vector2.one);
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+
+            var early = model.Tick(0.03f, new Vector2(18f, 0f));
+            Assert.That(early.GazeYaw, Is.GreaterThan(0f));
+            Assert.That(early.HeadEuler.y, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(early.NeckEuler.y, Is.EqualTo(0f).Within(0.001f));
+
+            var settled = model.Tick(1f, new Vector2(18f, 0f));
+            Assert.That(settled.HeadEuler.y, Is.LessThan(-0.5f));
+            Assert.That(settled.NeckEuler.y, Is.LessThan(-0.25f));
+            Assert.That(CombinedGaze(settled).x, Is.GreaterThan(17.8f));
+        }
+
+        [Test]
+        public void SmallGazeShiftDoesNotRecruitHead()
+        {
+            var model = CreateModel();
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+
+            var frame = model.Tick(2f, new Vector2(2f, 1f));
+            Assert.That(frame.GazeYaw, Is.EqualTo(2f).Within(0.01f));
+            Assert.That(frame.GazePitch, Is.EqualTo(1f).Within(0.01f));
+            Assert.That(frame.HeadEuler.x, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(frame.HeadEuler.y, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(frame.NeckEuler.x, Is.EqualTo(0f).Within(0.001f));
+            Assert.That(frame.NeckEuler.y, Is.EqualTo(0f).Within(0.001f));
+        }
+
+        [Test]
+        public void PointerGazeToggleReturnsSmoothlyToCenter()
+        {
+            var model = CreateModel();
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            var earlyPointer = model.Tick(0.01f, new Vector2(18f, 10f));
             Assert.That(earlyPointer.GazeYaw, Is.GreaterThan(0f).And.LessThan(18f));
 
-            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, new Vector2(-18f, -10f)));
-            var manual = model.Tick(1f, Vector2.one);
-            Assert.That(manual.GazeYaw, Is.InRange(-18f, 18f));
-            Assert.That(manual.GazePitch, Is.InRange(-10f, 10f));
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(false));
+            var fixedForward = model.Tick(1f, Vector2.one);
+            Assert.That(CombinedGaze(fixedForward).magnitude, Is.LessThan(0.01f));
+        }
 
-            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Auto, Vector2.zero));
-            var automatic = model.Tick(1f, Vector2.zero);
-            Assert.That(automatic.GazeYaw, Is.InRange(-18f, 18f));
-            Assert.That(automatic.GazePitch, Is.InRange(-10f, 10f));
+        [Test]
+        public void PointerGazeTrackingIsDisabledByDefault()
+        {
+            var model = CreateModel();
+
+            var fixedFrame = model.Tick(30f, new Vector2(1f, -1f));
+            Assert.That(CombinedGaze(fixedFrame), Is.EqualTo(Vector2.zero));
+            Assert.That(model.PointerGazeTrackingEnabled, Is.False);
+        }
+
+        [Test]
+        public void EnablingPointerGazeContinuouslyTracksPointer()
+        {
+            var model = CreateModel();
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+
+            model.Tick(1f, new Vector2(18f, 10f));
+            var frame = model.Tick(1f, new Vector2(-18f, -10f));
+
+            Assert.That(CombinedGaze(frame).x, Is.LessThan(-17.9f));
+            Assert.That(CombinedGaze(frame).y, Is.LessThan(-9.9f));
         }
 
         [Test]
@@ -82,6 +134,8 @@ namespace Katarune.Avatar.Tests
         {
             Assert.That(AvatarCoordinateSpace.ViewportYawToAvatarYaw(12f), Is.EqualTo(-12f));
             Assert.That(AvatarCoordinateSpace.ViewportYawToAvatarYaw(-8f), Is.EqualTo(8f));
+            Assert.That(AvatarCoordinateSpace.AvatarYawToViewportYaw(12f), Is.EqualTo(-12f));
+            Assert.That(AvatarCoordinateSpace.AvatarYawToViewportYaw(-8f), Is.EqualTo(8f));
         }
 
         [Test]
@@ -147,16 +201,48 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
+        public void IdleDoesNotApplyBreathingOrBodySway()
+        {
+            var model = CreateModel();
+
+            var frame = model.Tick(37f, Vector2.zero);
+
+            Assert.That(frame.HipsPositionOffset, Is.EqualTo(Vector3.zero));
+            Assert.That(frame.SpineEuler, Is.EqualTo(Vector3.zero));
+            Assert.That(frame.ChestEuler, Is.EqualTo(Vector3.zero));
+            Assert.That(frame.UpperChestEuler, Is.EqualTo(Vector3.zero));
+        }
+
+        [Test]
+        public void AmbientWindRemainsContinuousNonZeroAndBounded()
+        {
+            var previous = AvatarAmbientWind.Sample(0f);
+            var changed = false;
+            Assert.That(previous.magnitude, Is.GreaterThan(0f));
+
+            for (var frame = 1; frame <= 3600; frame += 1)
+            {
+                var current = AvatarAmbientWind.Sample(frame / 60f);
+                Assert.That(current.magnitude, Is.LessThanOrEqualTo(AvatarAmbientWind.MaximumForce + 0.0001f));
+                Assert.That(Vector3.Distance(previous, current), Is.LessThan(0.01f));
+                if (Vector3.Distance(previous, current) > 0.00001f) changed = true;
+                previous = current;
+            }
+
+            Assert.That(changed, Is.True);
+        }
+
+        [Test]
         public void ResetRestoresDefaultBehavior()
         {
             var model = CreateModel();
             model.SetAffect(AvatarAffectPreset.Angry, 1f);
-            model.ApplySettings(model.Settings.WithGaze(AvatarGazeMode.Manual, Vector2.zero));
+            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
             model.SetManualVisemes(1f, 0f, 0f, 0f, 0f);
             model.Reset();
 
             Assert.That(model.Affect, Is.EqualTo(AvatarAffectPreset.Neutral));
-            Assert.That(model.GazeMode, Is.EqualTo(AvatarGazeMode.Auto));
+            Assert.That(model.PointerGazeTrackingEnabled, Is.False);
             Assert.That(SumMouth(model.CurrentFrame), Is.EqualTo(0f));
         }
 
@@ -183,10 +269,18 @@ namespace Katarune.Avatar.Tests
             return frame.Aa + frame.Ih + frame.Ou + frame.Ee + frame.Oh;
         }
 
+        private static Vector2 CombinedGaze(AvatarPoseFrame frame)
+        {
+            return new Vector2(
+                frame.GazeYaw - frame.NeckEuler.y - frame.HeadEuler.y,
+                frame.GazePitch - frame.NeckEuler.x - frame.HeadEuler.x);
+        }
+
         private sealed class MinimumAvatarRandom : IAvatarRandom
         {
             public float Range(float minimum, float maximum) => minimum;
             public int Range(int minimumInclusive, int maximumExclusive) => minimumInclusive;
         }
+
     }
 }

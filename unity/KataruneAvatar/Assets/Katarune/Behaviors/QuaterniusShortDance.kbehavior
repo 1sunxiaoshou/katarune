@@ -30,8 +30,8 @@
     "endSeconds": 2.0
   },
   "hotUpdateParameters": [],
-  "fallbackStrategy": "UseBehavior",
-  "fallbackBehaviorId": "katarune.body.quiet-idle",
+  "fallbackStrategy": "None",
+  "fallbackBehaviorId": "",
   "license": {
     "distribution": "commercial-candidate",
     "sourceName": "Universal Animation Library 1 Standard - Dance",
@@ -45,6 +45,6 @@
     "modificationAllowed": true,
     "redistributionAllowed": true,
     "repositoryPolicy": "Track only the normalized two-segment Unity AnimationClip; keep the original UAL1 FBX in the Git-ignored local source area.",
-    "notes": "One-second CC0 dance loop repeats fifteen times; its stable 0.5-second standing pose is the named safe exit, followed by a one-second baked recovery to KataruneQuietIdle. Root and Motion transforms are locked to the idle baseline."
+    "notes": "One-second CC0 dance loop repeats fifteen times; its stable 0.5-second standing pose is the named safe exit, followed by a one-second baked recovery to Unity's neutral Humanoid reference. Root and Motion transforms are locked to the neutral baseline."
   }
 }

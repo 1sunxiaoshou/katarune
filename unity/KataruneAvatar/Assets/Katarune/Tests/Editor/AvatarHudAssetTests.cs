@@ -207,7 +207,7 @@ namespace Katarune.Avatar.Tests
         {
             "centralMenuButton",
             "modelCategoryButton", "affectCategoryButton", "actionCategoryButton",
-            "moreCategoryButton",
+            "gazeTrackingButton", "showcaseControlButton", "moreCategoryButton",
             "selectModelButton", "reloadModelButton", "unloadModelButton",
             "neutralAffectButton", "happyAffectButton", "relaxedAffectButton",
             "sadAffectButton", "angryAffectButton", "surprisedAffectButton",
@@ -217,7 +217,7 @@ namespace Katarune.Avatar.Tests
 
         private static readonly IReadOnlyList<string> RequiredIcons = new[]
         {
-            "model", "affect", "action", "more",
+            "model", "affect", "action", "eye", "showcase-turntable", "more",
             "neutral", "happy", "relaxed", "sad", "angry", "surprised",
             "folder-open", "refresh-cw", "trash-2",
             "hand", "message-circle-more", "party-popper", "wind", "circle-stop",
