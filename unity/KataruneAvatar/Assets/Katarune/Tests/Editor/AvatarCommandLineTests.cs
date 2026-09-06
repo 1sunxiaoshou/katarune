@@ -38,18 +38,10 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void ParseDefaultsToOriginalMaterialsAndLightDesktopLighting()
+        public void ParseDefaultsToOriginalMaterials()
         {
             var options = AvatarCommandLine.Parse(new[] { "app.exe" });
             Assert.That(options.SoftOutlineEnabled, Is.False);
-            Assert.That(options.LightingMode, Is.EqualTo(AvatarLightingMode.LightDesktop));
-        }
-
-        [Test]
-        public void ParseRecognizesDarkDesktopLighting()
-        {
-            var options = AvatarCommandLine.Parse(new[] { "app.exe", "--lighting", "dark" });
-            Assert.That(options.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
         }
 
         [Test]
@@ -74,19 +66,24 @@ namespace Katarune.Avatar.Tests
         {
             var options = AvatarCommandLine.Parse(new[] { "app.exe", "--action", "greet-wave" });
 
-            Assert.That(options.InitialAction, Is.EqualTo(AvatarPresetAction.GreetWave));
-        }
-
-        [Test]
-        public void ParseRejectsUnknownLightingMode()
-        {
-            Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--lighting", "studio" }));
+            Assert.That(options.InitialAction, Is.EqualTo("greet-wave"));
         }
 
         [Test]
         public void ParseRejectsMissingPathValue()
         {
             Assert.Throws<ArgumentException>(() => AvatarCommandLine.Parse(new[] { "app.exe", "--vrm" }));
+        }
+
+        [TestCase("right-hand-offer", AvatarPresetAction.RightHandOffer)]
+        [TestCase("right-hand-open", AvatarPresetAction.RightHandOpen)]
+        [TestCase("right-hand-to-chest", AvatarPresetAction.RightHandToChest)]
+        [TestCase("left-hand-open-twice", AvatarPresetAction.LeftHandOpenTwice)]
+        [TestCase("dance-delusion-angel", AvatarPresetAction.DanceDelusionAngel)]
+        public void ParseRecognizesLocalGestureActions(string name, AvatarPresetAction action)
+        {
+            Assert.That(AvatarCommandLine.Parse(new[] { "app.exe", "--action", name }).InitialAction,
+                Is.EqualTo(AvatarActionIds.FromPreset(action)));
         }
 
         [Test]
@@ -111,7 +108,7 @@ namespace Katarune.Avatar.Tests
                 assetsPath,
                 "KataruneLocal",
                 "Models",
-                AvatarBootstrap.LocalDefaultModelFileName);
+                AvatarDefaultAssets.ModelFileName);
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(modelPath)!);

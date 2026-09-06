@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -12,10 +14,15 @@ namespace Katarune.Avatar
         private AvatarMotionLibrary _library;
         private BehaviorDefinitionCatalog _behaviorCatalog;
         private IAvatarMotionInstance _active;
+        private AvatarMotionPacks _packs;
+        private readonly List<AvatarActionInfo> _availableActions = new();
+        public IReadOnlyList<AvatarActionInfo> AvailableActions => _availableActions;
+        public string PackDiagnostics => _packs == null ? string.Empty : string.Join("\n", _packs.Diagnostics);
 
         public event Action Changed;
 
-        public bool LibraryAvailable => (_library != null && _library.IsValid) || HasBehaviorBase();
+        public bool LibraryAvailable => HasInstalledLibrary || (_active?.HasAuthoredBodyPose ?? false);
+        private bool HasInstalledLibrary => (_library != null && _library.IsValid) || HasBehaviorBase();
         public bool HasAuthoredBodyPose => _active?.HasAuthoredBodyPose ?? false;
         public float ProceduralBodyWeight => _active?.ProceduralBodyWeight ?? 1f;
         public float ProceduralArmWeight => _active?.ProceduralArmWeight ?? 1f;
@@ -35,7 +42,15 @@ namespace Katarune.Avatar
             PerformanceRevision,
             ActivePerformanceCount,
             QueuedPerformanceCount,
-            PerformanceDiagnostics);
+            PerformanceDiagnostics, _active?.CurrentActionId);
+
+        public async Task LoadExternalPacksAsync(string directory, CancellationToken cancellationToken)
+        {
+            if (_packs != null || _active != null) throw new InvalidOperationException("Load motion packs before preparing the avatar.");
+            _packs = new AvatarMotionPacks();
+            await _packs.LoadAsync(directory, cancellationToken);
+            Configure(_packs.Library, Resources.Load<BehaviorDefinitionCatalog>("BehaviorDefinitionCatalog"), loadFromResources: false);
+        }
 
         public void Configure(AvatarMotionLibrary library = null)
         {
@@ -69,11 +84,24 @@ namespace Katarune.Avatar
                 Debug.LogWarning("Katarune behavior definition catalog is empty; scheduler requests remain unavailable.");
                 _behaviorCatalog = null;
             }
+            _availableActions.Clear();
+            if (_library != null)
+                foreach (var action in _library.Definitions)
+                    if (action != null && action.Clip != null && !IsScheduledAction(action.Id))
+                        _availableActions.Add(new AvatarActionInfo(action.Id, action.DisplayName));
+        }
+
+        private bool IsScheduledAction(string id)
+        {
+            if (id != "explain" || _behaviorCatalog == null) return false;
+            foreach (var definition in _behaviorCatalog.Definitions)
+                if (definition != null && definition.BehaviorId == "katarune.performance.explain") return true;
+            return false;
         }
 
         internal IAvatarMotionInstance Prepare(ICharacterRigBinding rigBinding)
         {
-            if (!LibraryAvailable) return null;
+            if (!HasInstalledLibrary) return null;
             if (rigBinding == null) throw new ArgumentNullException(nameof(rigBinding));
             if ((rigBinding.Capabilities & CharacterRigCapabilities.HumanoidBody) == 0)
             {
@@ -101,8 +129,11 @@ namespace Katarune.Avatar
         }
 
         public AvatarActionRequestResult RequestAction(AvatarPresetAction action)
+            => RequestAction(AvatarActionIds.FromPreset(action));
+
+        public AvatarActionRequestResult RequestAction(string action)
         {
-            if (!Enum.IsDefined(typeof(AvatarPresetAction), action))
+            if (!AvatarActionIds.IsValid(action))
             {
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
             }
@@ -167,17 +198,20 @@ namespace Katarune.Avatar
             return false;
         }
 
-        private void OnDestroy()
+        private void OnApplicationQuit() => ReleaseResources();
+        private void OnDestroy() => ReleaseResources();
+
+        private void ReleaseResources()
         {
-            var previous = ReplaceActive(null);
+            var previous = ReplaceActive(null, notify: false);
             previous?.Dispose();
+            _packs?.Dispose();
         }
     }
 
     internal sealed class AvatarMotionInstance : IAvatarMotionInstance, IBehaviorPerformanceSink
     {
-        internal const float ActionFadeInSeconds = 0.18f;
-        internal const float ActionFadeOutSeconds = 0.20f;
+        internal const float ActionTransitionSeconds = 0.25f;
         internal const float PerformanceFadeInSeconds = 0.20f;
         internal const float PerformanceFadeOutSeconds = 0.25f;
         internal const float PerformanceSafeExitFadeOutSeconds = 0.20f;
@@ -189,24 +223,19 @@ namespace Katarune.Avatar
         private readonly BehaviorPerformanceRuntime _performances;
         private readonly Vector3 _rootLocalPosition;
         private readonly Quaternion _rootLocalRotation;
-        private AnimationClipPlayable _basePlayable;
-        private readonly AnimationClipPlayable[] _actionPlayables = new AnimationClipPlayable[2];
+        private readonly List<MotionClip> _motionClips = new List<MotionClip>();
+        private MotionClip _actionClip;
+        private int _transitionTarget;
+        private float _transitionElapsed = ActionTransitionSeconds;
         private PlayableGraph _graph;
-        private AnimationMixerPlayable _baseMixer;
-        private AnimationMixerPlayable _actionMixer;
+        private AnimationMixerPlayable _motionMixer;
         private AnimationMixerPlayable _performanceMixer;
         private AnimationLayerMixerPlayable _finalMixer;
         private readonly Dictionary<string, ScheduledPlayable> _scheduledPlayables =
             new Dictionary<string, ScheduledPlayable>(StringComparer.Ordinal);
-        private int _actionSlot = -1;
-        private int _actionIncomingSlot = -1;
-        private float _actionBlendElapsed;
-        private float _actionElapsed;
         private float _actionDuration;
-        private float _actionWeight;
         private float _performanceWeight;
-        private bool _actionEnding;
-        private bool _overlayActive;
+        private bool _returningToIdle;
         private bool _disposed;
 
         public AvatarMotionInstance(
@@ -251,19 +280,17 @@ namespace Katarune.Avatar
             _animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             _graph = PlayableGraph.Create($"Katarune Avatar Motion - {_animator.name}");
             _graph.SetTimeUpdateMode(DirectorUpdateMode.GameTime);
-            _baseMixer = AnimationMixerPlayable.Create(_graph, 1);
-            _actionMixer = AnimationMixerPlayable.Create(_graph, 2);
+            _motionMixer = AnimationMixerPlayable.Create(_graph, 1);
             _performanceMixer = AnimationMixerPlayable.Create(_graph, 2);
-            _finalMixer = AnimationLayerMixerPlayable.Create(_graph, 3);
-            _graph.Connect(_baseMixer, 0, _finalMixer, 0);
-            _graph.Connect(_actionMixer, 0, _finalMixer, 1);
-            _graph.Connect(_performanceMixer, 0, _finalMixer, 2);
-            _finalMixer.SetInputWeight(0, 1f);
-            _finalMixer.SetInputWeight(1, 0f);
-            _finalMixer.SetInputWeight(2, 0f);
+            _finalMixer = AnimationLayerMixerPlayable.Create(_graph, 2);
             var output = AnimationPlayableOutput.Create(_graph, "Avatar Humanoid Motion", _animator);
             output.SetSourcePlayable(_finalMixer);
-            CreateBasePlayable();
+            _graph.Connect(_motionMixer, 0, _finalMixer, 0);
+            _graph.Connect(_performanceMixer, 0, _finalMixer, 1);
+            _finalMixer.SetInputWeight(0, 1f);
+            _finalMixer.SetInputWeight(1, 0f);
+            CreateMotionClip(GetBaseClip(), 1f, 0);
+            _motionMixer.SetInputWeight(0, 1f);
             _performances = new BehaviorPerformanceRuntime(
                 behaviorDefinitions,
                 rigCapabilities,
@@ -279,9 +306,10 @@ namespace Katarune.Avatar
             : _library?.Actions ?? AvatarActionCapabilities.None;
         public bool HasAuthoredBodyPose => !_disposed && _graph.IsValid();
         public float ProceduralBodyWeight => 0.45f
-            * (1f - Mathf.Max(_actionWeight, _performanceWeight));
+            * Mathf.Min(_motionMixer.GetInputWeight(0), 1f - _performanceWeight);
         public float ProceduralArmWeight => 0f;
-        public AvatarPresetAction? CurrentAction { get; private set; }
+        public string CurrentActionId { get; private set; }
+        public AvatarPresetAction? CurrentAction => AvatarActionIds.ToPreset(CurrentActionId);
         public ulong ActionSequence { get; private set; }
         public long PerformanceRevision => _performances.Scheduler.Revision;
         public int ActivePerformanceCount => _performances.Scheduler.ActiveInstances.Count;
@@ -289,9 +317,12 @@ namespace Katarune.Avatar
         public string PerformanceDiagnostics => _performances.FormatDiagnostics();
 
         public AvatarActionRequestResult RequestAction(AvatarPresetAction action)
+            => RequestAction(AvatarActionIds.FromPreset(action));
+
+        public AvatarActionRequestResult RequestAction(string action)
         {
             ThrowIfDisposed();
-            if (action == AvatarPresetAction.Explain
+            if (action == AvatarActionIds.FromPreset(AvatarPresetAction.Explain)
                 && _performances.ContainsDefinition("katarune.performance.explain"))
             {
                 return new AvatarActionRequestResult(
@@ -311,31 +342,23 @@ namespace Katarune.Avatar
                     $"The preset action '{action}' is not installed.");
             }
 
-            if (CurrentAction == action && _actionSlot >= 0 && _actionIncomingSlot < 0)
-            {
-                _actionPlayables[_actionSlot].SetTime(0d);
-                _actionElapsed = 0f;
-                _actionDuration = definition.Duration;
-                _actionEnding = false;
-                ActionSequence += 1;
-                Changed?.Invoke();
+            if (CurrentActionId == action && !_returningToIdle)
                 return new AvatarActionRequestResult(AvatarActionRequestOutcome.Started);
-            }
-            StartOverlay(definition.Clip, definition.Speed, definition.Duration, action);
-            ActionSequence += 1;
-            return new AvatarActionRequestResult(AvatarActionRequestOutcome.Started);
-        }
 
-        private void CancelOverlay()
-        {
-            ThrowIfDisposed();
-            if (_overlayActive) _actionEnding = true;
+            _actionDuration = definition.Duration * definition.Speed;
+            _actionClip = GetActionClip(definition);
+            BeginTransition(_actionClip.Input);
+            _returningToIdle = false;
+            CurrentActionId = action;
+            ActionSequence += 1;
+            Changed?.Invoke();
+            return new AvatarActionRequestResult(AvatarActionRequestOutcome.Started);
         }
 
         public void CancelAction()
         {
             ThrowIfDisposed();
-            CancelOverlay();
+            if (CurrentActionId != null) ReturnToIdle();
         }
 
         public BehaviorRequestResult RequestBehavior(
@@ -343,7 +366,7 @@ namespace Katarune.Avatar
             PerformanceRequestPolicy policy)
         {
             ThrowIfDisposed();
-            if (CurrentAction.HasValue && _performances.ClaimsBodyChannel(intent.BehaviorId))
+            if (CurrentActionId != null && _performances.ClaimsBodyChannel(intent.BehaviorId))
             {
                 return new BehaviorRequestResult(
                     BehaviorRequestOutcome.Rejected,
@@ -379,26 +402,19 @@ namespace Katarune.Avatar
         {
             ThrowIfDisposed();
             deltaTime = Mathf.Max(0f, deltaTime);
-            TickActionBlend(deltaTime);
             _performances.Tick(deltaTime);
             TickScheduledBlend(deltaTime);
+            TickMotionBlend(deltaTime);
 
-            if (_overlayActive && !_actionEnding)
+            if (_actionClip != null && !_returningToIdle && _actionClip.Playable.GetTime() >= _actionDuration)
+                ReturnToIdle();
+            if (_returningToIdle && _transitionElapsed >= ActionTransitionSeconds)
             {
-                _actionElapsed += deltaTime;
-                if (_actionDuration <= 0f || _actionElapsed >= _actionDuration) _actionEnding = true;
+                _returningToIdle = false;
+                _actionClip = null;
+                CurrentActionId = null;
+                Changed?.Invoke();
             }
-
-            var fadeSeconds = _actionEnding ? ActionFadeOutSeconds : ActionFadeInSeconds;
-            var target = _overlayActive && !_actionEnding ? 1f : 0f;
-            _actionWeight = Mathf.MoveTowards(
-                _actionWeight,
-                target,
-                fadeSeconds <= 0f ? 1f : deltaTime / fadeSeconds);
-            _finalMixer.SetInputWeight(0, 1f);
-            _finalMixer.SetInputWeight(1, _actionWeight);
-
-            if (_actionEnding && _actionWeight <= 0f) FinishAction();
             _animator.transform.localPosition = _rootLocalPosition;
             _animator.transform.localRotation = _rootLocalRotation;
         }
@@ -418,63 +434,91 @@ namespace Katarune.Avatar
             }
         }
 
-        private void TickActionBlend(float deltaTime)
+        private void ReturnToIdle()
         {
-            if (_actionIncomingSlot < 0) return;
-            _actionBlendElapsed += deltaTime;
-            var progress = ActionFadeInSeconds <= 0f
-                ? 1f
-                : Mathf.Clamp01(_actionBlendElapsed / ActionFadeInSeconds);
-            _actionMixer.SetInputWeight(_actionSlot, 1f - progress);
-            _actionMixer.SetInputWeight(_actionIncomingSlot, progress);
-            if (progress < 1f) return;
-            DestroyActionPlayable(_actionSlot);
-            _actionSlot = _actionIncomingSlot;
-            _actionIncomingSlot = -1;
+            if (_returningToIdle) return;
+            BeginTransition(0);
+            _returningToIdle = true;
         }
 
-        private void FinishAction()
+        private void BeginTransition(int target)
         {
-            DestroyActionPlayable(_actionSlot);
-            if (_actionIncomingSlot >= 0) DestroyActionPlayable(_actionIncomingSlot);
-            _actionSlot = -1;
-            _actionIncomingSlot = -1;
-            _actionEnding = false;
-            _actionElapsed = 0f;
-            _actionDuration = 0f;
-            CurrentAction = null;
-            _overlayActive = false;
-            Changed?.Invoke();
+            // Capture every contributing input, not just the last requested action.
+            // w_i(u) = (1-u) * w_i(now) + u * (i == target ? 1 : 0).
+            // This preserves the current pose and a total weight of one on interruption.
+            foreach (var clip in _motionClips)
+                clip.StartWeight = _motionMixer.GetInputWeight(clip.Input);
+            _transitionTarget = target;
+            _transitionElapsed = 0f;
         }
 
-        private void StartOverlay(
-            AnimationClip clip,
-            float speed,
-            float duration,
-            AvatarPresetAction action)
+        private void TickMotionBlend(float deltaTime)
         {
-            var incoming = _actionSlot < 0 ? 0 : 1 - _actionSlot;
-            DestroyActionPlayable(incoming);
+            if (_transitionElapsed >= ActionTransitionSeconds) return;
+            _transitionElapsed = Mathf.Min(ActionTransitionSeconds, _transitionElapsed + deltaTime);
+            var progress = _transitionElapsed / ActionTransitionSeconds;
+            foreach (var clip in _motionClips)
+            {
+                var weight = Mathf.Lerp(clip.StartWeight, clip.Input == _transitionTarget ? 1f : 0f, progress);
+                _motionMixer.SetInputWeight(clip.Input, weight);
+                if (clip.Input != 0 && clip.Input != _transitionTarget && weight == 0f)
+                    clip.Playable.Pause();
+            }
+        }
+
+        private MotionClip GetActionClip(AvatarActionDefinition definition)
+        {
+            var reusableInput = _motionClips.Count;
+            for (var input = 1; input < _motionClips.Count; input++)
+            {
+                var clip = _motionClips[input];
+                if (_motionMixer.GetInputWeight(input) == 0f)
+                {
+                    reusableInput = Mathf.Min(reusableInput, input);
+                    continue;
+                }
+                if (clip.Playable.GetAnimationClip() == definition.Clip
+                    && clip.Playable.GetTime() < _actionDuration)
+                    return clip; // Do not rewind a pose which is still contributing.
+            }
+            // An ended but still visible instance must fade out alongside a fresh one.
+            // Only zero-weight slots can be replaced, keeping storage bounded by overlap.
+            return CreateMotionClip(definition.Clip, definition.Speed, reusableInput);
+        }
+
+        private MotionClip CreateMotionClip(AnimationClip clip, float speed, int input)
+        {
+            if (input < _motionClips.Count)
+            {
+                _graph.Disconnect(_motionMixer, input);
+                _graph.DestroyPlayable(_motionClips[input].Playable);
+            }
+            else _motionMixer.SetInputCount(input + 1);
             var playable = AnimationClipPlayable.Create(_graph, clip);
-            playable.SetApplyFootIK(true);
+            playable.SetApplyFootIK(_library == null || _library.ApplyFootIK);
             playable.SetApplyPlayableIK(false);
-            playable.SetSpeed(Mathf.Max(0.01f, speed));
-            playable.SetTime(0d);
-            _graph.Connect(playable, 0, _actionMixer, incoming);
-            _actionMixer.SetInputWeight(incoming, _actionSlot < 0 ? 1f : 0f);
-            _actionPlayables[incoming] = playable;
-            _actionIncomingSlot = _actionSlot < 0 ? -1 : incoming;
-            if (_actionSlot < 0) _actionSlot = incoming;
-            _actionBlendElapsed = 0f;
-            _actionElapsed = 0f;
-            _actionDuration = Mathf.Max(0.01f, duration);
-            _actionEnding = false;
-            _overlayActive = true;
-            CurrentAction = action;
-            Changed?.Invoke();
+            playable.SetSpeed(speed);
+            _graph.Connect(playable, 0, _motionMixer, input);
+            _motionMixer.SetInputWeight(input, 0f);
+            var state = new MotionClip(input, playable);
+            if (input == _motionClips.Count) _motionClips.Add(state);
+            else _motionClips[input] = state;
+            return state;
         }
 
-        private void CreateBasePlayable()
+        private sealed class MotionClip
+        {
+            public MotionClip(int input, AnimationClipPlayable playable)
+            {
+                Input = input;
+                Playable = playable;
+            }
+            public int Input { get; }
+            public AnimationClipPlayable Playable { get; }
+            public float StartWeight { get; set; }
+        }
+
+        private AnimationClip GetBaseClip()
         {
             AnimationClip clip = null;
             if ((_library == null || !_library.TryGetBase(out clip))
@@ -482,23 +526,7 @@ namespace Katarune.Avatar
             {
                 throw new InvalidOperationException("No base loop clip is configured.");
             }
-            _basePlayable = AnimationClipPlayable.Create(_graph, clip);
-            _basePlayable.SetApplyFootIK(true);
-            _basePlayable.SetApplyPlayableIK(false);
-            _basePlayable.SetTime(0d);
-            _graph.Connect(_basePlayable, 0, _baseMixer, 0);
-            _baseMixer.SetInputWeight(0, 1f);
-        }
-
-        private void DestroyActionPlayable(int slot)
-        {
-            if (slot < 0) return;
-            var playable = _actionPlayables[slot];
-            if (!playable.IsValid()) return;
-            _graph.Disconnect(_actionMixer, slot);
-            _graph.DestroyPlayable(playable);
-            _actionPlayables[slot] = default;
-            _actionMixer.SetInputWeight(slot, 0f);
+            return clip;
         }
 
         private void ThrowIfDisposed()
@@ -555,7 +583,7 @@ namespace Katarune.Avatar
             if (_scheduledPlayables.Count == 0)
             {
                 _performanceWeight = 0f;
-                _finalMixer.SetInputWeight(2, 0f);
+                _finalMixer.SetInputWeight(1, 0f);
                 return;
             }
 
@@ -578,7 +606,7 @@ namespace Katarune.Avatar
                     scheduled.Weight / normalizedTotal);
             }
             _performanceWeight = Mathf.Clamp01(totalWeight);
-            _finalMixer.SetInputWeight(2, _performanceWeight);
+            _finalMixer.SetInputWeight(1, _performanceWeight);
 
             if (completed == null) return;
             for (var index = 0; index < completed.Count; index += 1)

@@ -30,6 +30,25 @@ namespace Katarune.Avatar.Tests
         private const string HudPath = "Assets/Katarune/Runtime/UI/Hud";
 
         [Test]
+        public void RadialMenuDoesNotReserveSlotsForUninstalledActions()
+        {
+            var menu = new AvatarRadialMenu();
+            var group = new VisualElement { name = "actionMenu" };
+            group.AddToClassList("secondary-menu");
+            menu.Add(group);
+            var first = new Button();
+            var hidden = new Button();
+            hidden.style.display = DisplayStyle.None;
+            var last = new Button();
+            group.Add(first);
+            group.Add(hidden);
+            group.Add(last);
+            menu.RefreshLayout();
+            var expected = AvatarRadialMenu.CalculateItemOffset(menu.Direction, 184f, 180f, 1, 2, 6);
+            Assert.That(last.style.left.value.value, Is.EqualTo(37f + expected.x - 23f).Within(0.01f));
+        }
+
+        [Test]
         public void HudAssetsContainEveryRequiredControlAndRuntimeResource()
         {
             var tree = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(HudPath + "/AvatarHud.uxml");
@@ -211,8 +230,8 @@ namespace Katarune.Avatar.Tests
             "selectModelButton", "reloadModelButton", "unloadModelButton",
             "neutralAffectButton", "happyAffectButton", "relaxedAffectButton",
             "sadAffectButton", "angryAffectButton", "surprisedAffectButton",
-            "greetWaveButton", "explainButton", "celebrateButton", "coughButton", "cancelActionButton",
-            "lightDesktopButton", "darkDesktopButton", "softOutlineButton", "statusHudButton", "resetBehaviorButton",
+            "nextActionPageButton", "cancelActionButton",
+            "softOutlineButton", "statusHudButton", "resetBehaviorButton",
         };
 
         private static readonly IReadOnlyList<string> RequiredIcons = new[]
@@ -221,7 +240,7 @@ namespace Katarune.Avatar.Tests
             "neutral", "happy", "relaxed", "sad", "angry", "surprised",
             "folder-open", "refresh-cw", "trash-2",
             "hand", "message-circle-more", "party-popper", "wind", "circle-stop",
-            "sun", "moon", "circle-dashed", "panel-top", "rotate-ccw",
+            "circle-dashed", "panel-top", "rotate-ccw",
         };
     }
 }

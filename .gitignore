@@ -60,3 +60,6 @@ unity/**/*.bvh
 unity/**/*.fbx
 unity/KataruneAvatar/Assets/KataruneLocal/
 unity/KataruneAvatar/Assets/KataruneLocal.meta
+
+# Local, separately distributed Unity animation bundles
+unity/KataruneAvatar/MotionPacks/

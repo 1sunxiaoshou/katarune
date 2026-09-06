@@ -62,12 +62,9 @@ namespace Katarune.Avatar
         private Vector2 _previousPointerPosition;
         private bool _transparent;
 
-        public AvatarLightingMode LightingMode => _lightingRig != null
-            ? _lightingRig.Mode
-            : AvatarLightingMode.LightDesktop;
         public bool CharacterShowcaseControlEnabled { get; private set; }
 
-        public void Configure(bool transparent, AvatarLightingMode lightingMode = AvatarLightingMode.LightDesktop)
+        public void Configure(bool transparent)
         {
             _transparent = transparent;
             _camera = GetComponent<Camera>();
@@ -93,15 +90,8 @@ namespace Katarune.Avatar
 
             _lightingRig = gameObject.AddComponent<AvatarLightingRig>();
             _lightingRig.Configure();
-            _lightingRig.SetMode(lightingMode);
             EnsureOpaqueFloor();
-            ApplyOpaqueBackdrop(lightingMode);
-        }
-
-        public void SetLightingMode(AvatarLightingMode mode)
-        {
-            _lightingRig?.SetMode(mode);
-            ApplyOpaqueBackdrop(mode);
+            ApplyOpaqueBackdrop();
         }
 
         internal void SetManualInputBlocker(Func<Vector2, bool> inputBlocker)
@@ -617,11 +607,11 @@ namespace Katarune.Avatar
             _filteredDragVelocity = 0f;
         }
 
-        private void ApplyOpaqueBackdrop(AvatarLightingMode mode)
+        private void ApplyOpaqueBackdrop()
         {
             if (_transparent) return;
-            if (_camera != null) _camera.backgroundColor = GetBackgroundColor(mode);
-            if (_floorMaterial != null) _floorMaterial.color = GetFloorColor(mode);
+            if (_camera != null) _camera.backgroundColor = GetBackgroundColor();
+            if (_floorMaterial != null) _floorMaterial.color = GetFloorColor();
         }
 
         private void EnsureOpaqueFloor()
@@ -633,24 +623,14 @@ namespace Katarune.Avatar
             if (collider != null) Destroy(collider);
             var shader = Shader.Find("Universal Render Pipeline/Lit")
                 ?? throw new InvalidOperationException("URP Lit shader was not found.");
-            _floorMaterial = new Material(shader) { color = GetFloorColor(LightingMode) };
+            _floorMaterial = new Material(shader) { color = GetFloorColor() };
             _floor.GetComponent<Renderer>().sharedMaterial = _floorMaterial;
             _floor.SetActive(false);
         }
 
-        private static Color GetBackgroundColor(AvatarLightingMode mode)
-        {
-            return mode == AvatarLightingMode.DarkDesktop
-                ? new Color(0.018f, 0.022f, 0.032f, 1f)
-                : new Color(0.91f, 0.915f, 0.96f, 1f);
-        }
+        private static Color GetBackgroundColor() => new Color(0.91f, 0.915f, 0.96f, 1f);
 
-        private static Color GetFloorColor(AvatarLightingMode mode)
-        {
-            return mode == AvatarLightingMode.DarkDesktop
-                ? new Color(0.19f, 0.18f, 0.22f)
-                : new Color(0.78f, 0.79f, 0.86f);
-        }
+        private static Color GetFloorColor() => new Color(0.78f, 0.79f, 0.86f);
 
         private void OnDestroy()
         {

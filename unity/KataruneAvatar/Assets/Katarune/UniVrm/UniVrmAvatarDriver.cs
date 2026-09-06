@@ -83,6 +83,14 @@ namespace Katarune.Avatar
                     externalForce: frame.SpringBoneExternalForce,
                     supportsScalingAtRuntime: true));
             if (!frame.HasAuthoredBodyPose) RestoreBones();
+            var authoredGazeCompensation = Vector2.zero;
+            if (frame.HasAuthoredBodyPose && _bones.TryGetValue(HumanBodyBones.Head, out var head))
+            {
+                var forward = Quaternion.Inverse(_instance.transform.rotation) * head.Transform.forward;
+                authoredGazeCompensation = new Vector2(
+                    Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg,
+                    -Mathf.Asin(Mathf.Clamp(forward.y, -1f, 1f)) * Mathf.Rad2Deg);
+            }
             var bodyWeight = Mathf.Clamp01(frame.ProceduralBodyWeight);
             ApplyPosition(HumanBodyBones.Hips, frame.HipsPositionOffset, bodyWeight, frame.HasAuthoredBodyPose);
             ApplyRotation(HumanBodyBones.Spine, frame.SpineEuler, bodyWeight, frame.HasAuthoredBodyPose);
@@ -100,8 +108,9 @@ namespace Katarune.Avatar
             }
 
             _runtime.LookAt.SetYawPitchManually(
-                AvatarCoordinateSpace.ViewportYawToAvatarYaw(frame.GazeYaw),
-                frame.GazePitch);
+                AvatarCoordinateSpace.ViewportYawToAvatarYaw(
+                    frame.GazeYaw + authoredGazeCompensation.x + frame.ProceduralGazeCompensation.x * bodyWeight),
+                frame.GazePitch + authoredGazeCompensation.y + frame.ProceduralGazeCompensation.y * bodyWeight);
             SetBlink(frame.Blink);
             ApplyAffects(frame);
             SetWeight(ExpressionKey.Aa, frame.Aa);

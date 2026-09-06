@@ -15,6 +15,36 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarRuntimePlayModeTests
     {
         [UnityTest]
+        public IEnumerator HudPagesAndPlaysAnActionWithoutAnEnumOrUxmlEntry()
+        {
+            var gameObject = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var runtime = FakeRuntimeFacade.CreateReady();
+                var hud = gameObject.GetComponent<AvatarHudController>();
+                hud.Configure(runtime, true);
+                yield return null;
+                var custom = hud.RootElement.Q<Button>("action-custom.salute");
+                Assert.That(custom, Is.Not.Null);
+                Assert.That(custom.tooltip, Is.EqualTo("自定义敬礼"));
+                Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.None));
+                Click(hud, "nextActionPageButton");
+                Click(hud, "nextActionPageButton");
+                Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+                Click(hud, "action-custom.salute");
+                Assert.That(runtime.LastActionId, Is.EqualTo("custom.salute"));
+                Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("自定义敬礼中"));
+                Assert.That(hud.RootElement.Q<Button>("cancelActionButton").enabledSelf, Is.True);
+                Click(hud, "cancelActionButton");
+                Assert.That(runtime.Snapshot.Motion.CurrentActionId, Is.Null);
+                Click(hud, "nextActionPageButton");
+                Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.None));
+            }
+            finally { Object.Destroy(gameObject); }
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator BehaviorControllerAppliesFramesToBoundDriver()
         {
             var gameObject = new GameObject("Behavior Controller Test");
@@ -108,11 +138,18 @@ namespace Katarune.Avatar.Tests
                 Is.True);
             Click(hud, "neutralAffectButton");
             Assert.That(runtime.LastBehavior.AffectIntensity, Is.Zero);
-            Click(hud, "greetWaveButton");
+            Click(hud, "action-greet-wave");
             Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.GreetWave));
             Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("挥手中"));
-            Click(hud, "darkDesktopButton");
-            Assert.That(runtime.LastPresentation.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
+            Click(hud, "action-right-hand-offer");
+            Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.RightHandOffer));
+            Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("右手前递中"));
+            Click(hud, "action-right-hand-open");
+            Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.RightHandOpen));
+            Click(hud, "action-right-hand-to-chest");
+            Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.RightHandToChest));
+            Click(hud, "action-left-hand-open-twice");
+            Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.LeftHandOpenTwice));
             Click(hud, "softOutlineButton");
             Assert.That(runtime.LastPresentation.SoftOutlineEnabled, Is.True);
             Click(hud, "statusHudButton");
@@ -161,50 +198,12 @@ namespace Katarune.Avatar.Tests
         }
 
         [UnityTest]
-        public IEnumerator FacadePresentationChangeDrivesLighting()
-        {
-            var gameObject = new GameObject("Facade Lighting Test") { tag = "MainCamera" };
-            gameObject.AddComponent<Camera>();
-            var sceneRig = gameObject.AddComponent<AvatarSceneRig>();
-            sceneRig.Configure(true);
-            var behavior = gameObject.AddComponent<AvatarBehaviorController>();
-            var visuals = gameObject.AddComponent<AvatarVisualController>();
-            visuals.Configure();
-            var motions = gameObject.AddComponent<AvatarMotionController>();
-            motions.Configure(null, loadFromResources: false);
-            behavior.SetMotionSource(motions);
-            var session = new AvatarRuntimeSession(
-                new UnusedAvatarLoader(),
-                sceneRig,
-                behavior,
-                visuals,
-                motions,
-                CancellationToken.None);
-            var facade = new AvatarRuntimeFacade(
-                session,
-                behavior,
-                visuals,
-                sceneRig,
-                motions,
-                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
-
-            facade.ApplyPresentation(
-                facade.Snapshot.Presentation.WithLightingMode(AvatarLightingMode.DarkDesktop));
-            yield return null;
-
-            Assert.That(sceneRig.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
-            facade.Dispose();
-            Object.Destroy(gameObject);
-            yield return null;
-        }
-
-        [UnityTest]
         public IEnumerator LocalDefaultVrmLoadsThroughRuntimeWhenPresent()
         {
             var modelPath = AvatarBootstrap.ResolveInitialModelPath(null, Application.dataPath);
             if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
             {
-                Assert.Ignore("Place a local 初音未来.vrm to run the default model smoke test.");
+                Assert.Ignore("Place a local default-avatar.vrm to run the default model smoke test.");
             }
 
             var facade = CreateLocalRuntime("Local Default Model Smoke", out var gameObject);
@@ -214,8 +213,17 @@ namespace Katarune.Avatar.Tests
             Assert.That(load.Result.Outcome, Is.EqualTo(AvatarLoadOutcome.Loaded), load.Result.Error);
             Assert.That(facade.Snapshot.RuntimeState, Is.EqualTo(AvatarRuntimeState.Ready));
             Assert.That(facade.Snapshot.Model?.Path, Is.EqualTo(Path.GetFullPath(modelPath)));
-            Assert.That(facade.Snapshot.Model?.Name, Is.EqualTo("初音未来"));
+            Assert.That(facade.Snapshot.Model?.Name, Is.EqualTo("default-avatar"));
             Assert.That(facade.Snapshot.Model?.Height, Is.GreaterThan(0f));
+            if (Resources.Load<AvatarMotionLibrary>("AvatarMotionLibrary") != null)
+            {
+                yield return null;
+                yield return null;
+                Assert.That(facade.Snapshot.Motion.LibraryAvailable, Is.True);
+                Assert.That(facade.Snapshot.Motion.AuthoredBaseActive, Is.True);
+                Assert.That(facade.CurrentPose.HasAuthoredBodyPose, Is.True);
+                Assert.That(facade.CurrentPose.ProceduralArmWeight, Is.Zero);
+            }
 
             facade.Dispose();
             Object.Destroy(gameObject);
@@ -283,7 +291,7 @@ namespace Katarune.Avatar.Tests
                 visuals,
                 sceneRig,
                 motions,
-                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
+                new AvatarPresentationSettings(false));
         }
 
         private sealed class RecordingAvatarDriver : IAvatarDriver
@@ -310,6 +318,25 @@ namespace Katarune.Avatar.Tests
 
         private sealed class FakeRuntimeFacade : IAvatarRuntimeFacade
         {
+            public System.Collections.Generic.IReadOnlyList<AvatarActionInfo> AvailableActions { get; } = new[]
+            {
+                new AvatarActionInfo("greet-wave", "挥手"), new AvatarActionInfo("explain", "解释"),
+                new AvatarActionInfo("celebrate", "庆祝"), new AvatarActionInfo("cough", "咳嗽"),
+                new AvatarActionInfo("right-hand-offer", "右手前递"), new AvatarActionInfo("right-hand-open", "右手摊手"),
+                new AvatarActionInfo("right-hand-to-chest", "右手放胸口"), new AvatarActionInfo("left-hand-open-twice", "左手摊手两下"),
+                new AvatarActionInfo("custom.salute", "自定义敬礼"),
+            };
+            public string LastActionId { get; private set; }
+            public AvatarActionRequestResult RequestAction(string id)
+            {
+                LastActionId = id;
+                var preset = AvatarActionIds.ToPreset(id);
+                if (preset.HasValue) return RequestAction(preset.Value);
+                ReplaceSnapshot(Snapshot.Behavior, Snapshot.Presentation,
+                    new AvatarMotionSnapshot(true, true, null, Snapshot.Motion.ActionSequence + 1, currentActionId: id));
+                return new AvatarActionRequestResult(AvatarActionRequestOutcome.Started);
+            }
+
             public FakeRuntimeFacade() : this(false)
             {
             }
@@ -322,7 +349,7 @@ namespace Katarune.Avatar.Tests
                     ready ? new AvatarModelInfo("C:/Models/Current.vrm", "Current", 1.6f) : null,
                     null,
                     AvatarBehaviorSettings.Default,
-                    new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false),
+                    new AvatarPresentationSettings(false),
                     new AvatarCapabilitySet(AvatarAffectCapabilities.All, AvatarActionCapabilities.All),
                     new AvatarMotionSnapshot(ready, ready, null, 0));
             }
@@ -334,7 +361,7 @@ namespace Katarune.Avatar.Tests
             public event Action<AvatarRuntimeSnapshot> Changed;
             public AvatarBehaviorSettings LastBehavior { get; private set; } = AvatarBehaviorSettings.Default;
             public AvatarPresentationSettings LastPresentation { get; private set; } =
-                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false);
+                new AvatarPresentationSettings(false);
             public AvatarPresetAction? LastAction { get; private set; }
             public string LastLoadPath { get; private set; }
             public int ResetCount { get; private set; }

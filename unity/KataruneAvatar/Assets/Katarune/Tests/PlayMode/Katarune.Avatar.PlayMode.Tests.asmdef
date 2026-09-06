@@ -5,7 +5,10 @@
     "Katarune.Avatar.Core",
     "Katarune.Avatar.Motion",
     "Katarune.Avatar.Runtime",
-    "Katarune.Avatar.UniVrm"
+    "Katarune.Avatar.UniVrm",
+    "VRM10",
+    "UniGLTF",
+    "UniHumanoid"
   ],
   "optionalUnityReferences": ["TestAssemblies"]
 }

@@ -13,9 +13,8 @@ namespace Katarune.Avatar
             bool exitOnError,
             bool transparentWindow,
             bool softOutlineEnabled,
-            AvatarLightingMode lightingMode,
             float captureDelaySeconds,
-            AvatarPresetAction? initialAction)
+            string initialAction, string motionPacksDirectory)
         {
             ModelPath = modelPath;
             ScreenshotPath = screenshotPath;
@@ -23,9 +22,9 @@ namespace Katarune.Avatar
             ExitOnError = exitOnError;
             TransparentWindow = transparentWindow;
             SoftOutlineEnabled = softOutlineEnabled;
-            LightingMode = lightingMode;
             CaptureDelaySeconds = captureDelaySeconds;
             InitialAction = initialAction;
+            MotionPacksDirectory = motionPacksDirectory;
         }
 
         public string ModelPath { get; }
@@ -34,9 +33,9 @@ namespace Katarune.Avatar
         public bool ExitOnError { get; }
         public bool TransparentWindow { get; }
         public bool SoftOutlineEnabled { get; }
-        public AvatarLightingMode LightingMode { get; }
         public float CaptureDelaySeconds { get; }
-        public AvatarPresetAction? InitialAction { get; }
+        public string InitialAction { get; }
+        public string MotionPacksDirectory { get; }
 
         public static AvatarCommandLine Parse(string[] args)
         {
@@ -48,9 +47,9 @@ namespace Katarune.Avatar
             var exitOnError = false;
             var transparentWindow = true;
             var softOutlineEnabled = false;
-            var lightingMode = AvatarLightingMode.LightDesktop;
             var captureDelaySeconds = 0f;
-            AvatarPresetAction? initialAction = null;
+            string initialAction = null;
+            string motionPacksDirectory = null;
             for (var index = 0; index < args.Length; index += 1)
             {
                 switch (args[index])
@@ -73,11 +72,11 @@ namespace Katarune.Avatar
                     case "--soft-outline":
                         softOutlineEnabled = true;
                         break;
-                    case "--lighting":
-                        lightingMode = ReadLightingMode(args, ref index);
-                        break;
                     case "--capture-delay":
                         captureDelaySeconds = ReadCaptureDelay(args, ref index);
+                        break;
+                    case "--motion-packs":
+                        motionPacksDirectory = ReadPathValue(args, ref index, "--motion-packs");
                         break;
                     case "--action":
                         initialAction = ReadAction(args, ref index);
@@ -92,32 +91,15 @@ namespace Katarune.Avatar
                 exitOnError,
                 transparentWindow,
                 softOutlineEnabled,
-                lightingMode,
                 captureDelaySeconds,
-                initialAction);
+                initialAction, motionPacksDirectory);
         }
 
-        private static AvatarPresetAction ReadAction(string[] args, ref int index)
+        private static string ReadAction(string[] args, ref int index)
         {
-            var valueIndex = index + 1;
-            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
-            {
-                throw new ArgumentException(
-                    "--action requires greet-wave, explain, celebrate or cough.",
-                    nameof(args));
-            }
-            index = valueIndex;
-            switch (args[valueIndex].ToLowerInvariant())
-            {
-                case "greet-wave": return AvatarPresetAction.GreetWave;
-                case "explain": return AvatarPresetAction.Explain;
-                case "celebrate": return AvatarPresetAction.Celebrate;
-                case "cough": return AvatarPresetAction.Cough;
-                default:
-                    throw new ArgumentException(
-                        "--action requires greet-wave, explain, celebrate or cough.",
-                        nameof(args));
-            }
+            if (index + 1 >= args.Length || !AvatarActionIds.IsValid(args[index + 1]))
+                throw new ArgumentException("--action requires an installed action ID (lowercase letters, digits, dots, hyphens or underscores).");
+            return args[++index];
         }
 
         private static float ReadCaptureDelay(string[] args, ref int index)
@@ -138,26 +120,6 @@ namespace Katarune.Avatar
             }
             index = valueIndex;
             return seconds;
-        }
-
-        private static AvatarLightingMode ReadLightingMode(string[] args, ref int index)
-        {
-            var valueIndex = index + 1;
-            if (valueIndex >= args.Length || string.IsNullOrWhiteSpace(args[valueIndex]))
-            {
-                throw new ArgumentException("--lighting requires light or dark.", nameof(args));
-            }
-
-            index = valueIndex;
-            switch (args[valueIndex].ToLowerInvariant())
-            {
-                case "light":
-                    return AvatarLightingMode.LightDesktop;
-                case "dark":
-                    return AvatarLightingMode.DarkDesktop;
-                default:
-                    throw new ArgumentException("--lighting requires light or dark.", nameof(args));
-            }
         }
 
         private static string ReadPathValue(string[] args, ref int index, string option)

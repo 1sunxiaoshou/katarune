@@ -64,7 +64,7 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void CompleteLibraryPublishesAllActionCapabilities()
+        public void LibraryPublishesOnlyInstalledActionCapabilities()
         {
             var library = ScriptableObject.CreateInstance<AvatarMotionLibrary>();
             var idle = new AnimationClip { name = "Idle" };
@@ -88,7 +88,9 @@ namespace Katarune.Avatar.Tests
                 });
 
             Assert.That(library.IsValid, Is.True);
-            Assert.That(library.Actions, Is.EqualTo(AvatarActionCapabilities.All));
+            Assert.That(library.ApplyFootIK, Is.True);
+            Assert.That(library.Actions, Is.EqualTo(AvatarActionCapabilities.GreetWave
+                | AvatarActionCapabilities.Explain | AvatarActionCapabilities.Celebrate | AvatarActionCapabilities.Cough));
             Assert.That(library.TryGetBase(out var baseResult), Is.True);
             Assert.That(baseResult, Is.SameAs(idle));
             Assert.That(library.TryGetAction(AvatarPresetAction.Celebrate, out var action), Is.True);

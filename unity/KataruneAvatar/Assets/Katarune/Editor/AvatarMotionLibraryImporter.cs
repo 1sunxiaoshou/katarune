@@ -11,7 +11,7 @@ namespace Katarune.Avatar.Editor
     public sealed class AvatarMotionLibraryImporter : EditorWindow
     {
         internal const string LocalRoot = "Assets/KataruneLocal/Motions";
-        internal const string LibraryAssetPath = "Assets/KataruneLocal/Resources/AvatarMotionLibrary.asset";
+        internal const string LibraryAssetPath = AvatarMotionPackBuilder.LocalLibraryPath;
         private const string Ual1FileName = "UAL1_Standard.fbx";
         private const string Ual2FileName = "UAL2_Standard.fbx";
         private const string MotifectReadmeName = "README.txt";
@@ -161,7 +161,7 @@ namespace Katarune.Avatar.Editor
                 var library = AssetDatabase.LoadAssetAtPath<AvatarMotionLibrary>(LibraryAssetPath);
                 if (library == null)
                 {
-                    EnsureAssetFolder("Assets/KataruneLocal/Resources");
+                    EnsureAssetFolder("Assets/KataruneLocal/Motions");
                     library = CreateInstance<AvatarMotionLibrary>();
                     AssetDatabase.CreateAsset(library, LibraryAssetPath);
                 }

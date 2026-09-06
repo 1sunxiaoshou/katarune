@@ -55,7 +55,7 @@ namespace Katarune.Avatar
         private readonly Dictionary<HudCategory, Button> _categoryButtons = new();
         private readonly Dictionary<HudCategory, VisualElement> _categoryGroups = new();
         private readonly Dictionary<AvatarAffectPreset, Button> _affectButtons = new();
-        private readonly Dictionary<AvatarPresetAction, Button> _actionButtons = new();
+        private readonly Dictionary<string, Button> _actionButtons = new();
 
         private IAvatarRuntimeFacade _runtime;
         private IAvatarVrmFilePicker _filePicker;
@@ -76,10 +76,10 @@ namespace Katarune.Avatar
         private Button _reloadModelButton;
         private Button _unloadModelButton;
         private Button _cancelActionButton;
+        private Button _nextActionPageButton;
+        private int _actionPage;
         private Button _gazeTrackingButton;
         private Button _showcaseControlButton;
-        private Button _lightDesktopButton;
-        private Button _darkDesktopButton;
         private Button _softOutlineButton;
         private Button _statusHudButton;
         private Button _resetBehaviorButton;
@@ -207,20 +207,19 @@ namespace Katarune.Avatar
             RegisterAffect(AvatarAffectPreset.Angry, "angryAffectButton");
             RegisterAffect(AvatarAffectPreset.Surprised, "surprisedAffectButton");
 
-            RegisterAction(AvatarPresetAction.GreetWave, "greetWaveButton");
-            RegisterAction(AvatarPresetAction.Explain, "explainButton");
-            RegisterAction(AvatarPresetAction.Celebrate, "celebrateButton");
-            RegisterAction(AvatarPresetAction.Cough, "coughButton");
+            BuildActionMenu();
+            _nextActionPageButton = Require<Button>("nextActionPageButton");
+            _nextActionPageButton.clicked += () =>
+            {
+                _actionPage = (_actionPage + 1) % Mathf.Max(1, (_actionButtons.Count + 3) / 4);
+                Refresh(_runtime.Snapshot);
+            };
             _cancelActionButton = Require<Button>("cancelActionButton");
             _cancelActionButton.clicked += () => _runtime.CancelAction();
 
-            _lightDesktopButton = Require<Button>("lightDesktopButton");
-            _darkDesktopButton = Require<Button>("darkDesktopButton");
             _softOutlineButton = Require<Button>("softOutlineButton");
             _statusHudButton = Require<Button>("statusHudButton");
             _resetBehaviorButton = Require<Button>("resetBehaviorButton");
-            _lightDesktopButton.clicked += () => ApplyLighting(AvatarLightingMode.LightDesktop);
-            _darkDesktopButton.clicked += () => ApplyLighting(AvatarLightingMode.DarkDesktop);
             _softOutlineButton.clicked += ToggleSoftOutline;
             _statusHudButton.clicked += ToggleStatusHud;
             _resetBehaviorButton.clicked += () => _runtime.ResetBehavior();
@@ -250,11 +249,22 @@ namespace Katarune.Avatar
             button.clicked += () => ApplyAffect(affect);
         }
 
-        private void RegisterAction(AvatarPresetAction action, string buttonName)
+        private void BuildActionMenu()
         {
-            var button = Require<Button>(buttonName);
-            _actionButtons.Add(action, button);
-            button.clicked += () => RequestAction(action);
+            var group = _categoryGroups[HudCategory.Action];
+            foreach (var action in _runtime.AvailableActions)
+            {
+                var id = action.Id;
+                var button = new AvatarHudIconButton
+                {
+                    name = "action-" + id, tooltip = action.DisplayName, iconClass = "icon-action",
+                };
+                button.AddToClassList("radial-button");
+                button.AddToClassList("secondary-button");
+                button.clicked += () => RequestAction(id);
+                group.Insert(_actionButtons.Count, button);
+                _actionButtons.Add(id, button);
+            }
         }
 
         private void TogglePrimaryMenu()
@@ -359,19 +369,13 @@ namespace Katarune.Avatar
             _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, intensity));
         }
 
-        private void RequestAction(AvatarPresetAction action)
+        private void RequestAction(string action)
         {
             var result = _runtime.RequestAction(action);
             if (result.Outcome != AvatarActionRequestOutcome.Started)
             {
                 ShowNotice(string.IsNullOrWhiteSpace(result.Error) ? "当前动作不可用。" : result.Error);
             }
-        }
-
-        private void ApplyLighting(AvatarLightingMode mode)
-        {
-            var presentation = _runtime.Snapshot.Presentation;
-            _runtime.ApplyPresentation(presentation.WithLightingMode(mode));
         }
 
         private void ToggleSoftOutline()
@@ -410,7 +414,7 @@ namespace Katarune.Avatar
             _statusHudButton?.EnableInClassList(SelectedClass, visible);
         }
 
-        private void ShowNotice(string message)
+        internal void ShowNotice(string message)
         {
             _localNotice = string.IsNullOrWhiteSpace(message) ? "操作失败，请稍后重试。" : message;
             Refresh(_runtime.Snapshot);
@@ -440,21 +444,18 @@ namespace Katarune.Avatar
                 pair.Value.SetEnabled(ready && snapshot.Capabilities.SupportsAffect(pair.Key));
                 pair.Value.EnableInClassList(SelectedClass, snapshot.Behavior.Affect == pair.Key);
             }
+            var paged = _actionButtons.Count > 5;
+            var index = 0;
             foreach (var pair in _actionButtons)
             {
-                pair.Value.SetEnabled(
-                    ready
-                    && snapshot.Motion.LibraryAvailable
-                    && snapshot.Capabilities.SupportsAction(pair.Key));
-                pair.Value.EnableInClassList(SelectedClass, snapshot.Motion.CurrentAction == pair.Key);
+                pair.Value.style.display = !paged || index / 4 == _actionPage ? DisplayStyle.Flex : DisplayStyle.None;
+                pair.Value.SetEnabled(ready && snapshot.Motion.LibraryAvailable);
+                pair.Value.EnableInClassList(SelectedClass, snapshot.Motion.CurrentActionId == pair.Key);
+                index++;
             }
-            _cancelActionButton.SetEnabled(ready && snapshot.Motion.CurrentAction.HasValue);
-            _lightDesktopButton.EnableInClassList(
-                SelectedClass,
-                snapshot.Presentation.LightingMode == AvatarLightingMode.LightDesktop);
-            _darkDesktopButton.EnableInClassList(
-                SelectedClass,
-                snapshot.Presentation.LightingMode == AvatarLightingMode.DarkDesktop);
+            _nextActionPageButton.style.display = paged ? DisplayStyle.Flex : DisplayStyle.None;
+            _cancelActionButton.SetEnabled(ready && snapshot.Motion.CurrentActionId != null);
+            _radialMenu.RefreshLayout();
             _softOutlineButton.EnableInClassList(
                 SelectedClass,
                 snapshot.Presentation.SoftOutlineEnabled);
@@ -504,31 +505,27 @@ namespace Katarune.Avatar
                 : model.Name;
         }
 
-        private static string GetActionStatusLabel(AvatarRuntimeSnapshot snapshot)
+        private string GetActionStatusLabel(AvatarRuntimeSnapshot snapshot)
         {
             if (snapshot.RuntimeState == AvatarRuntimeState.Loading) return "正在准备角色";
             if (snapshot.RuntimeState == AvatarRuntimeState.Error && !snapshot.Model.HasValue)
             {
                 return "等待重试";
             }
-            if (snapshot.Motion.CurrentAction.HasValue)
+            if (snapshot.Motion.CurrentActionId != null)
             {
-                return $"{GetActionLabel(snapshot.Motion.CurrentAction.Value)}中";
+                return $"{GetActionLabel(snapshot.Motion.CurrentActionId)}中";
             }
             return snapshot.RuntimeState == AvatarRuntimeState.Ready
-                ? "基础姿态"
+                ? (snapshot.Motion.AuthoredBaseActive ? "待机呼吸" : "基础姿态")
                 : "无动作";
         }
 
-        private static string GetActionLabel(AvatarPresetAction action)
+        private string GetActionLabel(string id)
         {
-            return action switch
-            {
-                AvatarPresetAction.Explain => "解释",
-                AvatarPresetAction.Celebrate => "庆祝",
-                AvatarPresetAction.Cough => "咳嗽",
-                _ => "挥手",
-            };
+            foreach (var action in _runtime.AvailableActions)
+                if (action.Id == id) return action.DisplayName;
+            return id;
         }
 
         private void OnDestroy()

@@ -60,6 +60,7 @@ namespace Katarune.Avatar
         public float Blink;
         public float GazeYaw;
         public float GazePitch;
+        public Vector2 ProceduralGazeCompensation;
         public float Happy;
         public float Relaxed;
         public float Sad;
@@ -307,6 +308,7 @@ namespace Katarune.Avatar
             _frame.Blink = _blinkWeight;
             _frame.GazeYaw = gaze.Eyes.x;
             _frame.GazePitch = gaze.Eyes.y;
+            _frame.ProceduralGazeCompensation = Vector2.zero;
             _frame.Happy = _expressionWeights[0];
             _frame.Relaxed = _expressionWeights[1];
             _frame.Sad = _expressionWeights[2];

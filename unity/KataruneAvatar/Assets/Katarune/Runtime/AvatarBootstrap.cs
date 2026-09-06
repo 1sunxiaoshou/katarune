@@ -7,8 +7,6 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarBootstrap : MonoBehaviour
     {
-        internal const string LocalDefaultModelFileName = "初音未来.vrm";
-
         private AvatarCommandLine _options;
         private AvatarSceneRig _sceneRig;
         private AvatarBehaviorController _behavior;
@@ -34,13 +32,13 @@ namespace Katarune.Avatar
             }
         }
 
-        private void Start()
+        private async void Start()
         {
             try
             {
                 _options = AvatarCommandLine.Parse(Environment.GetCommandLineArgs());
                 _sceneRig = gameObject.AddComponent<AvatarSceneRig>();
-                _sceneRig.Configure(_options.TransparentWindow, _options.LightingMode);
+                _sceneRig.Configure(_options.TransparentWindow);
                 if (_options.TransparentWindow)
                 {
                     _avatarWindow = gameObject.AddComponent<AvatarWindow>();
@@ -48,14 +46,14 @@ namespace Katarune.Avatar
 
                 _behavior = gameObject.AddComponent<AvatarBehaviorController>();
                 _motions = gameObject.AddComponent<AvatarMotionController>();
-                _motions.Configure();
+                await _motions.LoadExternalPacksAsync(
+                    _options.MotionPacksDirectory ?? AvatarMotionPacks.DefaultDirectory, destroyCancellationToken);
+                destroyCancellationToken.ThrowIfCancellationRequested();
                 _behavior.SetMotionSource(_motions);
                 _visuals = gameObject.AddComponent<AvatarVisualController>();
                 _visuals.Configure(
                     softOutlineEnabled: _options.SoftOutlineEnabled);
-                var presentation = new AvatarPresentationSettings(
-                    _options.LightingMode,
-                    _options.SoftOutlineEnabled);
+                var presentation = new AvatarPresentationSettings(_options.SoftOutlineEnabled);
                 var loader = new UniVrmAvatarLoader(_visuals, _motions);
                 _session = new AvatarRuntimeSession(
                     loader,
@@ -89,6 +87,7 @@ namespace Katarune.Avatar
                     new AvatarVrmFilePicker(),
                     string.IsNullOrWhiteSpace(_options.ScreenshotPath),
                     pointerSource);
+                if (!string.IsNullOrEmpty(_motions.PackDiagnostics)) _hud.ShowNotice(_motions.PackDiagnostics);
                 _sceneRig.SetManualInputBlocker(_hud.IsScreenPositionOverInteractiveControl);
                 _hud.CharacterShowcaseControlChanged += HandleCharacterShowcaseControlChanged;
                 _hud.SetLocalShortcutEnabled(Application.isEditor || _avatarWindow == null);
@@ -104,6 +103,7 @@ namespace Katarune.Avatar
                 var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
                 if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
             }
+            catch (OperationCanceledException) { }
             catch (Exception error)
             {
                 Debug.LogException(error);
@@ -116,11 +116,11 @@ namespace Katarune.Avatar
             if (_facade == null || _options == null) return;
             var snapshot = _facade.Snapshot;
             if (!_initialActionRequested
-                && _options.InitialAction.HasValue
+                && _options.InitialAction != null
                 && snapshot.RuntimeState == AvatarRuntimeState.Ready)
             {
                 _initialActionRequested = true;
-                var result = _facade.RequestAction(_options.InitialAction.Value);
+                var result = _facade.RequestAction(_options.InitialAction);
                 if (result.Outcome != AvatarActionRequestOutcome.Started)
                 {
                     Debug.LogError($"Initial action failed: {result.Error}");
@@ -173,11 +173,7 @@ namespace Katarune.Avatar
             if (!string.IsNullOrWhiteSpace(requestedPath)) return requestedPath;
             if (string.IsNullOrWhiteSpace(assetsPath)) return null;
 
-            var localDefaultPath = Path.GetFullPath(Path.Combine(
-                assetsPath,
-                "KataruneLocal",
-                "Models",
-                LocalDefaultModelFileName));
+            var localDefaultPath = AvatarDefaultAssets.ModelPath(assetsPath);
             return File.Exists(localDefaultPath) ? localDefaultPath : null;
         }
 

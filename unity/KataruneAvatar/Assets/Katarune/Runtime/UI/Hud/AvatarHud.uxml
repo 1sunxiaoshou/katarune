@@ -39,19 +39,14 @@
             </ui:VisualElement>
 
             <ui:VisualElement name="actionMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="greetWaveButton" tooltip="挥手" icon-class="icon-hand" class="radial-button secondary-button secondary-slot-0" />
-                <hud:AvatarHudIconButton name="explainButton" tooltip="解释" icon-class="icon-explain" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="celebrateButton" tooltip="庆祝" icon-class="icon-party" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="coughButton" tooltip="咳嗽" icon-class="icon-wind" class="radial-button secondary-button secondary-slot-3" />
+                <hud:AvatarHudIconButton name="nextActionPageButton" tooltip="下一页动作" icon-class="icon-more" class="radial-button secondary-button" />
                 <hud:AvatarHudIconButton name="cancelActionButton" tooltip="停止当前动作" icon-class="icon-stop" class="radial-button secondary-button secondary-slot-4" />
             </ui:VisualElement>
 
             <ui:VisualElement name="moreMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="lightDesktopButton" tooltip="亮色桌面" icon-class="icon-sun" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="darkDesktopButton" tooltip="暗色桌面" icon-class="icon-moon" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="softOutlineButton" tooltip="切换柔和描边" icon-class="icon-outline" class="radial-button secondary-button secondary-slot-3" />
-                <hud:AvatarHudIconButton name="statusHudButton" tooltip="切换状态卡" icon-class="icon-status-hud" class="radial-button secondary-button secondary-slot-4" />
-                <hud:AvatarHudIconButton name="resetBehaviorButton" tooltip="恢复默认行为" icon-class="icon-reset" class="radial-button secondary-button secondary-slot-5" />
+                <hud:AvatarHudIconButton name="softOutlineButton" tooltip="切换柔和描边" icon-class="icon-outline" class="radial-button secondary-button secondary-slot-1" />
+                <hud:AvatarHudIconButton name="statusHudButton" tooltip="切换状态卡" icon-class="icon-status-hud" class="radial-button secondary-button secondary-slot-2" />
+                <hud:AvatarHudIconButton name="resetBehaviorButton" tooltip="恢复默认行为" icon-class="icon-reset" class="radial-button secondary-button secondary-slot-3" />
             </ui:VisualElement>
 
             <ui:Button name="centralMenuButton" tooltip="角色控制" class="central-menu-button">

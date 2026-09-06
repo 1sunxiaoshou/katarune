@@ -48,7 +48,7 @@ namespace Katarune.Avatar.Tests
                 _visuals,
                 _sceneRig,
                 _motions,
-                new AvatarPresentationSettings(AvatarLightingMode.LightDesktop, false));
+                new AvatarPresentationSettings(false));
         }
 
         [TearDown]
@@ -88,13 +88,12 @@ namespace Katarune.Avatar.Tests
         {
             var changes = 0;
             _facade.Changed += _ => changes += 1;
-            var requested = new AvatarPresentationSettings(AvatarLightingMode.DarkDesktop, true);
+            var requested = new AvatarPresentationSettings(true);
 
             _facade.ApplyPresentation(requested);
 
             Assert.That(_facade.Snapshot.Presentation, Is.EqualTo(requested));
             Assert.That(_facade.Snapshot.Revision, Is.EqualTo(1));
-            Assert.That(_sceneRig.LightingMode, Is.EqualTo(AvatarLightingMode.DarkDesktop));
             Assert.That(changes, Is.EqualTo(1));
 
             _facade.ApplyPresentation(requested);
@@ -311,7 +310,7 @@ namespace Katarune.Avatar.Tests
             _loader.Enqueue(_ => delayed.Task);
 
             var load = _facade.LoadAsync("delayed.vrm");
-            _facade.ApplyPresentation(new AvatarPresentationSettings(AvatarLightingMode.DarkDesktop, true));
+            _facade.ApplyPresentation(new AvatarPresentationSettings(true));
             delayed.SetResult(new AvatarLoadCandidate(model));
 
             Assert.That((await load).Outcome, Is.EqualTo(AvatarLoadOutcome.Loaded));
@@ -389,6 +388,8 @@ namespace Katarune.Avatar.Tests
 
         private sealed class FakeMotion : IAvatarMotionInstance
         {
+            public string CurrentActionId => CurrentAction.HasValue ? AvatarActionIds.FromPreset(CurrentAction.Value) : null;
+            public AvatarActionRequestResult RequestAction(string id) => RequestAction(AvatarActionIds.ToPreset(id).Value);
             public AvatarActionCapabilities Actions => AvatarActionCapabilities.All;
             public bool HasAuthoredBodyPose => true;
             public float ProceduralBodyWeight => CurrentAction.HasValue ? 0f : 0.45f;

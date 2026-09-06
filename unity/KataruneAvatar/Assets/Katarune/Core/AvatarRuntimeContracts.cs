@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -11,12 +12,6 @@ namespace Katarune.Avatar
         Loading,
         Ready,
         Error,
-    }
-
-    public enum AvatarLightingMode
-    {
-        LightDesktop,
-        DarkDesktop,
     }
 
     public enum AvatarLoadOutcome
@@ -33,6 +28,11 @@ namespace Katarune.Avatar
         Explain,
         Celebrate,
         Cough,
+        RightHandOffer,
+        RightHandOpen,
+        RightHandToChest,
+        LeftHandOpenTwice,
+        DanceDelusionAngel,
     }
 
     public enum AvatarActionRequestOutcome
@@ -50,7 +50,13 @@ namespace Katarune.Avatar
         Explain = 1 << (int)AvatarPresetAction.Explain,
         Celebrate = 1 << (int)AvatarPresetAction.Celebrate,
         Cough = 1 << (int)AvatarPresetAction.Cough,
-        All = GreetWave | Explain | Celebrate | Cough,
+        RightHandOffer = 1 << (int)AvatarPresetAction.RightHandOffer,
+        RightHandOpen = 1 << (int)AvatarPresetAction.RightHandOpen,
+        RightHandToChest = 1 << (int)AvatarPresetAction.RightHandToChest,
+        LeftHandOpenTwice = 1 << (int)AvatarPresetAction.LeftHandOpenTwice,
+        DanceDelusionAngel = 1 << (int)AvatarPresetAction.DanceDelusionAngel,
+        All = GreetWave | Explain | Celebrate | Cough
+            | RightHandOffer | RightHandOpen | RightHandToChest | LeftHandOpenTwice | DanceDelusionAngel,
     }
 
     [Flags]
@@ -149,26 +155,21 @@ namespace Katarune.Avatar
 
     public readonly struct AvatarPresentationSettings : IEquatable<AvatarPresentationSettings>
     {
-        public AvatarPresentationSettings(AvatarLightingMode lightingMode, bool softOutlineEnabled)
+        public AvatarPresentationSettings(bool softOutlineEnabled)
         {
-            LightingMode = lightingMode;
             SoftOutlineEnabled = softOutlineEnabled;
         }
 
-        public AvatarLightingMode LightingMode { get; }
         public bool SoftOutlineEnabled { get; }
 
-        public AvatarPresentationSettings WithLightingMode(AvatarLightingMode value) =>
-            new AvatarPresentationSettings(value, SoftOutlineEnabled);
-
         public AvatarPresentationSettings WithSoftOutline(bool value) =>
-            new AvatarPresentationSettings(LightingMode, value);
+            new AvatarPresentationSettings(value);
 
         public bool Equals(AvatarPresentationSettings other) =>
-            LightingMode == other.LightingMode && SoftOutlineEnabled == other.SoftOutlineEnabled;
+            SoftOutlineEnabled == other.SoftOutlineEnabled;
 
         public override bool Equals(object obj) => obj is AvatarPresentationSettings other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine((int)LightingMode, SoftOutlineEnabled);
+        public override int GetHashCode() => SoftOutlineEnabled.GetHashCode();
     }
 
     public readonly struct AvatarCapabilitySet : IEquatable<AvatarCapabilitySet>
@@ -224,11 +225,13 @@ namespace Katarune.Avatar
             long performanceRevision = 0,
             int activePerformanceCount = 0,
             int queuedPerformanceCount = 0,
-            string performanceDiagnostics = null)
+            string performanceDiagnostics = null,
+            string currentActionId = null)
         {
             LibraryAvailable = libraryAvailable;
             AuthoredBaseActive = authoredBaseActive;
             CurrentAction = currentAction;
+            CurrentActionId = currentActionId ?? (currentAction.HasValue ? AvatarActionIds.FromPreset(currentAction.Value) : null);
             ActionSequence = actionSequence;
             PerformanceRevision = performanceRevision;
             ActivePerformanceCount = activePerformanceCount;
@@ -239,6 +242,7 @@ namespace Katarune.Avatar
         public bool LibraryAvailable { get; }
         public bool AuthoredBaseActive { get; }
         public AvatarPresetAction? CurrentAction { get; }
+        public string CurrentActionId { get; }
         public ulong ActionSequence { get; }
         public long PerformanceRevision { get; }
         public int ActivePerformanceCount { get; }
@@ -249,6 +253,7 @@ namespace Katarune.Avatar
             LibraryAvailable == other.LibraryAvailable
             && AuthoredBaseActive == other.AuthoredBaseActive
             && CurrentAction == other.CurrentAction
+            && CurrentActionId == other.CurrentActionId
             && ActionSequence == other.ActionSequence
             && PerformanceRevision == other.PerformanceRevision
             && ActivePerformanceCount == other.ActivePerformanceCount
@@ -268,7 +273,7 @@ namespace Katarune.Avatar
                 PerformanceRevision,
                 ActivePerformanceCount,
                 QueuedPerformanceCount,
-                PerformanceDiagnostics);
+                PerformanceDiagnostics, CurrentActionId);
         }
     }
 
@@ -352,6 +357,7 @@ namespace Katarune.Avatar
 
     public interface IAvatarRuntimeFacade : IDisposable
     {
+        IReadOnlyList<AvatarActionInfo> AvailableActions { get; }
         AvatarRuntimeSnapshot Snapshot { get; }
         AvatarPoseFrame CurrentPose { get; }
         event Action<AvatarRuntimeSnapshot> Changed;
@@ -364,6 +370,7 @@ namespace Katarune.Avatar
         void RequestBlink();
         void ResetBehavior();
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
+        AvatarActionRequestResult RequestAction(string actionId);
         void CancelAction();
         BehaviorRequestResult RequestBehavior(
             BehaviorIntent intent,
@@ -382,6 +389,7 @@ namespace Katarune.Avatar
 
     public interface IAvatarMotionInstance : IAvatarMotionPoseSource, IDisposable
     {
+        string CurrentActionId { get; }
         AvatarActionCapabilities Actions { get; }
         AvatarPresetAction? CurrentAction { get; }
         ulong ActionSequence { get; }
@@ -392,6 +400,7 @@ namespace Katarune.Avatar
         event Action Changed;
 
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
+        AvatarActionRequestResult RequestAction(string actionId);
         void CancelAction();
         BehaviorRequestResult RequestBehavior(BehaviorIntent intent, PerformanceRequestPolicy policy);
         PerformanceTransitionOutcome ApplyPerformanceCommand(string instanceId, PerformanceCommand command);

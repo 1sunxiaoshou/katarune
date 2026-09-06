@@ -193,7 +193,9 @@ namespace Katarune.Avatar
         private void LayoutGroup(VisualElement group, bool primary)
         {
             if (group == null) return;
-            var count = group.childCount;
+            var count = 0;
+            foreach (var item in group.Children())
+                if (item.style.display != DisplayStyle.None) count++;
             if (count == 0) return;
 
             var radius = primary ? _primaryRadius : _secondaryRadius;
@@ -202,14 +204,17 @@ namespace Katarune.Avatar
             capacity = Mathf.Max(capacity, count);
             var sweep = IsCorner(Direction) ? _cornerSweepAngle : _sideSweepAngle;
             var anchorCenter = new Vector2(contentRect.width * 0.5f, contentRect.height * 0.5f);
-            if (anchorCenter.x < 1f || anchorCenter.y < 1f) anchorCenter = new Vector2(37f, 37f);
+            if (!float.IsFinite(anchorCenter.x) || !float.IsFinite(anchorCenter.y)
+                || anchorCenter.x < 1f || anchorCenter.y < 1f) anchorCenter = new Vector2(37f, 37f);
 
-            for (var index = 0; index < count; index++)
+            var index = 0;
+            foreach (var item in group.Children())
             {
-                var item = group.ElementAt(index);
+                if (item.style.display == DisplayStyle.None) continue;
                 var offset = CalculateItemOffset(Direction, radius, sweep, index, count, capacity);
                 item.style.left = anchorCenter.x + offset.x - size * 0.5f;
                 item.style.top = anchorCenter.y + offset.y - size * 0.5f;
+                index++;
             }
         }
 

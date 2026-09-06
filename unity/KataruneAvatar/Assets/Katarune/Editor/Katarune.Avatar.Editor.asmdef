@@ -6,6 +6,9 @@
     "Katarune.Avatar.Motion",
     "Katarune.Avatar.Runtime",
     "Katarune.Avatar.UniVrm",
+    "UniGLTF",
+    "UniHumanoid",
+    "VRM10",
     "Unity.RenderPipelines.Universal.Runtime",
     "VRM10.MToon10"
   ],

@@ -15,12 +15,12 @@ namespace Katarune.Avatar.Editor
     {
         public static void BuildWindows()
         {
-            var outputPath = GetRequiredArgument("-buildOutput");
-            if (!string.Equals(Path.GetExtension(outputPath), ".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                outputPath = Path.Combine(outputPath, "KataruneAvatar.exe");
-            }
-            outputPath = Path.GetFullPath(outputPath);
+            var outputPath = Path.GetFullPath(Path.Combine(
+                Application.dataPath,
+                "..",
+                "Builds",
+                "Windows",
+                "KataruneAvatar.exe"));
             var outputDirectory = Path.GetDirectoryName(outputPath);
             if (string.IsNullOrEmpty(outputDirectory)) throw new InvalidOperationException("The build output directory could not be resolved.");
 
@@ -43,40 +43,47 @@ namespace Katarune.Avatar.Editor
             {
                 throw new InvalidOperationException($"Avatar build failed with result {report.summary.result} and {report.summary.totalErrors} errors.");
             }
-            CopyLocalDefaultModel(outputPath);
+            CopyLocalDefaultAssets(outputPath);
+            CopyLocalMotionPacks(outputDirectory);
             Debug.Log($"KATARUNE_AVATAR_BUILD_READY path={outputPath} bytes={report.summary.totalSize}");
         }
 
-        private static void CopyLocalDefaultModel(string playerPath)
+        private static void CopyLocalMotionPacks(string outputDirectory)
         {
-            var sourcePath = Path.GetFullPath(Path.Combine(
-                Application.dataPath,
-                "KataruneLocal",
-                "Models",
-                AvatarBootstrap.LocalDefaultModelFileName));
-            if (!File.Exists(sourcePath))
-            {
-                Debug.LogWarning($"KATARUNE_LOCAL_DEFAULT_MODEL_MISSING path={sourcePath}");
-                return;
-            }
+            var destination = Path.Combine(outputDirectory, "MotionPacks");
+            Directory.CreateDirectory(destination);
+            if (!Directory.Exists(AvatarMotionPacks.DefaultDirectory)) return;
+            foreach (var pack in Directory.GetFiles(AvatarMotionPacks.DefaultDirectory, "*" + AvatarMotionPacks.Extension))
+                File.Copy(pack, Path.Combine(destination, Path.GetFileName(pack)), true);
+        }
 
+        private static void CopyLocalDefaultAssets(string playerPath)
+        {
             var playerDirectory = Path.GetDirectoryName(playerPath)
                 ?? throw new InvalidOperationException("The player directory could not be resolved.");
             var dataDirectory = Path.Combine(
                 playerDirectory,
-                Path.GetFileNameWithoutExtension(playerPath) + "_Data",
-                "KataruneLocal",
-                "Models");
-            Directory.CreateDirectory(dataDirectory);
-            var destinationPath = Path.Combine(dataDirectory, AvatarBootstrap.LocalDefaultModelFileName);
+                Path.GetFileNameWithoutExtension(playerPath) + "_Data");
+            CopyLocalAsset(AvatarDefaultAssets.ModelPath(Application.dataPath), AvatarDefaultAssets.ModelPath(dataDirectory));
+        }
+
+        private static void CopyLocalAsset(string sourcePath, string destinationPath)
+        {
+            if (!File.Exists(sourcePath))
+            {
+                Debug.LogWarning($"KATARUNE_LOCAL_DEFAULT_ASSET_MISSING path={sourcePath}");
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
             File.Copy(sourcePath, destinationPath, overwrite: true);
-            Debug.Log($"KATARUNE_LOCAL_DEFAULT_MODEL_COPIED path={destinationPath}");
+            Debug.Log($"KATARUNE_LOCAL_DEFAULT_ASSET_COPIED path={destinationPath}");
         }
 
         [MenuItem("Katarune/配置角色渲染")]
         public static void ConfigureAvatarRenderingAssets()
         {
             EnsureDefaultVisualProfile();
+            EnsureDefaultLightingProfile();
             EnsureMToonOutlineFeature("Assets/Settings/PC_Renderer.asset");
             EnsureMToonOutlineFeature("Assets/Settings/Mobile_Renderer.asset");
             AssetDatabase.SaveAssets();
@@ -96,6 +103,23 @@ namespace Katarune.Avatar.Editor
             var profile = ScriptableObject.CreateInstance<AvatarVisualProfile>();
             profile.name = "AvatarVisualProfile";
             AssetDatabase.CreateAsset(profile, profilePath);
+        }
+
+        private static void EnsureDefaultLightingProfile()
+        {
+            const string resourcesFolder = "Assets/Katarune/Resources";
+            const string profilePath = resourcesFolder + "/AvatarLightingProfile.asset";
+            if (!AssetDatabase.IsValidFolder(resourcesFolder))
+            {
+                AssetDatabase.CreateFolder("Assets/Katarune", "Resources");
+            }
+            if (AssetDatabase.LoadAssetAtPath<AvatarLightingProfile>(profilePath) != null) return;
+
+            var profile = ScriptableObject.CreateInstance<AvatarLightingProfile>();
+            profile.name = "AvatarLightingProfile";
+            AssetDatabase.CreateAsset(profile, profilePath);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"KATARUNE_AVATAR_LIGHTING_PROFILE_CREATED path={profilePath}");
         }
 
         private static void EnsureMToonOutlineFeature(string rendererDataPath)
@@ -182,14 +206,5 @@ namespace Katarune.Avatar.Editor
             AssetDatabase.SaveAssets();
         }
 
-        private static string GetRequiredArgument(string name)
-        {
-            var args = Environment.GetCommandLineArgs();
-            for (var index = 0; index < args.Length - 1; index += 1)
-            {
-                if (string.Equals(args[index], name, StringComparison.Ordinal)) return args[index + 1];
-            }
-            throw new ArgumentException($"Missing required build argument: {name}");
-        }
     }
 }

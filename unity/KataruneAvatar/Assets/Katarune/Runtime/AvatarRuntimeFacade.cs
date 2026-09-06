@@ -7,6 +7,7 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarRuntimeFacade : IAvatarRuntimeFacade
     {
+        public System.Collections.Generic.IReadOnlyList<AvatarActionInfo> AvailableActions => _motions.AvailableActions;
         private readonly AvatarRuntimeSession _session;
         private readonly AvatarBehaviorController _behavior;
         private readonly AvatarVisualController _visuals;
@@ -68,7 +69,6 @@ namespace Katarune.Avatar
             var normalized = Normalize(settings);
             if (_presentation.Equals(normalized)) return;
             _presentation = normalized;
-            _sceneRig.SetLightingMode(normalized.LightingMode);
             _visuals.SetSoftOutlineEnabled(normalized.SoftOutlineEnabled);
             PublishIfChanged();
         }
@@ -110,9 +110,12 @@ namespace Katarune.Avatar
         }
 
         public AvatarActionRequestResult RequestAction(AvatarPresetAction action)
+            => RequestAction(AvatarActionIds.FromPreset(action));
+
+        public AvatarActionRequestResult RequestAction(string action)
         {
             ThrowIfDisposed();
-            ValidateEnum(action, nameof(action));
+            if (!AvatarActionIds.IsValid(action)) throw new ArgumentException("Invalid action ID.", nameof(action));
             if (_session.State != AvatarRuntimeState.Ready)
             {
                 return new AvatarActionRequestResult(
@@ -162,7 +165,6 @@ namespace Katarune.Avatar
 
         private static AvatarPresentationSettings Normalize(AvatarPresentationSettings settings)
         {
-            ValidateEnum(settings.LightingMode, nameof(settings.LightingMode));
             return settings;
         }
 
