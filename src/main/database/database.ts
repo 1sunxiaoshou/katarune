@@ -15,6 +15,7 @@ import { createAssetRepository } from "./assetRepository";
 import { createCharacterRepository } from "./characterRepository";
 import { VALIDATION_THREAD_ID } from "./constants";
 import { createModelRepository } from "./modelRepository";
+import { reconcileAttachmentMigrationHistory } from "./migrationHistory";
 import { createProviderRepository } from "./providerRepository";
 import { appSettings, appState, assets, characters, threads } from "./schema";
 import { createThreadRepository } from "./threadRepository";
@@ -63,6 +64,7 @@ export function openDatabase({
   // SQLite requires enforcement to be disabled before Drizzle opens its migration transaction.
   sqlite.pragma("foreign_keys = OFF");
   try {
+    reconcileAttachmentMigrationHistory(sqlite, join(appPath, "drizzle"));
     migrate(database, { migrationsFolder: join(appPath, "drizzle") });
     sqlite.pragma("foreign_keys = ON");
     const foreignKeyViolations = sqlite.pragma("foreign_key_check");
