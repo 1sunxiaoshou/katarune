@@ -15,7 +15,15 @@ export type AvatarStatus = z.infer<typeof avatarStatusSchema>;
 const identifier = z.string().check(z.minLength(1), z.maxLength(256));
 export const avatarCapabilitiesSchema = z.object({
   actions: z
-    .array(z.object({ id: identifier, label: identifier }))
+    .array(
+      z.object({
+        id: identifier,
+        label: identifier,
+        durationSeconds: z.optional(
+          z.number().check(z.gte(0), z.lte(3_600)),
+        ),
+      }),
+    )
     .check(z.maxLength(256)),
   expressions: z.array(identifier).check(z.maxLength(32)),
 });

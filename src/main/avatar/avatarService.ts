@@ -18,6 +18,15 @@ type Pending = {
   cleanup: () => void;
 };
 
+function describeAction(action: AvatarCapabilities["actions"][number]): string {
+  const duration = action.durationSeconds;
+  const timing =
+    duration !== undefined && duration > 0
+      ? `，约 ${Math.max(1, Math.round(duration))} 秒`
+      : "";
+  return `${action.id}（${action.label}${timing}）`;
+}
+
 export class AvatarService {
   private server: Server | undefined;
   private socket: Socket | undefined;
@@ -224,32 +233,39 @@ export class AvatarService {
     ) => {
       if (this.socket !== socket || !this.matches(binding))
         throw new Error("角色连接已改变。");
-      const actionId = await this.request(
+      await this.request(
         operation,
         value,
         signal,
         allowSpeech,
         toolCallId,
       );
-      return operation === "action"
-        ? { actionId, status: "accepted" as const }
-        : { expressionId: actionId, status: "accepted" as const };
+      return { ok: true as const };
     };
     const tools: ToolSet = {};
     if (capabilities.expressions.length)
       tools.set_expression = tool({
         description:
-          "编排角色的整体表情状态。Unity 接受后立即返回 accepted，并在此前对白实际播放完成、时间线运行到该节点时切换。可用值来自当前模型。",
-        inputSchema: z.object({ expression: z.enum(capabilities.expressions) }),
+          "用你的表情表达情绪。选择最符合当前感受和语境的表情。",
+        inputSchema: z.object({
+          expression: z
+            .enum(capabilities.expressions)
+            .describe("你要呈现的表情"),
+        }),
         execute: ({ expression }, { toolCallId }) =>
           execute("expression", expression, toolCallId),
       });
     if (capabilities.actions.length)
       tools.avatar_action = tool({
-        description: `提交动作，Unity 接受后立即返回 accepted，不等待播放结束。可用动作：${capabilities.actions.map((a) => `${a.id}（${a.label}）`).join("；")}。allowSpeech 默认为 true，可边说边做；false 仅在该动作实际播放期间暂停对白播放，结束后恢复。两种情况都不阻塞后续思考与输出，互斥动作按顺序播放。`,
+        description: `用你的身体做一个动作。选择符合当前表达和情境的动作。可用动作：${capabilities.actions.map(describeAction).join("；")}。`,
         inputSchema: z.object({
-          action: z.enum(capabilities.actions.map((a) => a.id)),
-          allowSpeech: z.boolean().default(true),
+          action: z
+            .enum(capabilities.actions.map((a) => a.id))
+            .describe("你要做的动作"),
+          allowSpeech: z
+            .boolean()
+            .default(true)
+            .describe("做动作时是否同时说话"),
         }),
         execute: ({ action, allowSpeech }, { toolCallId }) =>
           execute("action", action, toolCallId, allowSpeech),

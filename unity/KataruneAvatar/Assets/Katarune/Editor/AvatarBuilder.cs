@@ -83,7 +83,6 @@ namespace Katarune.Avatar.Editor
         public static void ConfigureAvatarRenderingAssets()
         {
             EnsureDefaultVisualProfile();
-            EnsureDefaultLightingProfile();
             EnsureMToonOutlineFeature("Assets/Settings/PC_Renderer.asset");
             EnsureMToonOutlineFeature("Assets/Settings/Mobile_Renderer.asset");
             AssetDatabase.SaveAssets();
@@ -103,23 +102,6 @@ namespace Katarune.Avatar.Editor
             var profile = ScriptableObject.CreateInstance<AvatarVisualProfile>();
             profile.name = "AvatarVisualProfile";
             AssetDatabase.CreateAsset(profile, profilePath);
-        }
-
-        private static void EnsureDefaultLightingProfile()
-        {
-            const string resourcesFolder = "Assets/Katarune/Resources";
-            const string profilePath = resourcesFolder + "/AvatarLightingProfile.asset";
-            if (!AssetDatabase.IsValidFolder(resourcesFolder))
-            {
-                AssetDatabase.CreateFolder("Assets/Katarune", "Resources");
-            }
-            if (AssetDatabase.LoadAssetAtPath<AvatarLightingProfile>(profilePath) != null) return;
-
-            var profile = ScriptableObject.CreateInstance<AvatarLightingProfile>();
-            profile.name = "AvatarLightingProfile";
-            AssetDatabase.CreateAsset(profile, profilePath);
-            AssetDatabase.SaveAssets();
-            Debug.Log($"KATARUNE_AVATAR_LIGHTING_PROFILE_CREATED path={profilePath}");
         }
 
         private static void EnsureMToonOutlineFeature(string rendererDataPath)
@@ -146,6 +128,8 @@ namespace Katarune.Avatar.Editor
             PlayerSettings.resizableWindow = false;
             PlayerSettings.allowFullscreenSwitch = false;
             PlayerSettings.runInBackground = true;
+            PlayerSettings.SplashScreen.show = false;
+            PlayerSettings.SplashScreen.showUnityLogo = false;
             PlayerSettings.useFlipModelSwapchain = false;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
             PlayerSettings.SetGraphicsAPIs(

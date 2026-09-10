@@ -28,7 +28,7 @@ namespace Katarune.Avatar
             public string ToolName;
             public Request Command;
         }
-        [Serializable] private sealed class ActionInfo { public string id; public string label; }
+        [Serializable] private sealed class ActionInfo { public string id; public string label; public float durationSeconds; }
         [Serializable] private sealed class Capabilities { public ActionInfo[] actions; public string[] expressions; }
         [Serializable] private sealed class Ready { public string type = "ready"; public Capabilities capabilities; }
         [Serializable] private sealed class Result { public string type = "result"; public string id; public bool ok; public string error; }
@@ -125,7 +125,9 @@ namespace Katarune.Avatar
             if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
             {
                 var caps = new Ready { capabilities = new Capabilities {
-                    actions = _runtime.AvailableActions.Select(a => new ActionInfo { id = a.Id, label = a.DisplayName }).ToArray(),
+                    actions = _runtime.AvailableActions.Select(a => new ActionInfo {
+                        id = a.Id, label = a.DisplayName, durationSeconds = a.DurationSeconds
+                    }).ToArray(),
                     expressions = Enum.GetValues(typeof(AvatarAffectPreset)).Cast<AvatarAffectPreset>()
                         .Where(p => _runtime.Snapshot.Capabilities.SupportsAffect(p)).Select(p => p.ToString().ToLowerInvariant()).ToArray(),
                 } };

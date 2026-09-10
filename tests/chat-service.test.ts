@@ -154,8 +154,8 @@ describe("chat service", () => {
     await (await service.createResponse(request, new AbortController().signal)).text();
     const serialized = JSON.stringify(prompt);
     expect(serialized).toContain("只回答确定性测试内容。");
-    expect(serialized.includes("你现在通过屏幕上的桌宠身体与用户交流。")).toBe(connected);
-    if (connected) expect(serialized).toContain("不用括号或星号旁白代替实际动作");
+    expect(serialized.includes("你拥有屏幕中的身体。")).toBe(connected);
+    if (connected) expect(serialized).toContain("不要用括号或星号描写能够直接表现的动作");
   });
 
   it("lets the native Agent loop run parallel avatar tools, continue a tool-only step, and end without extra text", async () => {

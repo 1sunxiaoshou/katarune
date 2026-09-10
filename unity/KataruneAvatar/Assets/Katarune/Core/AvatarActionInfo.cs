@@ -4,9 +4,15 @@ namespace Katarune.Avatar
 {
     public readonly struct AvatarActionInfo
     {
-        public AvatarActionInfo(string id, string displayName) { Id = id; DisplayName = displayName; }
+        public AvatarActionInfo(string id, string displayName, float durationSeconds = 0f)
+        {
+            Id = id;
+            DisplayName = displayName;
+            DurationSeconds = durationSeconds;
+        }
         public string Id { get; }
         public string DisplayName { get; }
+        public float DurationSeconds { get; }
     }
 
     public static class AvatarActionIds

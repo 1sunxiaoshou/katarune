@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Runtime.InteropServices;
 using Kirurobo;
 using UnityEngine;
@@ -7,6 +6,7 @@ using UnityEngine.UIElements;
 
 namespace Katarune.Avatar
 {
+    [RequireComponent(typeof(UniWindowController))]
     public sealed class AvatarWindow : MonoBehaviour
     {
         private const int VirtualKeyF1 = 0x70;
@@ -15,13 +15,31 @@ namespace Katarune.Avatar
         private bool _hudPointerInteractionActive;
         private bool _characterShowcaseInteractionActive;
         private bool _f1WasDown;
-        private bool _windowEventsSubscribed;
         private VisualElement _hudRoot;
         private IAvatarPointerPositionSource _pointerSource;
 
         public event Action HudToggleRequested;
 
-        public bool IsReady => _window != null && _window.windowSize.sqrMagnitude > 0f;
+        private void Awake()
+        {
+            _window = GetComponent<UniWindowController>();
+            if (_window == null)
+            {
+                Debug.LogError("KATARUNE_TRANSPARENT_WINDOW_FAILED reason=scene-controller-missing");
+                enabled = false;
+                return;
+            }
+
+            if (!AvatarCommandLine.Parse(Environment.GetCommandLineArgs()).TransparentWindow)
+            {
+                _window.isTransparent = false;
+                _window.enabled = false;
+                enabled = false;
+                return;
+            }
+
+            ApplyInteractionMode();
+        }
 
         internal void BindHud(
             VisualElement hudRoot,
@@ -49,65 +67,6 @@ namespace Katarune.Avatar
         {
             _characterShowcaseInteractionActive = active;
             ApplyInteractionMode();
-        }
-
-        private IEnumerator Start()
-        {
-            // Unity's Run In Background setting keeps the desktop avatar updating
-            // while another application has focus. Native topmost state is applied
-            // separately after UniWindowController has attached the player window.
-            Application.runInBackground = true;
-
-            _window = gameObject.AddComponent<UniWindowController>();
-            _window.OnMonitorChanged += HandleMonitorChanged;
-            _windowEventsSubscribed = true;
-            _window.currentCamera = Camera.main;
-            _window.forceWindowed = true;
-            _window.transparentType = UniWindowController.TransparentType.Alpha;
-            _window.autoSwitchCameraBackground = true;
-            _window.isTransparent = true;
-            _window.monitorToFit = 0;
-            _window.shouldFitMonitor = true;
-            _window.hitTestType = UniWindowController.HitTestType.None;
-            _window.isHitTestEnabled = false;
-            ApplyInteractionMode();
-
-            const int maximumWaitFrames = 300;
-            for (var frame = 0; frame < maximumWaitFrames; frame += 1)
-            {
-                if (IsReady)
-                {
-                    _window.shouldFitMonitor = true;
-                    EnsureTopmost();
-                    ApplyInteractionMode();
-
-                    // Window fitting can update native styles after attachment. Reapply
-                    // once on the following frame, then rely on lifecycle events rather
-                    // than continuously changing z-order or stealing foreground focus.
-                    yield return null;
-                    EnsureTopmost();
-                    Debug.Log(
-                        $"KATARUNE_TRANSPARENT_WINDOW_READY mode=uniwinc-alpha size={_window.windowSize} topmost={_window.isTopmost}");
-                    yield break;
-                }
-
-                yield return null;
-            }
-
-            Debug.LogError("KATARUNE_TRANSPARENT_WINDOW_FAILED reason=window-attachment-timeout");
-        }
-
-        private void OnApplicationFocus(bool hasFocus)
-        {
-            if (!IsReady) return;
-            EnsureTopmost();
-        }
-
-        private void OnDestroy()
-        {
-            if (!_windowEventsSubscribed || _window == null) return;
-            _window.OnMonitorChanged -= HandleMonitorChanged;
-            _windowEventsSubscribed = false;
         }
 
         private void Update()
@@ -191,22 +150,6 @@ namespace Katarune.Avatar
                 }
                 if (current == root) break;
             }
-            return false;
-        }
-
-        private void HandleMonitorChanged()
-        {
-            EnsureTopmost();
-        }
-
-        private bool EnsureTopmost()
-        {
-            if (_window == null) return false;
-
-            _window.isTopmost = true;
-            if (_window.isTopmost) return true;
-
-            Debug.LogWarning("KATARUNE_TOPMOST_FAILED reason=native-window-not-ready");
             return false;
         }
 

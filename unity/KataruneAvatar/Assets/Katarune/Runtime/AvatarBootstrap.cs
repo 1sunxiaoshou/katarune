@@ -26,7 +26,8 @@ namespace Katarune.Avatar
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Initialize()
         {
-            if (FindFirstObjectByType<AvatarBootstrap>() == null)
+            if (FindFirstObjectByType<AvatarBootstrap>() == null
+                && FindFirstObjectByType<AvatarSceneRig>() != null)
             {
                 new GameObject("Katarune Avatar Runtime").AddComponent<AvatarBootstrap>();
             }
@@ -37,11 +38,21 @@ namespace Katarune.Avatar
             try
             {
                 _options = AvatarCommandLine.Parse(Environment.GetCommandLineArgs());
-                _sceneRig = gameObject.AddComponent<AvatarSceneRig>();
+                _sceneRig = FindFirstObjectByType<AvatarSceneRig>();
+                if (_sceneRig == null)
+                {
+                    throw new InvalidOperationException(
+                        "The startup scene must contain AvatarSceneRig on the avatar camera.");
+                }
                 _sceneRig.Configure(_options.TransparentWindow);
                 if (_options.TransparentWindow)
                 {
-                    _avatarWindow = gameObject.AddComponent<AvatarWindow>();
+                    _avatarWindow = FindFirstObjectByType<AvatarWindow>();
+                    if (_avatarWindow == null)
+                    {
+                        throw new InvalidOperationException(
+                            "The startup scene must contain the configured UniWindowController prefab and AvatarWindow.");
+                    }
                 }
 
                 _behavior = gameObject.AddComponent<AvatarBehaviorController>();

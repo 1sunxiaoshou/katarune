@@ -4,6 +4,8 @@ using UnityEngine;
 
 namespace Katarune.Avatar
 {
+    [DisallowMultipleComponent]
+    [RequireComponent(typeof(Camera))]
     public sealed class AvatarSceneRig : MonoBehaviour
     {
         private const float PhysicalSensorHeightMillimeters = 24f;
@@ -19,7 +21,6 @@ namespace Katarune.Avatar
         private const float VerticalRotationSmoothTimeSeconds = 0.08f;
         private const float MinimumShowcasePitchDegrees = -45f;
         private const float MaximumShowcasePitchDegrees = 45f;
-        private const float DefaultVerticalFieldOfViewDegrees = 30f;
         private const float ZoomExponentPerScrollStep = 0.16f;
         private const float ZoomSmoothTimeSeconds = 0.14f;
         private const float CompositionPanSmoothTimeSeconds = 0.08f;
@@ -28,10 +29,16 @@ namespace Katarune.Avatar
         private const float MinimumZoomMagnification = 1f / 3f;
         private const float MaximumZoomMagnification = 1f / 0.35f;
 
+        [Header("初始构图")]
+        [SerializeField, Range(MinimumZoomMagnification, 1f)]
+        private float initialZoomMagnification = 0.6f;
+        [SerializeField, Range(0f, 0.25f)] private float rightViewportMargin = 0.08f;
+        [SerializeField, Range(0f, 0.25f)] private float bottomViewportMargin = 0.08f;
+        [SerializeField, Min(1f)] private float framingDistancePadding = 1.1f;
+
         private Camera _camera;
         private GameObject _floor;
         private Material _floorMaterial;
-        private AvatarLightingRig _lightingRig;
         private Bounds _framedBounds;
         private bool _hasFramedBounds;
         private Vector2Int _lastScreenSize;
@@ -61,6 +68,7 @@ namespace Katarune.Avatar
         private bool _isCompositionPanning;
         private Vector2 _previousPointerPosition;
         private bool _transparent;
+        private float _baseVerticalFieldOfViewDegrees;
 
         public bool CharacterShowcaseControlEnabled { get; private set; }
 
@@ -68,13 +76,12 @@ namespace Katarune.Avatar
         {
             _transparent = transparent;
             _camera = GetComponent<Camera>();
-            if (_camera == null) _camera = Camera.main;
             if (_camera == null)
             {
-                var cameraObject = new GameObject("Avatar Camera") { tag = "MainCamera" };
-                _camera = cameraObject.AddComponent<Camera>();
+                throw new InvalidOperationException("AvatarSceneRig must be attached to the avatar camera.");
             }
 
+            _baseVerticalFieldOfViewDegrees = Mathf.Clamp(_camera.fieldOfView, 1f, 179f);
             _camera.clearFlags = CameraClearFlags.SolidColor;
             _camera.backgroundColor = transparent
                 ? new Color(0f, 0f, 0f, 0f)
@@ -82,14 +89,12 @@ namespace Katarune.Avatar
             ConfigurePhysicalProjection(
                 _camera,
                 Mathf.Max(0.1f, Screen.width / Mathf.Max(1f, Screen.height)));
-            _camera.fieldOfView = DefaultVerticalFieldOfViewDegrees;
+            _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
             _camera.allowHDR = false;
             _camera.allowMSAA = true;
             _camera.nearClipPlane = 0.01f;
             _camera.farClipPlane = 100f;
 
-            _lightingRig = gameObject.AddComponent<AvatarLightingRig>();
-            _lightingRig.Configure();
             EnsureOpaqueFloor();
             ApplyOpaqueBackdrop();
         }
@@ -167,7 +172,7 @@ namespace Katarune.Avatar
                 _zoomMagnification,
                 _targetZoomMagnification,
                 _zoomMagnificationVelocity,
-                _camera != null ? _camera.fieldOfView : DefaultVerticalFieldOfViewDegrees,
+                _camera != null ? _camera.fieldOfView : _baseVerticalFieldOfViewDegrees,
                 _floor != null && _floor.activeSelf,
                 _floor != null ? _floor.transform.position : Vector3.zero,
                 _floor != null ? _floor.transform.localScale : Vector3.one);
@@ -246,11 +251,6 @@ namespace Katarune.Avatar
             EndShowcaseDrag(preserveInertia: false);
             EndCompositionPan();
             if (_floor != null) _floor.SetActive(false);
-        }
-
-        public static float GetDesiredViewportCenterX(float aspect)
-        {
-            return Mathf.Lerp(0.7f, 0.8f, Mathf.InverseLerp(1f, 2.4f, Mathf.Max(0.1f, aspect)));
         }
 
         internal static void ConfigurePhysicalProjection(
@@ -347,13 +347,14 @@ namespace Katarune.Avatar
             _framingTarget = new Vector3(0f, bounds.center.y + bounds.size.y * 0.015f, 0f);
             var halfHeight = Mathf.Max(bounds.extents.y, 0.5f);
             var distance = halfHeight /
-                Mathf.Tan(DefaultVerticalFieldOfViewDegrees * 0.5f * Mathf.Deg2Rad) * 1.1f;
+                Mathf.Tan(_baseVerticalFieldOfViewDegrees * 0.5f * Mathf.Deg2Rad) *
+                Mathf.Max(1f, framingDistancePadding);
             _fixedCameraPosition = _framingTarget + Vector3.forward * distance;
             _fixedCameraRotation = Quaternion.LookRotation(
                 _framingTarget - _fixedCameraPosition,
                 Vector3.up);
-            _zoomMagnification = 1f;
-            _targetZoomMagnification = 1f;
+            _zoomMagnification = InitialZoomMagnification;
+            _targetZoomMagnification = InitialZoomMagnification;
             _zoomMagnificationVelocity = 0f;
             _compositionOffsetViewport = Vector2.zero;
             _targetCompositionOffsetViewport = Vector2.zero;
@@ -380,28 +381,26 @@ namespace Katarune.Avatar
         {
             var screenHeight = Mathf.Max(1f, Screen.height);
             var aspect = Mathf.Max(0.1f, Screen.width / screenHeight);
-            var fixedDistance = Vector3.Distance(_fixedCameraPosition, _framingTarget);
-            var verticalHalfWorld = fixedDistance *
-                Mathf.Tan(DefaultVerticalFieldOfViewDegrees * 0.5f * Mathf.Deg2Rad);
-            var horizontalHalfWorld = verticalHalfWorld * aspect;
-            var rotatingHalfWidth = Mathf.Max(_framedBounds.extents.x, _framedBounds.extents.z);
-            var modelHalfNdc = rotatingHalfWidth / Mathf.Max(0.01f, horizontalHalfWorld);
-            var desiredNdc = GetDesiredViewportCenterX(aspect) * 2f - 1f;
-            var centerNdc = Mathf.Min(desiredNdc, 0.92f - modelHalfNdc);
-            centerNdc = Mathf.Max(0f, centerNdc);
-            var viewportCenterX = centerNdc * 0.5f + 0.5f;
-            ConfigurePhysicalProjection(_camera, aspect, viewportCenterX);
+            ConfigurePhysicalProjection(_camera, aspect);
+            ApplyShowcaseCameraPose();
+            _camera.fieldOfView = GetFieldOfViewForMagnification(
+                _baseVerticalFieldOfViewDegrees,
+                InitialZoomMagnification);
+            var projectedBounds = GetViewportBounds(_camera, _framedBounds);
+            var viewportDelta = new Vector2(
+                1f - RightViewportMargin - projectedBounds.xMax,
+                BottomViewportMargin - projectedBounds.yMin);
+            _camera.lensShift = -viewportDelta;
             _fixedLensShift = _camera.lensShift;
             _compositionOffsetViewport = ClampCompositionOffset(_compositionOffsetViewport);
             _targetCompositionOffsetViewport = ClampCompositionOffset(_targetCompositionOffsetViewport);
-            ApplyShowcaseCameraPose();
             ApplyProjection();
         }
 
         private void ApplyProjection()
         {
             _camera.fieldOfView = GetFieldOfViewForMagnification(
-                DefaultVerticalFieldOfViewDegrees,
+                _baseVerticalFieldOfViewDegrees,
                 _zoomMagnification);
             _camera.lensShift = _fixedLensShift - _compositionOffsetViewport;
         }
@@ -412,6 +411,33 @@ namespace Katarune.Avatar
             var safeMagnification = Mathf.Max(0.0001f, magnification);
             return Mathf.Atan(Mathf.Tan(baseHalfAngle) / safeMagnification) * 2f * Mathf.Rad2Deg;
         }
+
+        internal static Rect GetViewportBounds(Camera camera, Bounds bounds)
+        {
+            if (camera == null) throw new ArgumentNullException(nameof(camera));
+            var minimum = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+            var maximum = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+            for (var x = -1; x <= 1; x += 2)
+            for (var y = -1; y <= 1; y += 2)
+            for (var z = -1; z <= 1; z += 2)
+            {
+                var world = bounds.center + Vector3.Scale(
+                    bounds.extents,
+                    new Vector3(x, y, z));
+                var viewport = camera.WorldToViewportPoint(world);
+                minimum = Vector2.Min(minimum, viewport);
+                maximum = Vector2.Max(maximum, viewport);
+            }
+            return Rect.MinMaxRect(minimum.x, minimum.y, maximum.x, maximum.y);
+        }
+
+        private float InitialZoomMagnification => Mathf.Clamp(
+            initialZoomMagnification,
+            MinimumZoomMagnification,
+            MaximumZoomMagnification);
+
+        private float RightViewportMargin => Mathf.Clamp01(rightViewportMargin);
+        private float BottomViewportMargin => Mathf.Clamp01(bottomViewportMargin);
 
         internal void BeginShowcaseDragForTests()
         {

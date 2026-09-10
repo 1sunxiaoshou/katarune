@@ -6,6 +6,13 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarMotionLibraryTests
     {
         [Test]
+        public void PlayerStartsWithoutUnitySplashScreen()
+        {
+            Assert.That(UnityEditor.PlayerSettings.SplashScreen.show, Is.False);
+            Assert.That(UnityEditor.PlayerSettings.SplashScreen.showUnityLogo, Is.False);
+        }
+
+        [Test]
         public void ImportAliasesNormalizeArmaturePrefixAndLoopSuffix()
         {
             var names = new[]
@@ -96,6 +103,12 @@ namespace Katarune.Avatar.Tests
             Assert.That(library.TryGetAction(AvatarPresetAction.Celebrate, out var action), Is.True);
             Assert.That(action.Duration, Is.EqualTo(3f));
 
+            var gameObject = new GameObject("Motion Controller");
+            var controller = gameObject.AddComponent<AvatarMotionController>();
+            controller.Configure(library, loadFromResources: false);
+            Assert.That(controller.AvailableActions[2].DurationSeconds, Is.EqualTo(3f));
+
+            Object.DestroyImmediate(gameObject);
             Object.DestroyImmediate(library);
             Object.DestroyImmediate(idle);
             Object.DestroyImmediate(talking);

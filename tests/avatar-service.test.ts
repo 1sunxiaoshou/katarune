@@ -62,7 +62,7 @@ async function launch() {
     JSON.stringify({
       type: "ready",
       capabilities: {
-        actions: [{ id: "wave", label: "挥手" }],
+        actions: [{ id: "wave", label: "挥手", durationSeconds: 2.4 }],
         expressions: ["neutral", "happy"],
       },
     }) + "\n",
@@ -77,10 +77,18 @@ async function launch() {
         context: undefined,
       }),
     );
-  return { service, socket, requests, invoke };
+  return { service, socket, requests, tools, invoke };
 }
 
 describe("Unity local control bridge", () => {
+  it("describes action durations approximately", async () => {
+    const { tools } = await launch();
+
+    expect(tools.avatar_action?.description).toContain(
+      "wave（挥手，约 2 秒）",
+    );
+  });
+
   it("forwards every native event unchanged and waits for playback only after stream end", async () => {
     const { service, socket, requests } = await launch();
     expect(
@@ -197,10 +205,7 @@ describe("Unity local control bridge", () => {
     socket.write(
       JSON.stringify({ type: "result", id: actionRequest.id, ok: true }) + "\n",
     );
-    await expect(action).resolves.toEqual({
-      actionId: actionRequest.id,
-      status: "accepted",
-    });
+    await expect(action).resolves.toEqual({ ok: true });
     expect(expressionAccepted).toBe(false);
     await expect(
       service.start({ ...binding, threadId: "other" }),
@@ -212,10 +217,7 @@ describe("Unity local control bridge", () => {
         ok: true,
       }) + "\n",
     );
-    await expect(expression).resolves.toEqual({
-      expressionId: requests.find((r) => r.operation === "expression")!.id,
-      status: "accepted",
-    });
+    await expect(expression).resolves.toEqual({ ok: true });
     expect(expressionAccepted).toBe(true);
     expect(requests.find((r) => r.operation === "expression")).toMatchObject({
       toolCallId: "set_expression",
@@ -264,7 +266,7 @@ describe("Unity local control bridge", () => {
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     const id = requests[0]!.id;
     socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
-    await expect(result).resolves.toEqual({ actionId: id, status: "accepted" });
+    await expect(result).resolves.toEqual({ ok: true });
     socket.write(
       JSON.stringify({ type: "action", id, status: "started" }) + "\n",
     );

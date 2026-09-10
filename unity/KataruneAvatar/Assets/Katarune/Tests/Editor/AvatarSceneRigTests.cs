@@ -5,15 +5,6 @@ namespace Katarune.Avatar.Tests
 {
     public sealed class AvatarSceneRigTests
     {
-        [TestCase(1f, 0.7f)]
-        [TestCase(1.7f, 0.75f)]
-        [TestCase(2.4f, 0.8f)]
-        [TestCase(3f, 0.8f)]
-        public void DesiredViewportCenterStaysOnRightAndAdaptsToAspect(float aspect, float expected)
-        {
-            Assert.That(AvatarSceneRig.GetDesiredViewportCenterX(aspect), Is.EqualTo(expected).Within(0.005f));
-        }
-
         [Test]
         public void PhysicalLensShiftMovesFramingWithoutMovingTheCameraOffAxis()
         {
@@ -32,6 +23,36 @@ namespace Katarune.Avatar.Tests
             }
             finally
             {
+                Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        [Test]
+        public void InitialFramingUsesThreeFifthsScaleAtTheBottomRightMargin()
+        {
+            var cameraObject = new GameObject("Initial Framing Camera") { tag = "MainCamera" };
+            var camera = cameraObject.AddComponent<Camera>();
+            camera.fieldOfView = 30f;
+            var rig = cameraObject.AddComponent<AvatarSceneRig>();
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            avatar.transform.localScale = new Vector3(0.8f, 2f, 0.6f);
+
+            try
+            {
+                rig.Configure(true);
+                var bounds = rig.Frame(avatar);
+                var state = rig.CaptureFraming();
+                var viewportBounds = AvatarSceneRig.GetViewportBounds(camera, bounds);
+
+                Assert.That(state.ZoomMagnification, Is.EqualTo(3f / 5f).Within(0.0001f));
+                Assert.That(state.TargetZoomMagnification, Is.EqualTo(3f / 5f).Within(0.0001f));
+                Assert.That(viewportBounds.yMin, Is.EqualTo(0.08f).Within(0.001f));
+                Assert.That(viewportBounds.xMax, Is.EqualTo(0.92f).Within(0.001f));
+                Assert.That(state.ShowcaseAvatar.localScale, Is.EqualTo(new Vector3(0.8f, 2f, 0.6f)));
+            }
+            finally
+            {
+                Object.DestroyImmediate(avatar);
                 Object.DestroyImmediate(cameraObject);
             }
         }
@@ -322,16 +343,16 @@ namespace Katarune.Avatar.Tests
                 var targetViewportBefore = camera.WorldToViewportPoint(before.FramingTarget);
 
                 rig.ApplyCompositionPanDelta(
-                    new Vector2(100f, -100f),
+                    new Vector2(20f, -100f),
                     new Vector2(1000f, 500f));
                 var queued = rig.CaptureFraming();
                 rig.AdvanceShowcaseMotion(1f / 60f);
                 var panning = rig.CaptureFraming();
 
-                Assert.That(queued.TargetCompositionOffsetViewport.x, Is.EqualTo(0.1f).Within(0.0001f));
+                Assert.That(queued.TargetCompositionOffsetViewport.x, Is.EqualTo(0.02f).Within(0.0001f));
                 Assert.That(queued.TargetCompositionOffsetViewport.y, Is.EqualTo(-0.2f).Within(0.0001f));
                 Assert.That(queued.CompositionOffsetViewport, Is.EqualTo(Vector2.zero));
-                Assert.That(panning.CompositionOffsetViewport.x, Is.GreaterThan(0f).And.LessThan(0.1f));
+                Assert.That(panning.CompositionOffsetViewport.x, Is.GreaterThan(0f).And.LessThan(0.02f));
                 Assert.That(panning.CompositionOffsetViewport.y, Is.LessThan(0f).And.GreaterThan(-0.2f));
                 Assert.That(
                     camera.lensShift.x,

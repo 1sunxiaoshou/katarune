@@ -88,7 +88,10 @@ namespace Katarune.Avatar
             if (_library != null)
                 foreach (var action in _library.Definitions)
                     if (action != null && action.Clip != null && !IsScheduledAction(action.Id))
-                        _availableActions.Add(new AvatarActionInfo(action.Id, action.DisplayName));
+                        _availableActions.Add(new AvatarActionInfo(
+                            action.Id,
+                            action.DisplayName,
+                            action.Duration));
         }
 
         private bool IsScheduledAction(string id)
