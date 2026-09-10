@@ -1,3 +1,4 @@
+import { AvatarControl } from "./AvatarControl";
 import { EyeIcon, EyeOffIcon, SettingsIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -77,6 +78,7 @@ export function ChatPage({
         </div>
 
         <footer className="chat-sidebar-footer">
+          <AvatarControl />
           <TooltipIconButton
             tooltip="打开设置"
             side="top"

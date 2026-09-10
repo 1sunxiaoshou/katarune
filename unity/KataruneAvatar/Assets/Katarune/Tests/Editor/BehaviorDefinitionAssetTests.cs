@@ -146,7 +146,6 @@ namespace Katarune.Avatar.Tests
                 syncPoints ?? Array.Empty<BehaviorSyncPoint>(),
                 syncPoints != null && syncPoints.Any(point => point.SafeExit) ? "exit.safe" : string.Empty,
                 new BehaviorClipSegment(0.8f, 1f),
-                Array.Empty<string>(),
                 BehaviorFallbackStrategy.None,
                 string.Empty,
                 new BehaviorAssetLicense(

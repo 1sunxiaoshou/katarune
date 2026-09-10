@@ -358,7 +358,12 @@ namespace Katarune.Avatar
         public void CancelAction()
         {
             ThrowIfDisposed();
-            if (CurrentActionId != null) ReturnToIdle();
+            if (CurrentActionId != null && !_returningToIdle)
+            {
+                ActionSequence += 1;
+                ReturnToIdle();
+                Changed?.Invoke();
+            }
         }
 
         public BehaviorRequestResult RequestBehavior(

@@ -1,3 +1,4 @@
+import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
 import {
   aiRuntimeStatusSchema,
@@ -105,6 +106,9 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  startAvatar: (request: AvatarBinding) => invokeValidated(AVATAR_CHANNELS.start, avatarStatusSchema, avatarBindingSchema.parse(request)),
+  stopAvatar: () => invokeValidated(AVATAR_CHANNELS.stop, avatarStatusSchema),
+  getAvatarStatus: () => invokeValidated(AVATAR_CHANNELS.status, avatarStatusSchema),
   getAppInfo: () => invokeValidated(IPC_CHANNELS.getAppInfo, appInfoSchema),
   getDatabaseStatus: () => invokeValidated(IPC_CHANNELS.getDatabaseStatus, databaseStatusSchema),
   getAiRuntimeStatus: () => invokeValidated(IPC_CHANNELS.getAiRuntimeStatus, aiRuntimeStatusSchema),

@@ -35,7 +35,6 @@ namespace Katarune.Avatar
         None = 0,
         SafePointExit = 1 << 0,
         Pause = 1 << 1,
-        ChannelUpdate = 1 << 2,
     }
 
     public enum PerformanceInstanceState
@@ -66,7 +65,6 @@ namespace Katarune.Avatar
         ExitAtSafePoint,
         Pause,
         Resume,
-        UpdateChannels,
     }
 
     public enum PerformanceTransitionOutcome
@@ -197,36 +195,12 @@ namespace Katarune.Avatar
 
     public readonly struct PerformanceCommand
     {
-        private static readonly IReadOnlyList<PerformanceChannel> NoChannels =
-            Array.AsReadOnly(Array.Empty<PerformanceChannel>());
-
-        private PerformanceCommand(
-            PerformanceCommandKind kind,
-            IReadOnlyList<PerformanceChannel> channels)
-        {
-            Kind = kind;
-            Channels = channels;
-        }
-
+        private PerformanceCommand(PerformanceCommandKind kind) { Kind = kind; }
         public PerformanceCommandKind Kind { get; }
-        public IReadOnlyList<PerformanceChannel> Channels { get; }
-
-        public static PerformanceCommand CancelImmediate() =>
-            new PerformanceCommand(PerformanceCommandKind.CancelImmediate, NoChannels);
-
-        public static PerformanceCommand ExitAtSafePoint() =>
-            new PerformanceCommand(PerformanceCommandKind.ExitAtSafePoint, NoChannels);
-
-        public static PerformanceCommand Pause() =>
-            new PerformanceCommand(PerformanceCommandKind.Pause, NoChannels);
-
-        public static PerformanceCommand Resume() =>
-            new PerformanceCommand(PerformanceCommandKind.Resume, NoChannels);
-
-        public static PerformanceCommand UpdateChannels(params PerformanceChannel[] channels) =>
-            new PerformanceCommand(
-                PerformanceCommandKind.UpdateChannels,
-                PerformanceDomainValidation.CopyChannels(channels, nameof(channels)));
+        public static PerformanceCommand CancelImmediate() => new PerformanceCommand(PerformanceCommandKind.CancelImmediate);
+        public static PerformanceCommand ExitAtSafePoint() => new PerformanceCommand(PerformanceCommandKind.ExitAtSafePoint);
+        public static PerformanceCommand Pause() => new PerformanceCommand(PerformanceCommandKind.Pause);
+        public static PerformanceCommand Resume() => new PerformanceCommand(PerformanceCommandKind.Resume);
     }
 
     public sealed class PerformanceInstance
@@ -299,8 +273,6 @@ namespace Katarune.Avatar
                     return Pause();
                 case PerformanceCommandKind.Resume:
                     return Resume();
-                case PerformanceCommandKind.UpdateChannels:
-                    return UpdateChannels(command.Channels);
                 default:
                     return PerformanceTransitionOutcome.Rejected;
             }
@@ -334,25 +306,6 @@ namespace Katarune.Avatar
                 return PerformanceTransitionOutcome.Rejected;
 
             return TransitionTo(PerformanceInstanceState.Running);
-        }
-
-        private PerformanceTransitionOutcome UpdateChannels(IReadOnlyList<PerformanceChannel> channels)
-        {
-            if (!Supports(PerformanceControlCapabilities.ChannelUpdate))
-                return PerformanceTransitionOutcome.Unsupported;
-            if (State != PerformanceInstanceState.Running
-                && State != PerformanceInstanceState.Paused)
-                return PerformanceTransitionOutcome.Rejected;
-            if (channels == null || channels.Count == 0)
-                return PerformanceTransitionOutcome.Rejected;
-
-            for (var index = 0; index < channels.Count; index += 1)
-            {
-                if (!Plan.Claims(channels[index])) return PerformanceTransitionOutcome.Rejected;
-            }
-
-            Revision += 1;
-            return PerformanceTransitionOutcome.Applied;
         }
 
         private bool Supports(PerformanceControlCapabilities capability) =>
@@ -446,29 +399,5 @@ namespace Katarune.Avatar
             return Array.AsReadOnly(copy);
         }
 
-        public static ReadOnlyCollection<PerformanceChannel> CopyChannels(
-            IReadOnlyList<PerformanceChannel> channels,
-            string parameterName)
-        {
-            if (channels == null) throw new ArgumentNullException(parameterName);
-            if (channels.Count == 0)
-                throw new ArgumentException("At least one channel is required.", parameterName);
-
-            var copy = new PerformanceChannel[channels.Count];
-            var seen = new HashSet<PerformanceChannel>();
-            for (var index = 0; index < channels.Count; index += 1)
-            {
-                var channel = channels[index];
-                if (!Enum.IsDefined(typeof(PerformanceChannel), channel))
-                    throw new ArgumentOutOfRangeException(parameterName);
-                if (!seen.Add(channel))
-                    throw new ArgumentException(
-                        $"Channel '{channel}' can only be updated once.",
-                        parameterName);
-                copy[index] = channel;
-            }
-
-            return Array.AsReadOnly(copy);
-        }
     }
 }

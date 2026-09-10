@@ -32,7 +32,6 @@ namespace Katarune.Avatar
         InvalidLoopIterations,
         InvalidSyncPoint,
         InvalidExitSyncPoint,
-        InvalidHotUpdateParameter,
         InvalidFallback,
         InvalidLicenseMetadata,
         CapabilityMismatch,
@@ -177,7 +176,6 @@ namespace Katarune.Avatar
         [SerializeField] private string _exitSyncPoint;
         [SerializeField] private bool _hasExit;
         [SerializeField] private BehaviorClipSegment _exit;
-        [SerializeField] private string[] _hotUpdateParameters = Array.Empty<string>();
         [SerializeField] private BehaviorFallbackStrategy _fallbackStrategy;
         [SerializeField] private string _fallbackBehaviorId;
         [SerializeField] private BehaviorAssetLicense _license;
@@ -211,8 +209,6 @@ namespace Katarune.Avatar
             Array.AsReadOnly(_syncPoints ?? Array.Empty<BehaviorSyncPoint>());
         public string ExitSyncPoint => _exitSyncPoint;
         public BehaviorClipSegment Exit => _hasExit ? _exit : null;
-        public IReadOnlyList<string> HotUpdateParameters =>
-            Array.AsReadOnly(_hotUpdateParameters ?? Array.Empty<string>());
         public BehaviorFallbackStrategy FallbackStrategy => _fallbackStrategy;
         public string FallbackBehaviorId => _fallbackBehaviorId;
         public BehaviorAssetLicense License => _license;
@@ -239,10 +235,6 @@ namespace Katarune.Avatar
                     break;
                 }
             }
-            if (_hotUpdateParameters.Length > 0)
-            {
-                controls |= PerformanceControlCapabilities.ChannelUpdate;
-            }
 
             return new BehaviorDefinition(_behaviorId, claims, controls);
         }
@@ -261,7 +253,6 @@ namespace Katarune.Avatar
             BehaviorSyncPoint[] syncPoints,
             string exitSyncPoint,
             BehaviorClipSegment exit,
-            string[] hotUpdateParameters,
             BehaviorFallbackStrategy fallbackStrategy,
             string fallbackBehaviorId,
             BehaviorAssetLicense license)
@@ -282,7 +273,6 @@ namespace Katarune.Avatar
             _exitSyncPoint = exitSyncPoint;
             _hasExit = exit != null;
             _exit = exit;
-            _hotUpdateParameters = hotUpdateParameters ?? Array.Empty<string>();
             _fallbackStrategy = fallbackStrategy;
             _fallbackBehaviorId = fallbackBehaviorId;
             _license = license;
@@ -381,7 +371,6 @@ namespace Katarune.Avatar
             ValidateAvatarMask(definition, errors);
             ValidateSyncPoints(definition, errors);
             ValidateExitSyncPoint(definition, errors);
-            ValidateHotUpdates(definition, errors);
             ValidateFallback(definition, errors);
             ValidateLicense(definition, errors);
 
@@ -532,22 +521,6 @@ namespace Katarune.Avatar
                 {
                     Add(errors, BehaviorDefinitionValidationErrorCode.InvalidSyncPoint,
                         $"Safe-exit sync point '{point.Name}' requires an exit segment.");
-                }
-            }
-        }
-
-        private static void ValidateHotUpdates(
-            BehaviorDefinitionAsset definition,
-            List<BehaviorDefinitionValidationError> errors)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            for (var index = 0; index < definition.HotUpdateParameters.Count; index += 1)
-            {
-                var parameter = definition.HotUpdateParameters[index];
-                if (!IsStableIdentifier(parameter) || !seen.Add(parameter))
-                {
-                    Add(errors, BehaviorDefinitionValidationErrorCode.InvalidHotUpdateParameter,
-                        $"Behavior '{definition.BehaviorId}' has an invalid or duplicate hot-update parameter '{parameter}'.");
                 }
             }
         }

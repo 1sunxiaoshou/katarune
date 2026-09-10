@@ -381,7 +381,7 @@ export function ThreadStarline({
           data-testid="thread-starline-scroll"
           onScroll={updateScrollState}
         >
-          {loading && (
+          {loading && threadIds.length === 0 && (
             <p className="thread-starline-state" role="status">
               正在读取会话……
             </p>

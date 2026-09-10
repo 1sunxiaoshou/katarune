@@ -4,7 +4,11 @@ import {
   useAuiState,
   useRemoteThreadListRuntime,
 } from "@assistant-ui/react";
-import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
+import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
+import { useChat } from "@ai-sdk/react";
+import { createChatSendQueue } from "./chat/chatSendQueue";
+import { useAvatarState } from "./chat/avatarState";
+import { AvatarToolUI } from "./chat/AvatarToolUI";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
   lastAssistantMessageIsCompleteWithToolCalls,
@@ -44,11 +48,23 @@ function useCharacterRuntimeConfig(): Character {
 
 function ThreadRuntimeHook() {
   const character = useCharacterRuntimeConfig();
+  const aui = useAui();
+  const threadId = useAuiState((s) => s.threadListItem.id);
+  const remoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const avatar = useAvatarState((s) => s.status);
+  const avatarBound =
+    avatar.phase === "ready" &&
+    avatar.binding?.characterId === character.id &&
+    avatar.binding.threadId === (remoteId ?? threadId);
   const { appSettings } = useApplicationSettings();
   const [speechAvailable, setSpeechAvailable] = useState(false);
   const transport = useMemo(
-    () => new KataruneChatTransport(character.id),
-    [character.id],
+    () =>
+      new KataruneChatTransport(
+        character.id,
+        async () => (await aui.threadListItem().initialize()).remoteId,
+      ),
+    [character.id, aui],
   );
   const attachments = useMemo(() => new KataruneAttachmentAdapter(), []);
   useEffect(() => {
@@ -84,16 +100,50 @@ function ThreadRuntimeHook() {
     ],
   );
   useEffect(() => () => speech?.dispose(), [speech]);
-  return useChatRuntime({
+  const chat = useChat({
+    id: threadId,
     transport,
-    adapters: { attachments, speech },
-    isSendDisabled:
-      character.modelConfigId === null &&
-      appSettings.defaultLanguageModelConfigId === null,
-    sendAutomaticallyWhen: (options) =>
-      lastAssistantMessageIsCompleteWithToolCalls(options) ||
-      lastAssistantMessageIsCompleteWithApprovalResponses(options),
+    sendAutomaticallyWhen: (options) => {
+      if (lastAssistantMessageIsCompleteWithApprovalResponses(options))
+        return true;
+      const parts = options.messages.at(-1)?.parts ?? [];
+      if (
+        parts.some(
+          (p) =>
+            p.type === "tool-avatar_action" ||
+            p.type === "tool-set_expression",
+        )
+      )
+        return false;
+      return lastAssistantMessageIsCompleteWithToolCalls(options);
+    },
   });
+  const sendRef = useRef(chat.sendMessage);
+  sendRef.current = chat.sendMessage;
+  const queue = useMemo(
+    () =>
+      createChatSendQueue(
+        (...args) => sendRef.current(...args),
+        (count) => useAvatarState.getState().setQueued(threadId, count),
+      ),
+    [threadId],
+  );
+  useEffect(() => {
+    queue.activate();
+    return () => queue.dispose();
+  }, [queue]);
+  const runtime = useAISDKRuntime(
+    { ...chat, sendMessage: avatarBound ? queue.send : chat.sendMessage },
+    {
+      adapters: { attachments, speech },
+      cancelPendingToolCallsOnSend: !avatarBound,
+      isSendDisabled:
+        character.modelConfigId === null &&
+        appSettings.defaultLanguageModelConfigId === null,
+    },
+  );
+  transport.setRuntime(runtime);
+  return runtime;
 }
 
 function AutoReadReplies(): null {
@@ -103,11 +153,12 @@ function AutoReadReplies(): null {
   const canSpeak = useAuiState((state) => state.thread.capabilities.speech);
   const wasRunning = useRef(isRunning);
   const lastSpokenMessageId = useRef<string | null>(null);
+  const avatarActive = useAvatarState((s) => s.status.phase === "ready");
 
   useEffect(() => {
     const completedRun = wasRunning.current && !isRunning;
     wasRunning.current = isRunning;
-    if (!completedRun || !autoReadReplies || !canSpeak) return;
+    if (!completedRun || !autoReadReplies || !canSpeak || avatarActive) return;
 
     const timer = window.setTimeout(() => {
       const thread = aui.thread().getState();
@@ -129,7 +180,7 @@ function AutoReadReplies(): null {
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [aui, autoReadReplies, canSpeak, isRunning]);
+  }, [aui, autoReadReplies, canSpeak, isRunning, avatarActive]);
 
   return null;
 }
@@ -161,6 +212,7 @@ function CharacterRuntimeHost({
             <AutoReadReplies />
             <MemoryWikiToolUI />
             <ViewChatImageToolUI />
+            <AvatarToolUI />
             {children}
           </>
         ) : null}

@@ -56,4 +56,7 @@
 
         <hud:AvatarHudTooltipElement name="hudTooltip" class="hud-tooltip" picking-mode="Ignore" />
     </ui:VisualElement>
+    <ui:VisualElement name="subtitleRoot" class="subtitle-root" picking-mode="Ignore">
+        <ui:Label name="subtitleText" class="subtitle-text" picking-mode="Ignore" enable-rich-text="false" />
+    </ui:VisualElement>
 </ui:UXML>

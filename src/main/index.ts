@@ -1,3 +1,4 @@
+import { AvatarService } from "./avatar/avatarService";
 import { join } from "node:path";
 import { app, BrowserWindow, Menu, safeStorage, shell } from "electron";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
@@ -20,6 +21,8 @@ import { createCredentialStore } from "./security/credentialStore";
 import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
 import { createTtsCache } from "./speech/ttsCache";
 import { createSpeechService } from "./speech/ttsService";
+
+let avatarService: AvatarService | undefined;
 
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
@@ -48,6 +51,8 @@ function createMainWindow(): BrowserWindow {
 
   window.once("ready-to-show", () => {
     window.show();
+    // Windows can inherit SW_HIDE from the launching terminal on the first show.
+    if (!window.isVisible()) window.show();
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -138,6 +143,11 @@ void app.whenReady().then(async () => {
     cache: ttsCache,
   });
   registerAssetProtocol(databaseRuntime, assetService);
+  avatarService = new AvatarService(
+    app.isPackaged ? join(process.resourcesPath, "avatar", "KataruneAvatar.exe")
+      : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
+    join(app.getPath("userData"), "logs"),
+  );
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
@@ -145,6 +155,7 @@ void app.whenReady().then(async () => {
     assetService,
     speechService,
     memoryWiki,
+    avatarService,
   );
   createMainWindow();
 
@@ -159,6 +170,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  avatarService?.stop();
   speechRequests?.cancelAll();
   speechRequests = undefined;
   void kataruneAiToolkit.close().catch((error: unknown) => {

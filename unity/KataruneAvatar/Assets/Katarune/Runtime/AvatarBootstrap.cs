@@ -100,6 +100,11 @@ namespace Katarune.Avatar
                     _avatarWindow.SetHudVisible(_hud.Visible);
                 }
 
+                var controlPipe = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_PIPE");
+                if (!string.IsNullOrWhiteSpace(controlPipe))
+                    gameObject.AddComponent<AvatarControlConnection>().Configure(
+                        _facade, hudObject.GetComponent<UnityEngine.UIElements.UIDocument>(), controlPipe);
+
                 var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
                 if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
             }

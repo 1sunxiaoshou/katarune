@@ -21,7 +21,6 @@ namespace Katarune.Avatar.Editor
         public BehaviorSyncPoint[] SyncPoints;
         public string ExitSyncPoint;
         public BehaviorClipSegment Exit;
-        public string[] HotUpdateParameters;
         public BehaviorFallbackStrategy FallbackStrategy;
         public string FallbackBehaviorId;
         public BehaviorAssetLicense License;
@@ -42,7 +41,6 @@ namespace Katarune.Avatar.Editor
                 SyncPoints,
                 ExitSyncPoint,
                 Exit,
-                HotUpdateParameters,
                 FallbackStrategy,
                 FallbackBehaviorId,
                 License);
@@ -55,7 +53,7 @@ namespace Katarune.Avatar.Editor
         {
             "schemaVersion", "behaviorId", "version", "requiredCapabilities",
             "channelClaims", "clipGuid", "entry", "loop", "loopIterations", "syncPoints", "exitSyncPoint", "exit",
-            "avatarMaskGuid", "hotUpdateParameters", "fallbackStrategy", "fallbackBehaviorId", "license",
+            "avatarMaskGuid", "fallbackStrategy", "fallbackBehaviorId", "license",
         };
 
         public static BehaviorDefinitionSource Parse(string json)
@@ -96,9 +94,6 @@ namespace Katarune.Avatar.Editor
                     "$.syncPoints"),
                 ExitSyncPoint = OptionalString(root, "exitSyncPoint", "$"),
                 Exit = ReadOptionalSegment(root, "exit", "$"),
-                HotUpdateParameters = ReadStrings(
-                    RequireArray(root, "hotUpdateParameters", "$"),
-                    "$.hotUpdateParameters"),
                 FallbackStrategy = ReadFallbackStrategy(
                     RequireString(root, "fallbackStrategy", "$"),
                     "$.fallbackStrategy"),
@@ -166,16 +161,6 @@ namespace Katarune.Avatar.Editor
                     RequireString(item, "name", itemPath),
                     RequireFloat(item, "timeSeconds", itemPath),
                     RequireBoolean(item, "safeExit", itemPath));
-            }
-            return result;
-        }
-
-        private static string[] ReadStrings(JsonArray values, string path)
-        {
-            var result = new string[values.Count];
-            for (var index = 0; index < values.Count; index += 1)
-            {
-                result[index] = RequireString(values[index], $"{path}[{index}]");
             }
             return result;
         }

@@ -5,6 +5,30 @@
     --disabled: #b7b7b7;
 }
 
+.subtitle-root {
+    display: none;
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: 72px;
+    align-items: center;
+    -unity-font-definition: url("project://database/Assets/Katarune/Runtime/UI/Hud/Fonts/NotoSansSC-Regular.ttf");
+}
+
+.subtitle-text {
+    max-width: 880px;
+    padding: 16px 24px;
+    background-color: rgba(249, 223, 234, 0.9);
+    color: #493747;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 0.65);
+    font-size: 24px;
+    -unity-font-style: bold;
+    white-space: normal;
+    -unity-text-align: middle-left;
+}
+
 .hud-root {
     position: absolute;
     left: 0;

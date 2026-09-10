@@ -127,12 +127,22 @@ let maximumConcurrentChatCharacters = 0;
 const activeChatStreamsByCharacter = new Map();
 let releaseFirstChatStream;
 let releaseCrossCharacterStream;
+let avatarStatus = { phase: "stopped", binding: null, error: null };
+const avatarChatRequests = [];
+const titleRequests = [];
+let releaseAvatarOutput;
+let canceledAvatarStreams = 0;
+let pendingThreadListLoads = 0;
+let completedThreadListLoads = 0;
 
 function messageKey(threadId, characterId) {
   return `${characterId}:${threadId}`;
 }
 
 function registerMockHandlers() {
+  ipcMain.handle("avatar:status", () => avatarStatus);
+  ipcMain.handle("avatar:start", (_event, binding) => avatarStatus = { phase: "ready", binding, error: null });
+  ipcMain.handle("avatar:stop", () => avatarStatus = { phase: "stopped", binding: null, error: null });
   ipcMain.handle("app:get-info", () => ({
     name: "Katarune",
     version: "0.1.0",
@@ -166,9 +176,16 @@ function registerMockHandlers() {
       activeCharacter: characters.find((candidate) => candidate.id === activeCharacterId),
     };
   });
-  ipcMain.handle("threads:list", (_event, request) => ({
-    threads: threads.filter((thread) => thread.characterId === request.characterId),
-  }));
+  ipcMain.handle("threads:list", async (_event, request) => {
+    pendingThreadListLoads += 1;
+    try {
+      await new Promise(resolve => setTimeout(resolve, 80));
+      return { threads: threads.filter((thread) => thread.characterId === request.characterId) };
+    } finally {
+      pendingThreadListLoads -= 1;
+      completedThreadListLoads += 1;
+    }
+  });
   ipcMain.handle("threads:initialize", (_event, request) => {
     if (!threads.some((thread) => thread.remoteId === request.threadId)) {
       threads = [
@@ -194,6 +211,7 @@ function registerMockHandlers() {
     return thread;
   });
   ipcMain.handle("threads:generate-title", (_event, request) => {
+    titleRequests.push(request);
     generatedThreadTitleRequest = request;
     const title = `星光下的${request.messages[0]?.text.slice(0, 12) ?? "新对话"}`;
     threads = threads.map((thread) =>
@@ -304,6 +322,17 @@ function registerMockHandlers() {
     const stream = createUIMessageStream({
       originalMessages: request.messages,
       execute: async ({ writer }) => {
+        if (avatarStatus.phase === "ready") {
+          avatarChatRequests.push(request);
+          const index = avatarChatRequests.length;
+          writer.write({ type: "start-step" });
+          writer.write({ type: "text-start", id: `text-${index}` });
+          writer.write({ type: "text-delta", id: `text-${index}`, delta: `字幕对白第${index}句` });
+          if (index === 1) await new Promise(resolve => { releaseAvatarOutput = resolve; });
+          writer.write({ type: "text-end", id: `text-${index}` });
+          writer.write({ type: "finish-step" });
+          return;
+        }
         const serializedMessages = JSON.stringify(request.messages);
         const isSecondCharacter = request.characterId === secondCharacter.id;
         const isCrossCharacterRun = serializedMessages.includes("跨角色");
@@ -444,6 +473,7 @@ function registerMockHandlers() {
 
     port.on("message", ({ data }) => {
       if (data?.type === "cancel") {
+        if (avatarStatus.phase === "ready") canceledAvatarStreams += 1;
         close();
         return;
       }
@@ -812,6 +842,16 @@ async function run() {
     });
 
     await runStep("stream one message", async () => {
+      const listLoadsBeforeSend = completedThreadListLoads;
+      await window.webContents.executeJavaScript(`(() => {
+        const list = document.querySelector('[data-testid="thread-starline-scroll"]');
+        window.threadListProbe = { row: list.querySelector('[data-testid="thread-starline-item"]'), flashes: 0 };
+        const observer = new MutationObserver(() => {
+          if (list.querySelector('[role="status"]')) window.threadListProbe.flashes += 1;
+        });
+        observer.observe(list, { childList: true, subtree: true });
+        window.threadListProbe.observer = observer;
+      })()`);
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
@@ -826,6 +866,13 @@ async function run() {
         '[data-slot="aui_thread-viewport"]',
         "抵达：",
       );
+      await waitUntil("message persistence and thread metadata refresh", () => activeChatStreamCount === 0 && pendingThreadListLoads === 0 && completedThreadListLoads > listLoadsBeforeSend);
+      const listRefresh = await window.webContents.executeJavaScript(`(() => {
+        const probe = window.threadListProbe;
+        probe.observer.disconnect();
+        return { flashes: probe.flashes, originalRowRetained: probe.row.isConnected };
+      })()`);
+      assert.deepEqual(listRefresh, { flashes: 0, originalRowRetained: true });
     });
 
     await runStep("render private Memory Wiki tool status", async () => {
@@ -958,6 +1005,55 @@ async function run() {
         JSON.stringify(appendedMessageRequest.message.content),
         new RegExp(`katarune-asset://asset/${importedAttachmentIds[2]}`),
       );
+    });
+
+    await runStep("queue avatar dialogue without interrupting or restarting the Agent", async () => {
+      await waitUntil("previous chat complete", () => activeChatStreamCount === 0);
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, ".aui-thread-welcome-root");
+      await clickSelector(window, '[data-testid="avatar-toggle"]');
+      await waitForText(window, '[data-testid="avatar-toggle"]', "停止桌宠");
+      assert.equal(threads.some(t => t.remoteId === avatarStatus.binding.threadId), false, "Connecting the avatar must not persist an empty thread");
+      const sendText = async (text, enter = false) => {
+        await window.webContents.executeJavaScript(`(() => {
+          const input = document.querySelector('.aui-composer-input');
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(text)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        if (enter) await window.webContents.executeJavaScript(`document.querySelector('.aui-composer-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))`);
+        else await clickSelector(window, 'button[aria-label="Send message"]');
+      };
+      await sendText("桌宠第一句");
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', "字幕对白第1句");
+      await sendText("桌宠第二句");
+      await waitForText(window, '[role="status"]', "1");
+      await sendText("桌宠第三句", true);
+      await waitForText(window, '[role="status"]', "2");
+      assert.equal(avatarChatRequests.length, 1);
+      assert.equal(canceledAvatarStreams, 0);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Stop generating"]') === null`), true);
+      releaseAvatarOutput();
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', "字幕对白第3句");
+      await waitUntil("avatar stream completed", () => activeChatStreamCount === 0);
+      assert.equal(avatarChatRequests.length, 3);
+      await waitUntil("avatar thread gets a native title after its first reply", () => titleRequests.some(r => r.threadId === avatarChatRequests[0].threadId));
+      assert.equal(titleRequests.filter(r => r.threadId === avatarChatRequests[0].threadId).length, 1);
+      await waitForText(window, "body", "星光下的桌宠第一句");
+      assert.equal(canceledAvatarStreams, 0);
+      assert.equal(avatarChatRequests[1].messages.at(-1).parts[0].text, "桌宠第二句");
+      assert.equal(avatarChatRequests[2].messages.at(-1).parts[0].text, "桌宠第三句");
+      const rendered = await window.webContents.executeJavaScript(`document.querySelector('[data-slot="aui_thread-viewport"]').textContent`);
+      assert.equal(rendered.split("字幕对白第1句").length - 1, 1);
+      await waitUntil("native text history persisted", () => JSON.stringify([...storedMessages.values()]).includes("字幕对白第3句"));
+      await clickSelector(window, '[data-testid="avatar-toggle"]');
+      await waitForText(window, '[data-testid="avatar-toggle"]', "连接桌宠");
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, ".aui-thread-welcome-root");
+      await sendText("普通新会话标题");
+      await waitUntil("ordinary thread title generated", () => titleRequests.some(r => r.messages[0]?.text === "普通新会话标题"));
+      await waitForText(window, "body", "星光下的普通新会话标题");
+      await waitUntil("ordinary chat completed", () => activeChatStreamCount === 0);
+      assert.equal(titleRequests.filter(r => r.messages[0]?.text === "普通新会话标题").length, 1);
     });
 
     await runStep("bind character speech model", async () => {

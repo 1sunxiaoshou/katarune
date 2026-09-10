@@ -153,16 +153,11 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void SafeExitPauseResumeAndChannelUpdateHaveDistinctSemantics()
+        public void SafeExitPauseAndResumeHaveDistinctSemantics()
         {
             var capabilities = PerformanceControlCapabilities.SafePointExit
-                | PerformanceControlCapabilities.Pause
-                | PerformanceControlCapabilities.ChannelUpdate;
+                | PerformanceControlCapabilities.Pause;
             var instance = CreateRunningInstance(capabilities);
-
-            Assert.That(instance.Apply(PerformanceCommand.UpdateChannels(
-                PerformanceChannel.BodyBase)), Is.EqualTo(PerformanceTransitionOutcome.Applied));
-            Assert.That(instance.State, Is.EqualTo(PerformanceInstanceState.Running));
 
             Assert.That(instance.Apply(PerformanceCommand.Pause()),
                 Is.EqualTo(PerformanceTransitionOutcome.Applied));
@@ -196,20 +191,6 @@ namespace Katarune.Avatar.Tests
             Assert.That(instance.Complete(), Is.EqualTo(PerformanceTransitionOutcome.Rejected));
             Assert.That(instance.State, Is.EqualTo(PerformanceInstanceState.Accepted));
             Assert.That(instance.Revision, Is.EqualTo(1));
-        }
-
-        [Test]
-        public void ChannelUpdatesCannotTargetChannelsOutsideThePlan()
-        {
-            var instance = CreateRunningInstance(PerformanceControlCapabilities.ChannelUpdate);
-            var revision = instance.Revision;
-
-            var result = instance.Apply(PerformanceCommand.UpdateChannels(
-                PerformanceChannel.AttentionGaze));
-
-            Assert.That(result, Is.EqualTo(PerformanceTransitionOutcome.Rejected));
-            Assert.That(instance.Revision, Is.EqualTo(revision));
-            Assert.That(instance.State, Is.EqualTo(PerformanceInstanceState.Running));
         }
 
         [Test]

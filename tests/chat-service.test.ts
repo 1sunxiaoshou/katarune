@@ -140,6 +140,74 @@ function createMemoryWiki(
 }
 
 describe("chat service", () => {
+  it.each([false, true])("injects the confirmed body prompt only with active avatar tools (%s)", async (connected) => {
+    let prompt: unknown;
+    const model = createModel(value => { prompt = value; });
+    const service = createChatService({
+      database: createDatabase(),
+      aiRuntime: { resolveLanguageModel: () => model },
+      avatar: {
+        createTools: () => connected ? { avatar_action: tool({ inputSchema: z.object({}), execute: async () => ({ completed: true }) }) } : {},
+        relay: (_binding, stream) => stream,
+      },
+    });
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    const serialized = JSON.stringify(prompt);
+    expect(serialized).toContain("只回答确定性测试内容。");
+    expect(serialized.includes("你现在通过屏幕上的桌宠身体与用户交流。")).toBe(connected);
+    if (connected) expect(serialized).toContain("不用括号或星号旁白代替实际动作");
+  });
+
+  it("lets the native Agent loop run parallel avatar tools, continue a tool-only step, and end without extra text", async () => {
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>(yes => { resolve = yes; });
+      return { promise, resolve };
+    };
+    const releaseAction = deferred();
+    const releaseSpeech = deferred();
+    const action = vi.fn(() => releaseAction.promise.then(() => ({ completed: true })));
+    const speech = vi.fn(() => releaseSpeech.promise.then(() => ({ completed: true })));
+    let step = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        const current = ++step;
+        return { stream: new ReadableStream({ start(controller) {
+          if (current === 1) {
+            controller.enqueue({ type: "text-start", id: "progress" });
+            controller.enqueue({ type: "text-delta", id: "progress", delta: "让我做个动作。" });
+            controller.enqueue({ type: "text-end", id: "progress" });
+            for (const toolName of ["avatar_action", "set_expression"]) controller.enqueue({ type: "tool-call", toolCallId: toolName, toolName, input: "{}" });
+          } else if (current === 2) {
+            controller.enqueue({ type: "tool-call", toolCallId: "expression", toolName: "avatar_action", input: "{}" });
+          }
+          controller.enqueue({ type: "finish", finishReason: { unified: current < 3 ? "tool-calls" : "stop", raw: undefined },
+            usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
+          controller.close();
+        } }) };
+      },
+    });
+    const createTools = vi.fn(() => ({
+      avatar_action: tool({ inputSchema: z.object({}), execute: action }),
+      set_expression: tool({ inputSchema: z.object({}), execute: speech }),
+    }));
+    const signal = new AbortController().signal;
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: { createTools, relay: (_binding, stream) => stream } });
+    const output = (await service.createResponse(request, signal)).text();
+    await vi.waitFor(() => { expect(action).toHaveBeenCalledOnce(); expect(speech).toHaveBeenCalledOnce(); });
+    expect(step).toBe(1);
+    releaseSpeech.resolve();
+    await Promise.resolve(); expect(step).toBe(1);
+    releaseAction.resolve();
+    const result = await output;
+    expect(step).toBe(3);
+    expect(result).toContain('"type":"tool-output-available"');
+    expect(result).toContain('"type":"text-delta"');
+    expect(result).toContain("让我做个动作。");
+    expect(result).not.toContain("speak");
+    expect(createTools).toHaveBeenCalledWith(expect.objectContaining({ characterId, threadId: request.threadId }), signal);
+  });
+
   it("injects bounded core memory and exposes character-bound Memory Wiki tools", async () => {
     let prompt: unknown;
     const model = createModel((value) => {

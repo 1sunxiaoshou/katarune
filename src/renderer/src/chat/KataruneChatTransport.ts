@@ -8,7 +8,9 @@ interface PreparedChatRequest {
   readonly tools: FrontendTools;
 }
 
-function parsePreparedRequest(body: BodyInit | null | undefined): PreparedChatRequest {
+function parsePreparedRequest(
+  body: BodyInit | null | undefined,
+): PreparedChatRequest {
   if (typeof body !== "string") {
     throw new Error("聊天请求缺少消息内容。");
   }
@@ -38,9 +40,32 @@ function parsePreparedRequest(body: BodyInit | null | undefined): PreparedChatRe
 }
 
 export class KataruneChatTransport extends AssistantChatTransport<UIMessage> {
-  public constructor(characterId: string) {
+  public constructor(
+    characterId: string,
+    initializeThread?: () => Promise<string>,
+  ) {
     super({
       api: "katarune://chat",
+      ...(initializeThread
+        ? {
+            prepareSendMessagesRequest: async (
+              options: Parameters<
+                NonNullable<
+                  import("ai").HttpChatTransportInitOptions<UIMessage>["prepareSendMessagesRequest"]
+                >
+              >[0],
+            ) => ({
+              body: {
+                ...options.body,
+                id: await initializeThread(),
+                messages: options.messages,
+                trigger: options.trigger,
+                messageId: options.messageId,
+                metadata: options.requestMetadata,
+              },
+            }),
+          }
+        : {}),
       fetch: async (_input, init) => {
         const prepared = parsePreparedRequest(init?.body);
         const requestId = crypto.randomUUID();

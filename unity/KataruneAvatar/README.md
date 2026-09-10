@@ -6,6 +6,18 @@ Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环�
 
 开发环境的可替换测试资产为 `Assets/KataruneLocal/Models/default-avatar.vrm`、`Assets/KataruneLocal/Motions/idle-standing-breathing.vrma` 和同目录 `idle-variant-01.vrma` 至 `04.vrma`。未传入 `--vrm` 时自动加载默认模型；命令行显式模型路径优先，仍共享动作库。所有素材与生成结果均在 Git 忽略目录中，仅供本机测试，不公开分发。模型构建时复制到 Player 的对应目录，Humanoid Clip 和动作库独立打成 `MotionPacks/*.motionpack`，不再嵌入 Player，也不保留重复 VRMA 副本。
 
+## 聊天控制与 Unity 字幕
+
+Windows 开发环境已接通现有聊天界面。先构建 `Builds/Windows/KataruneAvatar.exe`，再从仓库根目录运行 `npm run dev`；在聊天底部点击“连接桌宠”，Electron 会启动 Player 并绑定当前角色和会话。退出 Electron 或点击“停止桌宠”会关闭它启动的 Player。当前加载本地默认 VRM，不自动将聊天角色切换为另一份模型。
+
+连接桌宠不会创建空白会话记录，首次发送消息才创建会话并沿用框架自动标题。
+
+Unity 通过本机 Named Pipe 公布当前动作与表情，Electron 将其注册为 `avatar_action` 和 `set_expression`。SDK 执行回调只等待 Unity 接收确认，实际播放不阻塞 Agent Loop。同时将当前绑定会话的完整 AI SDK `UIMessageChunk` 原样转发给 Unity；Unity 用原生文本和工具事件建立统一时间线，并通过 `toolCallId` 将受信任的执行请求填入对应工具节点。对白节点随文本到达显示字幕并按阅读时长完成，表情节点到达游标时切换并保持，动作节点在真正开始后根据 `allowSpeech` 决定是否放行后续对白。字幕在屏幕下方显示，浅粉半透明底、加粗深灰紫文字，保留鼠标穿透；过长文本自然分页。整轮事件流结束后等待时间线和后台动作排空，再处理下一条用户输入。TTS 与真实口型后接入同一对白节点。
+
+AI 输出期间可以继续在聊天中点击发送或按回车，输入会按顺序等待当前运行结束；队列只在内存中，已完成对白沿用聊天原生消息保存。当前未接自动重连，也未将 Unity 和本地测试素材纳入 Electron 安装包。
+
+实际 Player 控制与画面检查：构建后从仓库根目录运行 `node tests/avatar-player.integration.mjs`，会启动测试 Player、执行并行字幕/动作/表情、验证无效动作失败并自动关闭。结果、日志和截图位于 `.test-dist/avatar-player/`，不调用模型或 TTS Provider。
+
 ## 外部动画资源包
 
 主程序启动时扫描程序旁的 `MotionPacks/*.motionpack`；编辑器扫描 Unity 项目根目录的 `MotionPacks`。也可传入 `--motion-packs "C:/path/to/packs"` 指定一个独立目录。动作按包内稳定 ID 和显示名称登记，HUD 自动生成菜单，超过五个动作时每页四个、另有下一页与停止按钮。新增、替换或删除包后重启程序生效，不需改枚举、菜单代码或重建 Player。
@@ -62,6 +74,10 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 ## Local motion preview
 
+旧的专用舞蹈导入菜单已移除，动作统一通过 `Katarune > Motion Packs > Build Selected Clips or Library` 打包。已完成的本机 MMD 转换、重导出和验证脚本不再放在 `Assets/KataruneLocal/Editor` 中参与主工程编译；未来需要复现时，在具备相应依赖的独立工具工程中执行。正式导入器、动作打包器、待机增强工具以及下述验收资源生成与截图入口继续保留。
+
+需要在已有待机上增强动态时，在 Project 窗口选中循环 Humanoid `.anim`，执行 `Katarune > Avatar > Enhance Selected Idle Clip`。工具另存 `-enhanced.anim`，围绕原曲线的平均姿态放大胸肩（2 倍）、头颈（1.8 倍）和手臂（1.6 倍）变化，保留原时长、循环设置、根节点、腿脚和手指曲线；接近肌肉范围边界时降低增益。它只生成编辑器动画资产，效果需在目标模型上检查，再通过现有资源包流程使用。原始素材及派生动作继续保存在被忽略的本机资产目录。
+
 本机“妄想天使之舞”使用独立 AnyHumanMotionConverter 导出的 `Assets/KataruneLocal/Motions/Baked/dance-delusion-angel.anim`，本机修正工具导出后另存为 `dance-delusion-angel-fixed.anim`，现由外部基础包引用；原始导出保留不变。HUD 名称来自资源包配置；命令行可用 `--action dance-delusion-angel`，或传入其他已安装动作的稳定 ID。本机 AnyHumanMotionConverter 2.0.1 的导出器漏用了自带的手指绑定名称映射，导入器的 Spread 别名也存在差异；本机独立修正版统一复用其现有映射，不将二进制补丁或工具纳入项目。按用户要求只保留修正版安装，升级后必须重新核验补丁。转换器不进入项目或游戏，动作源与资源包均被 Git 忽略，公开分发许可未在此确认。
 
 当前不在仓库中固定正式待机或表演 Clip。需要预览技术动作时，从官方页面下载 [Universal Animation Library 1 Standard](https://quaternius.com/packs/universalanimationlibrary.html) 和 [Universal Animation Library 2 Standard](https://quaternius.com/packs/universalanimationlibrary2.html)，然后在 Unity 中打开 `Katarune > Avatar > Import Local Preset Motions...`，选择两个 ZIP 或解压目录。导入器验证 CC0 `License.txt`、配置 Humanoid/循环与 Root Transform，并在被 Git 忽略的 `Assets/KataruneLocal` 下生成一个基础循环和动作预览库。
@@ -74,7 +90,7 @@ UAL1 `Idle` 当前只作为技术预览的基础循环，不代表最终待机�
 
 ## Behavior definition assets
 
-`Assets/Katarune/Behaviors` 下的版本化行为定义源统一由严格 `.kbehavior` 导入器编译为 `BehaviorDefinitionAsset`。定义通过 GUID 引用单个 Clip 和可选 Avatar Mask，并声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、有限循环次数、命名同步点、退出段对应的安全点、热更新参数、回退策略和许可证元数据。Avatar Mask 只用于经过验证的局部动作，不能把任意全身 Clip 自动变成上半身手势。替换动作文件时只需修改定义，不需要增加动作枚举或运行时名称分支；未知字段、缺失资源、非法时间/安全点、重复通道或角色能力不足会返回明确错误。
+`Assets/Katarune/Behaviors` 下的版本化行为定义源统一由严格 `.kbehavior` 导入器编译为 `BehaviorDefinitionAsset`。定义通过 GUID 引用单个 Clip 和可选 Avatar Mask，并声明 Humanoid 能力、六类语义通道申请、入口/循环/退出段、有限循环次数、命名同步点、退出段对应的安全点、回退策略和许可证元数据。Avatar Mask 只用于经过验证的局部动作，不能把任意全身 Clip 自动变成上半身手势。替换动作文件时只需修改定义，不需要增加动作枚举或运行时名称分支；未知字段、缺失资源、非法时间/安全点、重复通道或角色能力不足会返回明确错误。
 
 许可证清单区分 `dev-only`、`prototype-distributable` 和 `commercial-candidate`，并保存取得日期、原始格式、商用/修改/再分发权和仓库策略。原始 FBX、ZIP 与本地预览资产始终被 Git 忽略；只有用户确认且许可证允许收录的规范化 Unity Clip 才能进入仓库。
 

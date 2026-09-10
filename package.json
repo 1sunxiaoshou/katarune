@@ -23,6 +23,7 @@
     "test:database": "node tests/run-database-integration.mjs",
     "test:ui": "npm run build && npm run test:ui:run",
     "test:ui:run": "node tests/run-ui-smoke.mjs",
+    "test:startup": "npm run build && node tests/run-startup-integration.mjs",
     "test:watch": "vitest",
     "validate:ai": "vitest run tests/ai-runtime.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",

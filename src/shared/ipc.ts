@@ -632,6 +632,9 @@ export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSch
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
+  startAvatar(request: import("./avatar").AvatarBinding): Promise<import("./avatar").AvatarStatus>;
+  stopAvatar(): Promise<import("./avatar").AvatarStatus>;
+  getAvatarStatus(): Promise<import("./avatar").AvatarStatus>;
   getAppInfo(): Promise<AppInfo>;
   getDatabaseStatus(): Promise<DatabaseStatus>;
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;

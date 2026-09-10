@@ -29,7 +29,6 @@
     "startSeconds": 1.0,
     "endSeconds": 2.0
   },
-  "hotUpdateParameters": [],
   "fallbackStrategy": "None",
   "fallbackBehaviorId": "",
   "license": {

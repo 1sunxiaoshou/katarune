@@ -9,6 +9,7 @@ build/
 /Builds/
 /Temp/
 coverage/
+.test-dist/
 .turbo/
 target/
 
