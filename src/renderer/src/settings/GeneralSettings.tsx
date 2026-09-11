@@ -248,8 +248,8 @@ export function GeneralSettings({
         <label className={`${settingRowClassName} cursor-pointer`} htmlFor="auto-read-replies">
           <SettingCopy
             id="auto-read-replies-label"
-            title="自动朗读回复"
-            description="角色配置了声音时，自动朗读新完成的回复。"
+            title="无桌宠时自动朗读"
+            description="角色配置了声音时，自动朗读新完成的回复。桌宠对白始终启用语音，不受此开关影响。"
           />
           <Switch
             id="auto-read-replies"

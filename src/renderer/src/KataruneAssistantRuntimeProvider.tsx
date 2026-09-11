@@ -91,12 +91,14 @@ function ThreadRuntimeHook() {
       character.speechModelConfigId === null ||
       character.speechVoice === null
         ? undefined
-        : new KataruneSpeechSynthesisAdapter(character.id),
+        : new KataruneSpeechSynthesisAdapter(character.id, remoteId ?? threadId),
     [
       character.id,
       character.speechModelConfigId,
       character.speechVoice,
       speechAvailable,
+      threadId,
+      remoteId,
     ],
   );
   useEffect(() => () => speech?.dispose(), [speech]);
@@ -153,12 +155,19 @@ function AutoReadReplies(): null {
   const canSpeak = useAuiState((state) => state.thread.capabilities.speech);
   const wasRunning = useRef(isRunning);
   const lastSpokenMessageId = useRef<string | null>(null);
-  const avatarActive = useAvatarState((s) => s.status.phase === "ready");
+  const character = useCharacterRuntimeConfig();
+  const threadId = useAuiState((s) => s.threadListItem.id);
+  const remoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const avatarActive = useAvatarState((s) => s.status.phase === "ready"
+    && s.status.binding?.characterId === character.id
+    && s.status.binding?.threadId === (remoteId ?? threadId));
+  const handledByAvatar = useRef(isRunning && avatarActive);
 
   useEffect(() => {
+    if (isRunning && !wasRunning.current) handledByAvatar.current = avatarActive;
     const completedRun = wasRunning.current && !isRunning;
     wasRunning.current = isRunning;
-    if (!completedRun || !autoReadReplies || !canSpeak || avatarActive) return;
+    if (!completedRun || !autoReadReplies || !canSpeak || handledByAvatar.current) return;
 
     const timer = window.setTimeout(() => {
       const thread = aui.thread().getState();

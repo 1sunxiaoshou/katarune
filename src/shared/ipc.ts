@@ -110,6 +110,7 @@ export const IPC_CHANNELS = {
   listAvailableModels: "models:list-available",
   generateSpeech: "speech:generate",
   cancelSpeech: "speech:cancel",
+  speechStarted: "speech:started",
   listProviderConfigs: "provider-configs:list",
   createProviderConfig: "provider-configs:create",
   fetchProviderConfig: "provider-configs:fetch",
@@ -517,6 +518,7 @@ export const availableModelListSchema = z.strictObject({
 export const speechGenerateRequestSchema = z.strictObject({
   requestId: z.uuid(),
   characterId: z.uuid(),
+  threadId: z.optional(z.string().check(z.minLength(1))),
   text: z.string().check(z.minLength(1), z.maxLength(100_000)),
 });
 
@@ -525,6 +527,10 @@ export const speechCancelRequestSchema = z.strictObject({
 });
 
 export const speechGenerateResponseSchema = z.union([
+  z.strictObject({
+    status: z.literal("played"),
+    requestId: z.uuid(),
+  }),
   z.strictObject({
     status: z.literal("success"),
     requestId: z.uuid(),
@@ -635,6 +641,7 @@ export interface KataruneApi {
   startAvatar(request: import("./avatar").AvatarBinding): Promise<import("./avatar").AvatarStatus>;
   stopAvatar(): Promise<import("./avatar").AvatarStatus>;
   getAvatarStatus(): Promise<import("./avatar").AvatarStatus>;
+  onSpeechStarted(callback: (request: SpeechCancelRequest) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
   getDatabaseStatus(): Promise<DatabaseStatus>;
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;

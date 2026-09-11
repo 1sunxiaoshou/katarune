@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import type { AvatarService } from "../avatar/avatarService";
 import {
   IPC_CHANNELS,
   speechCancelRequestSchema,
@@ -14,6 +15,7 @@ import {
 export function registerSpeechHandlers(
   speechService: SpeechService,
   speechRequests: SpeechRequestRegistry,
+  avatar?: AvatarService,
 ): void {
   ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
     const request = speechGenerateRequestSchema.parse(value);
@@ -29,16 +31,29 @@ export function registerSpeechHandlers(
     event.sender.once("destroyed", handleSenderDestroyed);
 
     try {
+      if (avatar?.status.busy) throw new Error("角色表演期间不能手动朗读。");
       const result = await speechService.generate(
         request.characterId,
         request.text,
         abortController.signal,
+        true,
       );
       if (abortController.signal.aborted) {
         return speechGenerateResponseSchema.parse({
           status: "cancelled",
           requestId: request.requestId,
         });
+      }
+      if (request.threadId && avatar && await avatar.playSpeech(
+        { characterId: request.characterId, threadId: request.threadId },
+        result,
+        abortController.signal,
+        () => {
+          if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.speechStarted,
+            speechCancelRequestSchema.parse({ requestId: request.requestId }));
+        },
+      )) {
+        return speechGenerateResponseSchema.parse({ status: "played", requestId: request.requestId });
       }
       return speechGenerateResponseSchema.parse({
         status: "success",

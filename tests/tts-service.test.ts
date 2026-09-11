@@ -1,5 +1,6 @@
 import type { SpeechResult } from "ai";
 import { MockSpeechModelV4 } from "ai/test";
+import type { SpeechStreamEvent } from "../src/main/ai/streamingSpeech";
 import { describe, expect, it, vi } from "vitest";
 import type {
   Character,
@@ -133,6 +134,72 @@ function database(overrides: {
 }
 
 describe("single-shot TTS service", () => {
+  it("streams before completion, applies sink backpressure, and reuses the complete WAV cache", async () => {
+    const put = vi.fn();
+    let cached: Awaited<ReturnType<NonNullable<Parameters<typeof createSpeechService>[0]["artifactCache"]>["get"]>> = null;
+    let resume!: () => void;
+    const gate = new Promise<void>(resolve => { resume = resolve; });
+    let advanced = false;
+    const streamSpeech = vi.fn(async function* (): AsyncIterable<SpeechStreamEvent> {
+      yield { type: "format", sampleRate: 24000, channels: 1, encoding: "pcm-s16le" };
+      yield { type: "alignment", segments: [{ text: "你好", startSeconds: 0, endSeconds: .1 }] };
+      yield { type: "audio", audio: new Uint8Array(4800) };
+      advanced = true;
+      yield { type: "end" };
+    });
+    const service = createSpeechService({ database: database(), cache: memoryCache(),
+      aiRuntime: { resolveSpeechModel: () => ({ ...resolvedSpeechModel(), streamSpeech, generateWithTimestamps: vi.fn() }) },
+      artifactCache: { get: async () => cached, put: async (_key, artifact) => { put(artifact); cached = artifact; } },
+    });
+    const events: SpeechStreamEvent[] = [];
+    const work = service.generate(characterId, "你好。下一句。", new AbortController().signal, true, async event => {
+      events.push(event); if (event.type === "audio") await gate;
+    });
+    await vi.waitFor(() => expect(events.some(event => event.type === "audio")).toBe(true));
+    expect(advanced).toBe(false); expect(put).not.toHaveBeenCalled();
+    expect(events[1]).toEqual({ type: "alignment", segments: [{ text: "你好。", startSeconds: 0, endSeconds: .1 }] });
+    resume();
+    expect((await work).format).toBe("wav");
+    expect(events.at(-1)?.type).toBe("end");
+    const sink = vi.fn();
+    expect((await service.generate(characterId, "你好。下一句。", new AbortController().signal, true, sink)).cacheHit).toBe(true);
+    expect(streamSpeech).toHaveBeenCalledOnce(); expect(sink).not.toHaveBeenCalled();
+  });
+  it("maps cached provider alignment back to original subtitle text without synthesis", async () => {
+    const generateWithTimestamps = vi.fn();
+    const service = createSpeechService({ database: database(), cache: memoryCache(),
+      aiRuntime: { resolveSpeechModel: () => ({ ...resolvedSpeechModel(), generateWithTimestamps }) },
+      artifactCache: {
+        get: async () => ({ audio: validAudio, format: "wav", mediaType: "audio/wav",
+          segments: [{ text: "老师", startSeconds: 0, endSeconds: 1 }, { text: "你好", startSeconds: 1, endSeconds: 2 }] }),
+        put: vi.fn(),
+      },
+    });
+    const result = await service.generate(characterId, "**老师**，你好！", new AbortController().signal, true);
+    expect(result.cacheHit).toBe(true);
+    expect(result.segments?.map(segment => segment.text)).toEqual(["老师，", "你好！"]);
+    expect(generateWithTimestamps).not.toHaveBeenCalled();
+  });
+  it("uses the independent timestamp capability without calling the ordinary generator", async () => {
+    const generate = vi.fn(async () => speechResult());
+    const generateWithTimestamps = vi.fn(async () => ({ audio: validAudio, format: "wav", mediaType: "audio/wav" as const,
+      segments: [{ text: "十二", startSeconds: 0, endSeconds: .5 }] }));
+    const service = createSpeechService({ database: database(), cache: memoryCache(), generate,
+      aiRuntime: { resolveSpeechModel: () => ({ ...resolvedSpeechModel(), generateWithTimestamps }) } });
+    const result = await service.generate(characterId, "**12**", new AbortController().signal, true);
+    expect(generate).not.toHaveBeenCalled();
+    expect(generateWithTimestamps).toHaveBeenCalledWith(expect.objectContaining({ text: "12", voice: "alloy" }));
+    expect(result.spokenText).toBe("12");
+    expect(result.segments).toBeUndefined();
+    expect(result.timingSource).toBe("none");
+  });
+  it("does not retry ordinary synthesis after a timestamp request fails", async () => {
+    const generate = vi.fn(async () => speechResult());
+    const service = createSpeechService({ database: database(), cache: memoryCache(), generate,
+      aiRuntime: { resolveSpeechModel: () => ({ ...resolvedSpeechModel(), generateWithTimestamps: async () => { throw new Error("failed"); } }) } });
+    await expect(service.generate(characterId, "test", new AbortController().signal, true)).rejects.toThrow("failed");
+    expect(generate).not.toHaveBeenCalled();
+  });
   it("trims only the text edges, passes through Adapter-selected WAV, and stores it", async () => {
     const cache = memoryCache();
     const generate = vi.fn(async () => speechResult());

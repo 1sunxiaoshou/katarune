@@ -21,6 +21,8 @@ import { createCredentialStore } from "./security/credentialStore";
 import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
 import { createTtsCache } from "./speech/ttsCache";
 import { createSpeechService } from "./speech/ttsService";
+import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
+import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
 
 let avatarService: AvatarService | undefined;
 
@@ -138,6 +140,8 @@ void app.whenReady().then(async () => {
     };
   }
   const speechService = createSpeechService({
+    artifactCache: createSpeechArtifactCache(join(app.getPath("userData"), "tts-cache")),
+    profileDirectory: join(app.getPath("userData"), "speech-profiles"),
     database: databaseRuntime,
     aiRuntime,
     cache: ttsCache,
@@ -148,6 +152,8 @@ void app.whenReady().then(async () => {
       : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
     join(app.getPath("userData"), "logs"),
   );
+  avatarService.configureSpeech(speechService,
+    await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,

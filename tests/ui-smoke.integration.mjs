@@ -135,6 +135,30 @@ let canceledAvatarStreams = 0;
 let pendingThreadListLoads = 0;
 let completedThreadListLoads = 0;
 
+function silentWav(durationMs = 2_000) {
+  const sampleRate = 8_000;
+  const sampleCount = Math.ceil((sampleRate * durationMs) / 1_000);
+  const dataLength = sampleCount * 2;
+  const audio = new Uint8Array(44 + dataLength);
+  const view = new DataView(audio.buffer);
+  const writeText = (offset, value) =>
+    audio.set(new TextEncoder().encode(value), offset);
+  writeText(0, "RIFF");
+  view.setUint32(4, audio.byteLength - 8, true);
+  writeText(8, "WAVE");
+  writeText(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeText(36, "data");
+  view.setUint32(40, dataLength, true);
+  return audio;
+}
+
 function messageKey(threadId, characterId) {
   return `${characterId}:${threadId}`;
 }
@@ -839,6 +863,41 @@ async function run() {
         }
       `);
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
+    });
+
+    await runStep("play generated audio under renderer CSP", async () => {
+      const audioBase64 = Buffer.from(silentWav(500)).toString("base64");
+      await window.webContents.executeJavaScript(`
+        new Promise((resolve, reject) => {
+          const binary = atob(${JSON.stringify(audioBase64)});
+          const bytes = Uint8Array.from(
+            binary,
+            (character) => character.charCodeAt(0),
+          );
+          const objectUrl = URL.createObjectURL(
+            new Blob([bytes.buffer], { type: "audio/wav" }),
+          );
+          const audio = new Audio(objectUrl);
+          const release = () => {
+            audio.pause();
+            audio.removeAttribute("src");
+            audio.load();
+            URL.revokeObjectURL(objectUrl);
+          };
+          audio.addEventListener("error", () => {
+            const message = audio.error?.message ?? "Generated audio failed to load";
+            release();
+            reject(new Error(message));
+          }, { once: true });
+          audio.play().then(() => {
+            release();
+            resolve(true);
+          }, (error) => {
+            release();
+            reject(error);
+          });
+        })
+      `);
     });
 
     await runStep("stream one message", async () => {

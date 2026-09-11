@@ -15,9 +15,11 @@ class KataruneSpeechUtterance implements SpeechUtterance {
   private audio: HTMLAudioElement | null = null;
   private objectUrl: string | null = null;
   private cancelled = false;
+  private unsubscribeStarted: (() => void) | null = null;
 
   public constructor(
     private readonly characterId: string,
+    private readonly threadId: string | undefined,
     private readonly text: string,
     private readonly onFinalize: () => void,
   ) {
@@ -29,9 +31,7 @@ class KataruneSpeechUtterance implements SpeechUtterance {
   public cancel = (): void => {
     if (this.status.type === "ended") return;
     this.cancelled = true;
-    if (this.status.type === "starting") {
-      window.katarune.cancelSpeech({ requestId: this.requestId });
-    }
+    window.katarune.cancelSpeech({ requestId: this.requestId });
     this.releaseAudio();
     this.finish({ type: "ended", reason: "cancelled" });
   };
@@ -56,9 +56,13 @@ class KataruneSpeechUtterance implements SpeechUtterance {
 
   private async start(): Promise<void> {
     try {
+      this.unsubscribeStarted = window.katarune.onSpeechStarted(({ requestId }) => {
+        if (requestId === this.requestId && !this.cancelled) this.transition({ type: "running" });
+      });
       const response = await window.katarune.generateSpeech({
         requestId: this.requestId,
         characterId: this.characterId,
+        threadId: this.threadId,
         text: this.text,
       });
       if (this.cancelled || response.requestId !== this.requestId) return;
@@ -68,6 +72,10 @@ class KataruneSpeechUtterance implements SpeechUtterance {
       }
       if (response.status === "error") {
         throw new Error(response.message);
+      }
+      if (response.status === "played") {
+        this.finish({ type: "ended", reason: "finished" });
+        return;
       }
 
       const bytes = new Uint8Array(response.audio.byteLength);
@@ -116,6 +124,8 @@ class KataruneSpeechUtterance implements SpeechUtterance {
     if (this.status.type === "ended") return;
     this.status = status;
     if (applicationUtterance === this) applicationUtterance = null;
+    this.unsubscribeStarted?.();
+    this.unsubscribeStarted = null;
     this.onFinalize();
     for (const subscriber of this.subscribers) subscriber();
   }
@@ -141,12 +151,13 @@ export class KataruneSpeechSynthesisAdapter
 {
   private activeUtterance: KataruneSpeechUtterance | null = null;
 
-  public constructor(private readonly characterId: string) {}
+  public constructor(private readonly characterId: string, private readonly threadId?: string) {}
 
   public speak(text: string): SpeechUtterance {
     this.activeUtterance?.cancel();
     const utterance = new KataruneSpeechUtterance(
       this.characterId,
+      this.threadId,
       text,
       () => {
         if (this.activeUtterance === utterance) this.activeUtterance = null;

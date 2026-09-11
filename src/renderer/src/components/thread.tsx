@@ -385,6 +385,8 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const avatarBusy = useAvatarState((s) => !!s.status.busy);
+  const running = useAuiState((s) => s.thread.isRunning);
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -402,6 +404,7 @@ const AssistantActionBar: FC = () => {
         }
       >
         <ActionBarPrimitive.Speak
+          disabled={avatarBusy || running}
           render={<TooltipIconButton tooltip="朗读" />}
         >
           <Volume2Icon />

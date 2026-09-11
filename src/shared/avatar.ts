@@ -6,6 +6,7 @@ export const avatarBindingSchema = z.object({
 });
 export type AvatarBinding = z.infer<typeof avatarBindingSchema>;
 export const avatarStatusSchema = z.object({
+  busy: z.optional(z.boolean()),
   phase: z.enum(["stopped", "starting", "ready", "error"]),
   binding: z.nullable(avatarBindingSchema),
   error: z.nullable(z.string()),
@@ -29,6 +30,13 @@ export const avatarCapabilitiesSchema = z.object({
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("speech"),
+    id: z.uuid(),
+    status: z.enum(["started", "completed", "cancelled", "failed"]),
+    error: z.optional(z.nullable(z.string())),
+  }),
+  z.object({ type: z.literal("dialogue-completed"), runId: z.uuid(), dialogueId: z.string() }),
   z.object({
     type: z.literal("action"),
     id: z.uuid(),

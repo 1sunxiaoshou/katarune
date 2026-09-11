@@ -149,6 +149,12 @@ namespace Katarune.Avatar
             _manualMouth[2] = Mathf.Clamp01(ou);
             _manualMouth[3] = Mathf.Clamp01(ee);
             _manualMouth[4] = Mathf.Clamp01(oh);
+            // A cleared speech input is a lifecycle boundary, not an asymptotic fade.
+            if (aa == 0f && ih == 0f && ou == 0f && ee == 0f && oh == 0f)
+            {
+                Array.Clear(_mouthWeights, 0, _mouthWeights.Length);
+                _frame.Aa = _frame.Ih = _frame.Ou = _frame.Ee = _frame.Oh = 0f;
+            }
         }
 
         public void SetManualVisemes(AvatarVisemeWeights weights)

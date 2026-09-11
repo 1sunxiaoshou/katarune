@@ -16,6 +16,7 @@ namespace Katarune.Avatar
         private AvatarRuntimeFacade _facade;
         private AvatarHudController _hud;
         private AvatarWindow _avatarWindow;
+        private AvatarSpeechPlayer _speech;
         private bool _captureStarted;
         private bool _initialActionRequested;
         private bool _quitRequested;
@@ -80,6 +81,12 @@ namespace Katarune.Avatar
                     _sceneRig,
                     _motions,
                     presentation);
+                _speech = new GameObject("Avatar Speech").AddComponent<AvatarSpeechPlayer>();
+                _speech.transform.SetParent(transform);
+                _speech.Configure(_facade);
+                var speechCapture = Environment.GetEnvironmentVariable("KATARUNE_SPEECH_CAPTURE");
+                if (!string.IsNullOrWhiteSpace(speechCapture))
+                    _speech.gameObject.AddComponent<AvatarSpeechCapture>().Configure(speechCapture, _facade, _speech);
                 var hudPrefab = Resources.Load<GameObject>("AvatarHud");
                 if (hudPrefab == null)
                 {
@@ -114,7 +121,7 @@ namespace Katarune.Avatar
                 var controlPipe = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_PIPE");
                 if (!string.IsNullOrWhiteSpace(controlPipe))
                     gameObject.AddComponent<AvatarControlConnection>().Configure(
-                        _facade, hudObject.GetComponent<UnityEngine.UIElements.UIDocument>(), controlPipe);
+                        _facade, hudObject.GetComponent<UnityEngine.UIElements.UIDocument>(), controlPipe, _speech);
 
                 var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
                 if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
@@ -211,6 +218,7 @@ namespace Katarune.Avatar
                 _hud.VisibilityChanged -= _avatarWindow.SetHudVisible;
                 _hud.PointerInteractionChanged -= _avatarWindow.SetHudPointerInteractionActive;
             }
+            _speech?.Release();
             _facade?.Dispose();
             _facade = null;
             _session = null;

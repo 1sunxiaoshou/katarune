@@ -89,7 +89,7 @@ namespace Katarune.Avatar
                 SetClickThrough(false);
                 return;
             }
-            if (!_hudVisible || _hudPointerInteractionActive)
+            if (_hudPointerInteractionActive)
             {
                 SetClickThrough(!_hudPointerInteractionActive);
                 return;
@@ -104,11 +104,6 @@ namespace Katarune.Avatar
             if (_characterShowcaseInteractionActive)
             {
                 SetClickThrough(false);
-                return;
-            }
-            if (!_hudVisible)
-            {
-                SetClickThrough(true);
                 return;
             }
             if (_hudPointerInteractionActive)
@@ -142,6 +137,9 @@ namespace Katarune.Avatar
             if (picked == null || root == null) return false;
             for (var current = picked; current != null; current = current.parent)
             {
+                if (current is ScrollView scroll && scroll.name == "speechSubtitleScroll")
+                    return scroll.enabledInHierarchy && scroll.resolvedStyle.display != DisplayStyle.None
+                        && scroll.contentContainer.layout.height > scroll.contentViewport.layout.height;
                 if (current is Button button)
                 {
                     return button.enabledInHierarchy

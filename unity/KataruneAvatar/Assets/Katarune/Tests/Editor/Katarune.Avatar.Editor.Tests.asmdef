@@ -2,6 +2,7 @@
   "name": "Katarune.Avatar.Editor.Tests",
   "rootNamespace": "Katarune.Avatar.Tests",
   "references": [
+    "uLipSync.Runtime",
     "Katarune.Avatar.Core",
     "Katarune.Avatar.Editor",
     "Katarune.Avatar.Motion",

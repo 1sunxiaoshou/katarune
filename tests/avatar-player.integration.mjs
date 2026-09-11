@@ -74,6 +74,10 @@ try {
   child = spawn(
     executable,
     [
+      "-screen-fullscreen",
+      "1",
+      "-window-mode",
+      "borderless",
       "-logFile",
       join(output, "player.log"),
       "--screenshot",
@@ -84,7 +88,7 @@ try {
     ],
     {
       cwd: dirname(executable),
-      windowsHide: true,
+      windowsHide: false,
       stdio: "ignore",
       env: { ...process.env, KATARUNE_AVATAR_PIPE: pipe },
     },

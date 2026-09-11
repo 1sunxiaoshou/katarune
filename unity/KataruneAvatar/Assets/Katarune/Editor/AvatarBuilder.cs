@@ -122,9 +122,9 @@ namespace Katarune.Avatar.Editor
         {
             PlayerSettings.companyName = "Katarune";
             PlayerSettings.productName = "Katarune Avatar";
-            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-            PlayerSettings.defaultScreenWidth = 900;
-            PlayerSettings.defaultScreenHeight = 900;
+            // Create the display-sized borderless window before scene scripts run.
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultIsNativeResolution = true;
             PlayerSettings.resizableWindow = false;
             PlayerSettings.allowFullscreenSwitch = false;
             PlayerSettings.runInBackground = true;

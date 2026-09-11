@@ -270,6 +270,14 @@ const api: KataruneApi = Object.freeze({
       speechCancelRequestSchema.parse(request),
     );
   },
+  onSpeechStarted: (callback: (request: SpeechCancelRequest) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const result = speechCancelRequestSchema.safeParse(value);
+      if (result.success) callback(result.data);
+    };
+    ipcRenderer.on(IPC_CHANNELS.speechStarted, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.speechStarted, listener);
+  },
   listProviderConfigs: () =>
     invokeValidated(IPC_CHANNELS.listProviderConfigs, providerConfigListSchema),
   createProviderConfig: (request: CreateProviderConfigRequest) =>

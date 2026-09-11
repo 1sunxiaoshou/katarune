@@ -44,6 +44,9 @@ namespace Katarune.Avatar
                     canLoadVrm0X: false,
                     showMeshes: false,
                     awaitCaller: new RuntimeOnlyAwaitCaller(),
+                    // The Player can load before URP creates its first pipeline instance.
+                    // Auto-detection would select Built-in shaders at that point.
+                    materialGenerator: new UrpVrm10MaterialDescriptorGenerator(),
                     ct: cancellationToken);
                 if (loaded == null) throw new InvalidOperationException("UniVRM returned no avatar instance.");
 

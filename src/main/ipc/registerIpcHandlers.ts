@@ -29,7 +29,7 @@ export function registerIpcHandlers(
   registerAppHandlers(database, aiRuntime);
   registerChatHandlers(database, aiRuntime, chatStreams, assetService, memoryWiki, avatar);
   if (avatar) registerAvatarHandlers(avatar, database);
-  registerSpeechHandlers(speechService, speechRequests);
+  registerSpeechHandlers(speechService, speechRequests, avatar);
   registerProviderHandlers(database, aiRuntime, credentialStore);
   registerCharacterHandlers(database, assetService, chatStreams, memoryWiki);
 
