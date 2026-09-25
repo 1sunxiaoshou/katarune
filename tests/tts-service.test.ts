@@ -1,8 +1,10 @@
+import { emptyAppSettings } from "./defaultSettings";
 import type { SpeechResult } from "ai";
 import { MockSpeechModelV4 } from "ai/test";
 import type { SpeechStreamEvent } from "../src/main/ai/streamingSpeech";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  AppSettings,
   Character,
   ModelConfig,
   ProviderConfig,
@@ -40,6 +42,7 @@ const character: Character = {
   portraitFocusX: 0.5,
   portraitFocusY: 0,
   portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
   modelConfigId: null,
   speechModelConfigId: modelConfigId,
   speechVoice: "alloy",
@@ -122,11 +125,13 @@ function memoryCache(hit: Uint8Array | null = null): TtsCache & {
 }
 
 function database(overrides: {
+  readonly settings?: AppSettings;
   readonly character?: Character;
   readonly model?: ModelConfig;
   readonly provider?: ProviderConfig;
 } = {}) {
   return {
+    getAppSettings: () => overrides.settings ?? emptyAppSettings,
     fetchCharacter: vi.fn(() => overrides.character ?? character),
     fetchModelConfig: vi.fn(() => overrides.model ?? modelConfig),
     fetchProviderConfig: vi.fn(() => overrides.provider ?? providerConfig),
@@ -134,6 +139,38 @@ function database(overrides: {
 }
 
 describe("single-shot TTS service", () => {
+  it("follows global speech model and voice changes at invocation time", async () => {
+    const settings: AppSettings = { ...emptyAppSettings, defaultSpeechModelConfigId: modelConfig.id, defaultSpeechVoice: "alloy" };
+    const db = database({ character: { ...character, speechModelConfigId: null, speechVoice: null,
+      useDefaultSpeechModel: true, useDefaultSpeechVoice: true } });
+    db.getAppSettings = () => settings;
+    const generate = vi.fn(async (_options: Parameters<typeof import("ai").generateSpeech>[0]) => speechResult());
+    const service = createSpeechService({ database: db, cache: memoryCache(), generate,
+      aiRuntime: { resolveSpeechModel: vi.fn(resolvedSpeechModel) } });
+    await service.generate(characterId, "你好", new AbortController().signal);
+    expect(generate.mock.calls[0]?.[0]).toMatchObject({ voice: "alloy" });
+    Object.assign(settings, { defaultSpeechVoice: "nova" });
+    await service.generate(characterId, "你好", new AbortController().signal);
+    expect(generate.mock.calls[1]?.[0]).toMatchObject({ voice: "nova" });
+  });
+
+  it("does not enable a previously silent character when global defaults are configured", async () => {
+    const service = createSpeechService({ database: database({
+      settings: { ...emptyAppSettings, defaultSpeechModelConfigId: modelConfig.id, defaultSpeechVoice: "alloy" },
+      character: { ...character, speechModelConfigId: null, speechVoice: null },
+    }), cache: memoryCache(), aiRuntime: { resolveSpeechModel: vi.fn(resolvedSpeechModel) } });
+    await expect(service.generate(characterId, "你好", new AbortController().signal)).rejects.toMatchObject({ code: "not-configured" });
+  });
+
+  it("requires voice confirmation when an inherited model changes under an explicit voice", async () => {
+    const service = createSpeechService({ database: database({
+      settings: { ...emptyAppSettings, defaultSpeechModelConfigId: "00000000-0000-4000-8000-000000000099", defaultSpeechVoice: "nova" },
+      model: { ...modelConfig, id: "00000000-0000-4000-8000-000000000099" },
+      character: { ...character, useDefaultSpeechModel: true },
+    }), cache: memoryCache(), aiRuntime: { resolveSpeechModel: vi.fn(resolvedSpeechModel) } });
+    await expect(service.generate(characterId, "你好", new AbortController().signal)).rejects.toMatchObject({ code: "not-configured" });
+  });
+
   it("streams before completion, applies sink backpressure, and reuses the complete WAV cache", async () => {
     const put = vi.fn();
     let cached: Awaited<ReturnType<NonNullable<Parameters<typeof createSpeechService>[0]["artifactCache"]>["get"]>> = null;

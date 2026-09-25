@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import {
@@ -30,6 +30,8 @@ mkdirSync(sessionDataPath, { recursive: true });
 app.setPath("userData", userDataPath);
 app.setPath("sessionData", sessionDataPath);
 app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+app.commandLine.appendSwitch('use-fake-device-for-media-stream');
 
 const now = new Date("2026-07-19T00:00:00.000Z");
 const providerId = "d3867f4b-e85f-4ff4-ac2b-974dc39ad832";
@@ -41,6 +43,11 @@ const characterId = "00000000-0000-4000-8000-000000000001";
 let emptyConfigMode = false;
 let includeGoogleSpeechFixture = false;
 let googleVoiceCatalogRefreshed = false;
+let ordinaryPrepareCount = 0;
+let realtimePrepareCount = 0;
+let realtimeFrameCount = 0;
+let realtimeText = '';
+let testingRealtime = false;
 let createdProviderRequest = null;
 let createdProvider = null;
 let replacedCredentialRequest = null;
@@ -48,7 +55,7 @@ let createdModelRequest = null;
 let createdModel = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
-let appSettings = { defaultLanguageModelConfigId: null };
+let appSettings = { defaultLanguageModelConfigId: null, defaultSpeechModelConfigId: null, defaultSpeechVoice: null, defaultAsrModel: "sensevoice-small-int8" };
 let updatedCharacterRequest = null;
 let committedPortraitRequest = null;
 let discardedPortraitStageRequest = null;
@@ -77,6 +84,7 @@ let character = {
   modelConfigId: modelId,
   speechModelConfigId: null,
   speechVoice: null,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
   systemPrompt: "你是星澜，一位温柔、沉静的数字角色。",
   createdAt: now,
   updatedAt: now,
@@ -91,6 +99,7 @@ const secondCharacter = {
   modelConfigId: null,
   speechModelConfigId: null,
   speechVoice: null,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
   systemPrompt: "你是月影。",
   createdAt: now,
   updatedAt: now,
@@ -164,6 +173,25 @@ function messageKey(threadId, characterId) {
 }
 
 function registerMockHandlers() {
+  ipcMain.handle('asr:prepare', () => { ordinaryPrepareCount++; return { status: 'success', text: '' }; });
+  ipcMain.handle('asr:transcribe', (_event, request) => {
+    assert.ok(request.samples instanceof Float32Array);
+    assert.ok(request.samples.length > 0 && request.samples.length <= 480000);
+    return { status: 'success', text: '这是离线语音输入。' };
+  });
+  ipcMain.on('asr:cancel', () => {});
+  ipcMain.handle('asr:realtime', (_event, request) => {
+    assert.deepEqual({ characterId: request.characterId, threadId: request.threadId }, avatarStatus.binding);
+    realtimePrepareCount++; return { status: 'success', text: '' };
+  });
+  ipcMain.handle('asr:reset', () => ({ status: 'success', text: '' }));
+  ipcMain.handle('asr:frame', (event, request) => {
+    assert.equal(request.samples.length, 1600);
+    realtimeFrameCount++;
+    const text = realtimeText; realtimeText = '';
+    if (text) event.sender.send('asr:progress', { requestId: request.requestId });
+    return { status: 'success', text, complete: !!text, speech: false };
+  });
   ipcMain.handle("avatar:status", () => avatarStatus);
   ipcMain.handle("avatar:start", (_event, binding) => avatarStatus = { phase: "ready", binding, error: null });
   ipcMain.handle("avatar:stop", () => avatarStatus = { phase: "stopped", binding: null, error: null });
@@ -191,7 +219,7 @@ function registerMockHandlers() {
   }));
   ipcMain.handle("app-settings:get", () => appSettings);
   ipcMain.handle("app-settings:update", (_event, request) => {
-    appSettings = request;
+    appSettings = { ...appSettings, ...request };
     return appSettings;
   });
   ipcMain.handle("app-state:set-active-character", (_event, request) => {
@@ -347,6 +375,10 @@ function registerMockHandlers() {
       originalMessages: request.messages,
       execute: async ({ writer }) => {
         if (avatarStatus.phase === "ready") {
+          if (testingRealtime) {
+            avatarStatus = { ...avatarStatus, busy: true };
+            event.sender.send('avatar:changed', avatarStatus);
+          }
           avatarChatRequests.push(request);
           const index = avatarChatRequests.length;
           writer.write({ type: "start-step" });
@@ -561,7 +593,7 @@ function registerMockHandlers() {
     if (createdProvider?.id === request.id) createdProvider = null;
     return { success: true };
   });
-  ipcMain.handle("model-configs:list", () => ({
+  const listModelConfigs = () => ({
     modelConfigs: emptyConfigMode ? [] : [
       {
         id: modelId,
@@ -612,7 +644,13 @@ function registerMockHandlers() {
         : []),
       ...(createdModel === null ? [] : [createdModel]),
     ],
-  }));
+  });
+  ipcMain.handle("model-configs:list", listModelConfigs);
+  ipcMain.handle("model-configs:fetch", (_event, request) => {
+    const model = listModelConfigs().modelConfigs.find(item => item.id === request.id);
+    if (!model) throw new Error("Model not found");
+    return model;
+  });
   ipcMain.handle("models:list-available", () => ({
     modelConfigIds: emptyConfigMode
       ? []
@@ -678,6 +716,7 @@ function registerMockHandlers() {
       modelConfigId: request.modelConfigId,
       speechModelConfigId: request.speechModelConfigId,
       speechVoice: request.speechVoice,
+      useDefaultSpeechModel: request.useDefaultSpeechModel ?? false, useDefaultSpeechVoice: request.useDefaultSpeechVoice ?? false,
       systemPrompt: request.systemPrompt,
       createdAt: new Date(now.getTime() + createdCharacterCount),
       updatedAt: new Date(now.getTime() + createdCharacterCount),
@@ -788,7 +827,7 @@ async function waitForText(window, selector, text) {
 
 async function waitUntil(label, predicate) {
   const deadline = Date.now() + UI_WAIT_TIMEOUT_MS;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
     await new Promise((resolveWait) => setTimeout(resolveWait, 20));
   }
@@ -833,6 +872,7 @@ function createTestWindow() {
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
+      offscreen: true,
     },
   });
 }
@@ -863,6 +903,28 @@ async function run() {
         }
       `);
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
+    });
+
+    await runStep('offline dictation records, fills draft and cancels without changing it', async () => {
+      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
+      await clickSelector(window, '[aria-label="开始离线语音输入"]');
+      await waitForSelector(window, '[aria-label="结束录音并识别"]');
+      window.webContents.invalidate();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      writeFileSync(join(projectRoot, '.test-dist', 'asr-dictation.png'), (await window.webContents.capturePage()).toPNG());
+      await new Promise(resolve => setTimeout(resolve, 700));
+      await clickSelector(window, '[aria-label="结束录音并识别"]');
+      await waitUntil('dictation final text', () => window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value === '这是离线语音输入。'`));
+      await clickSelector(window, '[aria-label="开始离线语音输入"]');
+      await waitForSelector(window, '[aria-label="结束录音并识别"]');
+      await clickSelector(window, '[aria-label="取消语音输入"]');
+      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`), '这是离线语音输入。');
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('[aria-label="Message input"]');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
     });
 
     await runStep("play generated audio under renderer CSP", async () => {
@@ -1085,9 +1147,9 @@ async function run() {
       await sendText("桌宠第一句");
       await waitForText(window, '[data-slot="aui_thread-viewport"]', "字幕对白第1句");
       await sendText("桌宠第二句");
-      await waitForText(window, '[role="status"]', "1");
+      await waitForText(window, '[role="status"]:not(.sr-only)', "1");
       await sendText("桌宠第三句", true);
-      await waitForText(window, '[role="status"]', "2");
+      await waitForText(window, '[role="status"]:not(.sr-only)', "2");
       assert.equal(avatarChatRequests.length, 1);
       assert.equal(canceledAvatarStreams, 0);
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="Stop generating"]') === null`), true);
@@ -1132,7 +1194,7 @@ async function run() {
         "Google speech model binding",
         () =>
           updatedCharacterRequest?.speechModelConfigId === googleSpeechModelId &&
-          updatedCharacterRequest?.speechVoice === "Kore",
+          updatedCharacterRequest?.useDefaultSpeechVoice === true,
       );
       await waitForText(window, '[data-testid="character-speech-voice"]', "Kore");
       includeGoogleSpeechFixture = false;
@@ -1141,6 +1203,7 @@ async function run() {
     });
 
     await runStep("use general settings", async () => {
+      includeGoogleSpeechFixture = true;
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await waitForSelector(window, '[data-testid="settings-page"]');
       await waitForSelector(window, '[data-testid="general-settings"]');
@@ -1161,6 +1224,7 @@ async function run() {
       await clickSelector(window, '[data-testid="reduce-motion"]');
       await waitForSelector(window, 'html[data-reduce-motion]');
       await clickSelector(window, '[data-testid="auto-read-replies"]');
+      await waitUntil("auto read preference saved", async () => window.webContents.executeJavaScript(`localStorage.getItem("katarune.autoReadReplies") === "true"`));
       assert.deepEqual(
         await window.webContents.executeJavaScript(`({
           autoReadReplies: localStorage.getItem('katarune.autoReadReplies'),
@@ -1180,6 +1244,153 @@ async function run() {
         "application default model update",
         () => appSettings.defaultLanguageModelConfigId === modelId,
       );
+    });
+
+    await runStep("default speech dual selection and global ASR", async () => {
+      const choose = async (testId, text) => {
+        console.log(`[defaults] ${testId}: ${text}`);
+        await waitUntil("selector enabled", async () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="${testId}"]')?.disabled === false`));
+        await clickSelector(window, `[data-testid="${testId}"]`);
+        await waitForSelector(window, '[data-slot="model-selector-content"]');
+        const found = await window.webContents.executeJavaScript(`(() => {
+          const item = [...document.querySelectorAll('[data-slot="model-selector-item"]')].find(item => item.textContent.includes(${JSON.stringify(text)}));
+          if (!item) { console.error('Missing option: ' + document.querySelector('[data-slot="model-selector-content"]')?.textContent); return false; } item.click(); return true;
+        })()`);
+        if (!found) throw new Error('Missing option ' + text + ': ' + await window.webContents.executeJavaScript(`document.body.innerText.slice(-2500)`));
+        await waitUntil('selection menu closed', async () => window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"]') === null`));
+      };
+      await waitForText(window, '[data-testid="default-speech-model"]', "未选择模型");
+      await waitForText(window, '[data-testid="default-speech-voice"]', "请先选择模型");
+      assert.equal(await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector('[data-testid="general-settings"]')).scrollbarWidth`), "none");
+      await choose("default-speech-model", "Gemini 2.5 Flash TTS");
+      await waitUntil("default speech configured", () => appSettings.defaultSpeechVoice === "Kore");
+      await clickSelector(window, '[data-testid="default-speech-voice"]');
+      await waitForSelector(window, '[aria-label="搜索音色或输入 Voice ID"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[aria-label="搜索音色或输入 Voice ID"]').focus()`);
+      await window.webContents.insertText("custom-voice-123");
+      await waitForText(window, '[data-slot="model-selector-list"]', "使用 Voice ID：custom-voice-123");
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+      await waitUntil("custom voice committed through the same control", () => appSettings.defaultSpeechVoice === "custom-voice-123");
+      await waitUntil("voice menu closed", async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-voice-custom"]')`), null);
+      await choose("default-speech-voice", "Puck");
+      await waitUntil("default voice updated", () => appSettings.defaultSpeechVoice === "Puck");
+      await choose("default-asr-model", "不启用");
+      await waitUntil("ASR disabled globally", () => appSettings.defaultAsrModel === null);
+      await waitForText(window, '[data-testid="default-asr-model"]', '不启用');
+      await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      writeFileSync(join(projectRoot, '.test-dist', 'default-models.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
+      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="开始离线语音输入"]').disabled`), true);
+      await clickSelector(window, '[data-testid="character-launcher"]');
+      await waitForSelector(window, '[data-testid="character-page"]');
+      await choose("character-model", "使用默认（DeepSeek Chat）");
+      await choose("character-speech-model", "使用默认（Gemini 2.5 Flash TTS）");
+      await waitUntil("character inherits speech model", () => updatedCharacterRequest?.useDefaultSpeechModel === true);
+      await waitForText(window, '[data-testid="character-speech-voice"]', "使用默认（Puck）");
+      await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const model = document.querySelector('[data-testid="character-speech-model"]').getBoundingClientRect();
+        const voice = document.querySelector('[data-testid="character-speech-voice"]').getBoundingClientRect();
+        return voice.top >= model.bottom && Math.abs(model.width - voice.width) < 1;
+      })()`), true);
+      writeFileSync(join(projectRoot, '.test-dist', 'character-defaults.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-testid="character-back"]');
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      includeGoogleSpeechFixture = false;
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await waitForSelector(window, '[data-testid="general-settings"]');
+      await choose("default-asr-model", "SenseVoiceSmall INT8");
+      await waitUntil("ASR enabled globally", () => appSettings.defaultAsrModel === "sensevoice-small-int8");
+      await clickSelector(window, '[data-testid="default-speech-model"]');
+      await waitForText(window, '[data-slot="model-selector-content"]', "暂无可用模型，请先在模型设置中添加并启用。");
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      await waitUntil("empty model menu closed", async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
+      includeGoogleSpeechFixture = false;
+    });
+
+    await runStep("long-press realtime microphone, playback gating and background binding", async () => {
+      testingRealtime = true; includeGoogleSpeechFixture = true;
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="dictation-toggle"]');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (avatarStatus.phase !== 'ready') {
+        await clickSelector(window, '[data-testid="avatar-toggle"]');
+        await waitUntil('avatar connected for voice', () => avatarStatus.phase === 'ready');
+      }
+      const bound = { ...avatarStatus.binding };
+      const beforeOrdinary = ordinaryPrepareCount;
+      const hold = async (keyboard = false) => {
+        if (keyboard) {
+          await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').focus()`);
+          window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' });
+          await new Promise(resolve => setTimeout(resolve, 680));
+          window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
+        } else {
+          const point = await window.webContents.executeJavaScript(`(() => { const r = document.querySelector('[data-testid="dictation-toggle"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+          window.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+          window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+          await new Promise(resolve => setTimeout(resolve, 680));
+          window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+        }
+      };
+      await hold();
+      await waitForSelector(window, '[data-state="realtime-listening"]');
+      assert.equal(ordinaryPrepareCount, beforeOrdinary);
+      await waitUntil('AudioWorklet frames', () => realtimeFrameCount >= 2);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').getAttribute('aria-pressed')`), 'true');
+      writeFileSync(join(projectRoot, '.test-dist', 'realtime-voice.png'), (await window.webContents.capturePage()).toPNG());
+      const beforeMessages = avatarChatRequests.length;
+      const draft = await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`);
+      realtimeText = '这是实时语音对话。';
+      await waitUntil('recognized utterance automatically sent', () => avatarChatRequests.length === beforeMessages + 1);
+      const request = avatarChatRequests.at(-1);
+      assert.equal(request.threadId, bound.threadId); assert.equal(request.characterId, bound.characterId);
+      assert.match(JSON.stringify(request.messages), /这是实时语音对话/);
+      await waitForSelector(window, '[data-state="realtime-waiting"]');
+      const stoppedAt = realtimeFrameCount;
+      await new Promise(resolve => setTimeout(resolve, 500));
+      assert.equal(realtimeFrameCount, stoppedAt, 'no capture while Unity playback is pending');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`), draft);
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await waitForSelector(window, '[data-testid="general-settings"]');
+      avatarStatus = { ...avatarStatus, busy: false };
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitUntil('listening resumes while settings page is open', () => realtimeFrameCount > stoppedAt + 2);
+      const backgroundCount = realtimeFrameCount;
+      window.minimize();
+      await waitUntil('minimized window continues audio capture', () => realtimeFrameCount > backgroundCount + 2);
+      window.restore();
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-state="realtime-listening"]');
+      await clickSelector(window, '[data-testid="dictation-toggle"]');
+      await waitForSelector(window, '[data-testid="dictation-toggle"][data-state="idle"]');
+      const endedAt = realtimeFrameCount;
+      await new Promise(resolve => setTimeout(resolve, 350)); assert.equal(realtimeFrameCount, endedAt);
+      await hold(true); await waitForSelector(window, '[data-state="realtime-listening"]');
+      assert.equal(realtimePrepareCount, 2); assert.equal(ordinaryPrepareCount, beforeOrdinary);
+      await clickSelector(window, '[data-testid="dictation-toggle"]');
+      await waitForSelector(window, '[data-testid="dictation-toggle"][data-state="idle"]');
+      await clickSelector(window, '[data-testid="avatar-toggle"]');
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, '.aui-thread-welcome-root');
+      await clickSelector(window, '[data-testid="avatar-toggle"]');
+      await hold(); await waitForSelector(window, '[data-state="realtime-listening"]');
+      const beforeNew = avatarChatRequests.length;
+      realtimeText = '实时模式创建的新会话。';
+      await waitUntil('first voice message persists a new thread', () => avatarChatRequests.length > beforeNew);
+      await waitForSelector(window, '[data-state="realtime-waiting"]');
+      avatarStatus = { ...avatarStatus, busy: false }; window.webContents.send('avatar:changed', avatarStatus);
+      await waitForSelector(window, '[data-state="realtime-listening"]');
+      await clickSelector(window, '[data-testid="dictation-toggle"]');
+      await clickSelector(window, '[data-testid="avatar-toggle"]');
+      testingRealtime = false; includeGoogleSpeechFixture = false;
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await waitForSelector(window, '[data-testid="general-settings"]');
     });
 
     await runStep("open model settings", async () => {

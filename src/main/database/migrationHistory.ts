@@ -15,10 +15,13 @@ export function reconcileAttachmentMigrationHistory(
   ).get();
   if (exists === undefined) return;
 
-  const latest = sqlite.prepare<[], { hash: string; created_at: number }>(
-    "SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1",
-  ).get();
-  if (latest?.hash !== hash || latest.created_at !== oldTimestamp) return;
+  const recorded = sqlite.prepare<[number], { hash: string }>(
+    "SELECT hash FROM __drizzle_migrations WHERE created_at = ?",
+  ).all(oldTimestamp);
+  if (recorded.length === 0) return;
+  if (recorded.length !== 1 || recorded[0]?.hash !== hash) {
+    throw new Error("Cannot reconcile attachment migration: the recorded SQL hash differs.");
+  }
 
   // Never infer completion from a table name or skip SQL whose contents have changed.
   const migration = readMigrationFiles({ migrationsFolder }).find(

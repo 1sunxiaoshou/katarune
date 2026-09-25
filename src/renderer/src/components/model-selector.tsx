@@ -16,6 +16,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { CheckIcon, ChevronDownIcon } from "lucide-react";
 import { useAui } from "@assistant-ui/react";
 import { cn } from "@/lib/utils";
+import { selectionCopy } from "./model-selection-copy";
 import {
   Popover,
   PopoverContent,
@@ -50,6 +51,7 @@ export type ModelOption = {
   description?: string;
   icon?: ReactNode;
   disabled?: boolean;
+  placeholder?: boolean;
   /** Extra terms matched by ModelSelector.Search, in addition to id and name. */
   keywords?: readonly string[];
   /**
@@ -331,7 +333,7 @@ function ModelIcon({
 }
 
 function ModelSelectorValue({
-  placeholder = "Select model",
+  placeholder = selectionCopy.modelPlaceholder,
   showEffort = true,
   className,
 }: ModelSelectorValueProps) {
@@ -356,7 +358,7 @@ function ModelSelectorValue({
   return (
     <span
       data-slot="model-selector-value"
-      className={cn("flex min-w-0 items-center gap-2", className)}
+      className={cn("flex min-w-0 items-center gap-2", (selectedModel.placeholder || selectedModel.disabled) && "text-muted-foreground", className)}
     >
       {selectedModel.icon && <ModelIcon>{selectedModel.icon}</ModelIcon>}
       <span className="truncate font-medium">{selectedModel.name}</span>
@@ -482,12 +484,15 @@ function ModelSelectorList({
 
 export type ModelSelectorEmptyProps = ComponentPropsWithoutRef<
   typeof CommandEmpty
->;
+> & { available?: boolean; kind?: "model" | "voice" };
 
-function ModelSelectorEmpty({ children, ...props }: ModelSelectorEmptyProps) {
+function ModelSelectorEmpty({ children, available = true, kind = "model", ...props }: ModelSelectorEmptyProps) {
+  if (!available) return <p role="status" data-slot="model-selector-empty" className="px-3 py-4 text-center text-sm text-muted-foreground">
+    {kind === "model" ? selectionCopy.noModels : selectionCopy.noVoices}
+  </p>;
   return (
     <CommandEmpty data-slot="model-selector-empty" {...props}>
-      {children ?? "No models found."}
+      {children ?? (kind === "model" ? selectionCopy.noModelMatches : selectionCopy.noVoiceMatches)}
     </CommandEmpty>
   );
 }

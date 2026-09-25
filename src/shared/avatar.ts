@@ -64,4 +64,5 @@ export const AVATAR_CHANNELS = {
   start: "avatar:start",
   stop: "avatar:stop",
   status: "avatar:status",
+  changed: "avatar:changed",
 } as const;

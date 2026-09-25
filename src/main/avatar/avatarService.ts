@@ -47,11 +47,23 @@ export class AvatarService {
   private activeInstructions = new Set<string>();
   private starting: Promise<AvatarStatus> | undefined;
   private rejectStartup: ((error: Error) => void) | undefined;
-  private state: AvatarStatus = {
+  private listeners = new Set<(status: AvatarStatus) => void>();
+  subscribe(listener: (status: AvatarStatus) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  private changed(): void {
+    const status = this.status;
+    for (const listener of this.listeners) listener(status);
+  }
+  private currentState: AvatarStatus = {
     phase: "stopped",
     binding: null,
     error: null,
   };
+
+  private get state(): AvatarStatus { return this.currentState; }
+  private set state(value: AvatarStatus) { this.currentState = value; this.changed(); }
 
   constructor(
     private readonly executable: string,
@@ -60,6 +72,17 @@ export class AvatarService {
   get status(): AvatarStatus {
     return { ...this.state, busy: this.activeStreams > 0 || this.pending.size > 0 || this.activeInstructions.size > 0 };
   }
+
+  showUserSubtitle(binding: AvatarBinding, text: string): void {
+    const socket = this.socket;
+    const subtitle = text.trim();
+    if (!socket || socket.destroyed || this.state.phase !== "ready" || !this.matches(binding)
+      || this.status.busy || !subtitle || subtitle.length > 20_000) return;
+    // User captions are immediate display events, not actions in the playback queue.
+    socket.write(`${JSON.stringify({ type: "user-subtitle", text: subtitle })}\n`);
+  }
+
+  clearError(): void { this.state = { ...this.state, error: null }; }
 
   async start(binding: AvatarBinding): Promise<AvatarStatus> {
     if (this.matches(binding) && this.state.phase === "ready")
@@ -121,6 +144,7 @@ export class AvatarService {
               } else if (reply.type === "dialogue-completed") {
                 this.dialogueRuns.get(reply.runId)?.completed(reply.dialogueId);
               } else if (reply.type === "speech") {
+                if (reply.status === "failed") this.state = { ...this.state, error: reply.error || "桌宠语音播放失败。" };
                 const request = this.pending.get(reply.id);
                 if (!request) continue;
                 if (reply.status === "started") { request.started?.(); continue; }
@@ -154,7 +178,7 @@ export class AvatarService {
             } catch {
               this.fail("Unity 控制消息无效。");
               return;
-            }
+            } finally { this.changed(); }
           }
         });
         socket.on("error", () => {
@@ -315,11 +339,14 @@ export class AvatarService {
       return stream;
     const reader = stream.getReader();
     this.activeStreams++;
+    this.state = { ...this.state, error: null };
     const runId = randomUUID();
     const speech = this.speechService
       ? new AvatarDialogueSpeech(runId, binding.characterId, this.speechService, message => {
         if (this.socket === socket) socket.write(`${JSON.stringify(message)}\n`);
-      }, this.speechDirectory) : undefined;
+      }, this.speechDirectory, () => {
+        this.state = { ...this.state, error: "桌宠语音合成失败，请检查模型和音色后重试。" };
+      }) : undefined;
     if (speech) this.dialogueRuns.set(runId, speech);
     let released = false;
     let cancellation: Promise<unknown> | undefined;
@@ -334,6 +361,7 @@ export class AvatarService {
       if (released) return;
       released = true;
       this.activeStreams--;
+      this.changed();
       this.dialogueRuns.delete(runId);
       void (cancellation ?? Promise.resolve()).then(() => speech?.dispose()).catch(() => {});
       signal.removeEventListener("abort", abort);
@@ -351,7 +379,7 @@ export class AvatarService {
             signal.removeEventListener("abort", abort);
             if (this.socket === socket)
               void this.request("drain", "", new AbortController().signal)
-                .catch(() => {}).finally(release);
+                .catch(() => { this.state = { ...this.state, error: "桌宠播放未正常完成。" }; }).finally(release);
             else release();
             reader.releaseLock();
             controller.close();
@@ -419,6 +447,7 @@ export class AvatarService {
           started: onStarted,
           cleanup: () => { clearTimeout(timer); signal.removeEventListener("abort", abort); },
         });
+        this.changed();
         signal.addEventListener("abort", abort, { once: true });
         socket.write(`${JSON.stringify({ id, operation: "speech", value: path, text: audio.spokenText ?? "",
           segments: audio.segments ?? [], profilePath: audio.profilePath ?? "" })}\n`);
@@ -447,6 +476,7 @@ export class AvatarService {
       const abort = () => {
         this.pending.delete(id);
         this.activeInstructions.delete(id);
+        this.changed();
         cleanup();
         reject(signal.reason ?? new Error("角色请求已取消。"));
       };
@@ -458,6 +488,7 @@ export class AvatarService {
       this.pending.set(id, { resolve: () => resolve(id), reject, cleanup });
       if (operation === "action" || operation === "expression")
         this.activeInstructions.add(id);
+      this.changed();
       signal.addEventListener("abort", abort, { once: true });
       socket.write(
         `${JSON.stringify({ id, operation, value, allowSpeech, toolCallId })}\n`,

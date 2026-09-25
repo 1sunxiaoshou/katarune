@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -233,9 +234,7 @@ try {
     appPath: process.cwd(),
     configValidator,
   });
-  assert.deepEqual(runtime.getAppSettings(), {
-    defaultLanguageModelConfigId: null,
-  });
+  assert.deepEqual(runtime.getAppSettings(), emptyAppSettings);
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({
@@ -434,8 +433,18 @@ try {
     runtime.updateAppSettings({
       defaultLanguageModelConfigId: modelConfig.id,
     }),
-    { defaultLanguageModelConfigId: modelConfig.id },
+    { ...emptyAppSettings, defaultLanguageModelConfigId: modelConfig.id },
   );
+  assert.throws(() => runtime?.updateAppSettings({ defaultSpeechModelConfigId: modelConfig.id }), /语音/);
+  runtime.updateAppSettings({ defaultSpeechModelConfigId: speechModelConfig.id, defaultSpeechVoice: "alloy" });
+  runtime.updateAppSettings({ defaultAsrModel: null });
+  assert.equal(runtime.getAppSettings().defaultSpeechVoice, "alloy");
+  assert.equal(runtime.getAppSettings().defaultAsrModel, null);
+  runtime.updateAppSettings({ defaultAsrModel: "sensevoice-small-int8" });
+  assert.equal(runtime.fetchCharacter(initialCharacterId).useDefaultSpeechModel, false);
+  const inherited = runtime.updateCharacter({ id: initialCharacterId, useDefaultSpeechModel: true, useDefaultSpeechVoice: true });
+  assert.equal(inherited.useDefaultSpeechVoice, true);
+  runtime.updateCharacter({ id: initialCharacterId, useDefaultSpeechModel: false, useDefaultSpeechVoice: false });
   assert.throws(
     () =>
       runtime?.createModelConfig({
@@ -537,6 +546,8 @@ try {
     configValidator,
   });
   assert.deepEqual(runtime.getAppSettings(), {
+    ...emptyAppSettings,
+    defaultSpeechModelConfigId: speechModelConfig.id, defaultSpeechVoice: "alloy",
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
@@ -740,7 +751,7 @@ try {
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, []);
   assert.deepEqual(
     runtime.getAppSettings(),
-    { defaultLanguageModelConfigId: null },
+    emptyAppSettings,
     "删除默认模型所属 Provider 后应由外键自动清空应用默认模型",
   );
   assert.equal(

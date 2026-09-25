@@ -7,6 +7,7 @@ type SpeechStatus = SpeechSynthesisAdapter.Status;
 type SpeechUtterance = SpeechSynthesisAdapter.Utterance;
 
 let applicationUtterance: KataruneSpeechUtterance | null = null;
+export function cancelApplicationSpeech(): void { applicationUtterance?.cancel(); }
 
 class KataruneSpeechUtterance implements SpeechUtterance {
   public status: SpeechStatus = { type: "starting" };

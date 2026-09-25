@@ -25,21 +25,39 @@ export function createAppSettingsRepository(
     }
     return appSettingsSchema.parse({
       defaultLanguageModelConfigId: settings.defaultLanguageModelConfigId,
+      defaultSpeechModelConfigId: settings.defaultSpeechModelConfigId,
+      defaultSpeechVoice: settings.defaultSpeechModelConfigId === null ? null : settings.defaultSpeechVoice,
+      defaultAsrModel: settings.defaultAsrModel,
     });
   };
 
   return {
     getAppSettings,
-    updateAppSettings: ({ defaultLanguageModelConfigId }) => {
-      if (defaultLanguageModelConfigId !== null) {
+    updateAppSettings: (request) => {
+      const current = getAppSettings();
+      const updates = { ...request };
+      if (request.defaultSpeechModelConfigId !== undefined && request.defaultSpeechModelConfigId !== current.defaultSpeechModelConfigId
+        && request.defaultSpeechVoice === undefined) updates.defaultSpeechVoice = null;
+      if ((request.defaultSpeechModelConfigId ?? current.defaultSpeechModelConfigId) === null && request.defaultSpeechVoice != null) {
+        throw new Error("请先选择默认语音合成模型。");
+      }
+      if (request.defaultSpeechModelConfigId === null) updates.defaultSpeechVoice = null;
+      const { defaultLanguageModelConfigId, defaultSpeechModelConfigId } = request;
+      if (defaultLanguageModelConfigId != null) {
         const model = fetchModelConfig(defaultLanguageModelConfigId);
         if (model.modelType !== "languageModel") {
           throw new Error("应用默认模型必须是语言模型。");
         }
       }
+      if (defaultSpeechModelConfigId != null) {
+        const model = fetchModelConfig(defaultSpeechModelConfigId);
+        if (model.modelType !== "speechModel") {
+          throw new Error("默认语音合成模型必须是语音生成模型。");
+        }
+      }
       database
         .update(appSettings)
-        .set({ defaultLanguageModelConfigId, updatedAt: new Date() })
+        .set({ ...updates, updatedAt: new Date() })
         .where(eq(appSettings.id, 1))
         .run();
       return getAppSettings();

@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+resources/asr/sensevoice-int8/
 
 # Build output
 dist/
@@ -64,3 +65,4 @@ unity/KataruneAvatar/Assets/KataruneLocal.meta
 
 # Local, separately distributed Unity animation bundles
 unity/KataruneAvatar/MotionPacks/
+resources/asr/silero-vad/

@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import { MockLanguageModelV4 } from "ai/test";
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
@@ -34,6 +35,7 @@ function createDatabase(
 ): ChatServiceDatabase {
   return {
     getAppSettings: vi.fn(() => ({
+      ...emptyAppSettings,
       defaultLanguageModelConfigId: defaultModelId,
     })),
     fetchThread: vi.fn(() => ({
@@ -50,6 +52,7 @@ function createDatabase(
       portraitFocusX: 0.5,
       portraitFocusY: 0,
       portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: modelId,
       speechModelConfigId: null,
       speechVoice: null,

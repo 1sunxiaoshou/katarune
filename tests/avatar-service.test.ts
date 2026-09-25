@@ -418,3 +418,23 @@ describe("Unity local control bridge", () => {
     expect(service.status.phase).toBe("stopped");
   });
 });
+
+
+it("pushes playback failures even for Unity-owned dialogue IDs", async () => {
+  const { service, socket } = await launch();
+  const listener = vi.fn(); const unsubscribe = service.subscribe(listener);
+  socket.write(JSON.stringify({ type: "speech", id: "00000000-0000-4000-8000-000000000099", status: "failed", error: "播放设备失败" }) + "\n");
+  await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ error: "播放设备失败" })));
+  service.clearError(); expect(service.status.error).toBeNull(); unsubscribe();
+});
+
+
+it("shows bound user subtitles immediately without occupying the playback queue", async () => {
+  const { service, requests } = await launch();
+  service.showUserSubtitle({ ...binding, threadId: "other" }, "不能串会话");
+  service.showUserSubtitle(binding, "   ");
+  service.showUserSubtitle(binding, "  你好，桌宠。  ");
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  expect(requests[0]).toEqual({ type: "user-subtitle", text: "你好，桌宠。" });
+  expect(service.status.busy).toBe(false);
+});

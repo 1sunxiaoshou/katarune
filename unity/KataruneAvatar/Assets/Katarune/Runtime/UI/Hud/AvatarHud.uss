@@ -29,6 +29,11 @@
     -unity-text-align: middle-center;
 }
 
+.subtitle-text.user-subtitle {
+    background-color: rgba(221, 237, 248, 0.94);
+    color: #29485f;
+}
+
 .hud-root {
     position: absolute;
     left: 0;

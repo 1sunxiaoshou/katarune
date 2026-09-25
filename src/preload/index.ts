@@ -83,6 +83,8 @@ import {
   type UpdateCharacterRequest,
 } from "../shared/ipc";
 
+import { ASR_CHANNELS, asrRequestIdSchema, asrRequestSchema, asrResultSchema, type AsrRequest, asrFrameSchema, realtimeAsrRequestSchema, type RealtimeAsrRequest } from '../shared/asr';
+
 interface RuntimeSchema<T> {
   parse(value: unknown): T;
 }
@@ -106,6 +108,28 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  prepareRealtimeAsr: (request: RealtimeAsrRequest) => invokeValidated(ASR_CHANNELS.realtime, asrResultSchema, realtimeAsrRequestSchema.parse(request)),
+  pushAsrFrame: (request: AsrRequest) => invokeValidated(ASR_CHANNELS.frame, asrResultSchema, asrFrameSchema.parse(request)),
+  resetRealtimeAsr: (request: { requestId: string }) => invokeValidated(ASR_CHANNELS.reset, asrResultSchema, asrRequestIdSchema.parse(request)),
+  onAsrTranscribing: (listener: (requestId: string) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = asrRequestIdSchema.safeParse(value);
+      if (parsed.success) listener(parsed.data.requestId);
+    };
+    ipcRenderer.on(ASR_CHANNELS.progress, handle);
+    return () => { ipcRenderer.removeListener(ASR_CHANNELS.progress, handle); };
+  },
+  onAvatarStatus: (listener: (status: import('../shared/avatar').AvatarStatus) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = avatarStatusSchema.safeParse(value);
+      if (parsed.success) listener(parsed.data);
+    };
+    ipcRenderer.on(AVATAR_CHANNELS.changed, handle);
+    return () => { ipcRenderer.removeListener(AVATAR_CHANNELS.changed, handle); };
+  },
+  prepareAsr: (request: { requestId: string }) => invokeValidated(ASR_CHANNELS.prepare, asrResultSchema, asrRequestIdSchema.parse(request)),
+  transcribeAsr: (request: AsrRequest) => invokeValidated(ASR_CHANNELS.transcribe, asrResultSchema, asrRequestSchema.parse(request)),
+  cancelAsr: (request: { requestId: string }) => ipcRenderer.send(ASR_CHANNELS.cancel, asrRequestIdSchema.parse(request)),
   startAvatar: (request: AvatarBinding) => invokeValidated(AVATAR_CHANNELS.start, avatarStatusSchema, avatarBindingSchema.parse(request)),
   stopAvatar: () => invokeValidated(AVATAR_CHANNELS.stop, avatarStatusSchema),
   getAvatarStatus: () => invokeValidated(AVATAR_CHANNELS.status, avatarStatusSchema),

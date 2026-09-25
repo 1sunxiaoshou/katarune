@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import { realtimeVoice } from "./speech/realtimeVoice";
 import { ChatPage } from "./chat/ChatPage";
 import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
 import { SPEECH_CONFIG_CHANGED_EVENT } from "./speech/speechAvailability";
@@ -14,6 +15,7 @@ const CharacterPage = lazy(async () => {
 });
 
 export function App(): React.JSX.Element {
+  useEffect(() => realtimeVoice.mount(), []);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "characters">("chat");
 
   return (

@@ -1,3 +1,4 @@
+import { selectionCopy } from "@/components/model-selection-copy";
 import "./character-fonts.css";
 import { SettingsIcon } from "lucide-react";
 import {
@@ -9,7 +10,6 @@ import {
   type FocusEvent,
 } from "react";
 import { ProviderLogo } from "@/components/provider-logo";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ModelSelectorContent,
@@ -25,7 +25,6 @@ import {
 import {
   assetUrl,
   parseSpeechModelMetadata,
-  parseSpeechModelSettings,
   type Character,
   type CreateCharacterRequest,
   type ModelConfig,
@@ -33,30 +32,14 @@ import {
   type UpdateCharacterRequest,
 } from "../../../shared/ipc";
 import { useApplicationSettings } from "../settings/ApplicationSettingsProvider";
+import { defaultVoiceForModel } from "../../../shared/speechSelection";
+import { SpeechVoicePicker } from "../speech/SpeechVoicePicker";
 import { CharacterPortraitPanel } from "./CharacterPortraitPanel";
 
 const NO_MODEL_ID = "__katarune_no_model__";
-const NO_VOICE_ID = "__katarune_no_voice__";
+const DEFAULT_SPEECH_ID = "__default_speech__";
 export const NEW_CHARACTER_NAME = "未命名角色";
-const NO_SPEECH_MODEL_OPTION: ModelOption = {
-  id: NO_MODEL_ID,
-  name: "未选择声音模型",
-};
-const NO_VOICE_OPTION: ModelOption = {
-  id: NO_VOICE_ID,
-  name: "请选择音色",
-};
-
-function speechDefaultVoice(
-  modelConfigId: string | null,
-  models: readonly ModelConfig[],
-): string | null {
-  if (modelConfigId === null) return null;
-  const model = models.find((candidate) => candidate.id === modelConfigId);
-  if (model === undefined) return null;
-  if (model.modelType !== "speechModel") return null;
-  return parseSpeechModelSettings(model.settings)?.defaultVoiceId ?? null;
-}
+const NO_SPEECH_MODEL_OPTION: ModelOption = { id: NO_MODEL_ID, name: "不启用语音" };
 
 export interface CharacterDeleteCandidate {
   readonly character: Character;
@@ -70,6 +53,8 @@ export function draftRequest(character: Character): CreateCharacterRequest {
     modelConfigId: character.modelConfigId,
     speechModelConfigId: character.speechModelConfigId,
     speechVoice: character.speechVoice,
+    useDefaultSpeechModel: character.useDefaultSpeechModel,
+    useDefaultSpeechVoice: character.useDefaultSpeechVoice,
     systemPrompt: character.systemPrompt,
   };
 }
@@ -80,6 +65,7 @@ export function draftHasChanges(character: Character): boolean {
     request.name !== NEW_CHARACTER_NAME ||
     request.modelConfigId !== null ||
     request.speechModelConfigId !== null ||
+    request.useDefaultSpeechModel === true ||
     request.systemPrompt !== ""
   );
 }
@@ -134,30 +120,12 @@ export function CharacterEditor({
       : assetUrl(character.portraitAssetId);
   const [name, setName] = useState(character.name);
   const [systemPrompt, setSystemPrompt] = useState(character.systemPrompt);
-  const [selectedSpeechModelId, setSelectedSpeechModelId] = useState(
-    character.speechModelConfigId,
-  );
-  const [speechVoice, setSpeechVoice] = useState(
-    character.speechVoice ??
-      speechDefaultVoice(character.speechModelConfigId, models) ??
-      "",
+  const [selectedSpeechModelId, setSelectedSpeechModelId] = useState<string | null>(
+    character.useDefaultSpeechModel ? DEFAULT_SPEECH_ID : character.speechModelConfigId,
   );
   useEffect(() => {
-    setSelectedSpeechModelId(character.speechModelConfigId);
-    setSpeechVoice(
-      character.speechVoice ??
-        speechDefaultVoice(
-          character.speechModelConfigId,
-          models,
-        ) ??
-        "",
-    );
-  }, [
-    character.speechModelConfigId,
-    character.speechVoice,
-    models,
-    providers,
-  ]);
+    setSelectedSpeechModelId(character.useDefaultSpeechModel ? DEFAULT_SPEECH_ID : character.speechModelConfigId);
+  }, [character.useDefaultSpeechModel, character.speechModelConfigId]);
   const [saveState, setSaveState] = useState<SaveState>({
     status: "idle",
     message: draft
@@ -201,8 +169,9 @@ export function CharacterEditor({
     if (defaultModelId === null) {
       return {
         id: NO_MODEL_ID,
-        name: "应用默认",
-        description: "尚未配置",
+        name: `使用默认（${selectionCopy.defaultModelMissing}）`,
+        placeholder: true,
+        description: "在常规设置中选择默认对话模型",
       };
     }
     const defaultModel = models.find((model) => model.id === defaultModelId);
@@ -211,7 +180,7 @@ export function CharacterEditor({
     const available = availableModels.some((model) => model.id === defaultModelId);
     return {
       id: NO_MODEL_ID,
-      name: "应用默认",
+      name: `使用默认（${defaultModelName}${available ? "" : " · 不可用"}）`,
       description: available
         ? `已配置：${defaultModelName}`
         : `已配置但不可用：${defaultModelName}`,
@@ -243,6 +212,8 @@ export function CharacterEditor({
           ...(request.speechModelConfigId === undefined
             ? {}
             : { speechModelConfigId: request.speechModelConfigId }),
+          ...(request.useDefaultSpeechModel === undefined ? {} : { useDefaultSpeechModel: request.useDefaultSpeechModel }),
+          ...(request.useDefaultSpeechVoice === undefined ? {} : { useDefaultSpeechVoice: request.useDefaultSpeechVoice }),
           ...(request.speechVoice === undefined
             ? {}
             : { speechVoice: request.speechVoice }),
@@ -328,7 +299,7 @@ export function CharacterEditor({
       !currentModelAvailable && character.modelConfigId !== null
         ? {
             id: character.modelConfigId,
-            name: "原模型不可用",
+            name: selectionCopy.unavailable,
             description: "该模型已被删除、禁用，或所属供应商不可用",
             disabled: true,
           }
@@ -382,7 +353,7 @@ export function CharacterEditor({
       !currentSpeechModelAvailable && character.speechModelConfigId !== null
         ? {
             id: character.speechModelConfigId,
-            name: "原声音模型不可用",
+            name: selectionCopy.unavailable,
             description:
               "该模型已被删除、禁用、改变类别，或所属供应商不可用",
             disabled: true,
@@ -390,49 +361,24 @@ export function CharacterEditor({
         : null,
     [character.speechModelConfigId, currentSpeechModelAvailable],
   );
-  const speechModelOptions = useMemo(
-    () => [
-      NO_SPEECH_MODEL_OPTION,
-      ...(unavailableSpeechModelOption === null
-        ? []
-        : [unavailableSpeechModelOption]),
-      ...groupedSpeechModels.flatMap((group) => group.options),
-    ],
-    [groupedSpeechModels, unavailableSpeechModelOption],
-  );
-  const selectedSpeechModel = models.find(
-    (model) => model.id === selectedSpeechModelId,
-  );
-  const voiceCatalog =
-    selectedSpeechModel?.modelType === "speechModel"
-      ? parseSpeechModelMetadata(selectedSpeechModel.metadata)?.voices ?? null
-      : null;
-  const voiceInCatalog =
-    speechVoice.length > 0 &&
-    voiceCatalog?.some((voice) => voice.id === speechVoice) === true;
-  const voiceOptions = useMemo<ModelOption[]>(
-    () => [
-      NO_VOICE_OPTION,
-      ...(!voiceInCatalog && speechVoice.length > 0
-        ? [
-            {
-              id: speechVoice,
-              name: `${speechVoice}（手动 Voice ID）`,
-              description: "该 Voice ID 由角色手动配置",
-            },
-          ]
-        : []),
-      ...(voiceCatalog ?? []).map((voice) => ({
-        id: voice.id,
-        name: voice.displayName,
-        ...(voice.description === undefined
-          ? {}
-          : { description: voice.description }),
-        keywords: [voice.id, voice.description ?? ""],
-      })),
-    ],
-    [speechVoice, voiceCatalog, voiceInCatalog],
-  );
+  const defaultSpeechModel = models.find((model) => model.id === appSettings.defaultSpeechModelConfigId);
+  const defaultSpeechAvailable = availableSpeechModels.some((model) => model.id === defaultSpeechModel?.id);
+  const defaultSpeechModelOption: ModelOption = {
+    id: DEFAULT_SPEECH_ID,
+    name: `使用默认（${defaultSpeechModel?.displayName ?? defaultSpeechModel?.modelId ?? selectionCopy.defaultModelMissing}${defaultSpeechModel && !defaultSpeechAvailable ? " · 不可用" : ""}）`,
+  };
+  const speechModelOptions = [defaultSpeechModelOption, NO_SPEECH_MODEL_OPTION,
+    ...(unavailableSpeechModelOption ? [unavailableSpeechModelOption] : []),
+    ...groupedSpeechModels.flatMap((group) => group.options)];
+  const effectiveSpeechModelId = selectedSpeechModelId === DEFAULT_SPEECH_ID
+    ? appSettings.defaultSpeechModelConfigId : selectedSpeechModelId;
+  const selectedSpeechModel = models.find((model) => model.id === effectiveSpeechModelId);
+  const defaultVoice = defaultVoiceForModel(selectedSpeechModel, appSettings);
+  const voiceName = (id: string | null) => selectedSpeechModel
+    ? parseSpeechModelMetadata(selectedSpeechModel.metadata)?.voices?.find((voice) => voice.id === id)?.displayName ?? id
+    : id;
+  const voiceNeedsConfirmation = !character.useDefaultSpeechVoice && character.speechVoice !== null
+    && character.speechModelConfigId !== effectiveSpeechModelId;
 
   return (
     <>
@@ -484,7 +430,7 @@ export function CharacterEditor({
             <ModelSelectorContent searchable>
               <ModelSelectorSearch placeholder="搜索模型…" />
               <ModelSelectorList>
-                <ModelSelectorEmpty>没有匹配的模型</ModelSelectorEmpty>
+                <ModelSelectorEmpty available={availableModels.length > 0} />
                 <ModelSelectorGroup heading="角色">
                   <ModelSelectorItem model={defaultLanguageModelOption} />
                   {unavailableModelOption !== null && (
@@ -517,49 +463,32 @@ export function CharacterEditor({
             <span className="character-star" aria-hidden="true">✦</span>
             声音 <small>/ SPEECH MODEL</small>
           </label>
+          <div className="grid min-w-0 grid-cols-1 items-start gap-2">
           <ModelSelectorRoot
             models={speechModelOptions}
             value={selectedSpeechModelId ?? NO_MODEL_ID}
             onValueChange={(value) => {
-              if (value === NO_MODEL_ID) {
-                setSelectedSpeechModelId(null);
-                setSpeechVoice("");
-                void persist({
-                  id: character.id,
-                  speechModelConfigId: null,
-                  speechVoice: null,
-                });
-                return;
-              }
-              const voice = speechDefaultVoice(value, models);
-              setSelectedSpeechModelId(value);
-              if (voice === null) {
-                setSpeechVoice("");
-                setSaveState({
-                  status: "dirty",
-                  message: "请填写 Voice ID 后保存声音模型。",
-                });
-                return;
-              }
-              setSpeechVoice(voice);
-              void persist({
-                id: character.id,
-                speechModelConfigId: value,
-                speechVoice: voice,
-              });
+              const off = value === NO_MODEL_ID;
+              const inherits = value === DEFAULT_SPEECH_ID;
+              setSelectedSpeechModelId(off ? null : value);
+              void persist({ id: character.id, useDefaultSpeechModel: inherits,
+                useDefaultSpeechVoice: !off,
+                speechModelConfigId: off || inherits ? null : value, speechVoice: null });
             }}
           >
             <ModelSelectorTrigger
               id="character-speech-model"
               className="w-full"
+              title={speechModelOptions.find((option) => option.id === (selectedSpeechModelId ?? NO_MODEL_ID))?.name}
               data-model-id={selectedSpeechModelId ?? ""}
               data-testid="character-speech-model"
             />
             <ModelSelectorContent searchable>
               <ModelSelectorSearch placeholder="搜索语音模型…" />
               <ModelSelectorList>
-                <ModelSelectorEmpty>没有匹配的语音模型</ModelSelectorEmpty>
+                <ModelSelectorEmpty available={availableSpeechModels.length > 0} />
                 <ModelSelectorGroup heading="角色">
+                  <ModelSelectorItem model={defaultSpeechModelOption} />
                   <ModelSelectorItem model={NO_SPEECH_MODEL_OPTION} />
                   {unavailableSpeechModelOption !== null && (
                     <ModelSelectorItem model={unavailableSpeechModelOption} />
@@ -575,93 +504,22 @@ export function CharacterEditor({
               </ModelSelectorList>
             </ModelSelectorContent>
           </ModelSelectorRoot>
-          {selectedSpeechModelId !== null && voiceCatalog !== null && (
-            <ModelSelectorRoot
-              models={voiceOptions}
-              value={speechVoice || NO_VOICE_ID}
-              onValueChange={(voice) => {
-                if (voice === NO_VOICE_ID || voice === speechVoice) return;
-                setSpeechVoice(voice);
-                void persist({
-                  id: character.id,
-                  speechModelConfigId: selectedSpeechModelId,
-                  speechVoice: voice,
-                });
-              }}
-            >
-              <ModelSelectorTrigger
-                className="w-full"
-                data-testid="character-speech-voice"
-              />
-              <ModelSelectorContent searchable>
-                <ModelSelectorSearch placeholder="搜索音色…" />
-                <ModelSelectorList>
-                  <ModelSelectorEmpty>没有匹配的音色</ModelSelectorEmpty>
-                  <ModelSelectorGroup heading="音色">
-                    {voiceOptions.map((option) => (
-                      <ModelSelectorItem key={option.id} model={option} />
-                    ))}
-                  </ModelSelectorGroup>
-                </ModelSelectorList>
-              </ModelSelectorContent>
-            </ModelSelectorRoot>
+          <SpeechVoicePicker key={effectiveSpeechModelId ?? "none"} model={selectedSpeechModel}
+            testId="character-speech-voice" disabled={!selectedSpeechModel || selectedSpeechModelId === null}
+            defaultName={voiceName(defaultVoice) ?? selectionCopy.defaultVoiceMissing}
+            value={character.useDefaultSpeechVoice ? null : character.speechVoice}
+            onChange={(voice) => void persist({ id: character.id,
+              useDefaultSpeechModel: selectedSpeechModelId === DEFAULT_SPEECH_ID,
+              useDefaultSpeechVoice: voice === null,
+              speechModelConfigId: effectiveSpeechModelId, speechVoice: voice })} />
+          </div>
+          {(selectedSpeechModelId === DEFAULT_SPEECH_ID || character.useDefaultSpeechVoice) && selectedSpeechModelId !== null && (
+            <p className="text-xs leading-5 text-muted-foreground break-words">
+              当前：{selectedSpeechModel?.displayName ?? selectedSpeechModel?.modelId ?? selectionCopy.modelPlaceholder}
+              {" · "}{voiceName(character.useDefaultSpeechVoice ? defaultVoice : character.speechVoice) ?? selectionCopy.voicePlaceholder}
+            </p>
           )}
-          {selectedSpeechModelId !== null && (
-            <Input
-              aria-label={
-                voiceCatalog === null ? "Voice ID" : "手动 Voice ID"
-              }
-              data-testid={
-                voiceCatalog === null
-                  ? "character-speech-voice"
-                  : "character-speech-voice-custom"
-              }
-              maxLength={200}
-              placeholder={
-                voiceCatalog === null
-                  ? "供应商 Voice ID"
-                  : "或手动输入 Voice ID"
-              }
-              value={voiceCatalog !== null && voiceInCatalog ? "" : speechVoice}
-              onBlur={(event) => {
-                const voice = event.currentTarget.value.trim();
-                if (voice.length === 0) {
-                  if (voiceCatalog !== null && voiceInCatalog) return;
-                  setSpeechVoice(
-                    character.speechVoice ??
-                      speechDefaultVoice(
-                        character.speechModelConfigId,
-                        models,
-                      ) ??
-                      "",
-                  );
-                  setSaveState({
-                    status: "error",
-                    message: "Voice ID 不能为空。",
-                  });
-                  return;
-                }
-                if (voice === character.speechVoice) return;
-                setSpeechVoice(voice);
-                void persist({
-                  id: character.id,
-                  speechModelConfigId: selectedSpeechModelId,
-                  speechVoice: voice,
-                });
-              }}
-              onChange={(event) => {
-                setSpeechVoice(event.target.value);
-                setSaveState({
-                  status: "dirty",
-                  message: draft
-                    ? "草稿将在离开角色时保存"
-                    : voiceCatalog === null
-                      ? "已修改，离开输入框后保存"
-                      : "已输入手动 Voice ID，离开输入框后保存",
-                });
-              }}
-            />
-          )}
+          {voiceNeedsConfirmation && <p className="text-xs text-destructive">默认模型已变更，请重新选择音色或使用默认音色。</p>}
           {availableSpeechModels.length === 0 && (
             <button className="character-inline-link" type="button" onClick={onOpenSettings}>
               <SettingsIcon aria-hidden="true" />

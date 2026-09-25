@@ -78,7 +78,6 @@ export function ChatPage({
         </div>
 
         <footer className="chat-sidebar-footer">
-          <AvatarControl />
           <TooltipIconButton
             tooltip="打开设置"
             side="top"
@@ -88,6 +87,7 @@ export function ChatPage({
           >
             <SettingsIcon aria-hidden="true" />
           </TooltipIconButton>
+          <AvatarControl />
           <TooltipIconButton
             ref={visibilityButton}
             tooltip={collapsed ? "显示角色与会话" : "隐藏角色与会话"}

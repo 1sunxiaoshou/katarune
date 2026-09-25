@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import assert from "node:assert/strict";
 import { app, safeStorage } from "electron";
 import Database from "better-sqlite3";
@@ -38,12 +39,14 @@ void app.whenReady().then(async () => {
   });
   db.close();
   const character = characterSchema.parse({ id: selected.id, name: "Live test", portraitAssetId: null,
-    portraitFocusX: .5, portraitFocusY: 0, portraitZoom: 1, modelConfigId: languageRow.id,
+    portraitFocusX: .5, portraitFocusY: 0, portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false, modelConfigId: languageRow.id,
     speechModelConfigId: selected.speech, speechVoice: selected.voice, systemPrompt: "", createdAt: now, updatedAt: now });
   const database = {
     listProviderConfigs: () => ({ providerConfigs: providers }), listModelConfigs: () => ({ modelConfigs: models }),
     fetchProviderConfig: (id: string) => { const result = providers.find(p => p.id === id); assert.ok(result); return result; },
     fetchModelConfig: (id: string) => { const result = models.find(m => m.id === id); assert.ok(result); return result; },
+    getAppSettings: () => emptyAppSettings,
     fetchCharacter: () => character,
   };
   const aiRuntime = await createAiRuntime({ database, credentialStore: {

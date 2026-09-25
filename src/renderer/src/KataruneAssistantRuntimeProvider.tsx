@@ -6,6 +6,7 @@ import {
 } from "@assistant-ui/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { useChat } from "@ai-sdk/react";
+import { realtimeVoice } from "./speech/realtimeVoice";
 import { createChatSendQueue } from "./chat/chatSendQueue";
 import { useAvatarState } from "./chat/avatarState";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
@@ -30,6 +31,7 @@ import { MemoryWikiToolUI } from "./chat/MemoryWikiToolUI";
 import { ViewChatImageToolUI } from "./chat/ViewChatImageToolUI";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
 import { KataruneSpeechSynthesisAdapter } from "./speech/KataruneSpeechSynthesisAdapter";
+import { KataruneDictationAdapter } from './speech/KataruneDictationAdapter';
 import {
   isCharacterSpeechAvailable,
   SPEECH_CONFIG_CHANGED_EVENT,
@@ -47,10 +49,13 @@ function useCharacterRuntimeConfig(): Character {
 }
 
 function ThreadRuntimeHook() {
+  const dictation = useMemo(() => new KataruneDictationAdapter(), []);
+  useEffect(() => () => dictation.dispose(), [dictation]);
   const character = useCharacterRuntimeConfig();
   const aui = useAui();
   const threadId = useAuiState((s) => s.threadListItem.id);
   const remoteId = useAuiState((s) => s.threadListItem.remoteId);
+  const resolvedThreadId = remoteId ?? threadId;
   const avatar = useAvatarState((s) => s.status);
   const avatarBound =
     avatar.phase === "ready" &&
@@ -70,7 +75,7 @@ function ThreadRuntimeHook() {
   useEffect(() => {
     let active = true;
     const refresh = (): void => {
-      void isCharacterSpeechAvailable(character)
+      void isCharacterSpeechAvailable(character, appSettings)
         .then((available) => {
           if (active) setSpeechAvailable(available);
         })
@@ -84,16 +89,17 @@ function ThreadRuntimeHook() {
       active = false;
       window.removeEventListener(SPEECH_CONFIG_CHANGED_EVENT, refresh);
     };
-  }, [character]);
+  }, [character, appSettings]);
   const speech = useMemo(
     () =>
-      !speechAvailable ||
-      character.speechModelConfigId === null ||
-      character.speechVoice === null
+      !speechAvailable
         ? undefined
         : new KataruneSpeechSynthesisAdapter(character.id, remoteId ?? threadId),
     [
       character.id,
+      appSettings,
+      character.useDefaultSpeechModel,
+      character.useDefaultSpeechVoice,
       character.speechModelConfigId,
       character.speechVoice,
       speechAvailable,
@@ -125,10 +131,13 @@ function ThreadRuntimeHook() {
   const queue = useMemo(
     () =>
       createChatSendQueue(
-        (...args) => sendRef.current(...args),
+        (...args) => {
+          realtimeVoice.beforeSend({ characterId: character.id, threadId: remoteId ?? threadId });
+          return sendRef.current(...args);
+        },
         (count) => useAvatarState.getState().setQueued(threadId, count),
       ),
-    [threadId],
+    [threadId, resolvedThreadId, character.id],
   );
   useEffect(() => {
     queue.activate();
@@ -137,7 +146,7 @@ function ThreadRuntimeHook() {
   const runtime = useAISDKRuntime(
     { ...chat, sendMessage: avatarBound ? queue.send : chat.sendMessage },
     {
-      adapters: { attachments, speech },
+      adapters: { attachments, speech, dictation },
       cancelPendingToolCallsOnSend: !avatarBound,
       isSendDisabled:
         character.modelConfigId === null &&
@@ -145,6 +154,20 @@ function ThreadRuntimeHook() {
     },
   );
   transport.setRuntime(runtime);
+  const voiceState = useRef({ busy: false, available: false, error: chat.error });
+  voiceState.current = {
+    busy: chat.status === "submitted" || chat.status === "streaming",
+    available: appSettings.defaultAsrModel !== null && speechAvailable
+      && (character.modelConfigId !== null || appSettings.defaultLanguageModelConfigId !== null),
+    error: chat.error,
+  };
+  const voiceSend = useRef(queue.send);
+  voiceSend.current = queue.send;
+  useEffect(() => realtimeVoice.register({ characterId: character.id, threadId: remoteId ?? threadId }, {
+    state: () => voiceState.current,
+    send: async text => { await voiceSend.current({ text }); },
+  }), [character.id, resolvedThreadId]);
+  useEffect(() => realtimeVoice.changed(), [chat.status, chat.error, speechAvailable, appSettings, character]);
   return runtime;
 }
 

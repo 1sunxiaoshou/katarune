@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain, webContents } from "electron";
 import {
   AVATAR_CHANNELS,
   avatarBindingSchema,
@@ -11,6 +11,11 @@ export function registerAvatarHandlers(
   avatar: AvatarService,
   database: DatabaseRuntime,
 ): void {
+  avatar.subscribe(status => {
+    for (const contents of webContents.getAllWebContents()) {
+      if (!contents.isDestroyed()) contents.send(AVATAR_CHANNELS.changed, status);
+    }
+  });
   ipcMain.handle(AVATAR_CHANNELS.start, async (_event, value: unknown) => {
     const binding = avatarBindingSchema.parse(value);
     database.fetchCharacter(binding.characterId);

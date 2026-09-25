@@ -15,6 +15,7 @@ import {
 import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
 import {
+  speechVoiceSchema,
   speechModelMetadataSchema,
   type SpeechModelMetadata,
 } from "./speech";
@@ -319,9 +320,12 @@ export const setActiveCharacterRequestSchema = z.strictObject({
 
 export const appSettingsSchema = z.strictObject({
   defaultLanguageModelConfigId: z.nullable(z.uuid()),
+  defaultSpeechModelConfigId: z.nullable(z.uuid()),
+  defaultSpeechVoice: z.nullable(speechVoiceSchema),
+  defaultAsrModel: z.nullable(z.literal("sensevoice-small-int8")),
 });
 
-export const updateAppSettingsRequestSchema = appSettingsSchema;
+export const updateAppSettingsRequestSchema = z.partial(appSettingsSchema);
 
 export const operationSuccessSchema = z.strictObject({
   success: z.literal(true),
@@ -638,6 +642,14 @@ export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSch
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
+  prepareRealtimeAsr(request: import('./asr').RealtimeAsrRequest): Promise<import('./asr').AsrResult>;
+  pushAsrFrame(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
+  resetRealtimeAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
+  onAsrTranscribing(listener: (requestId: string) => void): () => void;
+  onAvatarStatus(listener: (status: import('./avatar').AvatarStatus) => void): () => void;
+  prepareAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
+  transcribeAsr(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
+  cancelAsr(request: { requestId: string }): void;
   startAvatar(request: import("./avatar").AvatarBinding): Promise<import("./avatar").AvatarStatus>;
   stopAvatar(): Promise<import("./avatar").AvatarStatus>;
   getAvatarStatus(): Promise<import("./avatar").AvatarStatus>;

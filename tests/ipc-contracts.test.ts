@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import { describe, expect, it } from "vitest";
 import {
   aiRuntimeStatusSchema,
@@ -75,8 +76,8 @@ describe("shared IPC contracts", () => {
     const defaultLanguageModelConfigId =
       "00000000-0000-4000-8000-000000000001";
     expect(
-      appSettingsSchema.parse({ defaultLanguageModelConfigId }),
-    ).toEqual({ defaultLanguageModelConfigId });
+      appSettingsSchema.parse({ ...emptyAppSettings, defaultLanguageModelConfigId }),
+    ).toEqual({ ...emptyAppSettings, defaultLanguageModelConfigId });
     expect(
       updateAppSettingsRequestSchema.parse({
         defaultLanguageModelConfigId: null,
@@ -143,6 +144,7 @@ describe("shared IPC contracts", () => {
       portraitFocusX: 0.5,
       portraitFocusY: 0,
       portraitZoom: 1,
+            useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,
@@ -398,6 +400,7 @@ describe("shared IPC contracts", () => {
             portraitFocusX: 0.5,
             portraitFocusY: 0,
             portraitZoom: 1,
+            useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
             modelConfigId: null,
             speechModelConfigId: null,
             speechVoice: null,
@@ -484,6 +487,7 @@ describe("shared IPC contracts", () => {
       portraitFocusX: 0.5,
       portraitFocusY: 0,
       portraitZoom: 1,
+            useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,

@@ -5,6 +5,36 @@ namespace Katarune.Avatar.Tests
 {
     public class AvatarSubtitleTests
     {
+        [Test]
+        public void UserCaptionIsLiteralAndRoleCaptionRestoresItsOwnStyle()
+        {
+            var gameObject = new UnityEngine.GameObject("subtitle-test");
+            try
+            {
+                var control = gameObject.AddComponent<AvatarControlConnection>();
+                var label = new UnityEngine.UIElements.Label { enableRichText = false };
+                var root = new UnityEngine.UIElements.VisualElement();
+                var scroll = new UnityEngine.UIElements.ScrollView();
+                root.Add(scroll); scroll.Add(label);
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var type = typeof(AvatarControlConnection);
+                type.GetField("_label", flags).SetValue(control, label);
+                type.GetField("_subtitle", flags).SetValue(control, root);
+                type.GetField("_subtitleScroll", flags).SetValue(control, scroll);
+                type.GetMethod("ShowUserSubtitle", flags).Invoke(control, new object[] { "  <b>你好。</b>  " });
+                Assert.That(label.text, Is.EqualTo("你：<b>你好。</b>"));
+                Assert.That(label.enableRichText, Is.False);
+                Assert.That(label.ClassListContains("user-subtitle"), Is.True);
+                Assert.That(root.style.display.value, Is.EqualTo(UnityEngine.UIElements.DisplayStyle.Flex));
+                type.GetMethod("ShowUserSubtitle", flags).Invoke(control, new object[] { "  " });
+                Assert.That(label.text, Is.EqualTo("你：<b>你好。</b>"));
+                type.GetMethod("ShowSubtitle", flags).Invoke(control, new object[] { "我听到了。" });
+                Assert.That(label.text, Is.EqualTo("我听到了。"));
+                Assert.That(label.ClassListContains("user-subtitle"), Is.False);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(gameObject); }
+        }
+
         [TestCase("呼——总算动起来了！老师，你好。", "呼——总算动起来了！")]
         [TestCase("\n\n看，右手可以动了！\n\n怎么样？", "看，右手可以动了！")]
         [TestCase("她说：“你好！”接下来。", "她说：“你好！”")]

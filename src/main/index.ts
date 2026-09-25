@@ -1,4 +1,6 @@
 import { AvatarService } from "./avatar/avatarService";
+import { registerAsrHandlers } from './ipc/asrHandlers';
+import type { AsrService } from './speech/asrService';
 import { join } from "node:path";
 import { app, BrowserWindow, Menu, safeStorage, shell } from "electron";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
@@ -25,6 +27,7 @@ import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
 import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
 
 let avatarService: AvatarService | undefined;
+let asrService: AsrService | undefined;
 
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
@@ -48,6 +51,7 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
 
@@ -163,6 +167,7 @@ void app.whenReady().then(async () => {
     memoryWiki,
     avatarService,
   );
+  asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
 
   app.on("activate", () => {
@@ -176,6 +181,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  asrService?.dispose();
   avatarService?.stop();
   speechRequests?.cancelAll();
   speechRequests = undefined;

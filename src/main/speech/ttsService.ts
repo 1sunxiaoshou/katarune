@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SpeechSegment } from "../../shared/speechTiming";
 import type { createSpeechArtifactCache } from "./speechArtifactCache";
 import { resolveSpeechProfile } from "./speechProfiles";
+import { resolveCharacterSpeechModel, resolveCharacterSpeechVoice } from "../../shared/speechSelection";
 import { extractSpokenText } from "./spokenText";
 import { alignOriginalSubtitles } from "./subtitleAlignment";
 import { pcmWav, type SpeechStreamEvent } from "../ai/streamingSpeech";
@@ -33,7 +34,7 @@ export class SpeechServiceError extends Error {
 
 type SpeechDatabase = Pick<
   DatabaseRuntime,
-  "fetchCharacter" | "fetchModelConfig" | "fetchProviderConfig"
+  "fetchCharacter" | "fetchModelConfig" | "fetchProviderConfig" | "getAppSettings"
 >;
 
 type SpeechGenerator = (
@@ -95,17 +96,20 @@ export function createSpeechService({
       } catch {
         throw new SpeechServiceError("model-unavailable", "角色不存在或已不可用。");
       }
+      const settings = database.getAppSettings();
+      const speechModelConfigId = resolveCharacterSpeechModel(character, settings);
       if (
-        character.speechModelConfigId === null ||
-        character.speechVoice === null
+        speechModelConfigId === null
       ) {
-        throw new SpeechServiceError("not-configured", "该角色尚未配置语音模型。");
+        throw new SpeechServiceError("not-configured", character.useDefaultSpeechModel
+          ? "请配置默认语音合成模型，并为角色确认该模型的音色。"
+          : "该角色尚未配置语音模型。");
       }
 
       let modelConfig;
       let providerConfig;
       try {
-        modelConfig = database.fetchModelConfig(character.speechModelConfigId);
+        modelConfig = database.fetchModelConfig(speechModelConfigId);
         providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
       } catch {
         throw new SpeechServiceError(
@@ -124,6 +128,10 @@ export function createSpeechService({
         );
       }
       let resolved;
+      const speechVoice = resolveCharacterSpeechVoice(character, settings, modelConfig);
+      if (speechVoice === null) {
+        throw new SpeechServiceError("not-configured", "请设置默认音色，或为角色重新选择当前语音模型的音色。");
+      }
       try {
         resolved = aiRuntime.resolveSpeechModel(modelConfig.id);
       } catch {
@@ -147,11 +155,11 @@ export function createSpeechService({
         providerType: providerConfig.providerType,
         baseUrl: providerConfig.baseUrl,
         modelId: modelConfig.modelId,
-        voice: character.speechVoice,
+        voice: speechVoice,
         outputFormat: output.format,
       });
       const voiceKey = createHash("sha256").update(JSON.stringify([
-        providerConfig.id, modelConfig.modelId, character.speechVoice,
+        providerConfig.id, modelConfig.modelId, speechVoice,
       ])).digest("hex");
       const profilePath = await resolveSpeechProfile(profileDirectory, voiceKey);
       if (withTimestamps && (resolved.generateWithTimestamps || (onStream && resolved.streamSpeech))) {
@@ -170,7 +178,7 @@ export function createSpeechService({
         abortSignal.throwIfAborted();
         if (cachedArtifact && resolved.validateAudio(cachedArtifact.audio))
           return present(cachedArtifact, true);
-        const options = { text, voice: character.speechVoice, outputFormat: "wav", abortSignal };
+        const options = { text, voice: speechVoice, outputFormat: "wav", abortSignal };
         let artifact: TimestampedSpeechAudio;
         let streaming = false;
         if (onStream && resolved.streamSpeech) {
@@ -233,7 +241,7 @@ export function createSpeechService({
       const result = await generate({
         model: resolved.model,
         text,
-        voice: character.speechVoice,
+        voice: speechVoice,
         outputFormat: output.requestFormat,
         abortSignal,
       });

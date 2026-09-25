@@ -154,6 +154,12 @@ namespace Katarune.Avatar
                 try
                 {
                     request = JsonUtility.FromJson<Request>(line);
+                    if (request?.type == "user-subtitle")
+                    {
+                        if (!_timelineRunning && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
+                            ShowUserSubtitle(request.text);
+                        continue;
+                    }
                     if (request?.type == "event") { ConsumeEvent(request.@event, request.runId, request.speechEnabled); continue; }
                     if (request?.type == "dialogue-audio")
                     {
@@ -226,8 +232,16 @@ namespace Katarune.Avatar
             _subtitle.style.display = DisplayStyle.None;
         }
 
+        private void ShowUserSubtitle(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) return;
+            ShowSubtitle("你：" + text.Trim());
+            _label.EnableInClassList("user-subtitle", true);
+        }
+
         private void ShowSubtitle(string text)
         {
+            _label.EnableInClassList("user-subtitle", false);
             if (_label.text != text) { _label.text = text; _subtitleScroll.scrollOffset = Vector2.zero; }
             _subtitle.style.display = DisplayStyle.Flex;
         }

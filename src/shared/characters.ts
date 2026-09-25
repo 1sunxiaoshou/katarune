@@ -23,8 +23,10 @@ function hasValidSpeechSelection(value: unknown): boolean {
   const selection = value as {
     readonly speechModelConfigId: string | null;
     readonly speechVoice: string | null;
+    readonly useDefaultSpeechVoice?: boolean;
   };
   return (
+    selection.useDefaultSpeechVoice === true ||
     (selection.speechModelConfigId === null) ===
     (selection.speechVoice === null)
   );
@@ -45,6 +47,8 @@ export const characterSchema = z
     modelConfigId: z.nullable(z.uuid()),
     speechModelConfigId: z.nullable(z.uuid()),
     speechVoice: z.nullable(speechVoiceSchema),
+    useDefaultSpeechModel: z.boolean(),
+    useDefaultSpeechVoice: z.boolean(),
     systemPrompt: systemPromptSchema,
     createdAt: z.date(),
     updatedAt: z.date(),
@@ -65,6 +69,8 @@ export const createCharacterRequestSchema = z
     modelConfigId: z.nullable(z.uuid()),
     speechModelConfigId: z.nullable(z.uuid()),
     speechVoice: z.nullable(speechVoiceSchema),
+    useDefaultSpeechModel: z.optional(z.boolean()),
+    useDefaultSpeechVoice: z.optional(z.boolean()),
     systemPrompt: systemPromptSchema,
   })
   .check(validSpeechSelection);
@@ -75,6 +81,8 @@ export const updateCharacterRequestSchema = z.strictObject({
   modelConfigId: z.optional(z.nullable(z.uuid())),
   speechModelConfigId: z.optional(z.nullable(z.uuid())),
   speechVoice: z.optional(z.nullable(speechVoiceSchema)),
+  useDefaultSpeechModel: z.optional(z.boolean()),
+  useDefaultSpeechVoice: z.optional(z.boolean()),
   systemPrompt: z.optional(systemPromptSchema),
 });
 

@@ -19,7 +19,7 @@ export class AvatarDialogueSpeech {
 
   constructor(private readonly runId: string, private readonly characterId: string,
     private readonly service: SpeechService, private readonly send: (message: object) => void,
-    private readonly temporaryDirectory = tmpdir()) {}
+    private readonly temporaryDirectory = tmpdir(), private readonly onFailure: () => void = () => {}) {}
 
   observe(chunk: UIMessageChunk) {
     if (this.stopped) return;
@@ -82,6 +82,7 @@ export class AvatarDialogueSpeech {
           value: path, text: result.spokenText ?? block.text, segments: result.segments ?? [],
           profilePath: result.profilePath ?? "", voiceKey: result.voiceKey ?? "", failed: false });
       } catch {
+        if (!this.stopped) this.onFailure();
         if (streamed) {
           await this.transfers.get(block.id)?.fail();
           return;
