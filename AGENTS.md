@@ -57,6 +57,7 @@ npx skills list --json
 - assistant-ui 的跨领域问题先使用 `.agents/skills/assistant-ui/SKILL.md`，再按它的路由选择最具体的 Skill。
 - 初次集成使用 `setup`；Runtime 与状态使用 `runtime`；UI 组合使用 `primitives`；工具及工具 UI 使用 `tools`；流协议使用 `streaming`；会话侧栏使用 `thread-list`；升级使用 `update`。
 - Unity CLI、Editor 连接、构建或测试任务必须使用 `.agents/skills/unity-cli/SKILL.md`。
+- Unity 6000.3.11f1 在含中文路径的 Windows 工程中，Pipeline 的 `eval` 会产生 `GetName()` 失败的 `PipelineEval_*` 动态程序集，可能导致 QuickInstaller 持续刷错。此组合下不要使用 `eval` / `eval_file`；其他会加载动态程序集的命令也须先验证。优先使用已注册的场景、播放、截图和测试命令；需要 C# 时使用正常编译的 Editor 脚本。出现该异常后须重载脚本域以卸载动态程序集，不能仅清空 Console 或屏蔽异常。详见工程规范的 Unity 编辑器排错记录。
 - 讨论、规划、实现或评审某项 Unity 功能前，先读取项目的 `ProjectVersion.txt` 和 `Packages/manifest.json`，再查询与该版本和功能对应的 Unity 官方 Manual、Scripting API 或包文档；不得只依赖模型记忆或泛化教程。第三方包同时核对其官方上游文档和项目锁定源码。
 - Unity 官方其他 Skill 只在当前任务明确涉及其领域且仓库尚未安装时，从 `Unity-Technologies/skills` 按单项安装到本仓库；不得为了备用一次性安装全部 Unity Skills。
 - 只在任务确实涉及某一领域时加载对应 Skill，不要一次读取全部 Skills。
