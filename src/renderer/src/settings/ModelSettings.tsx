@@ -600,8 +600,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
       return (
         <div className="grid h-full min-h-40 place-items-center px-6 text-center" data-testid="model-empty-state">
           <div className="grid gap-1">
-            <p className="font-medium">{searchQuery.trim().length > 0 ? "没有匹配的模型" : "此分类还没有模型"}</p>
-            <p className="text-sm text-muted-foreground">{searchQuery.trim().length > 0 ? "尝试显示名称或模型 ID。" : "添加或获取模型后，它会显示在这里。"}</p>
+            <p className="text-sm text-muted-foreground">{searchQuery.trim().length > 0 ? "无匹配结果" : "此分类暂无模型"}</p>
           </div>
         </div>
       );
@@ -769,7 +768,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
   );
 }
 
-function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.Element {
+function EmptyModelPanel({ message, error = false }: { readonly message: string; readonly error?: boolean }): React.JSX.Element {
   const [category, setCategory] = useState<ModelCategory>("all");
 
   const changeCategory = (value: string): void => {
@@ -783,7 +782,7 @@ function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.E
         <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
             <TabsContent className="scrollbar-hidden grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
-              {message}
+              <span className={error ? "text-destructive" : undefined}>{message}</span>
             </TabsContent>
           ))}
           <ModelCategoryList floating />
@@ -833,9 +832,9 @@ export function ModelManagement({
           </CardAction>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="provider-list">
-          {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">正在读取配置……</p>}
-          {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
-          {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
+          {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">加载中…</p>}
+          {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>加载失败</p><details className="text-xs"><summary className="cursor-pointer">查看详情</summary><p className="mt-1 break-words">{dataState.message}</p></details><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
+          {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商</p>}
           <div className="scrollbar-hidden relative isolate grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1" data-testid="provider-list-scroll">
             {selectedProviderIndex >= 0 ? (
               <span
@@ -882,7 +881,7 @@ export function ModelManagement({
 
       <div className="min-w-0 lg:h-full lg:min-h-0">
         <div className="sr-only" id="model-settings-title">模型设置</div>
-        {selectedProvider !== undefined ? (
+        {dataState.status === "ready" && selectedProvider !== undefined ? (
           <ModelSettings
             provider={selectedProvider}
             models={selectedModels}
@@ -894,7 +893,7 @@ export function ModelManagement({
             onChanged={onReload}
           />
         ) : (
-          <EmptyModelPanel message={dataState.status === "loading" ? "正在读取模型配置……" : "选择一个 Provider，或添加新的模型供应商。"} />
+          <EmptyModelPanel error={dataState.status === "error"} message={dataState.status === "loading" ? "加载中…" : dataState.status === "error" ? "加载失败" : providers.length === 0 ? "尚未添加供应商" : "请选择供应商"} />
         )}
       </div>
     </section>

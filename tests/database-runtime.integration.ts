@@ -439,7 +439,7 @@ try {
   runtime.updateAppSettings({ defaultSpeechModelConfigId: speechModelConfig.id, defaultSpeechVoice: "alloy" });
   runtime.updateAppSettings({ defaultAsrModel: null });
   assert.equal(runtime.getAppSettings().defaultSpeechVoice, "alloy");
-  assert.equal(runtime.getAppSettings().defaultAsrModel, null);
+  assert.equal(runtime.getAppSettings().defaultAsrModel, "sensevoice-small-int8");
   runtime.updateAppSettings({ defaultAsrModel: "sensevoice-small-int8" });
   assert.equal(runtime.fetchCharacter(initialCharacterId).useDefaultSpeechModel, false);
   const inherited = runtime.updateCharacter({ id: initialCharacterId, useDefaultSpeechModel: true, useDefaultSpeechVoice: true });

@@ -15,7 +15,7 @@ export function SpeechVoicePicker({ model, value, onChange, defaultName, disable
   const typedVoice = query.trim();
   const options: ModelOption[] = [
     { id: EMPTY, name: !model ? selectionCopy.modelRequired : defaultName === undefined
-      ? selectionCopy.voicePlaceholder : `使用默认（${defaultName}）`, placeholder: !model || !value && defaultName === undefined },
+      ? selectionCopy.voicePlaceholder : "使用默认", placeholder: !model || !value && defaultName === undefined },
     ...voices.map((voice) => ({ id: voice.id, name: voice.displayName, keywords: [voice.id] })),
     ...(value && !voices.some((voice) => voice.id === value) ? [{ id: value, name: value }] : []),
   ];
@@ -27,13 +27,13 @@ export function SpeechVoicePicker({ model, value, onChange, defaultName, disable
     onOpenChange={() => setQuery("")}
     onValueChange={(next) => onChange(next === EMPTY ? null : next)}>
     <ModelSelectorTrigger className="w-full min-w-0" aria-label="音色" data-testid={testId}
-      title={options.find((option) => option.id === (value ?? EMPTY))?.name} disabled={disabled} />
+      title={!value && defaultName !== undefined ? `默认音色：${defaultName}` : options.find((option) => option.id === (value ?? EMPTY))?.name} disabled={disabled} />
     <ModelSelectorContent searchable align="end">
-      <ModelSelectorSearch aria-label="搜索音色或输入 Voice ID" placeholder="搜索音色或输入 Voice ID…"
+      <ModelSelectorSearch aria-label="搜索音色或输入 Voice ID" placeholder={voices.length === 0 ? "输入音色 ID" : "搜索音色或输入 Voice ID…"}
         maxLength={200} value={query} onValueChange={setQuery} />
       <ModelSelectorList>
         <ModelSelectorEmpty kind="voice" available={voices.length > 0 || Boolean(value) || typedVoice.length > 0} />
-        <ModelSelectorGroup heading="音色">
+        <ModelSelectorGroup>
           {options.map((option) => <ModelSelectorItem key={option.id} model={option} />)}
         </ModelSelectorGroup>
       </ModelSelectorList>

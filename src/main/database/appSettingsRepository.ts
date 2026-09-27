@@ -27,7 +27,8 @@ export function createAppSettingsRepository(
       defaultLanguageModelConfigId: settings.defaultLanguageModelConfigId,
       defaultSpeechModelConfigId: settings.defaultSpeechModelConfigId,
       defaultSpeechVoice: settings.defaultSpeechModelConfigId === null ? null : settings.defaultSpeechVoice,
-      defaultAsrModel: settings.defaultAsrModel,
+      // ASR is bundled; legacy null settings resolve to the installed default.
+      defaultAsrModel: settings.defaultAsrModel ?? "sensevoice-small-int8",
     });
   };
 
@@ -36,6 +37,7 @@ export function createAppSettingsRepository(
     updateAppSettings: (request) => {
       const current = getAppSettings();
       const updates = { ...request };
+      if (request.defaultAsrModel === null) updates.defaultAsrModel = "sensevoice-small-int8";
       if (request.defaultSpeechModelConfigId !== undefined && request.defaultSpeechModelConfigId !== current.defaultSpeechModelConfigId
         && request.defaultSpeechVoice === undefined) updates.defaultSpeechVoice = null;
       if ((request.defaultSpeechModelConfigId ?? current.defaultSpeechModelConfigId) === null && request.defaultSpeechVoice != null) {

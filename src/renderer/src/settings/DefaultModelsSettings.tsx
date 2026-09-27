@@ -11,7 +11,7 @@ import { errorMessage, type SettingsDataState } from "./settingsState";
 
 const NONE = "__katarune_no_default_model__";
 
-export function DefaultModelsSettings({ dataState }: { dataState: SettingsDataState }): React.JSX.Element {
+export function DefaultModelsSettings({ dataState, onOpenModels }: { dataState: SettingsDataState; onOpenModels: () => void }): React.JSX.Element {
   const { appSettings, updateDefaults } = useApplicationSettings();
   const [saving, setSaving] = useState(false);
   const models = dataState.status === "ready" ? dataState.models : [];
@@ -44,7 +44,7 @@ export function DefaultModelsSettings({ dataState }: { dataState: SettingsDataSt
     <div className="grid min-h-14 items-center gap-3 py-2 sm:grid-cols-[6rem_minmax(0,1fr)]">
       <span className="text-sm font-medium">对话</span>
       <div className="w-full min-w-0 max-w-[17rem] justify-self-end">
-      <ModelChoice label="默认对话模型" testId="default-language-model" disabled={disabled} available={hasModels("languageModel")}
+      <ModelChoice label="默认对话模型" testId="default-language-model" disabled={disabled} available={hasModels("languageModel")} onOpenSettings={onOpenModels}
         options={optionsFor("languageModel", appSettings.defaultLanguageModelConfigId)} value={appSettings.defaultLanguageModelConfigId ?? NONE}
         onChange={(value) => void save({ defaultLanguageModelConfigId: value === NONE ? null : value })} />
       </div>
@@ -52,7 +52,7 @@ export function DefaultModelsSettings({ dataState }: { dataState: SettingsDataSt
     <div className="grid min-h-14 items-center gap-3 pt-2 pb-1 sm:grid-cols-[6rem_minmax(0,1fr)]">
       <span className="text-sm font-medium">语音合成</span>
       <div className="grid w-full min-w-0 max-w-[17rem] justify-self-end grid-cols-1 items-start gap-2">
-        <ModelChoice label="默认语音合成模型" testId="default-speech-model" disabled={disabled} available={hasModels("speechModel")}
+        <ModelChoice label="默认语音合成模型" testId="default-speech-model" disabled={disabled} available={hasModels("speechModel")} onOpenSettings={onOpenModels}
           options={optionsFor("speechModel", appSettings.defaultSpeechModelConfigId)} value={appSettings.defaultSpeechModelConfigId ?? NONE}
           onChange={(value) => {
             const model = models.find((item) => item.id === value);
@@ -72,8 +72,8 @@ export function DefaultModelsSettings({ dataState }: { dataState: SettingsDataSt
       <span className="text-sm font-medium">语音识别</span>
       <div className="w-full min-w-0 max-w-[17rem] justify-self-end">
       <ModelChoice label="全局语音识别模型" testId="default-asr-model" disabled={disabled}
-        options={[{ id: NONE, name: "不启用" }, { id: "sensevoice-small-int8", name: "SenseVoiceSmall INT8", description: "本地离线 · 所有角色和会话共用" }]}
-        value={appSettings.defaultAsrModel ?? NONE} onChange={(value) => void save({ defaultAsrModel: value === NONE ? null : "sensevoice-small-int8" })} />
+        options={[{ id: "sensevoice-small-int8", name: "SenseVoiceSmall INT8" }]}
+        value={appSettings.defaultAsrModel ?? "sensevoice-small-int8"} onChange={() => void save({ defaultAsrModel: "sensevoice-small-int8" })} />
       </div>
     </div>
   </div>;

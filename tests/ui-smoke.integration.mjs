@@ -41,6 +41,7 @@ const googleSpeechModelId = "00000000-0000-4000-8000-000000000011";
 const manualSpeechModelId = "00000000-0000-4000-8000-000000000012";
 const characterId = "00000000-0000-4000-8000-000000000001";
 let emptyConfigMode = false;
+let failModelSettingsRead = false;
 let includeGoogleSpeechFixture = false;
 let googleVoiceCatalogRefreshed = false;
 let ordinaryPrepareCount = 0;
@@ -655,7 +656,10 @@ function registerMockHandlers() {
       ...(createdModel === null ? [] : [createdModel]),
     ],
   });
-  ipcMain.handle("model-configs:list", listModelConfigs);
+  ipcMain.handle("model-configs:list", () => {
+    if (failModelSettingsRead) throw new Error("Settings read fixture failure");
+    return listModelConfigs();
+  });
   ipcMain.handle("model-configs:fetch", (_event, request) => {
     const model = listModelConfigs().modelConfigs.find(item => item.id === request.id);
     if (!model) throw new Error("Model not found");
@@ -1206,7 +1210,7 @@ async function run() {
           updatedCharacterRequest?.speechModelConfigId === googleSpeechModelId &&
           updatedCharacterRequest?.useDefaultSpeechVoice === true,
       );
-      await waitForText(window, '[data-testid="character-speech-voice"]', "Kore");
+      await waitForText(window, '[data-testid="character-speech-voice"]', "使用默认");
       includeGoogleSpeechFixture = false;
       await clickSelector(window, '[data-testid="character-back"]');
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
@@ -1269,8 +1273,22 @@ async function run() {
         if (!found) throw new Error('Missing option ' + text + ': ' + await window.webContents.executeJavaScript(`document.body.innerText.slice(-2500)`));
         await waitUntil('selection menu closed', async () => window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"]') === null`));
       };
-      await waitForText(window, '[data-testid="default-speech-model"]', "未选择模型");
-      await waitForText(window, '[data-testid="default-speech-voice"]', "请先选择模型");
+      await waitForText(window, '[data-testid="default-speech-model"]', "无");
+      await waitForText(window, '[data-testid="default-speech-voice"]', "请选择模型");
+      await clickSelector(window, '[data-testid="default-speech-model"]');
+      await waitForSelector(window, '[data-slot="model-selector-content"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-model"]').getAttribute('role')`), 'combobox');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"] [cmdk-group-heading]')`), null);
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      await waitUntil('available unselected menu closed', async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
+      await clickSelector(window, '[data-testid="default-asr-model"]');
+      await waitForSelector(window, '[data-slot="model-selector-content"]');
+      assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="model-selector-item"]')).map(item => item.textContent)`), ['SenseVoiceSmall INT8']);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"] input:not([readonly])')`), null);
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      await waitUntil('ASR menu closed', async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
       assert.equal(await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector('[data-testid="general-settings"]')).scrollbarWidth`), "none");
       await choose("default-speech-model", "Gemini 2.5 Flash TTS");
       await waitUntil("default speech configured", () => appSettings.defaultSpeechVoice === "Kore");
@@ -1286,21 +1304,18 @@ async function run() {
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-voice-custom"]')`), null);
       await choose("default-speech-voice", "Puck");
       await waitUntil("default voice updated", () => appSettings.defaultSpeechVoice === "Puck");
-      await choose("default-asr-model", "不启用");
-      await waitUntil("ASR disabled globally", () => appSettings.defaultAsrModel === null);
-      await waitForText(window, '[data-testid="default-asr-model"]', '不启用');
+      await waitForText(window, '[data-testid="default-asr-model"]', "SenseVoiceSmall INT8");
       await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
       writeFileSync(join(projectRoot, '.test-dist', 'default-models.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
-      await waitForSelector(window, '[aria-label="请在默认模型设置中启用语音识别"]');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="请在默认模型设置中启用语音识别"]').disabled`), true);
+      await waitForSelector(window, '[data-testid="dictation-toggle"]');
       await clickSelector(window, '[data-testid="character-launcher"]');
       await waitForSelector(window, '[data-testid="character-page"]');
-      await choose("character-model", "使用默认（DeepSeek Chat）");
-      await choose("character-speech-model", "使用默认（Gemini 2.5 Flash TTS）");
+      await choose("character-model", "使用默认");
+      await choose("character-speech-model", "使用默认");
       await waitUntil("character inherits speech model", () => updatedCharacterRequest?.useDefaultSpeechModel === true);
-      await waitForText(window, '[data-testid="character-speech-voice"]', "使用默认（Puck）");
+      await waitForText(window, '[data-testid="character-speech-voice"]', "使用默认");
       await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
       assert.equal(await window.webContents.executeJavaScript(`(() => {
         const model = document.querySelector('[data-testid="character-speech-model"]').getBoundingClientRect();
@@ -1315,11 +1330,13 @@ async function run() {
       await waitForSelector(window, '[data-testid="general-settings"]');
       await choose("default-asr-model", "SenseVoiceSmall INT8");
       await waitUntil("ASR enabled globally", () => appSettings.defaultAsrModel === "sensevoice-small-int8");
+      await waitForText(window, '[data-testid="default-speech-model"]', "所选模型不可用");
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-model"]').dataset.slot`), 'model-selector-setup');
       await clickSelector(window, '[data-testid="default-speech-model"]');
-      await waitForText(window, '[data-slot="model-selector-content"]', "暂无可用模型，请先在模型设置中添加并启用。");
-      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-      await waitUntil("empty model menu closed", async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
+      await waitForSelector(window, '[data-testid="model-management"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"]')`), null);
+      await clickSelector(window, '[data-testid="settings-tab-general"]');
+      await waitForSelector(window, '[data-testid="default-speech-model"]');
       includeGoogleSpeechFixture = false;
     });
 
@@ -1423,6 +1440,47 @@ async function run() {
           models: { overflowY: "auto", scrollbarWidth: "none" },
         },
       );
+    });
+    await runStep("compact empty states and recovery navigation", async () => {
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      emptyConfigMode = true;
+      appSettings = { ...appSettings, defaultLanguageModelConfigId: null, defaultSpeechModelConfigId: null };
+      await new Promise((resolve) => { window.webContents.once("did-finish-load", resolve); window.reload(); });
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await waitForSelector(window, '[data-testid="general-settings"]');
+      await clickSelector(window, '[data-testid="theme-light"]');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await waitForText(window, '[data-testid="default-language-model"]', '无');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-language-model"]').dataset.slot`), 'model-selector-setup');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      writeFileSync(join(projectRoot, '.test-dist', 'model-empty-light.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-testid="default-language-model"]');
+      await waitForText(window, '[data-testid="provider-list"]', '尚未添加供应商');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="provider-list"] button').length`), 0);
+      await waitForSelector(window, '[data-testid="add-provider"]');
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      await clickSelector(window, '[data-testid="character-launcher"]');
+      await waitForSelector(window, '[data-testid="character-model"]');
+      await waitForText(window, '[data-testid="character-model"]', '无');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-model"]').dataset.slot`), 'model-selector-setup');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      writeFileSync(join(projectRoot, '.test-dist', 'character-model-empty.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-testid="character-model"]');
+      await waitForSelector(window, '[data-testid="model-management"]');
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      console.log("[empty-states] navigation passed; checking recovery");
+      failModelSettingsRead = true;
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await waitForText(window, '[data-testid="general-settings"] [role="alert"]', '加载失败');
+      console.log("[empty-states] error displayed");
+      failModelSettingsRead = false;
+      await clickSelector(window, '[data-testid="general-settings"] button');
+      await waitUntil('settings retry recovered', async () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-language-model"]')?.disabled === false && !document.querySelector('[data-testid="general-settings"] [role="alert"]')`));
+      emptyConfigMode = false;
     });
   } finally {
     if (!window.isDestroyed()) window.destroy();

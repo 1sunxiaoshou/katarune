@@ -11,6 +11,8 @@ import { type SettingsDataState } from "./settingsState";
 
 interface GeneralSettingsProps {
   readonly dataState: SettingsDataState;
+  readonly onOpenModels: () => void;
+  readonly onReload: () => Promise<void>;
 }
 
 function SettingCopy({
@@ -35,6 +37,8 @@ const settingRowClassName =
 
 export function GeneralSettings({
   dataState,
+  onOpenModels,
+  onReload,
 }: GeneralSettingsProps): React.JSX.Element {
   const {
     autoReadReplies,
@@ -50,7 +54,13 @@ export function GeneralSettings({
         <section className="grid gap-3" aria-labelledby="model-speech-settings-title">
           <h2 className="text-sm font-semibold" id="model-speech-settings-title">默认模型</h2>
           <div className="grid gap-1 pl-4 sm:pl-6">
-            <DefaultModelsSettings dataState={dataState} />
+            {dataState.status === "loading" && <p role="status" className="text-sm text-muted-foreground">加载中…</p>}
+            {dataState.status === "error" && <div className="grid justify-items-start gap-1 text-sm">
+              <p role="alert" className="text-destructive">加载失败</p>
+              <button type="button" className="text-xs text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring" onClick={() => void onReload()}>重试</button>
+              <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">查看详情</summary><p className="break-words">{dataState.message}</p></details>
+            </div>}
+            <DefaultModelsSettings dataState={dataState} onOpenModels={onOpenModels} />
           </div>
         </section>
         <label className={`${settingRowClassName} cursor-pointer border-t pt-6`} htmlFor="auto-read-replies">

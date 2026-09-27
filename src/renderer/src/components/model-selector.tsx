@@ -13,7 +13,8 @@ import {
   type ReactNode,
 } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { useCommandState } from "cmdk";
+import { ArrowRightIcon, CheckIcon, ChevronDownIcon } from "lucide-react";
 import { useAui } from "@assistant-ui/react";
 import { cn } from "@/lib/utils";
 import { selectionCopy } from "./model-selection-copy";
@@ -265,6 +266,14 @@ export const modelSelectorTriggerVariants = cva(
   },
 );
 
+export function ModelSelectorSetupButton({ warning = false, className, ...props }: ComponentPropsWithoutRef<"button"> & { warning?: boolean }): React.JSX.Element {
+  return <button {...props} type="button" data-slot="model-selector-setup" title="前往模型设置"
+    className={cn(modelSelectorTriggerVariants({ variant: "outline", size: "default" }), "w-full min-w-0", className)}>
+    <span className={warning ? "text-warning" : "text-muted-foreground"}>{warning ? selectionCopy.unavailable : "无"}</span>
+    <ArrowRightIcon aria-hidden="true" className="ml-auto size-4 shrink-0 text-primary" />
+  </button>;
+}
+
 export type ModelSelectorTriggerProps = ComponentPropsWithoutRef<
   typeof PopoverTrigger
 > &
@@ -358,7 +367,7 @@ function ModelSelectorValue({
   return (
     <span
       data-slot="model-selector-value"
-      className={cn("flex min-w-0 items-center gap-2", (selectedModel.placeholder || selectedModel.disabled) && "text-muted-foreground", className)}
+      className={cn("flex min-w-0 items-center gap-2", selectedModel.placeholder && "text-muted-foreground", selectedModel.disabled && "text-warning", className)}
     >
       {selectedModel.icon && <ModelIcon>{selectedModel.icon}</ModelIcon>}
       <span className="truncate font-medium">{selectedModel.name}</span>
@@ -482,19 +491,19 @@ function ModelSelectorList({
   );
 }
 
-export type ModelSelectorEmptyProps = ComponentPropsWithoutRef<
-  typeof CommandEmpty
-> & { available?: boolean; kind?: "model" | "voice" };
+export type ModelSelectorEmptyProps = ComponentPropsWithoutRef<typeof CommandEmpty> & {
+  available?: boolean;
+  kind?: "model" | "voice";
+};
 
 function ModelSelectorEmpty({ children, available = true, kind = "model", ...props }: ModelSelectorEmptyProps) {
-  if (!available) return <p role="status" data-slot="model-selector-empty" className="px-3 py-4 text-center text-sm text-muted-foreground">
-    {kind === "model" ? selectionCopy.noModels : selectionCopy.noVoices}
+  const searching = useCommandState((state) => state.search.trim().length > 0);
+  if (!searching && !available) return <p role="status" data-slot="model-selector-empty" className="px-3 py-4 text-center text-sm text-muted-foreground">
+    {kind === "voice" ? selectionCopy.noVoices : selectionCopy.noModels}
   </p>;
-  return (
-    <CommandEmpty data-slot="model-selector-empty" {...props}>
-      {children ?? (kind === "model" ? selectionCopy.noModelMatches : selectionCopy.noVoiceMatches)}
-    </CommandEmpty>
-  );
+  return <CommandEmpty data-slot="model-selector-empty" {...props}>
+    {children ?? (kind === "voice" ? selectionCopy.noVoiceMatches : selectionCopy.noModelMatches)}
+  </CommandEmpty>;
 }
 
 export type ModelSelectorGroupProps = ComponentPropsWithoutRef<

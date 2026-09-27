@@ -18,13 +18,15 @@ export function App(): React.JSX.Element {
   useEffect(() => realtimeVoice.mount(), []);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "characters">("chat");
 
+  const [settingsTab, setSettingsTab] = useState<"general" | "models">("general");
+
   return (
     <div className="h-dvh overflow-hidden">
       <KataruneAssistantRuntimePool>
         {activeView === "chat" ? (
           <ChatPage
             onOpenCharacters={() => setActiveView("characters")}
-            onOpenSettings={() => setActiveView("settings")}
+            onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
           />
         ) : null}
       </KataruneAssistantRuntimePool>
@@ -37,6 +39,7 @@ export function App(): React.JSX.Element {
           }
         >
           <SettingsPage
+            initialTab={settingsTab}
             onClose={() => {
               window.dispatchEvent(new Event(SPEECH_CONFIG_CHANGED_EVENT));
               setActiveView("chat");
@@ -53,7 +56,7 @@ export function App(): React.JSX.Element {
         >
           <CharacterPage
             onClose={() => setActiveView("chat")}
-            onOpenSettings={() => setActiveView("settings")}
+            onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
           />
         </Suspense>
       ) : null}
