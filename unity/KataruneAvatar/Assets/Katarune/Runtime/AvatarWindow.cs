@@ -137,9 +137,13 @@ namespace Katarune.Avatar
             if (picked == null || root == null) return false;
             for (var current = picked; current != null; current = current.parent)
             {
-                if (current is ScrollView scroll && scroll.name == "speechSubtitleScroll")
+                if (current is ScrollView scroll && (scroll.name == "speechSubtitleScroll" || scroll.name == "hudPanelScroll"))
                     return scroll.enabledInHierarchy && scroll.resolvedStyle.display != DisplayStyle.None
                         && scroll.contentContainer.layout.height > scroll.contentViewport.layout.height;
+                if (AvatarHudPopup.IsOwnedMenu(current, root)) return true;
+                if (current is Toggle || current is DropdownField)
+                    return current.enabledInHierarchy && current.resolvedStyle.display != DisplayStyle.None
+                        && current.resolvedStyle.visibility == Visibility.Visible;
                 if (current is Button button)
                 {
                     return button.enabledInHierarchy

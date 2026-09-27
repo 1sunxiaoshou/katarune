@@ -4,6 +4,61 @@ using UnityEngine.UIElements;
 namespace Katarune.Avatar
 {
     [UxmlElement]
+    public partial class AvatarHudShadow : VisualElement
+    {
+        [UxmlAttribute]
+        public float cornerRadius { get; set; } = 24f;
+
+        public AvatarHudShadow()
+        {
+            pickingMode = PickingMode.Ignore;
+            generateVisualContent += Draw;
+        }
+
+        private void Draw(MeshGenerationContext context)
+        {
+            var dock = new Rect(10, 8, contentRect.width - 20, contentRect.height - 20);
+            if (dock.width <= 0 || dock.height <= 0) return;
+            var painter = context.painter2D;
+            var radius = Mathf.Min(cornerRadius, dock.height * 0.5f);
+            // Alpha-only exterior rings keep the white dock and its hit area unchanged.
+            for (var layer = 4; layer >= 1; layer--)
+            {
+                var spread = layer * 0.5f;
+                var outline = new Rect(dock.x - spread, dock.y - spread,
+                    dock.width + spread * 2, dock.height + spread * 2);
+                painter.fillColor = new Color(0, 0, 0, 0.005f);
+                painter.BeginPath();
+                RoundRect(painter, outline, radius + spread);
+                RoundRect(painter, dock, radius);
+                painter.Fill(FillRule.OddEven);
+            }
+            for (var layer = 8; layer >= 1; layer--)
+            {
+                var spread = layer * 0.25f;
+                var outline = new Rect(dock.x - spread, dock.y,
+                    dock.width + spread * 2, dock.height + 2 + layer * 0.5f);
+                painter.fillColor = new Color(0, 0, 0, 0.007f);
+                painter.BeginPath();
+                RoundRect(painter, outline, radius);
+                RoundRect(painter, dock, radius);
+                painter.Fill(FillRule.OddEven);
+            }
+        }
+
+        private static void RoundRect(Painter2D painter, Rect rect, float requestedRadius)
+        {
+            var radius = Mathf.Min(requestedRadius, Mathf.Min(rect.width, rect.height) * 0.5f);
+            painter.MoveTo(new Vector2(rect.xMin + radius, rect.yMin));
+            painter.ArcTo(new Vector2(rect.xMax, rect.yMin), new Vector2(rect.xMax, rect.yMax), radius);
+            painter.ArcTo(new Vector2(rect.xMax, rect.yMax), new Vector2(rect.xMin, rect.yMax), radius);
+            painter.ArcTo(new Vector2(rect.xMin, rect.yMax), new Vector2(rect.xMin, rect.yMin), radius);
+            painter.ArcTo(new Vector2(rect.xMin, rect.yMin), new Vector2(rect.xMax, rect.yMin), radius);
+            painter.ClosePath();
+        }
+    }
+
+    [UxmlElement]
     public partial class AvatarHudIconButton : Button
     {
         private readonly VisualElement _icon;
@@ -26,7 +81,7 @@ namespace Katarune.Avatar
         {
             usageHints = UsageHints.DynamicTransform | UsageHints.DynamicColor;
             _icon = new VisualElement { pickingMode = PickingMode.Ignore };
-            _icon.AddToClassList("radial-icon");
+            _icon.AddToClassList("hud-icon");
             Add(_icon);
         }
     }
@@ -37,6 +92,7 @@ namespace Katarune.Avatar
         private const string VisibleClass = "is-visible";
         private readonly Label _label;
         private VisualElement _anchor;
+        private IVisualElementScheduledItem _pending;
 
         public AvatarHudTooltipElement()
         {
@@ -60,15 +116,22 @@ namespace Katarune.Avatar
             _anchor = anchor;
             _label.text = text;
             BringToFront();
-            AddToClassList(VisibleClass);
-            schedule.Execute(PositionAboveAnchor).StartingIn(0);
+            _pending?.Pause();
+            AddToClassList("is-present");
+            _pending = schedule.Execute(() =>
+            {
+                PositionAboveAnchor();
+                AddToClassList(VisibleClass);
+            }).StartingIn(20);
         }
 
         internal void Hide(VisualElement anchor = null)
         {
             if (anchor != null && anchor != _anchor) return;
             _anchor = null;
+            _pending?.Pause();
             RemoveFromClassList(VisibleClass);
+            _pending = schedule.Execute(() => RemoveFromClassList("is-present")).StartingIn(100);
         }
 
         private void PositionAboveAnchor()

@@ -8,6 +8,7 @@ import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { useChat } from "@ai-sdk/react";
 import { realtimeVoice } from "./speech/realtimeVoice";
 import { createChatSendQueue } from "./chat/chatSendQueue";
+import { interruptForVoice } from "./chat/voiceInterruption";
 import { useAvatarState } from "./chat/avatarState";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
 import {
@@ -39,6 +40,7 @@ import {
 import { useApplicationSettings } from "./settings/ApplicationSettingsProvider";
 
 const CharacterRuntimeConfigContext = createContext<Character | null>(null);
+const echoText = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
 function useCharacterRuntimeConfig(): Character {
   const character = useContext(CharacterRuntimeConfigContext);
@@ -62,7 +64,7 @@ function ThreadRuntimeHook() {
     avatar.binding?.characterId === character.id &&
     avatar.binding.threadId === (remoteId ?? threadId);
   const { appSettings } = useApplicationSettings();
-  const [speechAvailable, setSpeechAvailable] = useState(false);
+  const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
   const transport = useMemo(
     () =>
       new KataruneChatTransport(
@@ -74,6 +76,7 @@ function ThreadRuntimeHook() {
   const attachments = useMemo(() => new KataruneAttachmentAdapter(), []);
   useEffect(() => {
     let active = true;
+    setSpeechAvailable(null);
     const refresh = (): void => {
       void isCharacterSpeechAvailable(character, appSettings)
         .then((available) => {
@@ -126,16 +129,16 @@ function ThreadRuntimeHook() {
       return lastAssistantMessageIsCompleteWithToolCalls(options);
     },
   });
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
   const sendRef = useRef(chat.sendMessage);
   sendRef.current = chat.sendMessage;
   const queue = useMemo(
     () =>
       createChatSendQueue(
-        (...args) => {
-          realtimeVoice.beforeSend({ characterId: character.id, threadId: remoteId ?? threadId });
-          return sendRef.current(...args);
-        },
+        (...args) => sendRef.current(...args),
         (count) => useAvatarState.getState().setQueued(threadId, count),
+        priority => { if (!priority) realtimeVoice.beforeSend({ characterId: character.id, threadId: remoteId ?? threadId }); },
       ),
     [threadId, resolvedThreadId, character.id],
   );
@@ -154,18 +157,59 @@ function ThreadRuntimeHook() {
     },
   );
   transport.setRuntime(runtime);
-  const voiceState = useRef({ busy: false, available: false, error: chat.error });
+  const voiceState = useRef({ busy: false, available: false, pending: true, error: chat.error });
   voiceState.current = {
     busy: chat.status === "submitted" || chat.status === "streaming",
-    available: appSettings.defaultAsrModel !== null && speechAvailable
+    available: appSettings.defaultAsrModel !== null && speechAvailable === true
       && (character.modelConfigId !== null || appSettings.defaultLanguageModelConfigId !== null),
+    pending: speechAvailable === null,
     error: chat.error,
   };
-  const voiceSend = useRef(queue.send);
-  voiceSend.current = queue.send;
+  const voiceSend = useRef(queue);
+  voiceSend.current = queue;
   useEffect(() => realtimeVoice.register({ characterId: character.id, threadId: remoteId ?? threadId }, {
     state: () => voiceState.current,
-    send: async text => { await voiceSend.current({ text }); },
+    isLikelyEcho: text => {
+      const phrase = echoText(text);
+      if (phrase.length < 4) return false;
+      const messages = chatRef.current.messages;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i];
+        if (message?.role !== 'assistant') continue;
+        const spoken = echoText(message.parts.filter(part => part.type === 'text').map(part => part.text).join(''));
+        return spoken.includes(phrase);
+      }
+      return false;
+    },
+    send: text => voiceSend.current.prioritySend({ text }),
+    interrupt: async text => {
+      let previousAssistantId: string | undefined;
+      for (let i = chatRef.current.messages.length - 1; i >= 0; i--) {
+        const message = chatRef.current.messages[i];
+        if (message?.role === 'assistant') { previousAssistantId = message.id; break; }
+      }
+      await interruptForVoice({
+        enqueue: () => voiceSend.current.prioritySend({ text }),
+        isGenerating: () => voiceState.current.busy,
+        stopGeneration: () => chatRef.current.stop(),
+        markReply: incomplete => chatRef.current.setMessages(messages => {
+        let index = -1;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i]?.role === 'assistant' && (!previousAssistantId || messages[i]?.id === previousAssistantId)) { index = i; break; }
+        }
+        if (index < 0) return messages;
+        return messages.map((message, position) => {
+          if (position !== index) return message;
+          const metadata = typeof message.metadata === 'object' && message.metadata !== null
+            ? message.metadata as Record<string, unknown> : {};
+          const custom = typeof metadata.custom === 'object' && metadata.custom !== null
+            ? metadata.custom as Record<string, unknown> : {};
+          return { ...message, metadata: { ...metadata, custom: { ...custom,
+            voicePlayback: { interrupted: true, generationIncomplete: incomplete } } } };
+        });
+      }),
+      });
+    },
   }), [character.id, resolvedThreadId]);
   useEffect(() => realtimeVoice.changed(), [chat.status, chat.error, speechAvailable, appSettings, character]);
   return runtime;

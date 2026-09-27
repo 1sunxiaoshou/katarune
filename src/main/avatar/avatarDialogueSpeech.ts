@@ -106,4 +106,6 @@ export class AvatarDialogueSpeech {
     this.transfers.clear();
     this.blocks.clear(); this.queue.length = 0;
   }
+
+  silence() { this.cancel(); }
 }

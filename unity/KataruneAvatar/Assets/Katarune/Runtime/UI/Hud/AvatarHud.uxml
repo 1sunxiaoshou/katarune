@@ -1,62 +1,103 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:hud="Katarune.Avatar">
+    <ui:Style src="AvatarHudTheme.uss" />
     <ui:Style src="AvatarHud.uss" />
+    <ui:Style src="AvatarHudMotion.uss" />
     <ui:VisualElement name="hudRoot" class="hud-root" picking-mode="Ignore">
-        <ui:VisualElement name="statusHud" class="status-hud is-status-hidden" picking-mode="Ignore">
-            <ui:VisualElement name="portraitFrame" class="portrait-frame" picking-mode="Ignore" />
-            <ui:VisualElement class="status-content" picking-mode="Ignore">
-                <ui:Label name="modelNameLabel" text="未加载角色" class="model-name" picking-mode="Ignore" />
-                <ui:VisualElement name="behaviorCapsule" class="behavior-capsule" picking-mode="Ignore">
-                    <ui:VisualElement name="affectStatusIcon" class="status-affect-icon icon-neutral" picking-mode="Ignore" />
-                    <ui:Label name="actionLabel" text="无动作" class="action-label" picking-mode="Ignore" />
+        <ui:VisualElement name="hudBounds" class="hud-bounds" picking-mode="Ignore">
+            <ui:VisualElement name="subtitleRoot" class="subtitle-root" picking-mode="Ignore">
+                <ui:Label name="subtitleText" class="subtitle-text" picking-mode="Ignore" enable-rich-text="false" />
+            </ui:VisualElement>
+            <ui:VisualElement name="hudDock" class="hud-dock" picking-mode="Ignore">
+                <hud:AvatarHudShadow name="dockShadow" class="dock-shadow" picking-mode="Ignore" />
+                <ui:VisualElement class="dock-controls" picking-mode="Ignore">
+                    <hud:AvatarHudIconButton name="centralMenuButton" icon-class="icon-collapse" tooltip="收起控制栏 · 拖动移动" class="dock-handle" />
+                    <ui:VisualElement name="quickBar" class="quick-bar" picking-mode="Ignore">
+                        <hud:AvatarHudIconButton name="openChatButton" icon-class="icon-chat" tooltip="打开聊天窗口" class="quick-button" />
+                        <hud:AvatarHudIconButton name="voiceToggleButton" icon-class="icon-mic" tooltip="开启麦克风" class="quick-button" />
+                        <ui:VisualElement class="dock-divider" picking-mode="Ignore" />
+                        <hud:AvatarHudIconButton name="quickMoreButton" icon-class="icon-more" tooltip="角色与显示设置" class="quick-button" />
+                    </ui:VisualElement>
+                    <hud:AvatarHudIconButton name="compactVoiceButton" icon-class="icon-mic" tooltip="开启麦克风" class="compact-mic" />
                 </ui:VisualElement>
-                <ui:Label name="noticeLabel" text="" class="notice-label" picking-mode="Ignore" />
+                <ui:VisualElement name="voiceFeedback" class="voice-feedback" picking-mode="Ignore">
+                    <ui:Label text="你" class="meter-label" picking-mode="Ignore" />
+                    <ui:VisualElement class="meter-track" picking-mode="Ignore"><ui:VisualElement name="micLevel" class="meter-fill" picking-mode="Ignore" /></ui:VisualElement>
+                    <ui:Label text="角色" class="meter-label" picking-mode="Ignore" />
+                    <ui:VisualElement class="meter-track" picking-mode="Ignore"><ui:VisualElement name="roleLevel" class="meter-fill role-level" picking-mode="Ignore" /></ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="primaryMenu" class="control-panel" picking-mode="Ignore">
+                <hud:AvatarHudShadow name="panelShadow" class="dock-shadow" corner-radius="12" picking-mode="Ignore" />
+                <ui:VisualElement class="panel-heading" picking-mode="Ignore">
+                    <ui:Label text="更多" class="panel-title" picking-mode="Ignore" />
+                    <hud:AvatarHudIconButton name="closePanelButton" icon-class="icon-close" tooltip="关闭面板（Esc）" class="close-button" />
+                </ui:VisualElement>
+                <ui:VisualElement class="tab-bar" picking-mode="Ignore">
+                    <ui:VisualElement name="tabIndicator" class="tab-indicator" picking-mode="Ignore" />
+                    <ui:Button name="modelCategoryButton" text="角色" class="tab-button" />
+                    <ui:Button name="affectCategoryButton" text="表情" class="tab-button" />
+                    <ui:Button name="actionCategoryButton" text="动作" class="tab-button" />
+                    <ui:Button name="moreCategoryButton" text="显示" class="tab-button" />
+                    <ui:Button name="shortcutsCategoryButton" text="快捷键" class="tab-button" />
+                </ui:VisualElement>
+                <ui:ScrollView name="hudPanelScroll" class="panel-scroll" mode="Vertical" horizontal-scroller-visibility="Hidden" vertical-scroller-visibility="Auto">
+                    <ui:Label name="noticeLabel" class="notice-label" picking-mode="Ignore" enable-rich-text="false" />
+                    <ui:Label name="voiceErrorLabel" class="notice-label" picking-mode="Ignore" enable-rich-text="false" />
+                    <ui:VisualElement name="modelMenu" class="tab-page" picking-mode="Ignore">
+                        <ui:Label name="modelNameLabel" text="角色模型" class="section-label" picking-mode="Ignore" />
+                        <ui:Label text="选择本机 VRM 1.0 模型。聊天仍使用当前绑定的角色与会话。" class="help-text" picking-mode="Ignore" />
+                        <ui:Button name="selectModelButton" text="选择模型…" class="action-button primary-action" />
+                        <ui:VisualElement class="button-row" picking-mode="Ignore">
+                            <ui:Button name="reloadModelButton" text="重新加载" class="action-button" />
+                            <ui:Button name="unloadModelButton" text="卸载模型" class="action-button" />
+                        </ui:VisualElement>
+                        <ui:Label text="卸载仅移除桌面上的模型，保留原始文件。" class="help-text" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="affectMenu" class="tab-page" picking-mode="Ignore">
+                        <ui:Label text="角色表情" class="section-label" picking-mode="Ignore" />
+                        <ui:Label text="点选后立即生效。灰色表示模型不支持。" class="help-text" picking-mode="Ignore" />
+                        <ui:VisualElement class="choice-grid" picking-mode="Ignore">
+                            <ui:Button name="neutralAffectButton" text="自然" class="choice-button" />
+                            <ui:Button name="happyAffectButton" text="开心" class="choice-button" />
+                            <ui:Button name="relaxedAffectButton" text="放松" class="choice-button" />
+                            <ui:Button name="sadAffectButton" text="难过" class="choice-button" />
+                            <ui:Button name="angryAffectButton" text="生气" class="choice-button" />
+                            <ui:Button name="surprisedAffectButton" text="惊讶" class="choice-button" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="actionMenu" class="tab-page" picking-mode="Ignore">
+                        <ui:Label text="动作库" class="section-label" picking-mode="Ignore" />
+                        <ui:Label name="actionLabel" class="help-text" picking-mode="Ignore" />
+                        <ui:Label name="emptyActionsLabel" text="尚未安装动作包。恢复 MotionPacks 后重新启动桌宠。" class="help-text" picking-mode="Ignore" />
+                        <ui:VisualElement name="actionChoices" class="choice-grid" picking-mode="Ignore" />
+                        <ui:Button name="cancelActionButton" text="停止当前动作" class="action-button" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="moreMenu" class="tab-page" picking-mode="Ignore">
+                        <ui:Toggle name="gazeTrackingToggle" label="视线跟随" tooltip="让角色看向鼠标位置" class="setting-toggle" />
+                        <ui:Toggle name="showcaseControlToggle" label="角色视角调整" tooltip="开启后拖动旋转、滚轮缩放" class="setting-toggle" />
+                        <ui:Toggle name="softOutlineToggle" label="柔和描边" class="setting-toggle" />
+                        <ui:VisualElement class="scale-setting" picking-mode="Ignore">
+                            <ui:DropdownField name="uiScaleField" label="界面大小" class="scale-field" />
+                            <ui:Label text="跟随系统缩放，可按需调整" class="help-text" picking-mode="Ignore" />
+                        </ui:VisualElement>
+                        <ui:Button name="resetBehaviorButton" class="text-action" tooltip="恢复角色默认行为">
+                            <ui:VisualElement class="hud-icon icon-retry" picking-mode="Ignore" />
+                            <ui:Label text="恢复默认" picking-mode="Ignore" />
+                        </ui:Button>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="shortcutsMenu" class="tab-page" picking-mode="Ignore">
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="显示／隐藏控制栏" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="F1" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="关闭面板" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Esc" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="下一个控件" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Tab" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="上一个控件" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Shift + Tab" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="执行操作" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Enter" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:Label text="面板获得焦点后可使用键盘操作" class="help-text shortcut-note" picking-mode="Ignore" />
+                        <ui:Label text="鼠标操作" class="section-label mouse-section" picking-mode="Ignore" />
+                        <ui:Label text="拖动箭头移动控制栏&#10;点击箭头收起或展开" class="help-text" picking-mode="Ignore" />
+                    </ui:VisualElement>
+                </ui:ScrollView>
             </ui:VisualElement>
         </ui:VisualElement>
-
-        <hud:AvatarRadialMenu name="radialStage" class="radial-stage" primary-radius="112" secondary-radius="184" side-sweep-angle="180" corner-sweep-angle="90" edge-padding="16">
-            <ui:VisualElement name="primaryMenu" class="menu-group primary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="modelCategoryButton" tooltip="模型" icon-class="icon-model" class="radial-button primary-button primary-model" />
-                <hud:AvatarHudIconButton name="affectCategoryButton" tooltip="表情" icon-class="icon-affect" class="radial-button primary-button primary-affect" />
-                <hud:AvatarHudIconButton name="actionCategoryButton" tooltip="动作" icon-class="icon-action" class="radial-button primary-button primary-action" />
-                <hud:AvatarHudIconButton name="gazeTrackingButton" tooltip="视线跟随" icon-class="icon-eye" class="radial-button primary-button primary-gaze" />
-                <hud:AvatarHudIconButton name="showcaseControlButton" tooltip="角色展示：左拖旋转角色，滚轮平滑缩放" icon-class="icon-showcase-turntable" class="radial-button primary-button primary-showcase" />
-                <hud:AvatarHudIconButton name="moreCategoryButton" tooltip="更多" icon-class="icon-more" class="radial-button primary-button primary-more" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="modelMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="selectModelButton" tooltip="选择 VRM 模型" icon-class="icon-folder-open" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="reloadModelButton" tooltip="重新加载当前模型" icon-class="icon-refresh" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="unloadModelButton" tooltip="卸载当前模型" icon-class="icon-trash" class="radial-button secondary-button secondary-slot-3 destructive-button" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="affectMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="neutralAffectButton" tooltip="自然" icon-class="icon-neutral" class="radial-button secondary-button secondary-slot-0" />
-                <hud:AvatarHudIconButton name="happyAffectButton" tooltip="开心" icon-class="icon-happy" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="relaxedAffectButton" tooltip="放松" icon-class="icon-relaxed" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="sadAffectButton" tooltip="难过" icon-class="icon-sad" class="radial-button secondary-button secondary-slot-3" />
-                <hud:AvatarHudIconButton name="angryAffectButton" tooltip="生气" icon-class="icon-angry" class="radial-button secondary-button secondary-slot-4" />
-                <hud:AvatarHudIconButton name="surprisedAffectButton" tooltip="惊讶" icon-class="icon-surprised" class="radial-button secondary-button secondary-slot-5" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="actionMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="nextActionPageButton" tooltip="下一页动作" icon-class="icon-more" class="radial-button secondary-button" />
-                <hud:AvatarHudIconButton name="cancelActionButton" tooltip="停止当前动作" icon-class="icon-stop" class="radial-button secondary-button secondary-slot-4" />
-            </ui:VisualElement>
-
-            <ui:VisualElement name="moreMenu" class="menu-group secondary-menu" picking-mode="Ignore">
-                <hud:AvatarHudIconButton name="softOutlineButton" tooltip="切换柔和描边" icon-class="icon-outline" class="radial-button secondary-button secondary-slot-1" />
-                <hud:AvatarHudIconButton name="statusHudButton" tooltip="切换状态卡" icon-class="icon-status-hud" class="radial-button secondary-button secondary-slot-2" />
-                <hud:AvatarHudIconButton name="resetBehaviorButton" tooltip="恢复默认行为" icon-class="icon-reset" class="radial-button secondary-button secondary-slot-3" />
-            </ui:VisualElement>
-
-            <ui:Button name="centralMenuButton" tooltip="角色控制" class="central-menu-button">
-                <hud:AvatarHudStarElement class="central-star-art" picking-mode="Ignore" />
-            </ui:Button>
-        </hud:AvatarRadialMenu>
-
         <hud:AvatarHudTooltipElement name="hudTooltip" class="hud-tooltip" picking-mode="Ignore" />
-    </ui:VisualElement>
-    <ui:VisualElement name="subtitleRoot" class="subtitle-root" picking-mode="Ignore">
-        <ui:Label name="subtitleText" class="subtitle-text" picking-mode="Ignore" enable-rich-text="false" />
     </ui:VisualElement>
 </ui:UXML>

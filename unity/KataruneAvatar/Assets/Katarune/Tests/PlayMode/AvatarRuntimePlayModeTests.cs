@@ -15,7 +15,291 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarRuntimePlayModeTests
     {
         [UnityTest]
-        public IEnumerator HudPagesAndPlaysAnActionWithoutAnEnumOrUxmlEntry()
+        public IEnumerator HudHoverFadeNeverBecomesDarkerThanItsTarget()
+        {
+            var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var hud = go.GetComponent<AvatarHudController>();
+                hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                yield return new WaitForSecondsRealtime(0.25f);
+                var button = hud.RootElement.Q<Button>("quickMoreButton");
+                var idle = button.resolvedStyle.backgroundColor;
+                var hover = new Color(245f / 255, 245f / 255, 245f / 255, 1);
+                foreach (var target in new[] { hover, idle })
+                {
+                    button.EnableInClassList("is-selected", target.a > 0);
+                    var until = Time.realtimeSinceStartup + 0.22f;
+                    var intermediateFrames = 0;
+                    while (Time.realtimeSinceStartup < until)
+                    {
+                        yield return null;
+                        var color = button.resolvedStyle.backgroundColor;
+                        if (color.a > 0.01f && color.a < 0.99f) intermediateFrames++;
+                        var overWhite = color.r * color.a + 1 - color.a;
+                        Assert.That(overWhite, Is.GreaterThanOrEqualTo(245f / 255 - 0.005f),
+                            "Hover must not flash dark during RGBA interpolation.");
+                    }
+                    Assert.That(intermediateFrames, Is.GreaterThan(0), "Sample real transition frames, not just endpoints.");
+                }
+            }
+            finally { Object.Destroy(go); }
+        }
+
+        [UnityTest]
+        public IEnumerator HudOnlyShowsFocusForKeyboardAndShadowsNeverCaptureInput()
+        {
+            var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var hud = go.GetComponent<AvatarHudController>();
+                hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                var root = hud.RootElement;
+                var button = root.Q<Button>("openChatButton");
+                yield return new WaitForSecondsRealtime(0.25f);
+                button.Focus();
+                yield return null;
+                Assert.That(button.resolvedStyle.borderLeftColor.a, Is.EqualTo(0));
+                using (var key = KeyDownEvent.GetPooled('\t', KeyCode.Tab, EventModifiers.None)) root.SendEvent(key);
+                button.Focus();
+                yield return null;
+                Assert.That(button.resolvedStyle.borderLeftColor.a, Is.EqualTo(1));
+                var pointer = new Event { mousePosition = button.worldBound.center, button = 0, type = EventType.MouseDown };
+                using (var down = PointerDownEvent.GetPooled(pointer)) button.SendEvent(down);
+                pointer.type = EventType.MouseUp;
+                using (var up = PointerUpEvent.GetPooled(pointer)) button.SendEvent(up);
+                yield return null;
+                Assert.That(button.resolvedStyle.borderLeftColor.a, Is.EqualTo(0));
+                Assert.That(button.ClassListContains("is-selected"), Is.False);
+                foreach (var name in new[] { "dockShadow", "panelShadow" })
+                {
+                    var shadow = root.Q<AvatarHudShadow>(name);
+                    Assert.That(shadow, Is.Not.Null);
+                    Assert.That(shadow.pickingMode, Is.EqualTo(PickingMode.Ignore));
+                    Assert.That(AvatarWindow.IsInteractivePick(shadow, root), Is.False);
+                }
+            }
+            finally { Object.Destroy(go); }
+        }
+
+        [UnityTest]
+        public IEnumerator HudSwitchThumbStaysCenteredAcrossValueAndFocusChanges()
+        {
+            var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var hud = go.GetComponent<AvatarHudController>();
+                hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                yield return new WaitForSecondsRealtime(0.25f);
+                Click(hud, "quickMoreButton");
+                Click(hud, "moreCategoryButton");
+                yield return new WaitForSecondsRealtime(0.35f);
+                var toggle = hud.RootElement.Q<Toggle>("gazeTrackingToggle");
+                var track = toggle.Q(className: "unity-base-field__input");
+                var thumb = toggle.Q(className: "unity-toggle__checkmark");
+                foreach (var value in new[] { false, true })
+                {
+                    toggle.value = value;
+                    foreach (var focus in new[] { false, true })
+                    {
+                        if (focus) toggle.Focus(); else toggle.Blur();
+                        yield return new WaitForSecondsRealtime(0.2f);
+                        Assert.That(thumb.worldBound.center.y, Is.EqualTo(track.worldBound.center.y).Within(0.25), "Focus must not displace the thumb vertically.");
+                        var inset = value ? track.worldBound.xMax - thumb.worldBound.xMax : thumb.worldBound.xMin - track.worldBound.xMin;
+                        Assert.That(inset, Is.EqualTo(2).Within(0.25), "Both endpoints must retain the same inset.");
+                    }
+                }
+            }
+            finally { Object.Destroy(go); }
+        }
+
+        [UnityTest]
+        public IEnumerator HudDropdownUsesSingleSelectionAndRemainsClickable()
+        {
+            const string key = "katarune.hud.scale";
+            var hadPreference = PlayerPrefs.HasKey(key);
+            var previous = PlayerPrefs.GetFloat(key, 1f);
+            var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var hud = go.GetComponent<AvatarHudController>();
+                hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                Click(hud, "quickMoreButton"); Click(hud, "moreCategoryButton");
+                yield return new WaitForSecondsRealtime(0.25f);
+                var field = hud.RootElement.Q<DropdownField>("uiScaleField");
+                for (var index = 0; index < 3; index++)
+                {
+                    field.index = index;
+                    Assert.That(PlayerPrefs.GetFloat(key), Is.EqualTo(new[] { 0.85f, 1f, 1.15f }[index]).Within(0.001f));
+                    Assert.That(field.index, Is.EqualTo(index));
+                    Assert.That(AvatarWindow.IsInteractivePick(field, hud.RootElement), Is.True);
+                }
+                yield return new WaitForSecondsRealtime(0.25f);
+                field.Focus();
+                using (var submit = NavigationSubmitEvent.GetPooled()) field.SendEvent(submit);
+                yield return new WaitForSecondsRealtime(0.1f);
+                var menu = hud.RootElement.panel.visualTree.Q(className: GenericDropdownMenu.ussClassName);
+                Assert.That(menu, Is.Not.Null);
+                var item = menu.Q(className: GenericDropdownMenu.itemUssClassName);
+                var pointer = new Event { mousePosition = item.worldBound.center, button = 0, type = EventType.MouseDown };
+                using (var down = PointerDownEvent.GetPooled(pointer)) item.SendEvent(down);
+                pointer.type = EventType.MouseUp;
+                using (var up = PointerUpEvent.GetPooled(pointer)) item.SendEvent(up);
+                yield return null;
+                Assert.That(field.value, Is.EqualTo("小"));
+                Assert.That(menu.panel, Is.Null);
+                Assert.That(PlayerPrefs.GetFloat(key), Is.EqualTo(0.85f).Within(0.001f));
+                yield return new WaitForSecondsRealtime(0.25f);
+                field.Focus();
+                using (var submit = NavigationSubmitEvent.GetPooled()) field.SendEvent(submit);
+                yield return new WaitForSecondsRealtime(0.1f);
+                hud.SetVisible(false);
+                Assert.That(hud.RootElement.panel.visualTree.Q(className: GenericDropdownMenu.ussClassName), Is.Null);
+                hud.SetVisible(true);
+                Click(hud, "quickMoreButton");
+                Click(hud, "shortcutsCategoryButton");
+                yield return new WaitForSecondsRealtime(0.25f);
+                Assert.That(hud.RootElement.Q<VisualElement>("shortcutsMenu").resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+            }
+            finally
+            {
+                Object.Destroy(go);
+                if (hadPreference) PlayerPrefs.SetFloat(key, previous); else PlayerPrefs.DeleteKey(key);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator HudTransitionsSurviveRapidReopenAndReleaseHiddenControls()
+        {
+            var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+            try
+            {
+                var hud = go.GetComponent<AvatarHudController>();
+                hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                var panel = hud.RootElement.Q<VisualElement>("primaryMenu");
+                var runs = 0;
+                panel.RegisterCallback<TransitionRunEvent>(_ => runs++);
+                var indicator = hud.RootElement.Q<VisualElement>("tabIndicator");
+                var selectionRuns = 0;
+                indicator.RegisterCallback<TransitionRunEvent>(_ => selectionRuns++);
+                yield return new WaitForSecondsRealtime(0.25f);
+                Click(hud, "quickMoreButton");
+                yield return new WaitForSecondsRealtime(0.1f);
+                Click(hud, "quickMoreButton");
+                Assert.That(panel.enabledInHierarchy, Is.False);
+                Click(hud, "quickMoreButton");
+                yield return new WaitForSecondsRealtime(0.3f);
+                Assert.That(panel.enabledInHierarchy, Is.True);
+                Assert.That(panel.resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+                Assert.That(panel.resolvedStyle.opacity, Is.EqualTo(1).Within(0.01));
+                Assert.That(runs, Is.GreaterThan(0), "USS transitions must actually run.");
+                Click(hud, "affectCategoryButton"); Click(hud, "moreCategoryButton");
+                yield return new WaitForSecondsRealtime(0.35f);
+                Assert.That(hud.RootElement.Q<VisualElement>("affectMenu").resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+                Assert.That(hud.RootElement.Q<VisualElement>("moreMenu").resolvedStyle.opacity, Is.EqualTo(1).Within(0.01));
+                var selectedTab = hud.RootElement.Q<Button>("moreCategoryButton");
+                Assert.That(selectionRuns, Is.GreaterThan(0), "The selection background must move between tabs.");
+                Assert.That(indicator.worldBound.x, Is.EqualTo(selectedTab.worldBound.x).Within(0.5));
+                Assert.That(indicator.worldBound.width, Is.EqualTo(selectedTab.worldBound.width).Within(0.5));
+                Assert.That(AvatarWindow.IsInteractivePick(indicator, hud.RootElement), Is.False);
+                Click(hud, "closePanelButton");
+                yield return new WaitForSecondsRealtime(0.25f);
+                Assert.That(panel.resolvedStyle.display, Is.EqualTo(DisplayStyle.None));
+                Click(hud, "centralMenuButton");
+                yield return new WaitForSecondsRealtime(0.25f);
+                Assert.That(hud.RootElement.Q<VisualElement>("hudDock").resolvedStyle.width, Is.EqualTo(88).Within(0.1));
+                Click(hud, "quickMoreButton");
+                hud.SetVisible(false);
+                yield return new WaitForSecondsRealtime(0.25f);
+                Assert.That(panel.enabledInHierarchy, Is.False);
+            }
+            finally { Object.Destroy(go); }
+        }
+
+        [UnityTest]
+        public IEnumerator HudRendersCompactTabsAcrossViewportSizes()
+        {
+            var output = Path.GetFullPath(Path.Combine(Application.dataPath, "../../../.test-dist/hud-preview"));
+            Directory.CreateDirectory(output);
+            foreach (var size in new[] { new Vector3(1280, 720, 1), new Vector3(1920, 1080, 1.5f), new Vector3(800, 600, 1), new Vector3(480, 720, 1) })
+            {
+                var texture = new RenderTexture((int)size.x, (int)size.y, 24);
+                texture.Create();
+                var go = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
+                var document = go.GetComponent<UIDocument>();
+                var settings = Object.Instantiate(document.panelSettings);
+                settings.targetTexture = texture;
+                settings.clearDepthStencil = true;
+                settings.scaleMode = PanelScaleMode.ConstantPixelSize;
+                settings.scale = size.z;
+                document.panelSettings = settings;
+                var hud = go.GetComponent<AvatarHudController>();
+                try
+                {
+                    hud.Configure(FakeRuntimeFacade.CreateReady(), true);
+                    hud.RootElement.style.backgroundColor = new Color(0.88f, 0.89f, 0.90f);
+                    hud.SetVoiceState(true, "listening", null);
+                    hud.RootElement.Q<Toggle>("gazeTrackingToggle").value = true;
+                    hud.SetInputLevel(0.65f); hud.SetRoleLevel(0.2f);
+                    yield return new WaitForSecondsRealtime(0.25f);
+                    Click(hud, "quickMoreButton");
+                    foreach (var tab in new[] { "model", "affect", "action", "more", "shortcuts" })
+                    {
+                        Click(hud, tab + "CategoryButton");
+                        yield return new WaitForSecondsRealtime(0.35f);
+                        hud.RefreshLayout();
+                        yield return null;
+                        var panel = hud.RootElement.Q<VisualElement>("primaryMenu").worldBound;
+                        var bounds = hud.RootElement.Q<VisualElement>("hudBounds").worldBound;
+                        Assert.That(panel.xMin, Is.GreaterThanOrEqualTo(bounds.xMin));
+                        Assert.That(panel.yMin, Is.GreaterThanOrEqualTo(bounds.yMin));
+                        Assert.That(panel.xMax, Is.LessThanOrEqualTo(bounds.xMax));
+                        Assert.That(panel.yMax, Is.LessThanOrEqualTo(bounds.yMax));
+                        yield return null;
+                        SaveHudTexture(texture, Path.Combine(output, $"{size.x}-{size.y}-{tab}.png"));
+                        if (tab == "more")
+                        {
+                            var field = hud.RootElement.Q<DropdownField>("uiScaleField");
+                            field.Focus();
+                            using (var submit = NavigationSubmitEvent.GetPooled()) field.SendEvent(submit);
+                            yield return new WaitForSecondsRealtime(0.15f);
+                            var menu = document.rootVisualElement.panel.visualTree.Q(className: GenericDropdownMenu.ussClassName);
+                            Assert.That(menu, Is.Not.Null, "Native dropdown must open.");
+                            Assert.That(AvatarWindow.IsInteractivePick(menu, hud.RootElement), Is.True, "Popup dismiss layer must receive clicks.");
+                            var item = menu.Q(className: GenericDropdownMenu.itemUssClassName);
+                            Assert.That(AvatarWindow.IsInteractivePick(item, hud.RootElement), Is.True);
+                            yield return null;
+                            SaveHudTexture(texture, Path.Combine(output, $"{size.x}-{size.y}-dropdown.png"));
+                            AvatarHudPopup.Close(hud.RootElement);
+                            yield return null;
+                            Assert.That(menu.panel, Is.Null, "Esc must release the popup layer.");
+                        }
+                    }
+                    Click(hud, "centralMenuButton");
+                    yield return new WaitForSecondsRealtime(0.25f);
+                    Assert.That(hud.RootElement.Q<Button>("compactVoiceButton").resolvedStyle.display, Is.EqualTo(DisplayStyle.Flex));
+                    SaveHudTexture(texture, Path.Combine(output, $"{size.x}-{size.y}-compact.png"));
+                }
+                finally { Object.Destroy(go); Object.Destroy(settings); texture.Release(); Object.Destroy(texture); }
+                yield return null;
+            }
+        }
+
+        private static void SaveHudTexture(RenderTexture texture, string path)
+        {
+            var previous = RenderTexture.active;
+            var image = new Texture2D(texture.width, texture.height, TextureFormat.RGBA32, false);
+            try
+            {
+                RenderTexture.active = texture;
+                image.ReadPixels(new Rect(0, 0, texture.width, texture.height), 0, 0);
+                image.Apply(); File.WriteAllBytes(path, image.EncodeToPNG());
+            }
+            finally { RenderTexture.active = previous; Object.Destroy(image); }
+        }
+
+        [UnityTest]
+        public IEnumerator HudListsAndPlaysAnActionWithoutAnEnumOrUxmlEntry()
         {
             var gameObject = Object.Instantiate(Resources.Load<GameObject>("AvatarHud"));
             try
@@ -27,18 +311,15 @@ namespace Katarune.Avatar.Tests
                 var custom = hud.RootElement.Q<Button>("action-custom.salute");
                 Assert.That(custom, Is.Not.Null);
                 Assert.That(custom.tooltip, Is.EqualTo("自定义敬礼"));
-                Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.None));
-                Click(hud, "nextActionPageButton");
-                Click(hud, "nextActionPageButton");
                 Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+                Click(hud, "quickMoreButton");
+                Click(hud, "actionCategoryButton");
                 Click(hud, "action-custom.salute");
                 Assert.That(runtime.LastActionId, Is.EqualTo("custom.salute"));
                 Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("自定义敬礼中"));
                 Assert.That(hud.RootElement.Q<Button>("cancelActionButton").enabledSelf, Is.True);
                 Click(hud, "cancelActionButton");
                 Assert.That(runtime.Snapshot.Motion.CurrentActionId, Is.Null);
-                Click(hud, "nextActionPageButton");
-                Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.None));
             }
             finally { Object.Destroy(gameObject); }
             yield return null;
@@ -99,31 +380,44 @@ namespace Katarune.Avatar.Tests
             hud.Configure(runtime, picker, true);
             yield return null;
 
-            Assert.That(hud.StatusHudVisible, Is.False);
-            Assert.That(
-                hud.RootElement.Q<VisualElement>("statusHud").ClassListContains("is-status-hidden"),
-                Is.True);
-
+            Assert.That(hud.RootElement.Q<VisualElement>("hudDock").ClassListContains("is-compact"), Is.False);
             Click(hud, "centralMenuButton");
+            Assert.That(hud.RootElement.Q<VisualElement>("hudDock").ClassListContains("is-compact"), Is.True);
+            Click(hud, "centralMenuButton");
+            var chats = 0;
+            bool? microphoneIntent = null;
+            hud.OpenChatRequested += () => chats++;
+            hud.VoiceCommand += enabled => microphoneIntent = enabled;
+            Click(hud, "openChatButton");
+            Assert.That(chats, Is.EqualTo(1));
+            hud.SetVoiceState(true, "recording", null);
+            Click(hud, "voiceToggleButton");
+            Assert.That(microphoneIntent, Is.False);
+            hud.SetVoiceState(false, "error", "设备已断开");
+            Click(hud, "compactVoiceButton");
+            Assert.That(microphoneIntent, Is.True);
+            Assert.That(hud.RootElement.Q<Label>("voiceErrorLabel").text, Is.EqualTo("设备已断开"));
+            Click(hud, "quickMoreButton");
             Assert.That(hud.RootElement.Q<VisualElement>("primaryMenu").ClassListContains("is-visible"), Is.True);
+            Click(hud, "moreCategoryButton");
             Assert.That(runtime.LastBehavior.PointerGazeTrackingEnabled, Is.False);
             Assert.That(
-                hud.RootElement.Q<Button>("gazeTrackingButton").ClassListContains("is-selected"),
+                hud.RootElement.Q<Toggle>("gazeTrackingToggle").value,
                 Is.False);
-            Click(hud, "gazeTrackingButton");
+            Click(hud, "gazeTrackingToggle");
             Assert.That(runtime.LastBehavior.PointerGazeTrackingEnabled, Is.True);
             Assert.That(
-                hud.RootElement.Q<Button>("gazeTrackingButton").ClassListContains("is-selected"),
+                hud.RootElement.Q<Toggle>("gazeTrackingToggle").value,
                 Is.True);
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
-            Click(hud, "showcaseControlButton");
+            Click(hud, "showcaseControlToggle");
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.True);
             Assert.That(lastShowcaseControlState, Is.True);
             Assert.That(showcaseControlChanges, Is.EqualTo(1));
             Assert.That(
-                hud.RootElement.Q<Button>("showcaseControlButton").ClassListContains("is-selected"),
+                hud.RootElement.Q<Toggle>("showcaseControlToggle").value,
                 Is.True);
-            Click(hud, "showcaseControlButton");
+            Click(hud, "showcaseControlToggle");
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
             Assert.That(lastShowcaseControlState, Is.False);
             Assert.That(showcaseControlChanges, Is.EqualTo(2));
@@ -134,10 +428,11 @@ namespace Katarune.Avatar.Tests
             Assert.That(runtime.LastBehavior.Affect, Is.EqualTo(AvatarAffectPreset.Happy));
             Assert.That(runtime.LastBehavior.AffectIntensity, Is.EqualTo(1f));
             Assert.That(
-                hud.RootElement.Q<VisualElement>("affectStatusIcon").ClassListContains("icon-happy"),
+                hud.RootElement.Q<Button>("happyAffectButton").ClassListContains("is-selected"),
                 Is.True);
             Click(hud, "neutralAffectButton");
             Assert.That(runtime.LastBehavior.AffectIntensity, Is.Zero);
+            Click(hud, "actionCategoryButton");
             Click(hud, "action-greet-wave");
             Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.GreetWave));
             Assert.That(hud.RootElement.Q<Label>("actionLabel").text, Is.EqualTo("挥手中"));
@@ -150,20 +445,12 @@ namespace Katarune.Avatar.Tests
             Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.RightHandToChest));
             Click(hud, "action-left-hand-open-twice");
             Assert.That(runtime.LastAction, Is.EqualTo(AvatarPresetAction.LeftHandOpenTwice));
-            Click(hud, "softOutlineButton");
+            Click(hud, "moreCategoryButton");
+            Click(hud, "softOutlineToggle");
             Assert.That(runtime.LastPresentation.SoftOutlineEnabled, Is.True);
-            Click(hud, "statusHudButton");
-            Assert.That(hud.StatusHudVisible, Is.True);
-            Assert.That(
-                hud.RootElement.Q<VisualElement>("statusHud").ClassListContains("is-status-hidden"),
-                Is.False);
-            Assert.That(
-                hud.RootElement.Q<Button>("statusHudButton").ClassListContains("is-selected"),
-                Is.True);
-            Click(hud, "statusHudButton");
-            Assert.That(hud.StatusHudVisible, Is.False);
             Click(hud, "resetBehaviorButton");
             Assert.That(runtime.ResetCount, Is.EqualTo(1));
+            Click(hud, "modelCategoryButton");
             Click(hud, "selectModelButton");
             yield return null;
             Assert.That(picker.CurrentModelPath, Is.EqualTo("C:/Models/Current.vrm"));
@@ -178,6 +465,12 @@ namespace Katarune.Avatar.Tests
 
         private static void Click(AvatarHudController hud, string name)
         {
+            if (hud.RootElement.Q<Toggle>(name) is Toggle toggle)
+            {
+                Assert.That(toggle.enabledInHierarchy, Is.True, name);
+                toggle.value = !toggle.value;
+                return;
+            }
             var button = hud.RootElement.Q<Button>(name);
             Assert.That(button, Is.Not.Null, name);
             Assert.That(button.enabledSelf, Is.True, name);
@@ -190,6 +483,7 @@ namespace Katarune.Avatar.Tests
 
         private static void AssertOnlyButtonsArePickable(VisualElement element)
         {
+            if (element is ScrollView) return;
             if (element.pickingMode == PickingMode.Position)
             {
                 Assert.That(element, Is.InstanceOf<Button>(), $"Unexpected pickable element: {element.name}");

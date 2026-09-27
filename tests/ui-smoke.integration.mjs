@@ -193,8 +193,18 @@ function registerMockHandlers() {
     return { status: 'success', text, complete: !!text, speech: false };
   });
   ipcMain.handle("avatar:status", () => avatarStatus);
-  ipcMain.handle("avatar:start", (_event, binding) => avatarStatus = { phase: "ready", binding, error: null });
-  ipcMain.handle("avatar:stop", () => avatarStatus = { phase: "stopped", binding: null, error: null });
+  ipcMain.handle("avatar:start", (_event, binding) => avatarStatus = { phase: "ready", binding, error: null,
+    voice: { desired: true, phase: "preparing", error: null } });
+  ipcMain.handle("avatar:stop", () => avatarStatus = { phase: "stopped", binding: null, error: null,
+    voice: { desired: false, phase: "idle", error: null } });
+  ipcMain.handle("avatar:voice-state", (event, request) => {
+    if (avatarStatus.phase !== 'ready' || request.binding.threadId !== avatarStatus.binding.threadId) return;
+    avatarStatus = { ...avatarStatus, voice: { desired: request.phase === 'error' ? false : avatarStatus.voice.desired,
+      phase: request.phase, error: request.error } };
+    event.sender.send('avatar:changed', avatarStatus);
+  });
+  ipcMain.handle("avatar:playback-control", () => {});
+  ipcMain.handle("avatar:user-subtitle", () => {});
   ipcMain.handle("app:get-info", () => ({
     name: "Katarune",
     version: "0.1.0",
@@ -906,8 +916,8 @@ async function run() {
     });
 
     await runStep('offline dictation records, fills draft and cancels without changing it', async () => {
-      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
-      await clickSelector(window, '[aria-label="开始离线语音输入"]');
+      await waitForSelector(window, '[aria-label="录音并填入聊天输入框"]');
+      await clickSelector(window, '[aria-label="录音并填入聊天输入框"]');
       await waitForSelector(window, '[aria-label="结束录音并识别"]');
       window.webContents.invalidate();
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -915,10 +925,10 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 700));
       await clickSelector(window, '[aria-label="结束录音并识别"]');
       await waitUntil('dictation final text', () => window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value === '这是离线语音输入。'`));
-      await clickSelector(window, '[aria-label="开始离线语音输入"]');
+      await clickSelector(window, '[aria-label="录音并填入聊天输入框"]');
       await waitForSelector(window, '[aria-label="结束录音并识别"]');
       await clickSelector(window, '[aria-label="取消语音输入"]');
-      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
+      await waitForSelector(window, '[aria-label="录音并填入聊天输入框"]');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`), '这是离线语音输入。');
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('[aria-label="Message input"]');
@@ -1283,8 +1293,8 @@ async function run() {
       writeFileSync(join(projectRoot, '.test-dist', 'default-models.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
-      await waitForSelector(window, '[aria-label="开始离线语音输入"]');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="开始离线语音输入"]').disabled`), true);
+      await waitForSelector(window, '[aria-label="请在默认模型设置中启用语音识别"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="请在默认模型设置中启用语音识别"]').disabled`), true);
       await clickSelector(window, '[data-testid="character-launcher"]');
       await waitForSelector(window, '[data-testid="character-page"]');
       await choose("character-model", "使用默认（DeepSeek Chat）");
@@ -1313,7 +1323,7 @@ async function run() {
       includeGoogleSpeechFixture = false;
     });
 
-    await runStep("long-press realtime microphone, playback gating and background binding", async () => {
+    await runStep("automatic desktop voice, full-duplex capture and background binding", async () => {
       testingRealtime = true; includeGoogleSpeechFixture = true;
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForSelector(window, '[data-testid="dictation-toggle"]');
@@ -1324,25 +1334,10 @@ async function run() {
       }
       const bound = { ...avatarStatus.binding };
       const beforeOrdinary = ordinaryPrepareCount;
-      const hold = async (keyboard = false) => {
-        if (keyboard) {
-          await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').focus()`);
-          window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Space' });
-          await new Promise(resolve => setTimeout(resolve, 680));
-          window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Space' });
-        } else {
-          const point = await window.webContents.executeJavaScript(`(() => { const r = document.querySelector('[data-testid="dictation-toggle"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
-          window.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-          window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
-          await new Promise(resolve => setTimeout(resolve, 680));
-          window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
-        }
-      };
-      await hold();
-      await waitForSelector(window, '[data-state="realtime-listening"]');
+      await waitUntil('automatic microphone start', () => realtimePrepareCount >= 1);
       assert.equal(ordinaryPrepareCount, beforeOrdinary);
       await waitUntil('AudioWorklet frames', () => realtimeFrameCount >= 2);
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').getAttribute('aria-pressed')`), 'true');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').disabled`), true);
       writeFileSync(join(projectRoot, '.test-dist', 'realtime-voice.png'), (await window.webContents.capturePage()).toPNG());
       const beforeMessages = avatarChatRequests.length;
       const draft = await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`);
@@ -1351,42 +1346,37 @@ async function run() {
       const request = avatarChatRequests.at(-1);
       assert.equal(request.threadId, bound.threadId); assert.equal(request.characterId, bound.characterId);
       assert.match(JSON.stringify(request.messages), /这是实时语音对话/);
-      await waitForSelector(window, '[data-state="realtime-waiting"]');
-      const stoppedAt = realtimeFrameCount;
-      await new Promise(resolve => setTimeout(resolve, 500));
-      assert.equal(realtimeFrameCount, stoppedAt, 'no capture while Unity playback is pending');
+      const busyFrames = realtimeFrameCount;
+      await waitUntil('capture continues while avatar is busy', () => realtimeFrameCount > busyFrames + 2);
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`), draft);
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await waitForSelector(window, '[data-testid="general-settings"]');
       avatarStatus = { ...avatarStatus, busy: false };
       window.webContents.send('avatar:changed', avatarStatus);
-      await waitUntil('listening resumes while settings page is open', () => realtimeFrameCount > stoppedAt + 2);
+      await waitUntil('listening continues while settings page is open', () => realtimeFrameCount > busyFrames + 4);
       const backgroundCount = realtimeFrameCount;
       window.minimize();
       await waitUntil('minimized window continues audio capture', () => realtimeFrameCount > backgroundCount + 2);
       window.restore();
       await clickSelector(window, '[data-testid="settings-back"]');
-      await waitForSelector(window, '[data-state="realtime-listening"]');
-      await clickSelector(window, '[data-testid="dictation-toggle"]');
-      await waitForSelector(window, '[data-testid="dictation-toggle"][data-state="idle"]');
+      avatarStatus = { ...avatarStatus, voice: { desired: false, phase: 'idle', error: null } };
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitUntil('microphone stopped from HUD intent', async () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').disabled === false`));
       const endedAt = realtimeFrameCount;
       await new Promise(resolve => setTimeout(resolve, 350)); assert.equal(realtimeFrameCount, endedAt);
-      await hold(true); await waitForSelector(window, '[data-state="realtime-listening"]');
+      avatarStatus = { ...avatarStatus, voice: { desired: true, phase: 'preparing', error: null } };
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitUntil('microphone restarts from HUD intent', () => realtimePrepareCount >= 2);
       assert.equal(realtimePrepareCount, 2); assert.equal(ordinaryPrepareCount, beforeOrdinary);
-      await clickSelector(window, '[data-testid="dictation-toggle"]');
-      await waitForSelector(window, '[data-testid="dictation-toggle"][data-state="idle"]');
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       await clickSelector(window, 'button[aria-label="新对话"]');
       await waitForSelector(window, '.aui-thread-welcome-root');
       await clickSelector(window, '[data-testid="avatar-toggle"]');
-      await hold(); await waitForSelector(window, '[data-state="realtime-listening"]');
+      await waitUntil('new connection automatically starts microphone', () => realtimePrepareCount >= 3);
       const beforeNew = avatarChatRequests.length;
       realtimeText = '实时模式创建的新会话。';
       await waitUntil('first voice message persists a new thread', () => avatarChatRequests.length > beforeNew);
-      await waitForSelector(window, '[data-state="realtime-waiting"]');
       avatarStatus = { ...avatarStatus, busy: false }; window.webContents.send('avatar:changed', avatarStatus);
-      await waitForSelector(window, '[data-state="realtime-listening"]');
-      await clickSelector(window, '[data-testid="dictation-toggle"]');
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       testingRealtime = false; includeGoogleSpeechFixture = false;
       await clickSelector(window, '[data-testid="settings-launcher"]');

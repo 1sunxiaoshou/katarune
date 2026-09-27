@@ -363,6 +363,7 @@ const AssistantMessage: FC = () => {
             }
           }}
         </MessagePrimitive.GroupedParts>
+        <VoicePlaybackNotice />
         <MessageError />
       </div>
 
@@ -375,6 +376,18 @@ const AssistantMessage: FC = () => {
       </div>
     </MessagePrimitive.Root>
   );
+};
+
+const VoicePlaybackNotice: FC = () => {
+  const playback = useAuiState((s) => {
+    const custom = s.message.metadata?.custom;
+    return custom && typeof custom === "object" && "voicePlayback" in custom
+      ? custom.voicePlayback : null;
+  });
+  if (!playback || typeof playback !== "object" || !("interrupted" in playback) || !playback.interrupted) return null;
+  return <p className="mt-2 text-xs text-muted-foreground" role="status">
+    {"generationIncomplete" in playback && playback.generationIncomplete ? "生成未完成 · 播放已打断" : "播放已打断"}
+  </p>;
 };
 
 const AssistantActionBar: FC = () => {

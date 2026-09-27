@@ -16,7 +16,7 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarControlConnection : MonoBehaviour
     {
-        [Serializable] private sealed class Request { public string type; public StreamEvent @event; public string id; public string operation; public string value; public bool allowSpeech = true; public string toolCallId; public string runId; public string dialogueId; public bool speechEnabled; public bool failed; public bool streaming; public string text; public AvatarSpeechSegment[] segments; public string profilePath; }
+        [Serializable] private sealed class Request { public string type; public StreamEvent @event; public string id; public string operation; public string value; public bool allowSpeech = true; public string toolCallId; public string runId; public string dialogueId; public bool speechEnabled; public bool failed; public bool streaming; public bool enabled; public string phase; public string error; public float level; public string text; public AvatarSpeechSegment[] segments; public string profilePath; }
         [Serializable] private sealed class StreamEvent { public string type; public string id; public string delta; public string toolCallId; public string toolName; }
         private sealed class SubtitleBlock { public string Text = ""; public bool Complete; public string RunId; public string Id; public bool SpeechEnabled; public Request Audio; }
         private readonly Dictionary<string, SubtitleBlock> _dialogues = new Dictionary<string, SubtitleBlock>();
@@ -27,12 +27,17 @@ namespace Katarune.Avatar
             public SubtitleBlock Subtitle;
             public string ToolCallId;
             public string ToolName;
+            public string RunId;
             public Request Command;
         }
         [Serializable] private sealed class ActionInfo { public string id; public string label; public float durationSeconds; }
         [Serializable] private sealed class Capabilities { public ActionInfo[] actions; public string[] expressions; }
         [Serializable] private sealed class Ready { public string type = "ready"; public Capabilities capabilities; }
+        [Serializable] private sealed class StartupError { public string type = "startup-error"; public string error; }
         [Serializable] private sealed class Result { public string type = "result"; public string id; public bool ok; public string error; }
+        [Serializable] private sealed class VoiceCommand { public string type = "voice-command"; public bool enabled; }
+        [Serializable] private sealed class OpenChatCommand { public string type = "open-chat"; }
+        [Serializable] private sealed class PlaybackEvent { public string type = "playback"; public string runId; public bool active; public string state; }
 
         [Serializable] private sealed class ActionEvent { public string type = "action"; public string id; public string status; public string error; }
         [Serializable] private sealed class ExpressionEvent { public string type = "expression"; public string id; public string status; public string error; }
@@ -55,8 +60,14 @@ namespace Katarune.Avatar
         private bool _acting;
         private bool _actionStarted;
         private string _lastCapabilities;
+        private bool _startupErrorSent;
         private string _activeRunId;
+        private string _playingRunId;
+        private readonly HashSet<string> _mutedRuns = new HashSet<string>();
+        private AvatarHudController _hud;
         private AvatarSpeechPlayer _speech;
+        private bool _userSubtitleActive;
+        private float _nextRoleLevelAt;
 
         [Serializable] private sealed class SpeechEvent { public string type = "speech"; public string id; public string status; public string error; }
 
@@ -64,6 +75,12 @@ namespace Katarune.Avatar
         {
             _speech = speech;
             _runtime = runtime;
+            _hud = FindFirstObjectByType<AvatarHudController>();
+            if (_hud != null)
+            {
+                _hud.VoiceCommand += enabled => Send(JsonUtility.ToJson(new VoiceCommand { enabled = enabled }));
+                _hud.OpenChatRequested += () => Send(JsonUtility.ToJson(new OpenChatCommand()));
+            }
             _subtitle = document.rootVisualElement.Q("subtitleRoot");
             _label = document.rootVisualElement.Q<Label>("subtitleText");
             _label.enableRichText = false;
@@ -125,16 +142,36 @@ namespace Katarune.Avatar
         private void Update()
         {
             if (_runtime == null) return;
+            if (Time.unscaledTime >= _nextRoleLevelAt)
+            {
+                _nextRoleLevelAt = Time.unscaledTime + 0.1f;
+                _hud?.SetRoleLevel(_speech?.OutputLevel() ?? 0f);
+            }
             if (!_connected)
             {
                 if (_lastCapabilities != null)
                 {
                     StopAllCoroutines(); _runtime.CancelAction(); _speech?.Stop();
+                    _mutedRuns.Clear(); _playingRunId = null;
+                    _hud?.SetRoleSpeaking(false);
+                    _hud?.SetInputLevel(0f);
+                    _hud?.SetVoiceState(false, "idle", "桌宠连接已断开");
                     _subtitle.style.display = DisplayStyle.None;
                     _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear(); _lastCapabilities = null;
                     _timelineRunning = false; _acting = false; _actionStarted = false;
                 }
                 return;
+            }
+            if (!_startupErrorSent && _lastCapabilities == null
+                && (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Error
+                    || _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Empty))
+            {
+                var error = _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Empty
+                    ? "未找到默认角色模型，请配置 default-avatar.vrm 后重新连接桌宠。"
+                    : _runtime.Snapshot.LastError;
+                if (string.IsNullOrWhiteSpace(error)) error = "角色模型加载失败。";
+                Send(JsonUtility.ToJson(new StartupError { error = error.Length > 4000 ? error.Substring(0, 4000) : error }));
+                _startupErrorSent = true;
             }
             if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
             {
@@ -154,9 +191,15 @@ namespace Katarune.Avatar
                 try
                 {
                     request = JsonUtility.FromJson<Request>(line);
+                    if (request?.type == "voice-state")
+                    {
+                        _hud?.SetVoiceState(request.enabled, request.phase, request.error);
+                        _hud?.SetInputLevel(request.enabled ? request.level : 0f);
+                        continue;
+                    }
                     if (request?.type == "user-subtitle")
                     {
-                        if (!_timelineRunning && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
+                        if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
                             ShowUserSubtitle(request.text);
                         continue;
                     }
@@ -173,12 +216,33 @@ namespace Katarune.Avatar
                             var drains = _timeline.Where(item => item.Kind == "drain").Select(item => item.Command).ToArray();
                             _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear();
                             StopAllCoroutines(); _speech?.Stop(); _runtime.CancelAction();
+                            if (_playingRunId != null) Send(JsonUtility.ToJson(new PlaybackEvent { runId = _playingRunId, active = false, state = "interrupted" }));
+                            _playingRunId = null;
+                            _hud?.SetRoleSpeaking(false);
+                            _mutedRuns.Remove(request.value);
                             _timelineRunning = false; _acting = false; _actionStarted = false;
-                            _subtitle.style.display = DisplayStyle.None;
+                            if (!_userSubtitleActive) _subtitle.style.display = DisplayStyle.None;
                             _activeRunId = null;
                             foreach (var drain in drains) Reply(drain);
                         }
                         Reply(request); continue;
+                    }
+                    if (request?.operation == "voice-pause" || request?.operation == "voice-resume")
+                    {
+                        if (request.value == _playingRunId)
+                        {
+                            if (request.operation == "voice-pause") { _speech?.Pause(); _hud?.SetRoleSpeaking(false); Send(JsonUtility.ToJson(new PlaybackEvent { runId = request.value, active = true, state = "paused" })); }
+                            else { _speech?.Resume(); _hud?.SetRoleSpeaking(true); Send(JsonUtility.ToJson(new PlaybackEvent { runId = request.value, active = true, state = "playing" })); }
+                        }
+                        continue;
+                    }
+                    if (request?.operation == "voice-interrupt")
+                    {
+                        _mutedRuns.Add(request.value);
+                        foreach (var dialogue in _dialogues.Values)
+                            if (dialogue.RunId == request.value) dialogue.SpeechEnabled = false;
+                        if (_playingRunId == request.value) _speech?.Stop();
+                        continue;
                     }
                     if (request == null || !Guid.TryParse(request.id, out _) || (request.operation != "drain" && string.IsNullOrWhiteSpace(request.value)))
                         throw new ArgumentException("Invalid avatar request.");
@@ -229,18 +293,20 @@ namespace Katarune.Avatar
                 }
                 yield return null;
             }
-            _subtitle.style.display = DisplayStyle.None;
+            if (!_userSubtitleActive) _subtitle.style.display = DisplayStyle.None;
         }
 
         private void ShowUserSubtitle(string text)
         {
             if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) return;
             ShowSubtitle("你：" + text.Trim());
+            _userSubtitleActive = true;
             _label.EnableInClassList("user-subtitle", true);
         }
 
         private void ShowSubtitle(string text)
         {
+            _userSubtitleActive = false;
             _label.EnableInClassList("user-subtitle", false);
             if (_label.text != text) { _label.text = text; _subtitleScroll.scrollOffset = Vector2.zero; }
             _subtitle.style.display = DisplayStyle.Flex;
@@ -270,7 +336,7 @@ namespace Katarune.Avatar
                 case "tool-input-available":
                     if ((chunk.toolName != "avatar_action" && chunk.toolName != "set_expression")
                         || string.IsNullOrWhiteSpace(chunk.toolCallId) || _toolNodes.ContainsKey(chunk.toolCallId)) return;
-                    var item = new TimelineItem { Kind = "tool", ToolCallId = chunk.toolCallId, ToolName = chunk.toolName };
+                    var item = new TimelineItem { Kind = "tool", ToolCallId = chunk.toolCallId, ToolName = chunk.toolName, RunId = runId };
                     if (_commands.TryGetValue(chunk.toolCallId, out var command))
                     {
                         _commands.Remove(chunk.toolCallId);
@@ -346,7 +412,7 @@ namespace Katarune.Avatar
         private IEnumerator Speak(SubtitleBlock block)
         {
             var consumed = 0;
-            while (true)
+            while (!_mutedRuns.Contains(block.RunId))
             {
                 var page = AvatarSpeechSubtitles.ReadPage(block.Text.Substring(consumed), block.Complete, out var length, out var ready);
                 if (page.Length == 0)
@@ -357,14 +423,14 @@ namespace Katarune.Avatar
                 ShowSubtitle(page);
                 if (!ready) { yield return null; continue; }
                 var remaining = Mathf.Clamp(new StringInfo(page).LengthInTextElements / 9f + 0.5f, 1.4f, 7f);
-                while (remaining > 0f)
+                while (remaining > 0f && !_mutedRuns.Contains(block.RunId))
                 {
                     yield return null;
                     remaining -= Time.unscaledDeltaTime;
                 }
                 consumed += length;
             }
-            _subtitle.style.display = DisplayStyle.None;
+            if (!_userSubtitleActive) _subtitle.style.display = DisplayStyle.None;
         }
 
         private IEnumerator RunTimeline()
@@ -378,12 +444,12 @@ namespace Katarune.Avatar
                     if (item.Kind == "dialogue")
                     {
                         var block = item.Subtitle;
-                        if (block.SpeechEnabled)
+                        if (block.SpeechEnabled && !_mutedRuns.Contains(block.RunId))
                         {
-                            while (_connected && block.Audio == null) yield return null;
+                            while (_connected && block.Audio == null && block.SpeechEnabled && !_mutedRuns.Contains(block.RunId)) yield return null;
                             if (!_connected) yield break;
                         }
-                        if (block.Audio != null && !block.Audio.failed && _speech != null)
+                        if (!_mutedRuns.Contains(block.RunId) && block.Audio != null && !block.Audio.failed && _speech != null)
                         {
                             var finished = false;
                             var failed = false;
@@ -393,7 +459,7 @@ namespace Katarune.Avatar
                             try {
                                 _speech.Play(Guid.NewGuid().ToString(), block.Audio.value, (id, status, error) => {
                                     Send(JsonUtility.ToJson(new SpeechEvent { id = id, status = status, error = error }));
-                                    if (status == "started") started = true;
+                                    if (status == "started") { started = true; _playingRunId = block.RunId; _hud?.SetRoleSpeaking(true); Send(JsonUtility.ToJson(new PlaybackEvent { runId = block.RunId, active = true, state = "playing" })); }
                                     if (status != "started") { finished = true; failed = status == "failed"; }
                                 }, block.Audio.profilePath, block.Audio.streaming);
                             } catch { finished = true; failed = true; }
@@ -408,10 +474,11 @@ namespace Katarune.Avatar
                                 }
                                 yield return null;
                             }
-                            _subtitle.style.display = DisplayStyle.None;
+                            if (!_userSubtitleActive) _subtitle.style.display = DisplayStyle.None;
+                            if (_playingRunId == block.RunId) { _playingRunId = null; _hud?.SetRoleSpeaking(false); Send(JsonUtility.ToJson(new PlaybackEvent { runId = block.RunId, active = false, state = _mutedRuns.Contains(block.RunId) ? "interrupted" : "completed" })); }
                             if (failed && !started) yield return Speak(block);
                         }
-                        else yield return Speak(block);
+                        else if (!_mutedRuns.Contains(block.RunId)) yield return Speak(block);
                         _dialogues.Remove(block.RunId + ":" + block.Id);
                         if (!string.IsNullOrEmpty(block.RunId)) Send(JsonUtility.ToJson(new DialogueCompleted {
                             runId = block.RunId, dialogueId = block.Id,
@@ -419,6 +486,7 @@ namespace Katarune.Avatar
                     }
                     else if (item.Kind == "tool")
                     {
+                        if (_mutedRuns.Contains(item.RunId)) { _timeline.Dequeue(); continue; }
                         while (_connected && item.Command == null) yield return null;
                         if (!_connected) yield break;
                         if (item.Command.operation == "expression") ApplyExpression(item.Command);
@@ -438,6 +506,7 @@ namespace Katarune.Avatar
                     {
                         while (_connected && _acting) yield return null;
                         if (_connected) Reply(item.Command);
+                        _mutedRuns.Remove(item.Command.value);
                     }
                     _timeline.Dequeue();
                 }

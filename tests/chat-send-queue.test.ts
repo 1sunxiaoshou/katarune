@@ -57,4 +57,19 @@ describe("avatar chat input queue", () => {
     await three;
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  it("runs confirmed speech before waiting typed messages", async () => {
+    const first = deferred();
+    const send = vi.fn().mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+    const dispatched: boolean[] = [];
+    const queue = createChatSendQueue(send, () => undefined, priority => dispatched.push(priority));
+    const running = queue.send({ text: "正在回复" });
+    await Promise.resolve();
+    const typed = queue.send({ text: "排队文字" });
+    const voice = queue.prioritySend({ text: "语音插话" });
+    first.resolve();
+    await Promise.all([running, typed, voice]);
+    expect(send.mock.calls.map(call => call[0].text)).toEqual(["正在回复", "语音插话", "排队文字"]);
+    expect(dispatched).toEqual([false, true, false]);
+  });
 });

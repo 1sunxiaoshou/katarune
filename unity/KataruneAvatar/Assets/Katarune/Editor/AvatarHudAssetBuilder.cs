@@ -14,6 +14,10 @@ namespace Katarune.Avatar.Editor
         private const string ThemePath = HudDirectory + "/AvatarHudRuntimeTheme.tss";
         private const string PanelSettingsPath = HudDirectory + "/AvatarHudPanelSettings.asset";
         private const string PrefabPath = "Assets/Katarune/Resources/AvatarHud.prefab";
+        private static readonly string[] ControlIcons =
+        {
+            "mic", "mic-off", "message-circle-more", "ellipsis", "chevrons-right", "close", "chevron-down", "refresh-cw",
+        };
 
         [MenuItem("Katarune/Avatar/Rebuild HUD Assets")]
         public static void BuildAssets()
@@ -28,12 +32,13 @@ namespace Katarune.Avatar.Editor
 
             var panelSettings = GetOrCreatePanelSettings();
             panelSettings.themeStyleSheet = theme;
-            panelSettings.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+            panelSettings.scaleMode = PanelScaleMode.ConstantPixelSize;
+            panelSettings.scale = 1f;
             panelSettings.referenceResolution = new Vector2Int(1920, 1080);
             panelSettings.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
             panelSettings.match = 0.5f;
             panelSettings.sortingOrder = 100f;
-            panelSettings.clearDepthStencil = false;
+            panelSettings.clearDepthStencil = true;
             panelSettings.clearColor = false;
             EditorUtility.SetDirty(panelSettings);
 
@@ -69,13 +74,20 @@ namespace Katarune.Avatar.Editor
 
         private static void ConfigureVectorImages()
         {
-            foreach (var guid in AssetDatabase.FindAssets("t:DefaultAsset", new[] { HudDirectory + "/Icons" }))
+            foreach (var file in Directory.GetFiles(HudDirectory + "/Icons", "*.svg"))
             {
-                var path = AssetDatabase.GUIDToAssetPath(guid);
-                if (!path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)) continue;
+                var path = file.Replace('\\', '/');
                 if (!(AssetImporter.GetAtPath(path) is SVGImporter importer)) continue;
-                if (importer.SvgType == SVGType.VectorImage) continue;
+                var isControlIcon = Array.IndexOf(ControlIcons, Path.GetFileNameWithoutExtension(path)) >= 0;
+                if (importer.SvgType == SVGType.VectorImage && (!isControlIcon ||
+                    importer.ViewportOptions == Unity.VectorGraphics.ViewportOptions.PreserveViewport)) continue;
                 importer.SvgType = SVGType.VectorImage;
+                // Icons also include a transparent canvas rectangle to keep VectorImage mesh bounds at 24x24.
+                if (isControlIcon)
+                {
+                    importer.ViewportOptions = Unity.VectorGraphics.ViewportOptions.PreserveViewport;
+                }
+                EditorUtility.SetDirty(importer);
                 importer.SaveAndReimport();
             }
         }

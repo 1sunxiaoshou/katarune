@@ -653,6 +653,9 @@ export interface KataruneApi {
   startAvatar(request: import("./avatar").AvatarBinding): Promise<import("./avatar").AvatarStatus>;
   stopAvatar(): Promise<import("./avatar").AvatarStatus>;
   getAvatarStatus(): Promise<import("./avatar").AvatarStatus>;
+  setAvatarVoiceState(request: import("./avatar").AvatarVoiceStateRequest): Promise<void>;
+  controlAvatarPlayback(request: import("./avatar").AvatarPlaybackControlRequest): Promise<void>;
+  showAvatarUserSubtitle(request: import("./avatar").AvatarUserSubtitleRequest): Promise<void>;
   onSpeechStarted(callback: (request: SpeechCancelRequest) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
   getDatabaseStatus(): Promise<DatabaseStatus>;

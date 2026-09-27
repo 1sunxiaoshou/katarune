@@ -34,8 +34,16 @@ function describeAction(action: AvatarCapabilities["actions"][number]): string {
 }
 
 export class AvatarService {
+  onOpenChat: (() => void) | undefined;
   private speechService?: SpeechService;
   private dialogueRuns = new Map<string, AvatarDialogueSpeech>();
+  private mutedRuns = new Set<string>();
+  private playingRunId: string | null = null;
+  private playbackState: AvatarStatus["playback"];
+  private voiceDesired = false;
+  private voicePhase: NonNullable<AvatarStatus["voice"]>["phase"] = "idle";
+  private voiceError: string | null = null;
+  private voiceLevel = 0;
   private speechDirectory = tmpdir();
   configureSpeech(service: SpeechService, directory = tmpdir()) { this.speechService = service; this.speechDirectory = directory; }
   private server: Server | undefined;
@@ -70,14 +78,46 @@ export class AvatarService {
     private readonly logsDirectory: string,
   ) {}
   get status(): AvatarStatus {
-    return { ...this.state, busy: this.activeStreams > 0 || this.pending.size > 0 || this.activeInstructions.size > 0 };
+    return { ...this.state, busy: this.activeStreams > 0 || this.pending.size > 0 || this.activeInstructions.size > 0,
+      voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
+  }
+
+  setVoiceState(binding: AvatarBinding, phase: NonNullable<AvatarStatus["voice"]>["phase"], error: string | null, level?: number): void {
+    if (!this.matches(binding) || this.state.phase !== "ready") return;
+    const changed = phase !== this.voicePhase || error !== this.voiceError || (phase === "error" && this.voiceDesired);
+    if (phase === "error") this.voiceDesired = false;
+    this.voicePhase = phase;
+    this.voiceError = error;
+    if (level !== undefined) this.voiceLevel = level;
+    this.sendVoiceState();
+    if (changed) this.changed();
+  }
+
+  controlPlayback(binding: AvatarBinding, action: "pause" | "resume" | "interrupt"): void {
+    if (!this.matches(binding) || this.state.phase !== "ready") return;
+    const runId = this.playingRunId;
+    if (action === "interrupt") {
+      for (const [id, run] of this.dialogueRuns) {
+        this.mutedRuns.add(id);
+        run.silence();
+        this.socket?.write(`${JSON.stringify({ operation: "voice-interrupt", value: id })}\n`);
+      }
+    } else if (runId) {
+      this.socket?.write(`${JSON.stringify({ operation: action === "pause" ? "voice-pause" : "voice-resume", value: runId })}\n`);
+    }
+  }
+
+  private sendVoiceState(): void {
+    if (!this.socket || this.state.phase !== "ready") return;
+    this.socket.write(`${JSON.stringify({ type: "voice-state", enabled: this.voiceDesired,
+      phase: this.voicePhase, error: this.voiceError ?? "", level: this.voiceLevel })}\n`);
   }
 
   showUserSubtitle(binding: AvatarBinding, text: string): void {
     const socket = this.socket;
     const subtitle = text.trim();
     if (!socket || socket.destroyed || this.state.phase !== "ready" || !this.matches(binding)
-      || this.status.busy || !subtitle || subtitle.length > 20_000) return;
+      || !subtitle || subtitle.length > 20_000) return;
     // User captions are immediate display events, not actions in the playback queue.
     socket.write(`${JSON.stringify({ type: "user-subtitle", text: subtitle })}\n`);
   }
@@ -137,10 +177,29 @@ export class AvatarService {
             buffer = buffer.slice(end + 1);
             try {
               const reply = avatarReplySchema.parse(JSON.parse(line));
-              if (reply.type === "ready") {
+              if (reply.type === "startup-error") {
+                this.fail(reply.error);
+                return;
+              } else if (reply.type === "ready") {
                 this.capabilities = reply.capabilities;
                 this.state = { phase: "ready", binding, error: null };
+                this.voiceDesired = true;
+                this.voicePhase = "preparing";
+                this.sendVoiceState();
+                this.changed();
                 finish();
+              } else if (reply.type === "voice-command") {
+                this.voiceDesired = reply.enabled;
+                this.voicePhase = reply.enabled ? "preparing" : "idle";
+                this.voiceError = null;
+                this.sendVoiceState();
+                this.changed();
+              } else if (reply.type === "open-chat") {
+                this.onOpenChat?.();
+              } else if (reply.type === "playback") {
+                this.playingRunId = reply.active ? reply.runId : this.playingRunId === reply.runId ? null : this.playingRunId;
+                this.playbackState = { runId: reply.runId, state: reply.state };
+                this.changed();
               } else if (reply.type === "dialogue-completed") {
                 this.dialogueRuns.get(reply.runId)?.completed(reply.dialogueId);
               } else if (reply.type === "speech") {
@@ -235,6 +294,13 @@ export class AvatarService {
     const speechRuns = [...this.dialogueRuns.values()];
     for (const run of speechRuns) run.cancel();
     this.dialogueRuns.clear();
+    this.mutedRuns.clear();
+    this.playingRunId = null;
+    this.playbackState = undefined;
+    this.voiceDesired = false;
+    this.voicePhase = "idle";
+    this.voiceError = null;
+    this.voiceLevel = 0;
     this.rejectStartup?.(error);
     this.rejectStartup = undefined;
     for (const request of this.pending.values()) {
@@ -363,6 +429,7 @@ export class AvatarService {
       this.activeStreams--;
       this.changed();
       this.dialogueRuns.delete(runId);
+      this.mutedRuns.delete(runId);
       void (cancellation ?? Promise.resolve()).then(() => speech?.dispose()).catch(() => {});
       signal.removeEventListener("abort", abort);
     };
@@ -378,7 +445,7 @@ export class AvatarService {
             // A completed generation's signal must not cancel its ongoing playback.
             signal.removeEventListener("abort", abort);
             if (this.socket === socket)
-              void this.request("drain", "", new AbortController().signal)
+              void this.request("drain", runId, new AbortController().signal)
                 .catch(() => { this.state = { ...this.state, error: "桌宠播放未正常完成。" }; }).finally(release);
             else release();
             reader.releaseLock();
@@ -388,7 +455,7 @@ export class AvatarService {
           if (this.socket === socket && !cancellation) {
             await new Promise<void>((resolve) => {
               socket.write(
-                `${JSON.stringify({ type: "event", runId, speechEnabled: !!speech, event: chunk.value })}\n`,
+                `${JSON.stringify({ type: "event", runId, speechEnabled: !!speech && !this.mutedRuns.has(runId), event: chunk.value })}\n`,
                 (error) => {
                   if (error && this.socket === socket)
                     this.fail("Unity 事件转发失败。");
@@ -397,7 +464,7 @@ export class AvatarService {
               );
             });
           }
-          speech?.observe(chunk.value);
+          if (!this.mutedRuns.has(runId)) speech?.observe(chunk.value);
           controller.enqueue(chunk.value);
         } catch (error) {
           abort();

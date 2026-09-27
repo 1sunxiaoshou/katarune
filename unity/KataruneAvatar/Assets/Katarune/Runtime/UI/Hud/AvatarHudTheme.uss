@@ -1,0 +1,92 @@
+/* Light palette from renderer/styles.css; controls mirror components/ui. */
+:root {
+    --ink: #0a0a0a;
+    --muted: #737373;
+    --paper: #ffffff;
+    --line: #e5e5e5;
+    --edge: #e5e5e5;
+    --accent: #171717;
+    --listening: #63baa3;
+    --hover: #f5f5f5;
+    --hover-clear: rgba(245,245,245,0);
+}
+.hud-root, .unity-base-dropdown {
+    -unity-font-definition: url("project://database/Assets/Katarune/Runtime/UI/Hud/Fonts/NotoSansSC-Regular.ttf");
+    font-size: 14px; color: var(--ink);
+}
+.hud-icon { width: 16px; height: 16px; flex-shrink: 0; background-size: contain; background-position: center; background-repeat: no-repeat; -unity-background-image-tint-color: var(--ink); }
+.icon-chat { background-image: url("Icons/message-circle-more.svg"); }
+.icon-mic { background-image: url("Icons/mic.svg"); }
+.icon-mic-off { background-image: url("Icons/mic-off.svg"); }
+.icon-more { background-image: url("Icons/ellipsis.svg"); }
+.icon-retry { background-image: url("Icons/refresh-cw.svg"); }
+.icon-collapse { background-image: url("Icons/chevrons-right.svg"); }
+.icon-close { background-image: url("Icons/close.svg"); }
+.quick-button, .compact-mic, .dock-handle, .close-button {
+    width: 36px; height: 36px; flex-shrink: 0; padding: 0; margin: 0;
+    justify-content: center; align-items: center;
+    background-color: var(--hover-clear); border-width: 1px; border-color: transparent; border-radius: 18px;
+}
+.quick-button:hover, .compact-mic:hover, .dock-handle:hover, .close-button:hover { background-color: var(--hover); }
+.quick-button:active, .compact-mic:active, .dock-handle.is-pointer-active, .close-button:active { background-color: #e5e5e5; }
+.keyboard-navigation .quick-button:focus, .keyboard-navigation .compact-mic:focus, .keyboard-navigation .dock-handle:focus, .keyboard-navigation .close-button:focus { border-color: #a3a3a3; }
+#quickMoreButton.is-selected { background-color: var(--hover); }
+.quick-button:disabled, .compact-mic:disabled, .dock-handle:disabled, .close-button:disabled { opacity: 0.5; }
+.mic-indicator { position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 3px; background-color: var(--listening); opacity: 0; }
+.is-selected > .mic-indicator, .is-error > .mic-indicator { opacity: 1; }
+.is-error > .mic-indicator { background-color: #d96672; }
+/* Same black selection treatment as SettingsPage; indicator moves below labels. */
+.tab-indicator { position: absolute; left: 0; top: 0; border-radius: 8px; background-color: var(--accent); }
+.tab-button { flex-grow: 1; flex-basis: 0; height: 32px; margin: 0 2px; padding: 0 2px; font-size: 14px; color: var(--muted); border-width: 1px; border-color: transparent; border-radius: 8px; background-color: transparent; }
+.tab-button:hover { color: var(--ink); }
+.tab-button.is-selected { color: white; }
+.keyboard-navigation .tab-button:focus { border-color: #a3a3a3; }
+.action-button, .choice-button { min-height: 32px; margin: 0 0 10px 0; padding: 5px 10px; background-color: white; border-width: 1px; border-color: var(--edge); border-radius: 10px; color: var(--ink); font-size: 14px; white-space: normal; }
+.keyboard-navigation .action-button:focus, .keyboard-navigation .choice-button:focus { border-color: #a3a3a3; }
+.action-button:hover, .choice-button:hover { background-color: var(--hover); }
+.choice-button.is-selected { background-color: var(--accent); border-color: var(--accent); color: white; }
+.action-button:disabled, .choice-button:disabled { color: #a3a3a3; background-color: #fafafa; border-color: var(--line); }
+.primary-action { background-color: var(--ink); color: white; border-color: var(--ink); }
+.primary-action:hover { background-color: #404040; }
+.text-action { flex-direction: row; align-items: center; height: 48px; margin: 14px 0 0 0; padding: 0 4px; border-width: 1px; border-color: transparent; border-radius: 6px; color: #737373; background-color: var(--hover-clear); }
+.text-action:hover { background-color: var(--hover); }
+.keyboard-navigation .text-action:focus { border-color: #a3a3a3; }
+.text-action .hud-icon { margin-right: 12px; }
+.text-action Label { margin: 0; font-size: 14px; }
+.setting-toggle { flex-direction: row; align-items: center; justify-content: space-between; min-height: 54px; margin: 0; padding: 0; border-bottom-width: 1px; border-bottom-color: var(--line); }
+.setting-toggle > .unity-base-field__label { flex-grow: 1; flex-shrink: 1; min-width: 0; margin: 0 12px 0 0; padding: 0; color: var(--ink); font-size: 14px; }
+.setting-toggle > .unity-base-field__input { flex-grow: 0; flex-shrink: 0; width: 32px; height: 20px; min-width: 32px; margin: 0; padding: 0; border-width: 1px; border-color: transparent; border-radius: 10px; background-color: #e5e5e5; }
+.setting-toggle:hover > .unity-base-field__input { background-color: #d4d4d4; }
+.setting-toggle:checked > .unity-base-field__input { background-color: var(--accent); }
+.setting-toggle:checked:hover > .unity-base-field__input { background-color: #404040; }
+.setting-toggle .unity-toggle__checkmark { display: flex; visibility: visible; position: absolute; left: 1px; top: 1px; width: 16px; height: 16px; margin: 0; border-width: 0; border-radius: 8px; background-image: none; background-color: white; translate: 0 0; }
+.setting-toggle:checked .unity-toggle__checkmark { translate: 12px 0; }
+.keyboard-navigation .setting-toggle:focus > .unity-base-field__input { border-color: #a3a3a3; }
+.setting-toggle:disabled { opacity: 0.45; }
+.scale-field { flex-direction: row; align-items: center; justify-content: space-between; height: 40px; margin: 0; padding: 0; }
+.scale-field > .unity-base-field__label { flex-grow: 1; flex-basis: 0; min-width: 0; margin: 0; color: var(--ink); font-size: 14px; }
+.scale-field > .unity-base-field__input { width: 112px; min-width: 112px; max-width: 112px; flex-basis: 112px; height: 32px; flex-grow: 0; flex-shrink: 0; padding: 0 12px; border-width: 1px; border-color: var(--edge); border-radius: 10px; background-color: white; }
+.scale-field > .unity-base-field__input:hover { background-color: #fafafa; }
+.keyboard-navigation .scale-field:focus > .unity-base-field__input { border-color: #a3a3a3; }
+.scale-field .unity-base-popup-field__text { color: var(--ink); font-size: 14px; margin: 0; padding: 0; }
+.scale-field .unity-base-popup-field__arrow { width: 16px; height: 16px; flex-shrink: 0; margin-left: 10px; background-image: url("Icons/chevron-down.svg"); background-size: contain; -unity-background-image-tint-color: #737373; }
+.unity-base-dropdown__container-outer { background-color: white; border-width: 1px; border-color: var(--edge); border-radius: 10px; padding: 4px; }
+.unity-base-dropdown__container-inner { background-color: transparent; border-width: 0; padding: 0; }
+.unity-base-dropdown__item { min-height: 34px; padding: 3px 8px; margin: 0; border-radius: 5px; background-color: transparent; }
+.unity-base-dropdown__item:hover, .unity-base-dropdown__item:checked { background-color: var(--hover); }
+.unity-base-dropdown__label { color: var(--ink); font-size: 14px; }
+.unity-base-dropdown__checkmark { -unity-background-image-tint-color: var(--ink); }
+.section-label { font-size: 14px; -unity-font-style: bold; margin: 0 0 12px 0; }
+.help-text { font-size: 12px; color: var(--muted); white-space: normal; margin: 0 0 14px 0; }
+.notice-label { display: none; font-size: 12px; color: #a34e5b; background-color: #fcf1f3; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px 0; white-space: normal; }
+.notice-label.is-visible { display: flex; }
+.key-cap { min-width: 48px; height: 28px; padding: 0 9px; margin: 0; color: #404040; font-size: 13px; -unity-text-align: middle-center; border-width: 1px; border-color: var(--edge); border-radius: 5px; background-color: #f5f5f5; }
+.hud-tooltip { position: absolute; visibility: hidden; max-width: 280px; padding: 6px 12px; background-color: var(--ink); border-width: 0; border-radius: 8px; }
+.hud-tooltip.is-present { visibility: visible; }
+.hud-tooltip__label { font-size: 12px; color: white; margin: 0; white-space: normal; }
+.panel-scroll .hud-scroller { width: 8px; min-width: 8px; max-width: 8px; margin: 0; background-color: transparent; }
+.hud-scroll-slider { width: 8px; min-width: 8px; margin: 0; padding: 0; background-color: transparent; }
+.hud-scroll-slider .unity-base-slider__tracker { background-color: transparent; border-width: 0; }
+.hud-scroll-slider .unity-base-slider__dragger-border { display: none; }
+.hud-scroll-slider .unity-base-slider__dragger { width: 3px; min-width: 3px; margin-left: 4px; border-width: 0; border-radius: 2px; background-color: #e5e5e5; }
+.hud-scroll-slider:hover .unity-base-slider__dragger { background-color: #a3a3a3; }

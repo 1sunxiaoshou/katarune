@@ -19,10 +19,21 @@ namespace Katarune.Avatar
         private uLipSync.Profile _customProfile;
         private AvatarPcmStream _stream;
         private volatile bool _consumeStream;
+        private bool _paused;
+        private readonly float[] _outputSamples = new float[256];
         private readonly ConcurrentQueue<(long output, long audio, int count)> _streamSpans = new();
         private long _streamOutput, _streamPlayed, _streamPosition;
         private int _streamPreviousSample;
         public bool IsStreaming => _stream != null;
+        public bool IsPaused => _paused;
+        public float OutputLevel()
+        {
+            if (_source == null || !_source.isPlaying || _paused) return 0f;
+            _source.GetOutputData(_outputSamples, 0);
+            var power = 0f;
+            foreach (var sample in _outputSamples) power += sample * sample;
+            return Mathf.Clamp01(Mathf.Sqrt(power / _outputSamples.Length) * 5f);
+        }
         public AvatarSpeechSegment[] StreamSegments => _stream?.Segments;
         public string PlaybackId => _id;
         public float PositionSeconds => _stream != null ? StreamPosition()
@@ -94,13 +105,14 @@ namespace Katarune.Avatar
             _notify?.Invoke(_id, "started", null);
             while (_stream.Error == null)
             {
-                StreamPosition();
-                if (buffer.Drained && _streamPosition >= buffer.Received) break;
+                if (!_paused) StreamPosition();
+                if (!_paused && buffer.Drained && _streamPosition >= buffer.Received) break;
                 yield return null;
             }
             if (_stream.Error != null) { Finish("failed", _stream.Error); yield break; }
             AudioSettings.GetDSPBufferSize(out var length, out var count);
             yield return new WaitForSecondsRealtime((float)(length * count) / AudioSettings.outputSampleRate + .05f);
+            while (_paused) yield return null;
             Finish("completed", null);
         }
 
@@ -143,8 +155,24 @@ namespace Katarune.Avatar
             _lipSync.Begin();
             _source.Play();
             _notify?.Invoke(_id, "started", null);
-            while (_source.isPlaying) yield return null;
+            while (_source.isPlaying || _paused) yield return null;
             Finish("completed", null);
+        }
+
+        public void Pause()
+        {
+            if (_id == null || _paused || _source == null) return;
+            _paused = true;
+            _source.Pause();
+            _lipSync?.End();
+        }
+
+        public void Resume()
+        {
+            if (_id == null || !_paused || _source == null) return;
+            _paused = false;
+            _lipSync?.Begin();
+            _source.UnPause();
         }
 
         private void OnRuntimeChanged(AvatarRuntimeSnapshot snapshot)
@@ -161,6 +189,7 @@ namespace Katarune.Avatar
 
         private void Finish(string status, string error)
         {
+            _paused = false;
             _consumeStream = false;
             _stream?.Dispose(); _stream = null;
             _loading?.Abort(); _loading?.Dispose(); _loading = null;

@@ -17,6 +17,8 @@ namespace Katarune.Avatar
 
         protected override void RegisterCallbacksOnTarget()
         {
+            target.RegisterCallback<FocusInEvent>(OnFocus);
+            target.RegisterCallback<FocusOutEvent>(OnBlur);
             target.RegisterCallback<PointerEnterEvent>(OnPointerEnter);
             target.RegisterCallback<PointerLeaveEvent>(OnPointerLeave);
             target.RegisterCallback<PointerDownEvent>(OnPointerDown);
@@ -25,13 +27,25 @@ namespace Katarune.Avatar
 
         protected override void UnregisterCallbacksFromTarget()
         {
+            target.UnregisterCallback<FocusInEvent>(OnFocus);
+            target.UnregisterCallback<FocusOutEvent>(OnBlur);
             target.UnregisterCallback<PointerEnterEvent>(OnPointerEnter);
             target.UnregisterCallback<PointerLeaveEvent>(OnPointerLeave);
             target.UnregisterCallback<PointerDownEvent>(OnPointerDown);
             target.UnregisterCallback<DetachFromPanelEvent>(OnDetach);
         }
 
-        private void OnPointerEnter(PointerEnterEvent _) => _tooltip.Show(target, _text);
+        private void OnFocus(FocusInEvent _)
+        {
+            for (var element = target; element != null; element = element.parent)
+                if (element.ClassListContains("keyboard-navigation"))
+                {
+                    _tooltip.Show(target, target.tooltip);
+                    break;
+                }
+        }
+        private void OnBlur(FocusOutEvent _) => _tooltip.Hide(target);
+        private void OnPointerEnter(PointerEnterEvent _) => _tooltip.Show(target, string.IsNullOrEmpty(target.tooltip) ? _text : target.tooltip);
         private void OnPointerLeave(PointerLeaveEvent _) => _tooltip.Hide(target);
         private void OnPointerDown(PointerDownEvent _) => _tooltip.Hide(target);
         private void OnDetach(DetachFromPanelEvent _) => _tooltip.Hide(target);
@@ -55,6 +69,7 @@ namespace Katarune.Avatar
         private bool _dragging;
 
         internal bool IsActive => _active;
+        internal void RefreshBounds() { if (!_active) ApplyTranslation(_translation); }
 
         public AvatarHudDragManipulator(
             VisualElement movingElement,

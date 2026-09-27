@@ -57,7 +57,8 @@ async function launch() {
     buffer += chunk;
     let end: number;
     while ((end = buffer.indexOf("\n")) >= 0) {
-      requests.push(JSON.parse(buffer.slice(0, end)));
+      const request = JSON.parse(buffer.slice(0, end));
+      if (request.type !== "voice-state") requests.push(request);
       buffer = buffer.slice(end + 1);
     }
   });
@@ -84,6 +85,22 @@ async function launch() {
 }
 
 describe("Unity local control bridge", () => {
+  it("reports model startup failures immediately and releases the Player", async () => {
+    fixture.pipe = "";
+    const service = new AvatarService(process.execPath, ".test-dist/avatar-service");
+    instances.push(service);
+    const startup = service.start(binding);
+    const rejected = expect(startup).rejects.toThrow("当前仅支持 VRM 1.0");
+    await vi.waitFor(() => expect(fixture.pipe).not.toBe(""));
+    const socket = connect(`\\\\.\\pipe\\${fixture.pipe}`);
+    sockets.push(socket);
+    await once(socket, "connect");
+    socket.write(JSON.stringify({ type: "startup-error", error: "当前仅支持 VRM 1.0" }) + "\n");
+    await rejected;
+    expect(service.status).toMatchObject({ phase: "error", error: "当前仅支持 VRM 1.0" });
+    expect(fixture.child!.kill).toHaveBeenCalledOnce();
+  });
+
   it("keeps slow synthesis alive after chat closes and accepts the next turn before playback completes", async () => {
     const { service, socket, requests } = await launch();
     let resume!: () => void;
@@ -437,4 +454,22 @@ it("shows bound user subtitles immediately without occupying the playback queue"
   await vi.waitFor(() => expect(requests).toHaveLength(1));
   expect(requests[0]).toEqual({ type: "user-subtitle", text: "你好，桌宠。" });
   expect(service.status.busy).toBe(false);
+});
+
+it("keeps the microphone choice on the active connection and reports actual playback state", async () => {
+  const { service, socket, requests } = await launch();
+  expect(service.status.voice?.desired).toBe(true);
+  socket.write(JSON.stringify({ type: "voice-command", enabled: false }) + "\n");
+  await vi.waitFor(() => expect(service.status.voice?.desired).toBe(false));
+  socket.write(JSON.stringify({ type: "voice-command", enabled: true }) + "\n");
+  await vi.waitFor(() => expect(service.status.voice?.desired).toBe(true));
+  const runId = "00000000-0000-4000-8000-000000000099";
+  socket.write(JSON.stringify({ type: "playback", runId, active: true, state: "playing" }) + "\n");
+  await vi.waitFor(() => expect(service.status.playback?.state).toBe("playing"));
+  service.controlPlayback(binding, "pause");
+  await vi.waitFor(() => expect(requests).toContainEqual({ operation: "voice-pause", value: runId }));
+  socket.write(JSON.stringify({ type: "playback", runId, active: true, state: "paused" }) + "\n");
+  await vi.waitFor(() => expect(service.status.playback?.state).toBe("paused"));
+  service.controlPlayback(binding, "resume");
+  await vi.waitFor(() => expect(requests).toContainEqual({ operation: "voice-resume", value: runId }));
 });

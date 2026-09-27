@@ -30,22 +30,15 @@ namespace Katarune.Avatar.Tests
         private const string HudPath = "Assets/Katarune/Runtime/UI/Hud";
 
         [Test]
-        public void RadialMenuDoesNotReserveSlotsForUninstalledActions()
+        public void ControlIconsKeepTheirSharedCanvasAfterVectorImport()
         {
-            var menu = new AvatarRadialMenu();
-            var group = new VisualElement { name = "actionMenu" };
-            group.AddToClassList("secondary-menu");
-            menu.Add(group);
-            var first = new Button();
-            var hidden = new Button();
-            hidden.style.display = DisplayStyle.None;
-            var last = new Button();
-            group.Add(first);
-            group.Add(hidden);
-            group.Add(last);
-            menu.RefreshLayout();
-            var expected = AvatarRadialMenu.CalculateItemOffset(menu.Direction, 184f, 180f, 1, 2, 6);
-            Assert.That(last.style.left.value.value, Is.EqualTo(37f + expected.x - 23f).Within(0.01f));
+            foreach (var name in new[] { "chevrons-right", "message-circle-more", "mic", "mic-off", "ellipsis" })
+            {
+                var icon = AssetDatabase.LoadAssetAtPath<VectorImage>($"{HudPath}/Icons/{name}.svg");
+                Assert.That(icon, Is.Not.Null, name);
+                Assert.That(icon.width, Is.EqualTo(24).Within(0.01), name);
+                Assert.That(icon.height, Is.EqualTo(24).Within(0.01), name);
+            }
         }
 
         [Test]
@@ -56,7 +49,7 @@ namespace Katarune.Avatar.Tests
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Katarune/Resources/AvatarHud.prefab");
             Assert.That(tree, Is.Not.Null);
             Assert.That(panel, Is.Not.Null);
-            Assert.That(panel.scaleMode, Is.EqualTo(PanelScaleMode.ScaleWithScreenSize));
+            Assert.That(panel.scaleMode, Is.EqualTo(PanelScaleMode.ConstantPixelSize));
             Assert.That(panel.referenceResolution, Is.EqualTo(new Vector2Int(1920, 1080)));
             Assert.That(prefab, Is.Not.Null);
             Assert.That(prefab.GetComponent<UIDocument>(), Is.Not.Null);
@@ -68,19 +61,12 @@ namespace Katarune.Avatar.Tests
                 Assert.That(root.Q<Button>(name), Is.Not.Null, name);
             }
             Assert.That(root.Q<AvatarHudTooltipElement>("hudTooltip"), Is.Not.Null);
-            var radialMenu = root.Q<AvatarRadialMenu>("radialStage");
-            Assert.That(radialMenu, Is.Not.Null);
-            Assert.That(radialMenu.primaryRadius, Is.EqualTo(112f));
-            Assert.That(radialMenu.secondaryRadius, Is.EqualTo(184f));
-            Assert.That(radialMenu.sideSweepAngle, Is.EqualTo(180f));
-            Assert.That(radialMenu.cornerSweepAngle, Is.EqualTo(90f));
-            Assert.That(radialMenu.edgePadding, Is.EqualTo(16f));
-            Assert.That(root.Q<AvatarHudStarElement>(className: "central-star-art"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("portraitFrame"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("statusHud").ClassListContains("is-status-hidden"), Is.True);
-            Assert.That(root.Q<VisualElement>("behaviorCapsule"), Is.Not.Null);
+            Assert.That(root.Q<AvatarHudIconButton>("centralMenuButton"), Is.Not.Null);
+            Assert.That(root.Q<ScrollView>("hudPanelScroll"), Is.Not.Null);
+            Assert.That(root.Q<DropdownField>("uiScaleField"), Is.Not.Null);
+            foreach (var name in new[] { "gazeTrackingToggle", "showcaseControlToggle", "softOutlineToggle" })
+                Assert.That(root.Q<Toggle>(name), Is.Not.Null);
             Assert.That(root.Q<Label>("modelNameLabel"), Is.Not.Null);
-            Assert.That(root.Q<VisualElement>("affectStatusIcon"), Is.Not.Null);
             Assert.That(root.Q<Label>("actionLabel"), Is.Not.Null);
             Assert.That(root.Q<Label>("noticeLabel"), Is.Not.Null);
             root.Query<AvatarHudIconButton>().ForEach(button =>
@@ -105,133 +91,45 @@ namespace Katarune.Avatar.Tests
             }
         }
 
-        [TestCase(40f, 40f, AvatarRadialMenuDirection.DownRight)]
-        [TestCase(1880f, 40f, AvatarRadialMenuDirection.DownLeft)]
-        [TestCase(40f, 1040f, AvatarRadialMenuDirection.UpRight)]
-        [TestCase(1880f, 1040f, AvatarRadialMenuDirection.UpLeft)]
-        [TestCase(40f, 540f, AvatarRadialMenuDirection.Right)]
-        [TestCase(1880f, 540f, AvatarRadialMenuDirection.Left)]
-        [TestCase(960f, 40f, AvatarRadialMenuDirection.Down)]
-        [TestCase(960f, 540f, AvatarRadialMenuDirection.Up)]
-        [TestCase(960f, 1040f, AvatarRadialMenuDirection.Up)]
-        public void RadialMenuFacesIntoAvailableScreenSpace(
-            float centerX,
-            float centerY,
-            AvatarRadialMenuDirection expected)
+        [TestCase(360, 280)]
+        [TestCase(800, 600)]
+        [TestCase(1280, 720)]
+        [TestCase(1920, 1080)]
+        [TestCase(3440, 1440)]
+        public void PanelStaysInsideViewportAtEveryEdge(float width, float height)
         {
-            var anchor = new Rect(centerX - 37f, centerY - 37f, 74f, 74f);
-            var screen = new Rect(0f, 0f, 1920f, 1080f);
-            Assert.That(
-                AvatarRadialMenu.ResolveDirection(anchor, screen, 223f),
-                Is.EqualTo(expected));
-        }
-
-        [Test]
-        public void RadialMenuCentersShortGroupsWithinTheAvailableArc()
-        {
-            var first = AvatarRadialMenu.CalculateItemOffset(
-                AvatarRadialMenuDirection.Up,
-                184f,
-                180f,
-                0,
-                3,
-                6);
-            var middle = AvatarRadialMenu.CalculateItemOffset(
-                AvatarRadialMenuDirection.Up,
-                184f,
-                180f,
-                1,
-                3,
-                6);
-            var last = AvatarRadialMenu.CalculateItemOffset(
-                AvatarRadialMenuDirection.Up,
-                184f,
-                180f,
-                2,
-                3,
-                6);
-
-            Assert.That(first.x, Is.EqualTo(-last.x).Within(0.01f));
-            Assert.That(first.y, Is.EqualTo(last.y).Within(0.01f));
-            Assert.That(middle.x, Is.EqualTo(0f).Within(0.01f));
-            Assert.That(middle.y, Is.EqualTo(-184f).Within(0.01f));
-        }
-
-        [Test]
-        public void CornerLayoutKeepsEveryItemInsideTheSelectedQuadrant()
-        {
-            for (var index = 0; index < 5; index++)
+            foreach (var x in new[] { 12f, (width - 264) / 2, width - 276 })
+            foreach (var y in new[] { 12f, (height - 104) / 2, height - 116 })
             {
-                var offset = AvatarRadialMenu.CalculateItemOffset(
-                    AvatarRadialMenuDirection.DownRight,
-                    112f,
-                    90f,
-                    index,
-                    5,
-                    5);
-                Assert.That(offset.x, Is.GreaterThanOrEqualTo(-0.01f));
-                Assert.That(offset.y, Is.GreaterThanOrEqualTo(-0.01f));
+                var dock = new Rect(x, y, 264, 104);
+                var panel = AvatarHudLayout.PlacePanel(dock, new Vector2(width, height));
+                Assert.That(panel.xMin, Is.GreaterThanOrEqualTo(12));
+                Assert.That(panel.yMin, Is.GreaterThanOrEqualTo(12));
+                Assert.That(panel.xMax, Is.LessThanOrEqualTo(width - 12));
+                Assert.That(panel.yMax, Is.LessThanOrEqualTo(height - 12));
+                Assert.That(panel.Overlaps(dock), Is.False);
             }
         }
 
-        [TestCase(40f, 40f, 1280f, 720f)]
-        [TestCase(1240f, 40f, 1280f, 720f)]
-        [TestCase(40f, 680f, 1280f, 720f)]
-        [TestCase(1240f, 680f, 1280f, 720f)]
-        [TestCase(40f, 360f, 1280f, 720f)]
-        [TestCase(1240f, 360f, 1280f, 720f)]
-        [TestCase(640f, 40f, 1280f, 720f)]
-        [TestCase(640f, 680f, 1280f, 720f)]
-        [TestCase(3400f, 720f, 3440f, 1440f)]
-        public void RadialMenuKeepsOuterRingInsideTheScreen(
-            float centerX,
-            float centerY,
-            float screenWidth,
-            float screenHeight)
+        [TestCase(96, 1920, 1080, 1)]
+        [TestCase(144, 1920, 1080, 1.5f)]
+        [TestCase(192, 3840, 2160, 2)]
+        [TestCase(192, 800, 600, 2)]
+        public void HudScaleTracksDpiIndependentlyOfResolution(float dpi, float width, float height, float expected)
         {
-            const float buttonHalfSize = 23f;
-            const float edgePadding = 16f;
-            var anchor = new Rect(centerX - 37f, centerY - 37f, 74f, 74f);
-            var screen = new Rect(0f, 0f, screenWidth, screenHeight);
-            var direction = AvatarRadialMenu.ResolveDirection(anchor, screen, 223f);
-
-            for (var index = 0; index < 6; index++)
-            {
-                var sweep = direction is AvatarRadialMenuDirection.DownRight
-                    or AvatarRadialMenuDirection.DownLeft
-                    or AvatarRadialMenuDirection.UpRight
-                    or AvatarRadialMenuDirection.UpLeft
-                    ? 90f
-                    : 180f;
-                var offset = AvatarRadialMenu.CalculateItemOffset(
-                    direction,
-                    184f,
-                    sweep,
-                    index,
-                    6,
-                    6);
-                var itemBounds = new Rect(
-                    centerX + offset.x - buttonHalfSize,
-                    centerY + offset.y - buttonHalfSize,
-                    buttonHalfSize * 2f,
-                    buttonHalfSize * 2f);
-                Assert.That(itemBounds.xMin, Is.GreaterThanOrEqualTo(edgePadding - 0.01f));
-                Assert.That(itemBounds.yMin, Is.GreaterThanOrEqualTo(edgePadding - 0.01f));
-                Assert.That(itemBounds.xMax, Is.LessThanOrEqualTo(screenWidth - edgePadding + 0.01f));
-                Assert.That(itemBounds.yMax, Is.LessThanOrEqualTo(screenHeight - edgePadding + 0.01f));
-            }
+            Assert.That(AvatarHudLayout.Scale(dpi, 1, width, height), Is.EqualTo(expected).Within(0.01));
         }
 
         private static readonly IReadOnlyList<string> RequiredButtons = new[]
         {
             "centralMenuButton",
             "modelCategoryButton", "affectCategoryButton", "actionCategoryButton",
-            "gazeTrackingButton", "showcaseControlButton", "moreCategoryButton",
+            "moreCategoryButton",
             "selectModelButton", "reloadModelButton", "unloadModelButton",
             "neutralAffectButton", "happyAffectButton", "relaxedAffectButton",
             "sadAffectButton", "angryAffectButton", "surprisedAffectButton",
-            "nextActionPageButton", "cancelActionButton",
-            "softOutlineButton", "statusHudButton", "resetBehaviorButton",
+            "openChatButton", "voiceToggleButton", "compactVoiceButton", "quickMoreButton", "closePanelButton", "cancelActionButton",
+            "resetBehaviorButton", "shortcutsCategoryButton",
         };
 
         private static readonly IReadOnlyList<string> RequiredIcons = new[]

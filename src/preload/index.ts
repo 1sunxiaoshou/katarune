@@ -1,4 +1,4 @@
-import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, type AvatarBinding } from "../shared/avatar";
+import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
 import {
   aiRuntimeStatusSchema,
@@ -133,6 +133,9 @@ const api: KataruneApi = Object.freeze({
   startAvatar: (request: AvatarBinding) => invokeValidated(AVATAR_CHANNELS.start, avatarStatusSchema, avatarBindingSchema.parse(request)),
   stopAvatar: () => invokeValidated(AVATAR_CHANNELS.stop, avatarStatusSchema),
   getAvatarStatus: () => invokeValidated(AVATAR_CHANNELS.status, avatarStatusSchema),
+  setAvatarVoiceState: (request: import('../shared/avatar').AvatarVoiceStateRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.voiceState, avatarVoiceStateSchema.parse(request)),
+  controlAvatarPlayback: (request: import('../shared/avatar').AvatarPlaybackControlRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.playbackControl, avatarPlaybackControlSchema.parse(request)),
+  showAvatarUserSubtitle: (request: import('../shared/avatar').AvatarUserSubtitleRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.userSubtitle, avatarUserSubtitleSchema.parse(request)),
   getAppInfo: () => invokeValidated(IPC_CHANNELS.getAppInfo, appInfoSchema),
   getDatabaseStatus: () => invokeValidated(IPC_CHANNELS.getDatabaseStatus, databaseStatusSchema),
   getAiRuntimeStatus: () => invokeValidated(IPC_CHANNELS.getAiRuntimeStatus, aiRuntimeStatusSchema),

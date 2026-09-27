@@ -48,10 +48,8 @@ export function registerAsrHandlers(database: Pick<DatabaseRuntime, 'getAppSetti
       service.cancel(event.sender.id, frame.requestId);
       return { status: 'error', message: '语音识别已关闭。' };
     }
-    if (avatar?.status.busy) return { status: 'success', text: '' };
     const result = await service.frame(event.sender.id, frame.requestId, frame.samples);
-    if (realtime.get(event.sender.id) !== request || !validBinding(request) || avatar?.status.busy) return { status: 'success', text: '' };
-    if (result.status === 'success' && result.complete && result.text.trim()) avatar?.showUserSubtitle(request, result.text);
+    if (realtime.get(event.sender.id) !== request || !validBinding(request)) return { status: 'success', text: '' };
     return result;
   });
   ipcMain.handle(ASR_CHANNELS.reset, (event, value: unknown) => {

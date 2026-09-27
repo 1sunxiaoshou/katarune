@@ -39,8 +39,14 @@ namespace Katarune.Avatar
             IAvatarMotionInstance motion = null;
             try
             {
-                loaded = await Vrm10.LoadPathAsync(
-                    fullPath,
+                var bytes = await Task.Run(() => File.ReadAllBytes(fullPath), cancellationToken);
+                using (var data = new GlbLowLevelParser(fullPath, bytes).Parse())
+                {
+                    if (Vrm10Data.Parse(data) == null)
+                        throw new InvalidOperationException("当前仅支持 VRM 1.0。请先将 VRM 0.x 模型离线转换为 VRM 1.0，再重新连接桌宠。");
+                }
+                loaded = await Vrm10.LoadBytesAsync(
+                    bytes,
                     canLoadVrm0X: false,
                     showMeshes: false,
                     awaitCaller: new RuntimeOnlyAwaitCaller(),

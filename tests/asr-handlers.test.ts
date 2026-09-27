@@ -52,7 +52,7 @@ describe("global ASR setting at the main boundary", () => {
 });
 
 
-it('gates realtime frames by sender, binding and actual avatar playback', async () => {
+it('keeps realtime frames flowing during playback but rejects a stale sender or binding', async () => {
   const binding = { characterId: requestId, threadId: 'thread' };
   const avatar = { status: { phase: 'ready', binding, busy: false, error: null }, subscribe: vi.fn(), clearError: vi.fn(), showUserSubtitle: vi.fn() };
   registerAsrHandlers({ getAppSettings: () => ({ ...emptyAppSettings, defaultAsrModel: 'sensevoice-small-int8' }) }, avatar as unknown as import('../src/main/avatar/avatarService').AvatarService);
@@ -63,11 +63,11 @@ it('gates realtime frames by sender, binding and actual avatar playback', async 
   expect(mock.prepare).toHaveBeenCalledWith(42, requestId, true);
   const input = { requestId, samples: new Float32Array(1600) };
   await expect(frame({ sender: { ...sender, id: 43 } }, input)).resolves.toMatchObject({ status: 'cancelled' });
-  avatar.status.busy = true; await frame({ sender }, input); expect(mock.frame).not.toHaveBeenCalled();
+  avatar.status.busy = true; await frame({ sender }, input); expect(mock.frame).toHaveBeenCalledTimes(1);
   avatar.status.busy = false;
   mock.frame.mockResolvedValueOnce({ status: 'success', text: '你好。', complete: true } as { status: string; text: string });
-  await frame({ sender }, input); expect(mock.frame).toHaveBeenCalledTimes(1);
-  expect(avatar.showUserSubtitle).toHaveBeenCalledWith(expect.objectContaining(binding), '你好。');
+  await frame({ sender }, input); expect(mock.frame).toHaveBeenCalledTimes(2);
+  expect(avatar.showUserSubtitle).not.toHaveBeenCalled();
   avatar.status.binding = { ...binding, threadId: 'new-thread' };
   await expect(frame({ sender }, input)).resolves.toMatchObject({ status: 'cancelled' });
 });
