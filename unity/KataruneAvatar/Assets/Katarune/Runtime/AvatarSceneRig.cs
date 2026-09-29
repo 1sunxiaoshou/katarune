@@ -23,6 +23,7 @@ namespace Katarune.Avatar
         private const float MaximumShowcasePitchDegrees = 45f;
         private const float MinimumZoomMagnification = 1f / 3f;
         private const float MaximumZoomMagnification = 1f / 0.35f;
+        private const float MinimumVisibleDesktopPixels = 64f;
 
         [Header("初始构图")]
         [SerializeField, Range(MinimumZoomMagnification, 1f)]
@@ -67,8 +68,9 @@ namespace Katarune.Avatar
         internal float DesktopHeight => _desktopHeight;
         internal void SetDesktopPlacement(float x, float y, float height)
         {
-            _desktopCenter = new Vector2(Mathf.Clamp01(x), Mathf.Clamp01(y));
-            if (float.IsNaN(height) || float.IsInfinity(height)) return;
+            if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y) ||
+                float.IsNaN(height) || float.IsInfinity(height)) return;
+            _desktopCenter = new Vector2(x, y);
             _desktopHeight = Mathf.Max(0.05f, height);
             if (_hasFramedBounds && _camera != null) ApplyDesktopProjection();
         }
@@ -391,9 +393,28 @@ namespace Katarune.Avatar
             _camera.fieldOfView = Mathf.Max(1f,
                 GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, magnification));
             var projected = GetViewportBounds(_camera, _framedBounds);
+            _desktopCenter = ClampDesktopCenter(_desktopCenter, projected,
+                new Vector2(Screen.width, Screen.height));
             _camera.lensShift = -(new Vector2(_desktopCenter.x - projected.center.x,
                 _desktopCenter.y - projected.center.y));
             _fixedLensShift = _camera.lensShift;
+        }
+
+        internal static Vector2 ClampDesktopCenter(Vector2 center, Rect projected, Vector2 screenSize)
+        {
+            // Leave enough of the projected model on screen to start another drag.
+            // A smaller model stays fully visible instead of being reduced to a sliver.
+            var visibleX = Mathf.Min(projected.width,
+                MinimumVisibleDesktopPixels / Mathf.Max(1f, screenSize.x));
+            var visibleY = Mathf.Min(projected.height,
+                MinimumVisibleDesktopPixels / Mathf.Max(1f, screenSize.y));
+            return new Vector2(
+                Mathf.Clamp(center.x,
+                    visibleX - (projected.xMax - projected.center.x),
+                    1f - visibleX - (projected.xMin - projected.center.x)),
+                Mathf.Clamp(center.y,
+                    visibleY - (projected.yMax - projected.center.y),
+                    1f - visibleY - (projected.yMin - projected.center.y)));
         }
 
         internal static float GetFieldOfViewForMagnification(float baseFieldOfViewDegrees, float magnification)

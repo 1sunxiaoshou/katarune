@@ -6,6 +6,40 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarSceneRigTests
     {
         [Test]
+        public void DesktopPanCanMoveCenterOutsideScreenWhileLeavingARecoverableEdge()
+        {
+            var projected = new Rect(0.3f, 0.2f, 0.4f, 0.6f);
+            var screen = new Vector2(1920f, 1080f);
+
+            var lowerLeft = AvatarSceneRig.ClampDesktopCenter(new Vector2(-10f, -10f), projected, screen);
+            var upperRight = AvatarSceneRig.ClampDesktopCenter(new Vector2(10f, 10f), projected, screen);
+
+            Assert.That(lowerLeft.x, Is.LessThan(0f));
+            Assert.That(lowerLeft.y, Is.LessThan(0f));
+            Assert.That(upperRight.x, Is.GreaterThan(1f));
+            Assert.That(upperRight.y, Is.GreaterThan(1f));
+            Assert.That((lowerLeft.x + projected.width * 0.5f) * screen.x,
+                Is.EqualTo(64f).Within(0.01f));
+            Assert.That((lowerLeft.y + projected.height * 0.5f) * screen.y,
+                Is.EqualTo(64f).Within(0.01f));
+            Assert.That((1f - upperRight.x + projected.width * 0.5f) * screen.x,
+                Is.EqualTo(64f).Within(0.01f));
+            Assert.That((1f - upperRight.y + projected.height * 0.5f) * screen.y,
+                Is.EqualTo(64f).Within(0.01f));
+        }
+
+        [Test]
+        public void DesktopPanKeepsACharacterSmallerThanGrabAreaFullyVisible()
+        {
+            var projected = new Rect(0.495f, 0.49f, 0.01f, 0.02f);
+            var moved = AvatarSceneRig.ClampDesktopCenter(new Vector2(-10f, 10f), projected,
+                new Vector2(1920f, 1080f));
+
+            Assert.That(moved.x - projected.width * 0.5f, Is.EqualTo(0f).Within(0.0001f));
+            Assert.That(moved.y + projected.height * 0.5f, Is.EqualTo(1f).Within(0.0001f));
+        }
+
+        [Test]
         public void PhysicalLensShiftMovesFramingWithoutMovingTheCameraOffAxis()
         {
             var cameraObject = new GameObject("Framing Test Camera");
