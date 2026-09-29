@@ -51,7 +51,6 @@ namespace Katarune.Avatar
         private int _epoch;
         private string _subtitleText = "";
         internal string CurrentSubtitle => _subtitleText;
-        private string _subtitleRun = "";
         private AvatarSceneRig _rig;
         private long _presentationRevision = -1;
         private Vector2 _presentationReference;
@@ -69,10 +68,11 @@ namespace Katarune.Avatar
         private readonly HashSet<string> _mutedRuns = new HashSet<string>();
         private AvatarSpeechPlayer _speech;
         private bool _userSubtitleActive;
+        private GUIStyle _subtitleStyle;
+        private Font _subtitleFont;
 
         [Serializable] private sealed class SpeechEvent { public string type = "speech"; public string runId; public string id; public string status; public string error; }
 
-        [Serializable] private sealed class SubtitleEvent { public string type = "subtitle"; public int epoch; public string runId; public string text; public bool user; }
         [Serializable] private sealed class Presentation {
             public string type = "presentation"; public string modelName; public string modelPath; public bool loading;
             public string affect; public string action; public bool gaze; public bool outline; public string error;
@@ -191,6 +191,7 @@ namespace Katarune.Avatar
                     request = JsonUtility.FromJson<Request>(line);
                     if (request?.type == "binding") { _epoch = request.epoch; ClearSubtitle(); continue; }
                     if (request?.type == "window-layout") { _window?.ApplyLayout(request.value); continue; }
+                    if (request?.type == "window-input-zones") { _window?.ApplyInputZones(request.value); continue; }
                     if (request?.type == "user-subtitle")
                     {
                         if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
@@ -300,7 +301,6 @@ namespace Katarune.Avatar
         // Native UIMessageChunk events remain unchanged on the wire. Only public text is dialogue.
         private IEnumerator SpeakManual(Request request)
         {
-            _subtitleRun = request.id;
             var finished = false;
             AvatarSpeechSubtitles.Timeline subtitles = null;
             _speech.Play(request.id, request.value, (id, status, error) => {
@@ -335,17 +335,44 @@ namespace Katarune.Avatar
         private void ShowUserSubtitle(string text)
         {
             if (string.IsNullOrWhiteSpace(text) || text.Length > 20000) return;
-            PublishSubtitle("你：" + text.Trim(), true, "");
+            PublishSubtitle("你：" + text.Trim(), true);
         }
 
-        private void ShowSubtitle(string text) => PublishSubtitle(text, false, _subtitleRun);
-        private void ClearSubtitle() => PublishSubtitle("", false, _subtitleRun);
-        private void PublishSubtitle(string text, bool user, string runId)
+        private void ShowSubtitle(string text) => PublishSubtitle(text, false);
+        private void ClearSubtitle() => PublishSubtitle("", false);
+        private void PublishSubtitle(string text, bool user)
         {
             text = string.IsNullOrWhiteSpace(text) ? "" : text;
             if (_subtitleText == text && _userSubtitleActive == user) return;
             _subtitleText = text; _userSubtitleActive = user;
-            Send(JsonUtility.ToJson(new SubtitleEvent { epoch = _epoch, runId = runId ?? "", text = text, user = user }));
+        }
+        private void OnGUI()
+        {
+            if (string.IsNullOrEmpty(_subtitleText)) return;
+            var fontSize = Mathf.Clamp(Mathf.RoundToInt(17f * Mathf.Max(1f, Screen.dpi / 96f)), 17, 24);
+            if (_subtitleStyle == null || _subtitleStyle.fontSize != fontSize)
+            {
+                if (_subtitleFont == null)
+                    _subtitleFont = Font.CreateDynamicFontFromOSFont(
+                        new[] { "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Arial" }, fontSize);
+                _subtitleStyle = new GUIStyle(GUI.skin.label) {
+                    font = _subtitleFont, fontSize = fontSize, wordWrap = true,
+                    richText = false, alignment = TextAnchor.MiddleCenter,
+                    padding = new RectOffset(12, 12, 8, 8),
+                };
+            }
+            _subtitleStyle.normal.textColor = _userSubtitleActive
+                ? new Color(.12f, .18f, .25f) : Color.white;
+            var width = Mathf.Max(60f, Mathf.Min(440f, Screen.width - 12f));
+            var height = Mathf.Min(
+                _subtitleStyle.CalcHeight(new GUIContent(_subtitleText), width),
+                Screen.height * .55f);
+            var bounds = new Rect((Screen.width - width) * .5f,
+                Mathf.Max(6f, Screen.height - height - 12f), width, height);
+            GUI.DrawTexture(bounds, Texture2D.whiteTexture, ScaleMode.StretchToFill, true,
+                0f, _userSubtitleActive ? new Color(.92f, .96f, 1f, .94f)
+                    : new Color(.11f, .10f, .14f, .92f), 0f, 14f);
+            GUI.Label(bounds, _subtitleText, _subtitleStyle);
         }
 
         private void ConsumeEvent(StreamEvent chunk, string runId = null, bool speechEnabled = false)
@@ -480,7 +507,6 @@ namespace Katarune.Avatar
                     if (item.Kind == "dialogue")
                     {
                         var block = item.Subtitle;
-                        _subtitleRun = block.RunId;
                         if (block.SpeechEnabled && !_mutedRuns.Contains(block.RunId))
                         {
                             while (_connected && block.Audio == null && block.SpeechEnabled && !_mutedRuns.Contains(block.RunId)) yield return null;
@@ -602,6 +628,7 @@ namespace Katarune.Avatar
         private void Send(string json) { if (!_stopping && !_outgoing.IsAddingCompleted) _outgoing.TryAdd(json); }
         private void OnDestroy()
         {
+            if (_subtitleFont != null) Destroy(_subtitleFont);
             if (_window != null) _window.StateChanged -= Send;
             _stopping = true; _connected = false;
             _lifetime.Cancel(); _outgoing.CompleteAdding(); _pipe?.Dispose();

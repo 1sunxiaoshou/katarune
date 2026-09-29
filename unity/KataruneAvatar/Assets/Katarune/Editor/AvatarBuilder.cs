@@ -122,11 +122,8 @@ namespace Katarune.Avatar.Editor
         {
             PlayerSettings.companyName = "Katarune";
             PlayerSettings.productName = "Katarune Avatar";
-            // Electron supplies the desktop bounds after the model is ready.
-            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-            PlayerSettings.defaultIsNativeResolution = false;
-            PlayerSettings.defaultScreenWidth = 480;
-            PlayerSettings.defaultScreenHeight = 800;
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultIsNativeResolution = true;
             PlayerSettings.resizableWindow = false;
             PlayerSettings.allowFullscreenSwitch = false;
             PlayerSettings.runInBackground = true;

@@ -22,14 +22,11 @@ import type { AvatarService } from "./avatarService";
 
 type Placement = { display: string; x: number; y: number; height: number };
 type Preferences = {
-  version: 1;
+  version: 2;
   role: Placement;
   capsule: Placement;
   yaw: number;
   pitch: number;
-  subtitleX: number;
-  subtitleY: number;
-  subtitleDisplay?: string | undefined;
   gaze: boolean;
   outline: boolean;
 };
@@ -47,7 +44,6 @@ export class AvatarDesktopWindows {
   private windows = new Map<DesktopSurface, BrowserWindow>();
   private prefs: Preferences;
   private file: string;
-  private role!: Rectangle;
   private initialized = false;
   private adjusting = false;
   private compact = false;
@@ -65,9 +61,8 @@ export class AvatarDesktopWindows {
     | undefined;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
-  private subtitleHeight = 72;
-  private movingSubtitle = false;
   private disposed = false;
+  private lastInputZones = "";
   constructor(
     private avatar: AvatarService,
     directory: string,
@@ -78,7 +73,11 @@ export class AvatarDesktopWindows {
     try {
       const saved: unknown = JSON.parse(readFileSync(this.file, "utf8"));
       if (this.validPreferences(saved)) {
-        this.prefs = saved;
+        this.prefs = {
+          version: 2, role: saved.role, capsule: saved.capsule,
+          yaw: saved.yaw, pitch: saved.pitch,
+          gaze: saved.gaze, outline: saved.outline,
+        };
         this.hasSavedLayout = true;
       }
     } catch {
@@ -97,7 +96,6 @@ export class AvatarDesktopWindows {
         const command = desktopCommandSchema.parse(value);
         if (
           command.operation === "capsule-size" ||
-          command.operation === "subtitle-size" ||
           command.operation === "panel-ready"
         ) {
           await this.command(surface, command);
@@ -118,12 +116,10 @@ export class AvatarDesktopWindows {
     if (!value || typeof value !== "object") return false;
     const p = value as Preferences;
     return (
-      p.version === 1 &&
-      [p.yaw, p.pitch, p.subtitleX, p.subtitleY].every(Number.isFinite) &&
+      p.version === 2 &&
+      [p.yaw, p.pitch].every(Number.isFinite) &&
       typeof p.gaze === "boolean" &&
       typeof p.outline === "boolean" &&
-      (p.subtitleDisplay === undefined ||
-        typeof p.subtitleDisplay === "string") &&
       [p.role, p.capsule].every(
         (r) =>
           r &&
@@ -137,22 +133,11 @@ export class AvatarDesktopWindows {
   private defaults(d: Display): Preferences {
     const area = d.workArea;
     const inset = 16;
-    const gap = 16;
-    const role = { display: String(d.id), x: 0, y: 0, height: 1 };
-    let bounds = this.roleBounds(role, d);
-    const availableRoleHeight = area.height - CAPSULE_HEIGHT - gap - inset * 2;
-    if (bounds.height > availableRoleHeight) {
-      role.height = Math.max(0.01, availableRoleHeight / bounds.height);
-      bounds = this.roleBounds(role, d);
-    }
-    bounds.x = area.x + area.width - inset - bounds.width;
-    bounds.y = area.y + area.height - inset - CAPSULE_HEIGHT - gap - bounds.height;
-    role.x = (bounds.x + bounds.width / 2 - area.x) / area.width;
-    role.y = (bounds.y + bounds.height / 2 - area.y) / area.height;
+    const role = { display: String(d.id), x: 0.78, y: 0.5, height: 0.65 };
     const capsule = this.inside(
       {
-        x: bounds.x + (bounds.width - CAPSULE_WIDTH) / 2,
-        y: bounds.y + bounds.height + gap,
+        x: area.x + area.width - CAPSULE_WIDTH - inset,
+        y: area.y + area.height - CAPSULE_HEIGHT - inset,
         width: CAPSULE_WIDTH,
         height: CAPSULE_HEIGHT,
       },
@@ -164,7 +149,7 @@ export class AvatarDesktopWindows {
       },
     );
     return {
-      version: 1,
+      version: 2,
       role,
       capsule: {
         display: String(d.id),
@@ -174,17 +159,11 @@ export class AvatarDesktopWindows {
       },
       yaw: 0,
       pitch: 4,
-      subtitleX: 0,
-      subtitleY: 0,
       gaze: false,
       outline: true,
     };
   }
   private display(id?: string): Display {
-    // A running character belongs to the display containing its actual window.
-    // The saved display is only a startup/restore preference.
-    if (id === undefined && this.initialized)
-      return screen.getDisplayMatching(rounded(this.role));
     id ??= this.prefs.role.display;
     return (
       screen.getAllDisplays().find((d) => String(d.id) === id) ??
@@ -195,52 +174,33 @@ export class AvatarDesktopWindows {
     const ids = screen.getAllDisplays().map((d) => String(d.id));
     const fallback = this.defaults(screen.getPrimaryDisplay());
     if (!ids.includes(this.prefs.role.display)) {
-      this.prefs.role = fallback.role;
-      this.prefs.yaw = 0;
-      this.prefs.pitch = 4;
-      if (!this.prefs.subtitleDisplay)
-        this.prefs.subtitleX = this.prefs.subtitleY = 0;
+      this.prefs.role.display = fallback.role.display;
     }
     if (!ids.includes(this.prefs.capsule.display))
       this.prefs.capsule = fallback.capsule;
-    if (
-      this.prefs.subtitleDisplay &&
-      !ids.includes(this.prefs.subtitleDisplay)
-    ) {
-      this.prefs.subtitleDisplay = String(screen.getPrimaryDisplay().id);
-      this.prefs.subtitleX = this.prefs.subtitleY = 0;
-    }
-    this.role = this.roleBounds();
   }
   private displaysChanged = (): void => {
     this.reconcileDisplays();
     if (this.initialized) this.sendLayout();
     const capsule = this.windows.get("capsule");
     if (capsule) capsule.setBounds(this.capsuleBounds());
-    this.positionSubtitle();
     this.positionPanel();
     this.saveSoon();
     this.publish();
   };
-  private roleBounds(
-    placement = this.prefs.role,
-    display = this.display(placement.display),
-  ): Rectangle {
-    const a = display.workArea;
-    const p = this.avatar.presentation;
-    const referenceWidth = (p?.referenceWidth || 0.3) * 1920;
-    const referenceHeight = (p?.referenceHeight || 0.8) * 1080;
-    const scale =
-      Math.min(a.height / 1080, a.width / (referenceWidth + 32)) *
-      placement.height;
-    const width = Math.max(100, Math.round(referenceWidth * scale)),
-      height = Math.max(180, Math.round(referenceHeight * scale));
-    return rounded({
-      x: a.x + a.width * placement.x - width / 2,
-      y: a.y + a.height * placement.y - height / 2,
-      width,
-      height,
+  private physicalRoleBounds(): Rectangle {
+    const bounds = this.display().bounds;
+    const first = screen.dipToScreenPoint({ x: bounds.x, y: bounds.y });
+    const last = screen.dipToScreenPoint({
+      x: bounds.x + bounds.width - 1,
+      y: bounds.y + bounds.height - 1,
     });
+    return {
+      x: first.x,
+      y: first.y,
+      width: last.x - first.x + 1,
+      height: last.y - first.y + 1,
+    };
   }
   private capsuleBounds(): Rectangle {
     const a = this.display(this.prefs.capsule.display).workArea;
@@ -287,8 +247,7 @@ export class AvatarDesktopWindows {
   private create(surface: DesktopSurface): BrowserWindow {
     const window = new BrowserWindow({
       width: surface === "panel" ? 320 : CAPSULE_WIDTH,
-      height:
-        surface === "panel" ? 410 : surface === "capsule" ? CAPSULE_HEIGHT : 72,
+      height: surface === "panel" ? 410 : CAPSULE_HEIGHT,
       show: false,
       frame: false,
       transparent: true,
@@ -299,7 +258,7 @@ export class AvatarDesktopWindows {
       fullscreenable: false,
       skipTaskbar: true,
       type: "toolbar",
-      focusable: surface !== "subtitle",
+      focusable: true,
       alwaysOnTop: true,
       webPreferences: {
         preload: join(__dirname, "../preload/desktop.cjs"),
@@ -329,26 +288,6 @@ export class AvatarDesktopWindows {
         this.publish();
       });
     }
-    if (surface === "subtitle") {
-      window.setIgnoreMouseEvents(true);
-      window.on("will-move", () => {
-        this.movingSubtitle = true;
-      });
-      window.on("moved", () => {
-        this.movingSubtitle = false;
-        const rect = window.getBounds();
-        const display = screen.getDisplayMatching(rect);
-        const area = display.workArea;
-        if (this.prefs.subtitleDisplay || display.id !== this.display().id)
-          this.prefs.subtitleDisplay = String(display.id);
-        this.prefs.subtitleX =
-          (rect.x - area.x - (area.width - rect.width) / 2) / area.width;
-        this.prefs.subtitleY =
-          (rect.y - area.y - area.height + rect.height + 32) / area.height;
-        this.saveSoon();
-        this.publish();
-      });
-    }
     this.windows.set(surface, window);
     const url = process.env.ELECTRON_RENDERER_URL;
     if (url) void window.loadURL(`${url}/desktop.html?surface=${surface}`);
@@ -359,9 +298,12 @@ export class AvatarDesktopWindows {
     window.once("ready-to-show", () => {
       if (surface === "capsule" && !this.hidden) window.showInactive();
       this.publish();
-      this.positionSubtitle();
       this.restack();
     });
+    window.on("move", () => this.syncInputZones());
+    window.on("resize", () => this.syncInputZones());
+    window.on("show", () => this.syncInputZones());
+    window.on("hide", () => this.syncInputZones());
     window.on("restore", () => this.restack());
     window.on("show", () => this.restack());
     window.on("focus", () => this.restack());
@@ -389,7 +331,6 @@ export class AvatarDesktopWindows {
       return;
     }
     if (!this.windows.size) {
-      this.create("subtitle");
       this.create("capsule").setBounds(this.capsuleBounds());
       this.create("panel");
       if (
@@ -419,7 +360,6 @@ export class AvatarDesktopWindows {
         this.windows.get("capsule")?.setBounds(this.capsuleBounds());
         this.hasSavedLayout = true;
       }
-      this.role = this.roleBounds();
       this.sendLayout();
       void this.avatar
         .desktopCommand("gaze", String(this.prefs.gaze))
@@ -431,13 +371,13 @@ export class AvatarDesktopWindows {
     if (phase === "error") {
       this.initialized = false;
       this.adjusting = false;
+      this.lastInputZones = "";
       this.cancelLayout();
     }
     if (!this.publishTimer)
       this.publishTimer = setTimeout(() => {
         this.publishTimer = undefined;
         this.publish();
-        this.positionSubtitle();
       }, 50);
   }
   private operationError(error: unknown): void {
@@ -453,8 +393,10 @@ export class AvatarDesktopWindows {
         surface === "panel" && this.avatar.presentation
           ? { ...this.avatar.presentation, modelPath: "" }
           : null,
-      subtitle:
-        this.avatar.status.phase === "ready" ? this.avatar.subtitle : null,
+      displays: screen.getAllDisplays().map((d, index) => ({
+        id: String(d.id), name: d.label || `屏幕 ${index + 1}`,
+      })),
+      selectedDisplay: this.prefs.role.display,
       adjusting: this.adjusting,
       compact: this.compact,
       voiceLevel: this.avatar.inputLevel,
@@ -475,13 +417,24 @@ export class AvatarDesktopWindows {
     throw new Error("不允许的桌宠窗口来源。");
   }
   private restack(): void {
-    for (const surface of ["subtitle", "capsule", "panel"] as const) {
+    for (const surface of ["capsule", "panel"] as const) {
       const w = this.windows.get(surface);
       if (w?.isVisible()) {
-        w.setAlwaysOnTop(true, "pop-up-menu");
+        if (!w.isAlwaysOnTop()) w.setAlwaysOnTop(true, "pop-up-menu");
         w.moveTop();
       }
     }
+  }
+  private syncInputZones(): void {
+    if (!this.initialized) return;
+    const rects = (["capsule", "panel"] as const)
+      .map((surface) => this.windows.get(surface))
+      .filter((window): window is BrowserWindow => !!window && window.isVisible())
+      .map((window) => screen.dipToScreenRect(null, window.getBounds()));
+    const value = JSON.stringify(rects);
+    if (value === this.lastInputZones) return;
+    this.lastInputZones = value;
+    this.avatar.sendWindowInputZones(rects);
   }
   private cancelLayout(): void {
     if (this.pendingLayout) clearTimeout(this.pendingLayout.timer);
@@ -504,13 +457,17 @@ export class AvatarDesktopWindows {
       applyGeometry: includeGeometry,
       ...(includeGeometry
         ? {
-            rect: screen.dipToScreenRect(null, rounded(this.role)),
+            rect: this.physicalRoleBounds(),
             yaw: this.prefs.yaw,
             pitch: this.prefs.pitch,
+            x: this.prefs.role.x,
+            y: this.prefs.role.y,
+            height: this.prefs.role.height,
           }
         : {}),
       adjusting: this.adjusting,
     });
+    this.syncInputZones();
   }
   private windowReport(state: AvatarWindowReport): void {
     if (!this.initialized || state.layoutId !== this.layoutId) return;
@@ -520,17 +477,16 @@ export class AvatarDesktopWindows {
       this.restack();
     } else if (this.pendingLayout) return;
     if (state.restored) this.restack();
-    // Reconcile the actual rectangle, including native DPI/OS adjustments.
-    // Acknowledgements update live state, never the saved placement.
-    this.role = screen.screenToDipRect(null, state.rect);
+    // Only explicit user edits change the saved in-Unity composition.
     if (state.userChanged && !state.requestId) {
       this.prefs.yaw = state.yaw;
       this.prefs.pitch = state.pitch;
-      this.remember(this.prefs.role, this.role, this.display());
+      this.prefs.role.x = state.x;
+      this.prefs.role.y = state.y;
+      this.prefs.role.height = state.height;
       this.saveSoon();
     }
     if (this.adjusting && !state.adjusting) this.closePanel();
-    this.positionSubtitle();
     this.publish();
   }
   private remember(
@@ -542,53 +498,6 @@ export class AvatarDesktopWindows {
     placement.display = String(display.id);
     placement.x = (rect.x + rect.width / 2 - area.x) / area.width;
     placement.y = (rect.y + rect.height / 2 - area.y) / area.height;
-    if (placement === this.prefs.role) {
-      const p = this.avatar.presentation;
-      const h = (p?.referenceHeight || 0.8) * 1080;
-      const w = (p?.referenceWidth || 0.3) * 1920;
-      placement.height =
-        rect.height / (h * Math.min(area.height / 1080, area.width / (w + 32)));
-    }
-  }
-  private positionSubtitle(): void {
-    const w = this.windows.get("subtitle");
-    if (!w) return;
-    if (w.isFocusable() !== this.adjusting) {
-      w.setFocusable(this.adjusting);
-      // Electron changes skipTaskbar together with focusability on Windows.
-      w.setSkipTaskbar(true);
-      w.setIgnoreMouseEvents(!this.adjusting);
-    }
-    if (this.movingSubtitle) return;
-    const text =
-      this.avatar.status.phase === "ready"
-        ? this.avatar.subtitle?.text.trim()
-        : "";
-    if (!text && !this.adjusting) {
-      w.hide();
-      return;
-    }
-    const a = this.display(this.prefs.subtitleDisplay).workArea,
-      width = Math.min(640, a.width - 32),
-      height = Math.min(this.subtitleHeight, a.height - 32);
-    const bounds = rounded({
-      x: a.x + (a.width - width) / 2 + this.prefs.subtitleX * a.width,
-      y: a.y + a.height - height - 32 + this.prefs.subtitleY * a.height,
-      width,
-      height,
-    });
-    const current = w.getBounds();
-    if (
-      current.x !== bounds.x ||
-      current.y !== bounds.y ||
-      current.width !== bounds.width ||
-      current.height !== bounds.height
-    )
-      w.setBounds(bounds);
-    if (!w.isVisible()) {
-      w.showInactive();
-      this.restack();
-    }
   }
   private positionPanel(): void {
     const capsule = this.windows.get("capsule"),
@@ -626,7 +535,6 @@ export class AvatarDesktopWindows {
     this.updateEscapeShortcut();
     // Input mode changes must not round-trip the native position through DIP.
     this.sendLayout(false);
-    this.positionSubtitle();
   }
   private closePanel(): void {
     this.hidePanel();
@@ -657,6 +565,7 @@ export class AvatarDesktopWindows {
         "panel-ready",
         "close-panel",
         "reset-layout",
+        "display",
         "open-model",
         "reload-model",
         "affect",
@@ -664,7 +573,6 @@ export class AvatarDesktopWindows {
         "gaze",
         "outline",
       ],
-      subtitle: ["subtitle-size", "close-panel"],
     };
     if (!allowed[surface].includes(c.operation))
       throw new Error("此窗口不支持该操作。");
@@ -743,15 +651,18 @@ export class AvatarDesktopWindows {
           capsule: defaults.capsule,
           yaw: 0,
           pitch: 4,
-          subtitleX: 0,
-          subtitleY: 0,
-          subtitleDisplay: undefined,
         });
-        this.role = this.roleBounds();
         this.windows.get("capsule")?.setBounds(this.capsuleBounds());
         this.sendLayout();
-        this.positionSubtitle();
         this.positionPanel();
+        this.saveSoon();
+        break;
+      }
+      case "display": {
+        const target = screen.getAllDisplays().find((d) => String(d.id) === value);
+        if (!target) throw new Error("所选屏幕已断开。");
+        this.prefs.role.display = value;
+        this.sendLayout();
         this.saveSoon();
         break;
       }
@@ -788,10 +699,6 @@ export class AvatarDesktopWindows {
         this.prefs[c.operation] = value === "true";
         this.saveSoon();
         break;
-      case "subtitle-size":
-        this.subtitleHeight = Math.max(40, Math.min(400, c.y ?? 72));
-        this.positionSubtitle();
-        break;
     }
   }
   private saveSoon(): void {
@@ -810,7 +717,6 @@ export class AvatarDesktopWindows {
     }
   }
   private closeWindows(): void {
-    this.movingSubtitle = false;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
@@ -819,6 +725,7 @@ export class AvatarDesktopWindows {
     this.cancelLayout();
     this.initialized = false;
     this.layoutId = "";
+    this.lastInputZones = "";
     this.adjusting = false;
     this.hidden = false;
     this.panelPhase = "closed";

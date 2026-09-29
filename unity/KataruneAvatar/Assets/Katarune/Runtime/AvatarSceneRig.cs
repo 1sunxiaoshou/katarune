@@ -56,12 +56,42 @@ namespace Katarune.Avatar
         private Vector2 _previousPointerPosition;
         private bool _transparent;
         private float _baseVerticalFieldOfViewDegrees;
-        private float _desktopFieldOfViewDegrees;
+        private Vector2 _desktopCenter = new Vector2(0.78f, 0.5f);
+        private float _desktopHeight = 0.65f;
 
         private AvatarWindow _desktopWindow;
         public Vector2 ReferenceWindowSize { get; private set; } = new Vector2(0.3f, 0.8f);
         internal float DesktopYaw => _targetShowcaseYaw;
         internal float DesktopPitch => _targetShowcasePitch;
+        internal Vector2 DesktopCenter => _desktopCenter;
+        internal float DesktopHeight => _desktopHeight;
+        internal void SetDesktopPlacement(float x, float y, float height)
+        {
+            _desktopCenter = new Vector2(Mathf.Clamp01(x), Mathf.Clamp01(y));
+            _desktopHeight = Mathf.Clamp(height, 0.15f, 0.95f);
+            if (_hasFramedBounds && _camera != null) ApplyDesktopProjection();
+        }
+        internal void MoveDesktopByPixels(float deltaX, float deltaY)
+        {
+            SetDesktopPlacement(_desktopCenter.x + deltaX / Mathf.Max(1, Screen.width),
+                _desktopCenter.y - deltaY / Mathf.Max(1, Screen.height), _desktopHeight);
+        }
+        internal void ZoomDesktop(float scroll)
+        {
+            SetDesktopPlacement(_desktopCenter.x, _desktopCenter.y,
+                _desktopHeight * Mathf.Pow(1.08f, scroll));
+        }
+        internal Rect DesktopControlBounds
+        {
+            get
+            {
+                if (!_hasFramedBounds || _camera == null) return Rect.zero;
+                var bounds = GetViewportBounds(_camera, _framedBounds);
+                return Rect.MinMaxRect(Mathf.Clamp01(bounds.xMin - 0.035f),
+                    Mathf.Clamp01(bounds.yMin - 0.035f), Mathf.Clamp01(bounds.xMax + 0.035f),
+                    Mathf.Clamp01(bounds.yMax + 0.035f));
+            }
+        }
         internal void SetDesktopPose(float yaw, float pitch)
         {
             EndShowcaseDrag(preserveInertia: false);
@@ -190,7 +220,6 @@ namespace Katarune.Avatar
                 _camera.transform.SetPositionAndRotation(state.CameraPosition, state.CameraRotation);
                 _camera.lensShift = state.CameraLensShift;
                 _camera.fieldOfView = state.CameraFieldOfView;
-                _desktopFieldOfViewDegrees = state.CameraFieldOfView;
             }
             if (_floor != null)
             {
@@ -327,7 +356,6 @@ namespace Katarune.Avatar
         {
             if (_desktopWindow != null)
             {
-                CalibrateDesktopComposition();
                 ApplyDesktopProjection();
                 ApplyShowcaseCameraPose();
                 return;
@@ -345,31 +373,20 @@ namespace Katarune.Avatar
             _fixedLensShift = _camera.lensShift;
         }
 
-        private void CalibrateDesktopComposition()
-        {
-            // Model framing owns the projection. Resizing its window never refits the model.
-            var referenceOffset = Quaternion.AngleAxis(-4f, Vector3.right) * (_fixedCameraPosition - _framingTarget);
-            _camera.transform.SetPositionAndRotation(_framingTarget + referenceOffset, Quaternion.LookRotation(-referenceOffset, Vector3.up));
-            ConfigurePhysicalProjection(_camera, 1920f / 1080f);
-            _camera.fieldOfView = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, 0.7f);
-            var reference = GetViewportBounds(_camera, _framedBounds);
-            ReferenceWindowSize = new Vector2(reference.width / 0.8f, reference.height / 0.8f);
-
-            var referenceAspect = ReferenceWindowSize.x * 1920f / (ReferenceWindowSize.y * 1080f);
-            ConfigurePhysicalProjection(_camera, referenceAspect);
-            _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
-            var fit = GetViewportBounds(_camera, _framedBounds);
-            _desktopFieldOfViewDegrees = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees,
-                0.8f / Mathf.Max(fit.width, fit.height));
-            _fixedLensShift = Vector2.zero;
-        }
-
         private void ApplyDesktopProjection()
         {
-            // Follow the actual render viewport, including startup and DPI changes, without
-            // deriving a new zoom or camera pose from a transient native window size.
+            // The HWND covers one display. Only the camera composition changes during pan/zoom.
             ConfigurePhysicalProjection(_camera, Screen.width / Mathf.Max(1f, Screen.height));
-            _camera.fieldOfView = _desktopFieldOfViewDegrees;
+            _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
+            ApplyShowcaseCameraPose();
+            var baseBounds = GetViewportBounds(_camera, _framedBounds);
+            var magnification = _desktopHeight / Mathf.Max(0.01f, baseBounds.height);
+            magnification = Mathf.Min(magnification, 0.92f / Mathf.Max(0.01f, baseBounds.width));
+            _camera.fieldOfView = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, magnification);
+            var projected = GetViewportBounds(_camera, _framedBounds);
+            _camera.lensShift = -(new Vector2(_desktopCenter.x - projected.center.x,
+                _desktopCenter.y - projected.center.y));
+            _fixedLensShift = _camera.lensShift;
         }
 
         internal static float GetFieldOfViewForMagnification(float baseFieldOfViewDegrees, float magnification)

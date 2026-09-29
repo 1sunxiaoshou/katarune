@@ -213,30 +213,6 @@ kbd {
   overflow-wrap: anywhere;
   margin: 8px 0;
 }
-.caption {
-  box-sizing: border-box;
-  margin: 4px;
-  padding: 12px 20px;
-  background: rgba(25, 25, 28, 0.92);
-  color: #fff;
-  border-radius: 18px;
-  font-size: 17px;
-  line-height: 1.65;
-  text-align: center;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  max-height: 392px;
-  overflow: hidden;
-}
-.caption.user {
-  background: rgba(250, 250, 250, 0.95);
-  color: #252525;
-}
-.caption.adjusting {
-  cursor: move;
-  touch-action: none;
-  app-region: drag;
-}
 .voice {
   position: relative;
   display: flex;

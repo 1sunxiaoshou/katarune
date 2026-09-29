@@ -126,7 +126,6 @@ function Choice({
 }
 function Desktop() {
   const [state, setState] = useState<DesktopSnapshot>();
-  const subtitleRef = useRef<HTMLDivElement>(null);
   const capsuleRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -166,19 +165,6 @@ function Desktop() {
     if (panelRef.current) panelRef.current.scrollTop = 0;
   }, [state?.panel, state?.panelRevision]);
   useEffect(() => {
-    const element = subtitleRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(
-      () =>
-        void window.avatarDesktop.command({
-          operation: "subtitle-size",
-          y: Math.ceil(element.getBoundingClientRect().height) + 8,
-        }),
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [!!state]);
-  useEffect(() => {
     const element = capsuleRef.current;
     if (!element) return;
     const reportSize = () => {
@@ -215,15 +201,6 @@ function Desktop() {
       state.status.error ||
       state.status.voice?.error ||
       p?.error;
-  if (surface === "subtitle")
-    return (
-      <div
-        ref={subtitleRef}
-        className={`caption ${state.subtitle?.user ? "user" : ""} ${state.adjusting ? "adjusting" : ""}`}
-      >
-        {state.subtitle?.text.trim() || (state.adjusting ? "字幕位置预览" : "")}
-      </div>
-    );
   if (surface === "capsule")
     return (
       <div
@@ -392,6 +369,16 @@ function Desktop() {
               onChange={(v) => command("action", v)}
             />
           </label>
+          <label className="control-row">
+            <span>角色屏幕</span>
+            <Choice
+              label="角色屏幕"
+              active={state.panelPhase === "open"}
+              value={state.selectedDisplay}
+              options={state.displays}
+              onChange={(v) => command("display", v)}
+            />
+          </label>
           <div className="control-row">
             <span>视线追踪</span>
             <Tabs
@@ -425,7 +412,7 @@ function Desktop() {
             ["旋转角色", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
             ["移动角色", <><span className="mouse-icon mouse-middle-click" aria-hidden="true" /><Move /></>, "鼠标中键拖动"],
             ["缩放角色", <span className="mouse-icon mouse-scroll" aria-hidden="true" />, "鼠标滚轮"],
-            ["移动控制器／字幕", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
+            ["移动控制器", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
           ] as [string, ReactNode, string?][]).map(([label, key, keyLabel]) => (
             <div key={label}>
               <span>{label}</span>

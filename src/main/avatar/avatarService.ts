@@ -1,4 +1,4 @@
-import type { AvatarPresentation, AvatarWindowReport, AvatarSubtitle } from "../../shared/avatarDesktop";
+import type { AvatarPresentation, AvatarWindowReport, DesktopRect } from "../../shared/avatarDesktop";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -39,7 +39,6 @@ export class AvatarService {
   onWindowState: ((state: AvatarWindowReport) => void) | undefined;
   onDesktopChanged: (() => void) | undefined;
   presentation: AvatarPresentation | null = null;
-  subtitle: AvatarSubtitle | null = null;
   get desktopCapabilities() { return this.capabilities ?? null; }
   get inputLevel() { return this.voiceLevel; }
   setVoiceDesired(enabled: boolean): void {
@@ -51,6 +50,9 @@ export class AvatarService {
   }
   sendWindowLayout(value: unknown): void {
     this.socket?.write(`${JSON.stringify({ type: "window-layout", value: JSON.stringify(value) })}\n`);
+  }
+  sendWindowInputZones(rects: DesktopRect[]): void {
+    this.socket?.write(`${JSON.stringify({ type: "window-input-zones", value: JSON.stringify({ rects }) })}\n`);
   }
   failDesktop(message: string): void { this.fail(message); }
   private speechService?: SpeechService;
@@ -118,7 +120,6 @@ export class AvatarService {
     if (!this.matches(binding) || this.state.phase !== "ready") return;
     const runId = this.playingRunId;
     if (action === "interrupt") {
-      this.subtitle = null; this.changed();
       for (const [id, run] of this.dialogueRuns) {
         this.mutedRuns.add(id);
         run.silence();
@@ -195,11 +196,6 @@ export class AvatarService {
                 this.presentation = reply;
               } else if (reply.type === "window-state") {
                 this.onWindowState?.(reply);
-              } else if (reply.type === "subtitle") {
-                if (reply.epoch === this.bindingEpoch && this.state.phase === "ready"
-                    && (!reply.text || !this.mutedRuns.has(reply.runId))
-                    && (!reply.runId || this.activeRuns.has(reply.runId) || this.pending.has(reply.runId) || (!reply.text && this.subtitle?.runId === reply.runId)))
-                  this.subtitle = reply;
               } else if (reply.type === "startup-error") {
                 this.fail(reply.error);
                 return;
@@ -275,11 +271,10 @@ export class AvatarService {
           const child = spawn(
             this.executable,
             [
-              // Override Unity's remembered window mode from earlier builds.
+              // Start directly in Unity's borderless full-screen mode.
               "-screen-fullscreen",
-              "0",
-              "-screen-width", "480",
-              "-screen-height", "800",
+              "1",
+              "-window-mode", "borderless",
               "-logFile",
               join(this.logsDirectory, "avatar.log"),
             ],
@@ -313,7 +308,6 @@ export class AvatarService {
   private async rebind(binding: AvatarBinding): Promise<AvatarStatus> {
     const socket = this.socket;
     const epoch = ++this.bindingEpoch;
-    this.subtitle = null;
     const runs = [...this.dialogueRuns.values()];
     const pending = [...this.pending.values()];
     for (const run of runs) run.cancel();
@@ -349,7 +343,7 @@ export class AvatarService {
 
   stop(error = new Error("桌宠控制已停止。")): AvatarStatus {
     this.bindingEpoch++;
-    this.subtitle = null; this.presentation = null;
+    this.presentation = null;
     this.starting = undefined;
     this.switching = undefined;
     this.activeRuns.clear();

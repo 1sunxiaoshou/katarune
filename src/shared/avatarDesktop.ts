@@ -30,20 +30,15 @@ export const avatarWindowReportSchema = z.object({
   rect: desktopRectSchema,
   yaw: number,
   pitch: number,
+  x: number,
+  y: number,
+  height: number,
   adjusting: z.boolean(),
   moving: z.boolean(),
   restored: z.optional(z.boolean()),
 });
-export const avatarSubtitleSchema = z.object({
-  type: z.literal("subtitle"),
-  epoch: z.number().check(z.int()),
-  runId: z.string(),
-  text: z.string().check(z.maxLength(20000)),
-  user: z.boolean(),
-});
 export type AvatarPresentation = z.infer<typeof avatarPresentationSchema>;
 export type AvatarWindowReport = z.infer<typeof avatarWindowReportSchema>;
-export type AvatarSubtitle = z.infer<typeof avatarSubtitleSchema>;
 export const desktopCommandSchema = z.object({
   operation: z.enum([
     "chat",
@@ -55,6 +50,7 @@ export const desktopCommandSchema = z.object({
     "close-panel",
     "adjust",
     "reset-layout",
+    "display",
     "open-model",
     "reload-model",
     "affect",
@@ -63,19 +59,18 @@ export const desktopCommandSchema = z.object({
     "outline",
     "compact",
     "capsule-size",
-    "subtitle-size",
   ]),
   value: z.optional(z.string().check(z.maxLength(256))),
-  y: z.optional(number),
   width: z.optional(z.number().check(z.gte(100), z.lte(220))),
 });
 export type DesktopCommand = z.infer<typeof desktopCommandSchema>;
-export type DesktopSurface = "capsule" | "panel" | "subtitle";
+export type DesktopSurface = "capsule" | "panel";
 export type DesktopSnapshot = {
   status: AvatarStatus;
   capabilities: AvatarCapabilities | null;
   presentation: AvatarPresentation | null;
-  subtitle: AvatarSubtitle | null;
+  displays: { id: string; name: string }[];
+  selectedDisplay: string;
   adjusting: boolean;
   compact: boolean;
   voiceLevel: number;

@@ -6,31 +6,22 @@ namespace Katarune.Avatar.Tests
     public class AvatarSubtitleTests
     {
         [Test]
-        public void UserCaptionIsLiteralAndRoleCaptionRestoresItsOwnStyle()
+        public void UserCaptionIsLiteralAndRoleCaptionRestoresItsOwnState()
         {
             var gameObject = new UnityEngine.GameObject("subtitle-test");
             try
             {
                 var control = gameObject.AddComponent<AvatarControlConnection>();
-                var label = new UnityEngine.UIElements.Label { enableRichText = false };
-                var root = new UnityEngine.UIElements.VisualElement();
-                var scroll = new UnityEngine.UIElements.ScrollView();
-                root.Add(scroll); scroll.Add(label);
                 var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var type = typeof(AvatarControlConnection);
-                type.GetField("_label", flags).SetValue(control, label);
-                type.GetField("_subtitle", flags).SetValue(control, root);
-                type.GetField("_subtitleScroll", flags).SetValue(control, scroll);
                 type.GetMethod("ShowUserSubtitle", flags).Invoke(control, new object[] { "  <b>你好。</b>  " });
-                Assert.That(label.text, Is.EqualTo("你：<b>你好。</b>"));
-                Assert.That(label.enableRichText, Is.False);
-                Assert.That(label.ClassListContains("user-subtitle"), Is.True);
-                Assert.That(root.style.display.value, Is.EqualTo(UnityEngine.UIElements.DisplayStyle.Flex));
+                Assert.That(control.CurrentSubtitle, Is.EqualTo("你：<b>你好。</b>"));
+                Assert.That(type.GetField("_userSubtitleActive", flags).GetValue(control), Is.True);
                 type.GetMethod("ShowUserSubtitle", flags).Invoke(control, new object[] { "  " });
-                Assert.That(label.text, Is.EqualTo("你：<b>你好。</b>"));
+                Assert.That(control.CurrentSubtitle, Is.EqualTo("你：<b>你好。</b>"));
                 type.GetMethod("ShowSubtitle", flags).Invoke(control, new object[] { "我听到了。" });
-                Assert.That(label.text, Is.EqualTo("我听到了。"));
-                Assert.That(label.ClassListContains("user-subtitle"), Is.False);
+                Assert.That(control.CurrentSubtitle, Is.EqualTo("我听到了。"));
+                Assert.That(type.GetField("_userSubtitleActive", flags).GetValue(control), Is.False);
             }
             finally { UnityEngine.Object.DestroyImmediate(gameObject); }
         }

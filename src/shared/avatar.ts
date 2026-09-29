@@ -1,4 +1,4 @@
-import { avatarPresentationSchema, avatarWindowReportSchema, avatarSubtitleSchema } from "./avatarDesktop";
+import { avatarPresentationSchema, avatarWindowReportSchema } from "./avatarDesktop";
 import * as z from "zod/mini";
 
 export const avatarBindingSchema = z.object({
@@ -51,7 +51,7 @@ export const avatarCapabilitiesSchema = z.object({
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
-  avatarPresentationSchema, avatarWindowReportSchema, avatarSubtitleSchema,
+  avatarPresentationSchema, avatarWindowReportSchema,
   z.object({ type: z.literal("startup-error"), error: z.string().check(z.minLength(1), z.maxLength(4000)) }),
   z.object({ type: z.literal("playback"), runId: z.string(), active: z.boolean(),
     state: z.enum(["playing", "paused", "completed", "interrupted"]) }),
