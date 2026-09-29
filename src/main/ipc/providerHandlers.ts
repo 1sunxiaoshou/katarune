@@ -4,6 +4,7 @@ import {
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
   discoveredModelListSchema,
+  discoverProviderModelsRequestSchema,
   IPC_CHANNELS,
   modelConfigIdRequestSchema,
   operationSuccessSchema,
@@ -14,6 +15,7 @@ import {
   type ProviderConfig,
 } from "../../shared/ipc";
 import { discoverProviderModels } from "../ai/modelDiscovery";
+import { importDiscoveredModels } from "../ai/importDiscoveredModels";
 import {
   inspectModelForPersistence,
 } from "../ai/modelInspection";
@@ -196,12 +198,13 @@ export function registerProviderHandlers(
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.discoverProviderModels, async (_event, value: unknown) => {
-    const { id } = providerConfigIdRequestSchema.parse(value);
+    const { id, autoAdd } = discoverProviderModelsRequestSchema.parse(value);
     const provider = database.fetchProviderConfig(id);
     const apiKey = await resolveApiKey(provider);
-    return discoveredModelListSchema.parse(
-      await discoverProviderModels(provider, apiKey),
-    );
+    const discovered = await discoverProviderModels(provider, apiKey);
+    const result = autoAdd ? await importDiscoveredModels(database, provider, apiKey, discovered) : discovered;
+    if (autoAdd) await aiRuntime.reload();
+    return discoveredModelListSchema.parse(result);
   });
   ipcMain.handle(IPC_CHANNELS.refreshModelMetadata, async (_event, value: unknown) => {
     const { id } = modelConfigIdRequestSchema.parse(value);

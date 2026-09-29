@@ -50,6 +50,7 @@ let realtimeFrameCount = 0;
 let realtimeText = '';
 let testingRealtime = false;
 let createdProviderRequest = null;
+let automaticDiscoveryRequests = 0;
 let createdProvider = null;
 let replacedCredentialRequest = null;
 let createdModelRequest = null;
@@ -554,6 +555,7 @@ function registerMockHandlers() {
   });
   ipcMain.handle("provider-configs:list", () => ({
     providerConfigs: emptyConfigMode ? (createdProvider === null ? [] : [createdProvider]) : [
+      ...(createdProvider === null ? [] : [createdProvider]),
       {
         id: providerId,
         displayName: "DeepSeek",
@@ -675,8 +677,19 @@ function registerMockHandlers() {
             : []),
         ],
   }));
-  ipcMain.handle("model-configs:discover", () => ({
+  ipcMain.handle("model-configs:discover", (_event, request) => {
+    if (request.autoAdd) {
+      automaticDiscoveryRequests += 1;
+      assert.ok(replacedCredentialRequest, "Discovery must follow credential persistence");
+      createdModel = {
+        id: "3cab15e0-e330-4f78-80b9-8ebc99c919bd", providerConfigId: request.id,
+        modelId: "deepseek-v4-pro", modelType: "languageModel", displayName: "DeepSeek V4 Pro",
+        metadata: null, settings: null, enabled: true, createdAt: now, updatedAt: now,
+      };
+    }
+    return {
     models: [
+      { id: "custom-unknown", displayName: "Unknown Model", modelType: null, typeSource: null },
       {
         id: "deepseek-chat",
         displayName: "DeepSeek Chat",
@@ -692,7 +705,8 @@ function registerMockHandlers() {
     ],
     source: "provider",
     warning: null,
-  }));
+  };
+  });
   ipcMain.handle("model-configs:update", (_event, request) => {
     updatedModelRequest = request;
     modelEnabled = request.enabled;
@@ -1481,6 +1495,32 @@ async function run() {
       await clickSelector(window, '[data-testid="general-settings"] button');
       await waitUntil('settings retry recovered', async () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-language-model"]')?.disabled === false && !document.querySelector('[data-testid="general-settings"] [role="alert"]')`));
       emptyConfigMode = false;
+    });
+    await runStep("provider save imports known models and leaves unknowns for manual classification", async () => {
+      await clickSelector(window, '[data-testid="settings-tab-models"]');
+      await waitForSelector(window, '[data-testid="add-provider"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="add-provider"]').click()`);
+      await waitForSelector(window, '#provider-secret');
+      await clickSelector(window, '#provider-secret');
+      await window.webContents.insertText('fixture-key');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitUntil('automatic model import', () => automaticDiscoveryRequests === 1);
+      await waitForText(window, '[data-testid="model-row"]', 'DeepSeek V4 Pro');
+      await waitUntil('provider dialog closed without classification prompts', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).find(el => el.textContent === '未分类').click()`);
+      await waitForText(window, '[data-testid="discovered-model-row"]', 'Unknown Model');
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-row"]')).filter(el => el.offsetHeight > 0).length`), 0);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="quick-add-model"]').click()`);
+      await waitForSelector(window, '#model-id');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#model-id').value`), 'custom-unknown');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"] button[type="submit"]').disabled`), false);
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[role="dialog"] [role="tab"]')).find(el => el.textContent === '语言').click()`);
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitUntil('manual classification saved', () => createdModelRequest?.modelId === 'custom-unknown');
+      assert.equal(createdModelRequest.modelType, 'languageModel');
+      await waitUntil('model dialog closed', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
+      await waitForText(window, '[data-testid="model-empty-state"]', '此分类暂无模型');
+      assert.equal(await window.webContents.executeJavaScript(`Object.keys(localStorage).some(key => key.includes('discovered-model'))`), false);
     });
   } finally {
     if (!window.isDestroyed()) window.destroy();

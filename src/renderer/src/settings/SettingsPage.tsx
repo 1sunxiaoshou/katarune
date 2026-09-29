@@ -1,5 +1,6 @@
 import "../characters/character-fonts.css";
 import { useCallback, useState } from "react";
+import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
   ArrowLeftIcon,
   BotIcon,
@@ -31,6 +32,7 @@ export function SettingsPage({
 }: SettingsPageProps): React.JSX.Element {
   const controller = useSettingsController();
   const [tab, setTab] = useState<string>(initialTab);
+  const [discovery, setDiscovery] = useState<{ providerId: string; result: DiscoveredModelList } | null>(null);
   const { refreshAppSettings } = useApplicationSettings();
   const reload = useCallback(
     async (preferredProviderId?: string): Promise<void> => {
@@ -100,6 +102,7 @@ export function SettingsPage({
           </TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="models">
             <ModelManagement
+              discovery={discovery}
               dataState={controller.dataState}
               selectedModels={controller.selectedModels}
               selectedProvider={controller.selectedProvider}
@@ -124,7 +127,10 @@ export function SettingsPage({
           onOpenChange={(open) => {
             if (!open) controller.closeProviderDialog();
           }}
-          onSaved={reload}
+          onSaved={async (providerId, result) => {
+            if (result) setDiscovery({ providerId, result });
+            await reload(providerId);
+          }}
         />
       )}
 

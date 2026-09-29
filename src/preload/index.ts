@@ -1,6 +1,8 @@
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  discoverProviderModelsRequestSchema,
+  type DiscoverProviderModelsRequest,
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
@@ -368,11 +370,11 @@ const api: KataruneApi = Object.freeze({
       operationSuccessSchema,
       modelConfigIdRequestSchema.parse(request),
     ),
-  discoverProviderModels: (request: ProviderConfigIdRequest) =>
+  discoverProviderModels: (request: DiscoverProviderModelsRequest) =>
     invokeValidated(
       IPC_CHANNELS.discoverProviderModels,
       discoveredModelListSchema,
-      providerConfigIdRequestSchema.parse(request),
+      discoverProviderModelsRequestSchema.parse(request),
     ),
   refreshModelMetadata: (request: ModelConfigIdRequest) =>
     invokeValidated(

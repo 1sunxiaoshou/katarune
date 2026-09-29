@@ -58,6 +58,7 @@ import {
   parseSpeechModelSettings,
   speechModelSettingsSchema,
   type DiscoveredModel,
+  type DiscoveredModelList,
   type ModelConfig,
   type ModelType,
   type ProviderConfig,
@@ -77,7 +78,7 @@ const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
   videoModel: "视频生成模型",
 };
 
-type ModelCategory = "all" | ModelType;
+type ModelCategory = "all" | "unknown" | ModelType;
 
 const MODEL_TYPE_CATEGORIES: ReadonlyArray<{
   readonly value: ModelType;
@@ -95,7 +96,7 @@ const MODEL_TYPE_CATEGORIES: ReadonlyArray<{
 const MODEL_CATEGORIES: ReadonlyArray<{
   readonly value: ModelCategory;
   readonly label: string;
-}> = [{ value: "all", label: "全部" }, ...MODEL_TYPE_CATEGORIES];
+}> = [{ value: "all", label: "全部" }, ...MODEL_TYPE_CATEGORIES, { value: "unknown", label: "未分类" }];
 
 const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
   languageModel: MessageSquareTextIcon,
@@ -171,7 +172,7 @@ function ModelCategoryList({
       <TabsList
         aria-labelledby={labelledBy}
         className={`relative isolate grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground dark:bg-muted dark:text-muted-foreground ${
-          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"
+          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[36rem] grid-cols-9"
         }`}
       >
         <TabsIndicator className="model-category-indicator" />
@@ -192,6 +193,7 @@ function ModelCategoryList({
 const MODEL_DIALOG_NOTIFICATION_SCOPE = "settings.model-dialog";
 
 interface ModelSettingsProps {
+  readonly discovery: DiscoveredModelList | null;
   readonly provider: ProviderConfig;
   readonly models: readonly ModelConfig[];
   readonly availableModelIds: ReadonlySet<string>;
@@ -329,7 +331,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="model-id">厂商模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Label htmlFor="model-id">模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
             <Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} />
           </div>
 
@@ -390,7 +392,7 @@ type QuickAddState = {
   readonly status: "saving" | "saved";
 };
 
-function ModelSettings({ provider, models, availableModelIds, onChanged }: ModelSettingsProps): React.JSX.Element {
+function ModelSettings({ provider, models, availableModelIds, onChanged, discovery }: ModelSettingsProps): React.JSX.Element {
   const [modelDialog, setModelDialog] = useState<ModelDialogState | null>(null);
   const [quickAddState, setQuickAddState] = useState<QuickAddState | null>(null);
   const [category, setCategory] = useState<ModelCategory>("all");
@@ -405,12 +407,12 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
     setModelDialog(null);
     setCategory("all");
     setSearchQuery("");
-    setDiscoveredModels([]);
+    setDiscoveredModels(discovery?.models ?? []);
     setQuickAddState(null);
-  }, [provider.id]);
+  }, [provider.id, discovery]);
 
   const beginCreate = (): void => {
-    setModelDialog({ mode: "create", modelType: category === "all" ? null : category, modelId: "", displayName: "" });
+    setModelDialog({ mode: "create", modelType: category === "all" || category === "unknown" ? null : category, modelId: "", displayName: "" });
   };
 
   const beginEdit = (model: ModelConfig): void => {
@@ -420,12 +422,13 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
   const discoverModels = async (): Promise<void> => {
     setDiscovering(true);
     try {
-      const result = await window.katarune.discoverProviderModels({ id: provider.id });
+      const result = await window.katarune.discoverProviderModels({ id: provider.id, autoAdd: true });
       setDiscoveredModels(result.models);
+      await onChanged(provider.id);
       notify({
         channel: "toast",
         level: result.warning === null ? "success" : "warning",
-        message: result.warning ?? `获取到 ${result.models.length} 个模型。`,
+        message: result.warning ?? `获取到 ${result.models.length} 个模型，已自动添加识别到的模型。`,
         dedupeKey: `${notificationKeyPrefix}:discovery`,
       });
     } catch (error) {
@@ -589,7 +592,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
     const configuredModelIds = new Set(models.map((model) => model.modelId));
     const visibleDiscoveredModels = discoveredModels.filter((model) =>
       !configuredModelIds.has(model.id) &&
-      (categoryValue === "all" || model.modelType === categoryValue) &&
+      (categoryValue === "all" || (categoryValue === "unknown" ? model.modelType === null : model.modelType === categoryValue)) &&
       matchesSearch(searchQuery, [
         model.displayName,
         model.id,
@@ -793,6 +796,7 @@ function EmptyModelPanel({ message, error = false }: { readonly message: string;
 }
 
 interface ModelManagementProps {
+  readonly discovery: { providerId: string; result: DiscoveredModelList } | null;
   readonly dataState: SettingsDataState;
   readonly selectedProviderId: string | null;
   readonly selectedProvider: ProviderConfig | undefined;
@@ -805,6 +809,7 @@ interface ModelManagementProps {
 }
 
 export function ModelManagement({
+  discovery,
   dataState,
   selectedProviderId,
   selectedProvider,
@@ -883,6 +888,8 @@ export function ModelManagement({
         <div className="sr-only" id="model-settings-title">模型设置</div>
         {dataState.status === "ready" && selectedProvider !== undefined ? (
           <ModelSettings
+            key={selectedProvider.id}
+            discovery={discovery?.providerId === selectedProvider.id ? discovery.result : null}
             provider={selectedProvider}
             models={selectedModels}
             availableModelIds={

@@ -486,6 +486,12 @@ export const discoveredModelListSchema = z.strictObject({
   warning: z.nullable(z.string().check(z.minLength(1), z.maxLength(1000))),
 });
 
+export const discoverProviderModelsRequestSchema = z.strictObject({
+  id: z.uuid(),
+  autoAdd: z.optional(z.boolean()),
+});
+export type DiscoverProviderModelsRequest = Readonly<z.infer<typeof discoverProviderModelsRequestSchema>>;
+
 export const modelConfigIdRequestSchema = z.strictObject({
   id: z.uuid(),
 });
@@ -696,7 +702,7 @@ export interface KataruneApi {
   fetchModelConfig(request: ModelConfigIdRequest): Promise<ModelConfig>;
   updateModelConfig(request: UpdateModelConfigRequest): Promise<ModelConfig>;
   deleteModelConfig(request: ModelConfigIdRequest): Promise<OperationSuccess>;
-  discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
+  discoverProviderModels(request: DiscoverProviderModelsRequest): Promise<DiscoveredModelList>;
   refreshModelMetadata(request: ModelConfigIdRequest): Promise<ModelConfig>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
   listCharacters(): Promise<CharacterList>;
