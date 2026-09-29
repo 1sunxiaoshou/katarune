@@ -126,7 +126,7 @@ export class AvatarDesktopWindows {
           typeof r.display === "string" &&
           [r.x, r.y, r.height].every(Number.isFinite) &&
           r.height > 0 &&
-          r.height <= 4,
+          r.height <= 100,
       )
     );
   }

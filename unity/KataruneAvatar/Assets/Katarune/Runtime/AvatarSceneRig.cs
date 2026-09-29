@@ -68,7 +68,8 @@ namespace Katarune.Avatar
         internal void SetDesktopPlacement(float x, float y, float height)
         {
             _desktopCenter = new Vector2(Mathf.Clamp01(x), Mathf.Clamp01(y));
-            _desktopHeight = Mathf.Clamp(height, 0.15f, 0.95f);
+            if (float.IsNaN(height) || float.IsInfinity(height)) return;
+            _desktopHeight = Mathf.Max(0.05f, height);
             if (_hasFramedBounds && _camera != null) ApplyDesktopProjection();
         }
         internal void MoveDesktopByPixels(float deltaX, float deltaY)
@@ -380,9 +381,15 @@ namespace Katarune.Avatar
             _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
             ApplyShowcaseCameraPose();
             var baseBounds = GetViewportBounds(_camera, _framedBounds);
+            // Stop only at the camera's valid 1-degree FOV, not at a full-body
+            // or screen-width fit. This also keeps a reverse scroll responsive.
+            var minimumFovMagnification = Mathf.Tan(_baseVerticalFieldOfViewDegrees * .5f * Mathf.Deg2Rad)
+                / Mathf.Tan(.5f * Mathf.Deg2Rad);
+            _desktopHeight = Mathf.Min(_desktopHeight,
+                Mathf.Max(0.05f, baseBounds.height * minimumFovMagnification));
             var magnification = _desktopHeight / Mathf.Max(0.01f, baseBounds.height);
-            magnification = Mathf.Min(magnification, 0.92f / Mathf.Max(0.01f, baseBounds.width));
-            _camera.fieldOfView = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, magnification);
+            _camera.fieldOfView = Mathf.Max(1f,
+                GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, magnification));
             var projected = GetViewportBounds(_camera, _framedBounds);
             _camera.lensShift = -(new Vector2(_desktopCenter.x - projected.center.x,
                 _desktopCenter.y - projected.center.y));

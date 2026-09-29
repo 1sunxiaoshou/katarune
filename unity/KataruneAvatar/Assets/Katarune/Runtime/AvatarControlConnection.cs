@@ -367,8 +367,9 @@ namespace Katarune.Avatar
             var height = Mathf.Min(
                 _subtitleStyle.CalcHeight(new GUIContent(_subtitleText), width),
                 Screen.height * .55f);
+            var bottomMargin = Mathf.Max(24f, Screen.height * .045f);
             var bounds = new Rect((Screen.width - width) * .5f,
-                Mathf.Max(6f, Screen.height - height - 12f), width, height);
+                Mathf.Max(6f, Screen.height - height - bottomMargin), width, height);
             GUI.DrawTexture(bounds, Texture2D.whiteTexture, ScaleMode.StretchToFill, true,
                 0f, _userSubtitleActive ? new Color(.92f, .96f, 1f, .94f)
                     : new Color(.11f, .10f, .14f, .92f), 0f, 14f);
