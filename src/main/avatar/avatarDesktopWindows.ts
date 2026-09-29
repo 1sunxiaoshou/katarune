@@ -135,39 +135,32 @@ export class AvatarDesktopWindows {
     );
   }
   private defaults(d: Display): Preferences {
-    const role = { display: String(d.id), x: 0.9, y: 0.67, height: 1 };
-    const bounds = this.inside(this.roleBounds(role, d), d.workArea);
     const area = d.workArea;
+    const inset = 16;
+    const gap = 16;
+    const role = { display: String(d.id), x: 0, y: 0, height: 1 };
+    let bounds = this.roleBounds(role, d);
+    const availableRoleHeight = area.height - CAPSULE_HEIGHT - gap - inset * 2;
+    if (bounds.height > availableRoleHeight) {
+      role.height = Math.max(0.01, availableRoleHeight / bounds.height);
+      bounds = this.roleBounds(role, d);
+    }
+    bounds.x = area.x + area.width - inset - bounds.width;
+    bounds.y = area.y + area.height - inset - CAPSULE_HEIGHT - gap - bounds.height;
     role.x = (bounds.x + bounds.width / 2 - area.x) / area.width;
     role.y = (bounds.y + bounds.height / 2 - area.y) / area.height;
-    // Beside the lower body, above the default caption lane. Try the other
-    // side if the preferred side has no space; only the initial layout follows.
-    const left = bounds.x - CAPSULE_WIDTH - 16;
-    const right = bounds.x + bounds.width + 16;
-    const fitsLeft = left >= area.x + 16;
-    const fitsRight = right + CAPSULE_WIDTH <= area.x + area.width - 16;
     const capsule = this.inside(
       {
-        x: fitsLeft
-          ? left
-          : fitsRight
-            ? right
-            : bounds.x + (bounds.width - CAPSULE_WIDTH) / 2,
-        y:
-          fitsLeft || fitsRight
-            ? Math.min(
-                bounds.y + bounds.height * 0.75,
-                area.y + area.height - 32 - 72 - 16 - CAPSULE_HEIGHT,
-              )
-            : bounds.y - CAPSULE_HEIGHT - 16,
+        x: bounds.x + (bounds.width - CAPSULE_WIDTH) / 2,
+        y: bounds.y + bounds.height + gap,
         width: CAPSULE_WIDTH,
         height: CAPSULE_HEIGHT,
       },
       {
-        x: area.x + 16,
-        y: area.y + 16,
-        width: area.width - 32,
-        height: area.height - 32,
+        x: area.x + inset,
+        y: area.y + inset,
+        width: area.width - inset * 2,
+        height: area.height - inset * 2,
       },
     );
     return {

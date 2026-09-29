@@ -176,11 +176,36 @@ html[data-reduce-motion] .desktop-panel {
   gap: 12px;
 }
 kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   background: var(--muted);
   padding: 3px 7px;
   border: 1px solid var(--border);
   border-radius: 5px;
   font-size: 11px;
+}
+.shortcuts kbd svg {
+  width: 16px;
+  height: 16px;
+}
+.mouse-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+.mouse-left-click {
+  mask-image: url("./icons/mouse-left-click.svg");
+}
+.mouse-middle-click {
+  mask-image: url("./icons/mouse-middle-click.svg");
+}
+.mouse-scroll {
+  mask-image: url("./icons/mouse-scroll.svg");
 }
 .desktop-error {
   color: var(--destructive);

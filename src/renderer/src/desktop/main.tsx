@@ -318,11 +318,7 @@ function Desktop() {
       inert={state.panelPhase !== "open"}
     >
       <header>
-        {state.panel !== "more" ? (
-          <Icon label="返回" onClick={() => command("panel")}>
-            <ArrowLeft />
-          </Icon>
-        ) : (
+        {state.panel === "more" && (
           <span className="model-name">{p?.modelName || "桌宠"}</span>
         )}
         {state.panel === "more" && (
@@ -348,8 +344,11 @@ function Desktop() {
           </>
         )}
         <span className="spacer" />
-        <Icon label="操作说明" onClick={() => command("panel", "help")}>
-          <Keyboard />
+        <Icon
+          label={state.panel === "more" ? "操作说明" : "返回"}
+          onClick={() => command("panel", state.panel === "more" ? "help" : "more")}
+        >
+          {state.panel === "more" ? <Keyboard /> : <ArrowLeft />}
         </Icon>
         <Icon label="关闭面板" onClick={() => command("close-panel")}>
           <X />
@@ -420,17 +419,17 @@ function Desktop() {
         </>
       ) : (
         <div className="shortcuts">
-          {[
+          {([
             ["显示／隐藏控制器", "F1"],
             ["关闭面板／退出调整", "Esc"],
-            ["旋转角色", "左键拖动"],
-            ["移动角色", "中键拖动"],
-            ["缩放角色", "滚轮"],
-            ["移动控制器／字幕", "拖动"],
-          ].map(([label, key]) => (
+            ["旋转角色", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
+            ["移动角色", <><span className="mouse-icon mouse-middle-click" aria-hidden="true" /><Move /></>, "鼠标中键拖动"],
+            ["缩放角色", <span className="mouse-icon mouse-scroll" aria-hidden="true" />, "鼠标滚轮"],
+            ["移动控制器／字幕", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
+          ] as [string, ReactNode, string?][]).map(([label, key, keyLabel]) => (
             <div key={label}>
               <span>{label}</span>
-              <kbd>{key}</kbd>
+              <kbd aria-label={keyLabel}>{key}</kbd>
             </div>
           ))}
         </div>
