@@ -10,14 +10,15 @@
             <ui:VisualElement name="hudDock" class="hud-dock" picking-mode="Ignore">
                 <hud:AvatarHudShadow name="dockShadow" class="dock-shadow" picking-mode="Ignore" />
                 <ui:VisualElement class="dock-controls" picking-mode="Ignore">
-                    <hud:AvatarHudIconButton name="centralMenuButton" icon-class="icon-collapse" tooltip="收起控制栏 · 拖动移动" class="dock-handle" />
+                    <hud:AvatarHudIconButton name="centralMenuButton" icon-class="icon-collapse" class="dock-handle" />
                     <ui:VisualElement name="quickBar" class="quick-bar" picking-mode="Ignore">
-                        <hud:AvatarHudIconButton name="openChatButton" icon-class="icon-chat" tooltip="打开聊天窗口" class="quick-button" />
-                        <hud:AvatarHudIconButton name="voiceToggleButton" icon-class="icon-mic" tooltip="开启麦克风" class="quick-button" />
+                        <hud:AvatarHudIconButton name="openChatButton" icon-class="icon-chat" class="quick-button" />
+                        <hud:AvatarHudIconButton name="voiceToggleButton" icon-class="icon-mic" class="quick-button" />
+                        <hud:AvatarHudIconButton name="showcaseControlButton" icon-class="icon-move" class="quick-button" />
                         <ui:VisualElement class="dock-divider" picking-mode="Ignore" />
-                        <hud:AvatarHudIconButton name="quickMoreButton" icon-class="icon-more" tooltip="角色与显示设置" class="quick-button" />
+                        <hud:AvatarHudIconButton name="quickMoreButton" icon-class="icon-more" class="quick-button" />
                     </ui:VisualElement>
-                    <hud:AvatarHudIconButton name="compactVoiceButton" icon-class="icon-mic" tooltip="开启麦克风" class="compact-mic" />
+                    <hud:AvatarHudIconButton name="compactVoiceButton" icon-class="icon-mic" class="compact-mic" />
                 </ui:VisualElement>
                 <ui:VisualElement name="voiceFeedback" class="voice-feedback" picking-mode="Ignore">
                     <ui:Label text="你" class="meter-label" picking-mode="Ignore" />
@@ -30,7 +31,7 @@
                 <hud:AvatarHudShadow name="panelShadow" class="dock-shadow" corner-radius="12" picking-mode="Ignore" />
                 <ui:VisualElement class="panel-heading" picking-mode="Ignore">
                     <ui:Label text="更多" class="panel-title" picking-mode="Ignore" />
-                    <hud:AvatarHudIconButton name="closePanelButton" icon-class="icon-close" tooltip="关闭面板（Esc）" class="close-button" />
+                    <hud:AvatarHudIconButton name="closePanelButton" icon-class="icon-close" class="close-button" />
                 </ui:VisualElement>
                 <ui:VisualElement class="tab-bar" picking-mode="Ignore">
                     <ui:VisualElement name="tabIndicator" class="tab-indicator" picking-mode="Ignore" />
@@ -73,31 +74,29 @@
                         <ui:Button name="cancelActionButton" text="停止当前动作" class="action-button" />
                     </ui:VisualElement>
                     <ui:VisualElement name="moreMenu" class="tab-page" picking-mode="Ignore">
-                        <ui:Toggle name="gazeTrackingToggle" label="视线跟随" tooltip="让角色看向鼠标位置" class="setting-toggle" />
-                        <ui:Toggle name="showcaseControlToggle" label="角色视角调整" tooltip="开启后拖动旋转、滚轮缩放" class="setting-toggle" />
+                        <ui:Toggle name="gazeTrackingToggle" label="视线跟随" class="setting-toggle" />
                         <ui:Toggle name="softOutlineToggle" label="柔和描边" class="setting-toggle" />
                         <ui:VisualElement class="scale-setting" picking-mode="Ignore">
                             <ui:DropdownField name="uiScaleField" label="界面大小" class="scale-field" />
                             <ui:Label text="跟随系统缩放，可按需调整" class="help-text" picking-mode="Ignore" />
                         </ui:VisualElement>
-                        <ui:Button name="resetBehaviorButton" class="text-action" tooltip="恢复角色默认行为">
+                        <ui:Button name="resetBehaviorButton" class="text-action">
                             <ui:VisualElement class="hud-icon icon-retry" picking-mode="Ignore" />
                             <ui:Label text="恢复默认" picking-mode="Ignore" />
                         </ui:Button>
                     </ui:VisualElement>
                     <ui:VisualElement name="shortcutsMenu" class="tab-page" picking-mode="Ignore">
                         <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="显示／隐藏控制栏" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="F1" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
-                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="关闭面板" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Esc" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
+                        <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="关闭面板／退出角色调整" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Esc" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
                         <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="下一个控件" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Tab" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
                         <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="上一个控件" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Shift + Tab" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
                         <ui:VisualElement class="shortcut-row" picking-mode="Ignore"><ui:Label text="执行操作" class="shortcut-description" picking-mode="Ignore" /><ui:Label text="Enter" class="key-cap" picking-mode="Ignore" /></ui:VisualElement>
                         <ui:Label text="面板获得焦点后可使用键盘操作" class="help-text shortcut-note" picking-mode="Ignore" />
                         <ui:Label text="鼠标操作" class="section-label mouse-section" picking-mode="Ignore" />
-                        <ui:Label text="拖动箭头移动控制栏&#10;点击箭头收起或展开" class="help-text" picking-mode="Ignore" />
+                        <ui:Label text="拖动箭头移动控制栏&#10;点击箭头收起或展开&#10;点击四向箭头开启角色调整&#10;左键拖动旋转，中键拖动平移，滚轮缩放" class="help-text" picking-mode="Ignore" />
                     </ui:VisualElement>
                 </ui:ScrollView>
             </ui:VisualElement>
         </ui:VisualElement>
-        <hud:AvatarHudTooltipElement name="hudTooltip" class="hud-tooltip" picking-mode="Ignore" />
     </ui:VisualElement>
 </ui:UXML>

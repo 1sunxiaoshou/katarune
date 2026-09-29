@@ -77,81 +77,14 @@ namespace Katarune.Avatar
             }
         }
 
+        internal void SetIconRotation(float degrees) => _icon.style.rotate = new Rotate(degrees);
+
         public AvatarHudIconButton()
         {
             usageHints = UsageHints.DynamicTransform | UsageHints.DynamicColor;
             _icon = new VisualElement { pickingMode = PickingMode.Ignore };
             _icon.AddToClassList("hud-icon");
             Add(_icon);
-        }
-    }
-
-    [UxmlElement]
-    public partial class AvatarHudTooltipElement : VisualElement
-    {
-        private const string VisibleClass = "is-visible";
-        private readonly Label _label;
-        private VisualElement _anchor;
-        private IVisualElementScheduledItem _pending;
-
-        public AvatarHudTooltipElement()
-        {
-            pickingMode = PickingMode.Ignore;
-            usageHints = UsageHints.DynamicTransform | UsageHints.DynamicColor;
-
-            _label = new Label { pickingMode = PickingMode.Ignore };
-            _label.AddToClassList("hud-tooltip__label");
-            hierarchy.Add(_label);
-        }
-
-        internal void AttachTo(VisualElement element, string text)
-        {
-            if (element == null || string.IsNullOrWhiteSpace(text)) return;
-            element.AddManipulator(new AvatarHudTooltipManipulator(this, text));
-        }
-
-        internal void Show(VisualElement anchor, string text)
-        {
-            if (anchor == null || !anchor.enabledInHierarchy || string.IsNullOrWhiteSpace(text)) return;
-            _anchor = anchor;
-            _label.text = text;
-            BringToFront();
-            _pending?.Pause();
-            AddToClassList("is-present");
-            _pending = schedule.Execute(() =>
-            {
-                PositionAboveAnchor();
-                AddToClassList(VisibleClass);
-            }).StartingIn(20);
-        }
-
-        internal void Hide(VisualElement anchor = null)
-        {
-            if (anchor != null && anchor != _anchor) return;
-            _anchor = null;
-            _pending?.Pause();
-            RemoveFromClassList(VisibleClass);
-            _pending = schedule.Execute(() => RemoveFromClassList("is-present")).StartingIn(100);
-        }
-
-        private void PositionAboveAnchor()
-        {
-            if (_anchor?.panel == null || parent == null) return;
-
-            var parentBounds = parent.worldBound;
-            var anchorBounds = _anchor.worldBound;
-            var width = resolvedStyle.width;
-            var height = resolvedStyle.height;
-            if (float.IsNaN(width) || float.IsNaN(height) || width < 1f || height < 1f) return;
-
-            const float edgeInset = 8f;
-            const float anchorOffset = 8f;
-            var left = anchorBounds.center.x - parentBounds.xMin - width * 0.5f;
-            var top = anchorBounds.yMin - parentBounds.yMin - height - anchorOffset;
-            left = Mathf.Clamp(left, edgeInset, Mathf.Max(edgeInset, parentBounds.width - width - edgeInset));
-            top = Mathf.Max(edgeInset, top);
-            style.left = left;
-            style.top = top;
         }
     }
 

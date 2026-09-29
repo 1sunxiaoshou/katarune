@@ -60,11 +60,10 @@ namespace Katarune.Avatar.Tests
             {
                 Assert.That(root.Q<Button>(name), Is.Not.Null, name);
             }
-            Assert.That(root.Q<AvatarHudTooltipElement>("hudTooltip"), Is.Not.Null);
             Assert.That(root.Q<AvatarHudIconButton>("centralMenuButton"), Is.Not.Null);
             Assert.That(root.Q<ScrollView>("hudPanelScroll"), Is.Not.Null);
             Assert.That(root.Q<DropdownField>("uiScaleField"), Is.Not.Null);
-            foreach (var name in new[] { "gazeTrackingToggle", "showcaseControlToggle", "softOutlineToggle" })
+            foreach (var name in new[] { "gazeTrackingToggle", "softOutlineToggle" })
                 Assert.That(root.Q<Toggle>(name), Is.Not.Null);
             Assert.That(root.Q<Label>("modelNameLabel"), Is.Not.Null);
             Assert.That(root.Q<Label>("actionLabel"), Is.Not.Null);
@@ -72,7 +71,6 @@ namespace Katarune.Avatar.Tests
             root.Query<AvatarHudIconButton>().ForEach(button =>
             {
                 Assert.That(button.text, Is.Null.Or.Empty, button.name);
-                Assert.That(button.tooltip, Is.Not.Empty, button.name);
             });
         }
 

@@ -1,6 +1,6 @@
 .hud-root, .hud-bounds { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
 .hud-root.is-hidden .hud-dock, .hud-root.is-hidden .control-panel { display: none; }
-.hud-dock { position: absolute; right: 28px; bottom: 24px; width: 208px; height: 48px; padding: 6px 10px; border-width: 0; border-radius: 24px; background-color: var(--paper); }
+.hud-dock { position: absolute; right: 28px; bottom: 24px; width: 244px; height: 48px; padding: 6px 10px; border-width: 0; border-radius: 24px; background-color: var(--paper); }
 .dock-shadow { position: absolute; left: -10px; top: -8px; right: -10px; bottom: -12px; }
 .hud-dock.is-dragging { opacity: 0.9; }
 .dock-controls, .quick-bar { flex-direction: row; align-items: center; justify-content: space-between; }

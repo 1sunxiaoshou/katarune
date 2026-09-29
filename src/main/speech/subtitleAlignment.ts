@@ -1,10 +1,9 @@
-import { validateSpeechSegments, type SpeechSegment } from "../../shared/speechTiming";
+import type { SpeechSegment } from "../../shared/speechTiming";
 
 // Alignment is only a boundary/time source. Every displayed character is sliced
 // from the original spoken text; never substitute provider-normalized wording.
-export function alignOriginalSubtitles(text: string, input: SpeechSegment[] | undefined, partial = false): SpeechSegment[] | undefined {
-  const segments = validateSpeechSegments(input);
-  if (!segments) return undefined;
+export function alignOriginalSubtitles(text: string, segments: SpeechSegment[] | undefined, partial = false): SpeechSegment[] | undefined {
+  if (!segments?.length) return undefined;
   const normalize = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "");
   const units: { value: string; start: number }[] = [];
   let offset = 0;
@@ -41,5 +40,5 @@ export function alignOriginalSubtitles(text: string, input: SpeechSegment[] | un
       endSeconds: segment.endSeconds });
     sourceStart = sourceEnd;
   }
-  return result.length && result.map(segment => segment.text).join("") === (partial ? text.slice(0, sourceStart) : text) ? result : undefined;
+  return result.length ? result : undefined;
 }

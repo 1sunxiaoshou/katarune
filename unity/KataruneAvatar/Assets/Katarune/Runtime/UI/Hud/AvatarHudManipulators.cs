@@ -4,53 +4,6 @@ using UnityEngine.UIElements;
 
 namespace Katarune.Avatar
 {
-    internal sealed class AvatarHudTooltipManipulator : Manipulator
-    {
-        private readonly AvatarHudTooltipElement _tooltip;
-        private readonly string _text;
-
-        public AvatarHudTooltipManipulator(AvatarHudTooltipElement tooltip, string text)
-        {
-            _tooltip = tooltip ?? throw new ArgumentNullException(nameof(tooltip));
-            _text = text;
-        }
-
-        protected override void RegisterCallbacksOnTarget()
-        {
-            target.RegisterCallback<FocusInEvent>(OnFocus);
-            target.RegisterCallback<FocusOutEvent>(OnBlur);
-            target.RegisterCallback<PointerEnterEvent>(OnPointerEnter);
-            target.RegisterCallback<PointerLeaveEvent>(OnPointerLeave);
-            target.RegisterCallback<PointerDownEvent>(OnPointerDown);
-            target.RegisterCallback<DetachFromPanelEvent>(OnDetach);
-        }
-
-        protected override void UnregisterCallbacksFromTarget()
-        {
-            target.UnregisterCallback<FocusInEvent>(OnFocus);
-            target.UnregisterCallback<FocusOutEvent>(OnBlur);
-            target.UnregisterCallback<PointerEnterEvent>(OnPointerEnter);
-            target.UnregisterCallback<PointerLeaveEvent>(OnPointerLeave);
-            target.UnregisterCallback<PointerDownEvent>(OnPointerDown);
-            target.UnregisterCallback<DetachFromPanelEvent>(OnDetach);
-        }
-
-        private void OnFocus(FocusInEvent _)
-        {
-            for (var element = target; element != null; element = element.parent)
-                if (element.ClassListContains("keyboard-navigation"))
-                {
-                    _tooltip.Show(target, target.tooltip);
-                    break;
-                }
-        }
-        private void OnBlur(FocusOutEvent _) => _tooltip.Hide(target);
-        private void OnPointerEnter(PointerEnterEvent _) => _tooltip.Show(target, string.IsNullOrEmpty(target.tooltip) ? _text : target.tooltip);
-        private void OnPointerLeave(PointerLeaveEvent _) => _tooltip.Hide(target);
-        private void OnPointerDown(PointerDownEvent _) => _tooltip.Hide(target);
-        private void OnDetach(DetachFromPanelEvent _) => _tooltip.Hide(target);
-    }
-
     internal sealed class AvatarHudDragManipulator : PointerManipulator
     {
         private const float DragThreshold = 5f;

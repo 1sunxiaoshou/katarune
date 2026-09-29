@@ -16,6 +16,3 @@
 .tab-page.is-entering { opacity: 0; translate: 0 6px; }
 .setting-toggle > .unity-base-field__input { transition: background-color 150ms ease-in-out; }
 .setting-toggle .unity-toggle__checkmark { transition: translate 150ms ease-in-out; }
-.hud-tooltip { opacity: 0; scale: 0.95 0.95; transition: opacity 100ms ease-out, scale 100ms ease-out; }
-.hud-tooltip.is-visible { opacity: 1; scale: 1 1; }
-.mic-indicator { transition: opacity 150ms ease-in-out; }

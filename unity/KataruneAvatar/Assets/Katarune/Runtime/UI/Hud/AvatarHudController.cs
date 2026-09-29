@@ -55,7 +55,6 @@ namespace Katarune.Avatar
         private PanelSettings _runtimePanel;
         private float _uiScale = 1f;
         private float _nextDisplayRefresh;
-        private AvatarHudTooltipElement _tooltip;
         private AvatarHudDragManipulator _dragManipulator;
         private IAvatarPointerPositionSource _pointerSource;
         private Label _modelName;
@@ -78,7 +77,10 @@ namespace Katarune.Avatar
         private Button _unloadModelButton;
         private Button _cancelActionButton;
         private Toggle _gazeTrackingToggle;
-        private Toggle _showcaseControlToggle;
+        private Button _showcaseControlButton;
+        private AvatarHudIconButton[] _voiceButtons;
+        private readonly List<VisualElement> _voiceBars = new();
+        private bool _voiceBusy;
         private Toggle _softOutlineToggle;
         private Button _resetBehaviorButton;
         private HudCategory? _activeCategory;
@@ -164,6 +166,8 @@ namespace Katarune.Avatar
 
         public void SetInputLevel(float level)
         {
+            for (var i = 0; i < _voiceBars.Count; i++)
+                _voiceBars[i].style.height = 3f + Mathf.Clamp01(level) * (i % 3 == 1 ? 13f : 8f);
             if (_micLevel != null) _micLevel.style.width = Length.Percent(Mathf.Clamp01(level) * 100f);
         }
 
@@ -175,26 +179,18 @@ namespace Katarune.Avatar
         private void RefreshVoiceStatus()
         {
             if (_voiceToggleButton == null) return;
-            var status = !string.IsNullOrWhiteSpace(_voiceError) ? "语音异常" : !_voiceEnabled ? "麦克风已关闭" : _voicePhase switch
+            var failed = !string.IsNullOrWhiteSpace(_voiceError) || _voicePhase == "error";
+            var recording = _voiceEnabled && !failed && _voicePhase == "recording";
+            _voiceBusy = _voiceEnabled && !failed && (_voicePhase == "preparing" || _voicePhase == "transcribing"
+                || (_voicePhase == "waiting" && !_roleSpeaking));
+            foreach (var button in _voiceButtons)
             {
-                "preparing" => "语音准备中",
-                "recording" => "正在收音",
-                "transcribing" => "正在识别",
-                "waiting" => "等待回复",
-                "error" => "语音异常",
-                _ => _roleSpeaking ? "角色说话 · 正在听" : "正在听",
-            };
-
-            _voiceToggleButton.EnableInClassList("is-selected", _voiceEnabled);
-            _voiceToggleButton.EnableInClassList("is-error", !string.IsNullOrEmpty(_voiceError));
-            var compact = Require<Button>("compactVoiceButton");
-            compact.tooltip = !string.IsNullOrEmpty(_voiceError) ? "重试语音：" + _voiceError
-                : status + " · " + (_voiceEnabled ? "关闭麦克风" : "开启麦克风");
-            compact.EnableInClassList(SelectedClass, _voiceEnabled);
-            compact.EnableInClassList("is-error", !string.IsNullOrEmpty(_voiceError));
-            _voiceToggleButton.tooltip = compact.tooltip;
-            foreach (var button in new[] { compact, _voiceToggleButton })
-                if (button is AvatarHudIconButton icon) icon.iconClass = !string.IsNullOrEmpty(_voiceError) ? "icon-retry" : _voiceEnabled ? "icon-mic" : "icon-mic-off";
+                button.EnableInClassList("is-recording", recording);
+                button.EnableInClassList("is-error", failed);
+                button.iconClass = failed ? "icon-mic-error" : !_voiceEnabled ? "icon-mic-off"
+                    : _voiceBusy ? "icon-loading" : "icon-mic";
+                if (!_voiceBusy) button.SetIconRotation(0);
+            }
 
             var error = Require<Label>("voiceErrorLabel"); error.text = _voiceError ?? "";
             error.EnableInClassList(VisibleClass, !string.IsNullOrEmpty(_voiceError));
@@ -202,6 +198,9 @@ namespace Katarune.Avatar
 
         private void Update()
         {
+            if (CharacterShowcaseControlEnabled && Input.GetKeyDown(KeyCode.Escape)) SetCharacterShowcaseControlEnabled(false);
+            if (_visible && _voiceBusy && _voiceButtons != null)
+                foreach (var button in _voiceButtons) button.SetIconRotation(Time.unscaledTime * 240f % 360f);
             if (_localShortcutEnabled && Input.GetKeyDown(KeyCode.F1)) ToggleVisible();
             if (_configured && Time.unscaledTime >= _nextDisplayRefresh) { RefreshDisplay(); _nextDisplayRefresh = Time.unscaledTime + 1f; }
         }
@@ -237,6 +236,7 @@ namespace Katarune.Avatar
             scroller.lowButton.style.display = DisplayStyle.None;
             scroller.highButton.style.display = DisplayStyle.None;
             _voiceToggleButton = Require<Button>("voiceToggleButton");
+            _voiceButtons = new[] { Require<AvatarHudIconButton>("voiceToggleButton"), Require<AvatarHudIconButton>("compactVoiceButton") };
             _micLevel = Require<VisualElement>("micLevel");
             _roleLevel = Require<VisualElement>("roleLevel");
             var chatButton = Require<Button>("openChatButton");
@@ -249,7 +249,6 @@ namespace Katarune.Avatar
             moreButton.clicked += TogglePrimaryMenu;
             _dock.RegisterCallback<GeometryChangedEvent>(_ => { _dragManipulator?.RefreshBounds(); RefreshLayout(); });
             _bounds.RegisterCallback<GeometryChangedEvent>(_ => RefreshLayout());
-            _tooltip = Require<AvatarHudTooltipElement>("hudTooltip");
             _modelName = Require<Label>("modelNameLabel");
             _actionLabel = Require<Label>("actionLabel");
             _noticeLabel = Require<Label>("noticeLabel");
@@ -280,8 +279,8 @@ namespace Katarune.Avatar
             RegisterCategory(HudCategory.Shortcuts, "shortcutsCategoryButton", "shortcutsMenu");
             _gazeTrackingToggle = Require<Toggle>("gazeTrackingToggle");
             _gazeTrackingToggle.RegisterValueChangedCallback(evt => _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithPointerGazeTracking(evt.newValue)));
-            _showcaseControlToggle = Require<Toggle>("showcaseControlToggle");
-            _showcaseControlToggle.RegisterValueChangedCallback(evt => SetCharacterShowcaseControlEnabled(evt.newValue));
+            _showcaseControlButton = Require<Button>("showcaseControlButton");
+            _showcaseControlButton.clicked += () => SetCharacterShowcaseControlEnabled(!CharacterShowcaseControlEnabled);
 
             _selectModelButton = Require<Button>("selectModelButton");
             _reloadModelButton = Require<Button>("reloadModelButton");
@@ -305,14 +304,18 @@ namespace Katarune.Avatar
             _resetBehaviorButton = Require<Button>("resetBehaviorButton");
             _softOutlineToggle.RegisterValueChangedCallback(evt => _runtime.ApplyPresentation(_runtime.Snapshot.Presentation.WithSoftOutline(evt.newValue)));
             _resetBehaviorButton.clicked += () => _runtime.ResetBehavior();
-            foreach (var name in new[] { "voiceToggleButton", "compactVoiceButton" })
+            foreach (var button in _voiceButtons)
             {
-                var indicator = new VisualElement { pickingMode = PickingMode.Ignore };
-                indicator.AddToClassList("mic-indicator");
-                Require<Button>(name).Add(indicator);
+                var wave = new VisualElement { pickingMode = PickingMode.Ignore };
+                wave.AddToClassList("voice-wave");
+                for (var i = 0; i < 3; i++)
+                {
+                    var bar = new VisualElement { pickingMode = PickingMode.Ignore };
+                    bar.AddToClassList("voice-wave-bar");
+                    wave.Add(bar); _voiceBars.Add(bar);
+                }
+                button.Add(wave);
             }
-            _root.Query<Button>().ForEach(button => _tooltip.AttachTo(button, button.tooltip));
-            _root.Query<Toggle>().ForEach(toggle => _tooltip.AttachTo(toggle, toggle.tooltip));
             CollapseMenus();
             SetVoiceState(false, "idle", null);
             SetActiveCategory(HudCategory.Model);
@@ -358,7 +361,7 @@ namespace Katarune.Avatar
             foreach (var action in _runtime.AvailableActions)
             {
                 var id = action.Id;
-                var button = new Button(() => RequestAction(id)) { name = "action-" + id, text = action.DisplayName, tooltip = action.DisplayName };
+                var button = new Button(() => RequestAction(id)) { name = "action-" + id, text = action.DisplayName };
                 button.AddToClassList("choice-button");
                 group.Add(button); _actionButtons.Add(id, button);
             }
@@ -371,7 +374,6 @@ namespace Katarune.Avatar
             if (_primaryExpanded) _panelTransition.Show(); else _panelTransition.Hide();
             Require<Button>("quickMoreButton").EnableInClassList(SelectedClass, _primaryExpanded);
             if (_primaryExpanded) { SetActiveCategory(_activeCategory ?? HudCategory.Model); RefreshLayout(); }
-            _tooltip?.Hide();
         }
 
         private void ClosePanel() { CollapseMenus(); Require<Button>("quickMoreButton").Focus(); }
@@ -379,7 +381,6 @@ namespace Katarune.Avatar
         private void OnCentralButtonClicked()
         {
             _dock.ToggleInClassList("is-compact");
-            _centralButton.tooltip = (_dock.ClassListContains("is-compact") ? "展开控制栏" : "收起控制栏") + " · 拖动移动";
             CollapseMenus();
         }
 
@@ -438,7 +439,6 @@ namespace Katarune.Avatar
 
         private void OnPointerInteractionChanged(bool active)
         {
-            if (active) _tooltip?.Hide();
             PointerInteractionChanged?.Invoke(active);
         }
 
@@ -481,7 +481,6 @@ namespace Katarune.Avatar
             _primaryExpanded = false;
             _panelTransition?.Hide(!_visible);
             _root?.Q<Button>("quickMoreButton")?.RemoveFromClassList(SelectedClass);
-            _tooltip?.Hide();
         }
 
         private void SelectModel()
@@ -546,7 +545,7 @@ namespace Katarune.Avatar
         {
             if (CharacterShowcaseControlEnabled == enabled) return;
             CharacterShowcaseControlEnabled = enabled;
-            _showcaseControlToggle?.SetValueWithoutNotify(enabled);
+            _showcaseControlButton?.EnableInClassList(SelectedClass, enabled);
             CharacterShowcaseControlChanged?.Invoke(enabled);
         }
 
@@ -591,8 +590,8 @@ namespace Katarune.Avatar
             _cancelActionButton.SetEnabled(ready && snapshot.Motion.CurrentActionId != null);
             _softOutlineToggle.SetValueWithoutNotify(snapshot.Presentation.SoftOutlineEnabled);
             _gazeTrackingToggle.SetValueWithoutNotify(snapshot.Behavior.PointerGazeTrackingEnabled);
-            _showcaseControlToggle.SetEnabled(ready);
-            _showcaseControlToggle.SetValueWithoutNotify(CharacterShowcaseControlEnabled);
+            _showcaseControlButton.SetEnabled(ready);
+            _showcaseControlButton.EnableInClassList(SelectedClass, CharacterShowcaseControlEnabled);
         }
 
         internal bool IsScreenPositionOverInteractiveControl(Vector2 screenPosition)

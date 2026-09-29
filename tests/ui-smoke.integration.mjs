@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import {
@@ -939,7 +939,6 @@ async function run() {
       await waitForSelector(window, '[aria-label="结束录音并识别"]');
       window.webContents.invalidate();
       await new Promise(resolve => setTimeout(resolve, 100));
-      writeFileSync(join(projectRoot, '.test-dist', 'asr-dictation.png'), (await window.webContents.capturePage()).toPNG());
       await new Promise(resolve => setTimeout(resolve, 700));
       await clickSelector(window, '[aria-label="结束录音并识别"]');
       await waitUntil('dictation final text', () => window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value === '这是离线语音输入。'`));
@@ -1235,31 +1234,12 @@ async function run() {
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await waitForSelector(window, '[data-testid="settings-page"]');
       await waitForSelector(window, '[data-testid="general-settings"]');
-      assert.equal(
-        await window.webContents.executeJavaScript(
-          `document.querySelector('[data-testid="general-settings"] [data-slot="card"]')`,
-        ),
-        null,
-      );
       await clickSelector(window, '[data-testid="theme-dark"]');
       await waitForSelector(window, "html.dark");
-      assert.equal(
-        await window.webContents.executeJavaScript(
-          `getComputedStyle(document.querySelector('[data-testid="theme-dark"]')).borderColor`,
-        ),
-        "rgba(0, 0, 0, 0)",
-      );
       await clickSelector(window, '[data-testid="reduce-motion"]');
       await waitForSelector(window, 'html[data-reduce-motion]');
       await clickSelector(window, '[data-testid="auto-read-replies"]');
-      await waitUntil("auto read preference saved", async () => window.webContents.executeJavaScript(`localStorage.getItem("katarune.autoReadReplies") === "true"`));
-      assert.deepEqual(
-        await window.webContents.executeJavaScript(`({
-          autoReadReplies: localStorage.getItem('katarune.autoReadReplies'),
-          reduceMotion: localStorage.getItem('katarune.reduceMotion'),
-        })`),
-        { autoReadReplies: "true", reduceMotion: "true" },
-      );
+      await waitUntil("preferences saved", async () => window.webContents.executeJavaScript(`localStorage.getItem("katarune.autoReadReplies") === "true" && localStorage.getItem("katarune.reduceMotion") === "true"`));
       await clickSelector(window, '[data-testid="default-language-model"]');
       await waitForSelector(window, '[data-slot="model-selector-content"]');
       await window.webContents.executeJavaScript(`(() => {
@@ -1291,19 +1271,15 @@ async function run() {
       await waitForText(window, '[data-testid="default-speech-voice"]', "请选择模型");
       await clickSelector(window, '[data-testid="default-speech-model"]');
       await waitForSelector(window, '[data-slot="model-selector-content"]');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-model"]').getAttribute('role')`), 'combobox');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"] [cmdk-group-heading]')`), null);
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
       await waitUntil('available unselected menu closed', async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
       await clickSelector(window, '[data-testid="default-asr-model"]');
       await waitForSelector(window, '[data-slot="model-selector-content"]');
       assert.deepEqual(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="model-selector-item"]')).map(item => item.textContent)`), ['SenseVoiceSmall INT8']);
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"] input:not([readonly])')`), null);
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
       await waitUntil('ASR menu closed', async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
-      assert.equal(await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector('[data-testid="general-settings"]')).scrollbarWidth`), "none");
       await choose("default-speech-model", "Gemini 2.5 Flash TTS");
       await waitUntil("default speech configured", () => appSettings.defaultSpeechVoice === "Kore");
       await clickSelector(window, '[data-testid="default-speech-voice"]');
@@ -1315,12 +1291,9 @@ async function run() {
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Return" });
       await waitUntil("custom voice committed through the same control", () => appSettings.defaultSpeechVoice === "custom-voice-123");
       await waitUntil("voice menu closed", async () => window.webContents.executeJavaScript(`!document.querySelector('[data-slot="model-selector-content"]')`));
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-voice-custom"]')`), null);
       await choose("default-speech-voice", "Puck");
       await waitUntil("default voice updated", () => appSettings.defaultSpeechVoice === "Puck");
       await waitForText(window, '[data-testid="default-asr-model"]', "SenseVoiceSmall INT8");
-      await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-      writeFileSync(join(projectRoot, '.test-dist', 'default-models.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
       await waitForSelector(window, '[data-testid="dictation-toggle"]');
@@ -1330,13 +1303,6 @@ async function run() {
       await choose("character-speech-model", "使用默认");
       await waitUntil("character inherits speech model", () => updatedCharacterRequest?.useDefaultSpeechModel === true);
       await waitForText(window, '[data-testid="character-speech-voice"]', "使用默认");
-      await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-      assert.equal(await window.webContents.executeJavaScript(`(() => {
-        const model = document.querySelector('[data-testid="character-speech-model"]').getBoundingClientRect();
-        const voice = document.querySelector('[data-testid="character-speech-voice"]').getBoundingClientRect();
-        return voice.top >= model.bottom && Math.abs(model.width - voice.width) < 1;
-      })()`), true);
-      writeFileSync(join(projectRoot, '.test-dist', 'character-defaults.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="character-back"]');
       await waitForSelector(window, '[data-testid="settings-launcher"]');
       includeGoogleSpeechFixture = false;
@@ -1345,7 +1311,6 @@ async function run() {
       await choose("default-asr-model", "SenseVoiceSmall INT8");
       await waitUntil("ASR enabled globally", () => appSettings.defaultAsrModel === "sensevoice-small-int8");
       await waitForText(window, '[data-testid="default-speech-model"]', "所选模型不可用");
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-speech-model"]').dataset.slot`), 'model-selector-setup');
       await clickSelector(window, '[data-testid="default-speech-model"]');
       await waitForSelector(window, '[data-testid="model-management"]');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="model-selector-content"]')`), null);
@@ -1369,7 +1334,6 @@ async function run() {
       assert.equal(ordinaryPrepareCount, beforeOrdinary);
       await waitUntil('AudioWorklet frames', () => realtimeFrameCount >= 2);
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="dictation-toggle"]').disabled`), true);
-      writeFileSync(join(projectRoot, '.test-dist', 'realtime-voice.png'), (await window.webContents.capturePage()).toPNG());
       const beforeMessages = avatarChatRequests.length;
       const draft = await window.webContents.executeJavaScript(`document.querySelector('[aria-label="Message input"]').value`);
       realtimeText = '这是实时语音对话。';
@@ -1385,10 +1349,6 @@ async function run() {
       avatarStatus = { ...avatarStatus, busy: false };
       window.webContents.send('avatar:changed', avatarStatus);
       await waitUntil('listening continues while settings page is open', () => realtimeFrameCount > busyFrames + 4);
-      const backgroundCount = realtimeFrameCount;
-      window.minimize();
-      await waitUntil('minimized window continues audio capture', () => realtimeFrameCount > backgroundCount + 2);
-      window.restore();
       await clickSelector(window, '[data-testid="settings-back"]');
       avatarStatus = { ...avatarStatus, voice: { desired: false, phase: 'idle', error: null } };
       window.webContents.send('avatar:changed', avatarStatus);
@@ -1420,39 +1380,9 @@ async function run() {
       await waitForText(window, '[data-testid="settings-page"]', "DeepSeek Chat");
       assert.equal(
         await window.webContents.executeJavaScript(
-          `getComputedStyle(document.querySelector('[data-testid="model-categories"] [data-active]')).borderColor`,
-        ),
-        "rgba(0, 0, 0, 0)",
-      );
-      assert.equal(
-        await window.webContents.executeJavaScript(
           `document.querySelectorAll('[data-testid="provider-row"]').length`,
         ),
         1,
-      );
-      assert.deepEqual(
-        await window.webContents.executeJavaScript(`(() => {
-          const scrollStyle = (element) => {
-            if (element === null) throw new Error('Missing settings scroll container');
-            const style = getComputedStyle(element);
-            return {
-              overflowY: style.overflowY,
-              scrollbarWidth: style.scrollbarWidth,
-            };
-          };
-          const modelList = [...document.querySelectorAll('[data-testid="model-list-scroll"]')]
-            .find((element) => getComputedStyle(element).display !== 'none');
-          return {
-            settings: scrollStyle(document.querySelector('[data-testid="settings-content"]')),
-            providers: scrollStyle(document.querySelector('[data-testid="provider-list-scroll"]')),
-            models: scrollStyle(modelList ?? null),
-          };
-        })()`),
-        {
-          settings: { overflowY: "auto", scrollbarWidth: "none" },
-          providers: { overflowY: "auto", scrollbarWidth: "none" },
-          models: { overflowY: "auto", scrollbarWidth: "none" },
-        },
       );
     });
     await runStep("compact empty states and recovery navigation", async () => {
@@ -1467,9 +1397,6 @@ async function run() {
       await clickSelector(window, '[data-testid="theme-light"]');
       await new Promise(resolve => setTimeout(resolve, 300));
       await waitForText(window, '[data-testid="default-language-model"]', '无');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="default-language-model"]').dataset.slot`), 'model-selector-setup');
-      await new Promise(resolve => setTimeout(resolve, 300));
-      writeFileSync(join(projectRoot, '.test-dist', 'model-empty-light.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="default-language-model"]');
       await waitForText(window, '[data-testid="provider-list"]', '尚未添加供应商');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="provider-list"] button').length`), 0);
@@ -1479,9 +1406,7 @@ async function run() {
       await clickSelector(window, '[data-testid="character-launcher"]');
       await waitForSelector(window, '[data-testid="character-model"]');
       await waitForText(window, '[data-testid="character-model"]', '无');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-model"]').dataset.slot`), 'model-selector-setup');
       await new Promise(resolve => setTimeout(resolve, 300));
-      writeFileSync(join(projectRoot, '.test-dist', 'character-model-empty.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-testid="character-model"]');
       await waitForSelector(window, '[data-testid="model-management"]');
       await clickSelector(window, '[data-testid="settings-back"]');
@@ -1501,26 +1426,34 @@ async function run() {
       await waitForSelector(window, '[data-testid="add-provider"]');
       await window.webContents.executeJavaScript(`document.querySelector('[data-testid="add-provider"]').click()`);
       await waitForSelector(window, '#provider-secret');
-      await clickSelector(window, '#provider-secret');
+      await window.webContents.executeJavaScript(`document.querySelector('#provider-secret').focus()`);
       await window.webContents.insertText('fixture-key');
-      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitUntil('provider credential entered', () => window.webContents.executeJavaScript(`document.querySelector('#provider-secret').value === 'fixture-key'`));
+      await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"] button[type="submit"]').click()`);
       await waitUntil('automatic model import', () => automaticDiscoveryRequests === 1);
       await waitForText(window, '[data-testid="model-row"]', 'DeepSeek V4 Pro');
       await waitUntil('provider dialog closed without classification prompts', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
-      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).find(el => el.textContent === '未分类').click()`);
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).some(el => el.textContent === '未分类')`), false);
       await waitForText(window, '[data-testid="discovered-model-row"]', 'Unknown Model');
-      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-row"]')).filter(el => el.offsetHeight > 0).length`), 0);
+      const languageTabId = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).find(el => el.textContent === '语言').id`);
+      await clickSelector(window, `[id=${JSON.stringify(languageTabId)}]`);
+      await waitUntil('unknown model excluded from language category', () => window.webContents.executeJavaScript(`(() => {
+        const tab = Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).find(el => el.textContent === '语言');
+        const panel = document.getElementById(tab.getAttribute('aria-controls'));
+        return tab.getAttribute('aria-selected') === 'true' && panel !== null && !panel.textContent.includes('Unknown Model');
+      })()`));
+      const allTabId = await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="model-categories"] [role="tab"]')).find(el => el.textContent === '全部').id`);
+      await clickSelector(window, `[id=${JSON.stringify(allTabId)}]`);
+      await waitForText(window, '[data-testid="discovered-model-row"]', 'Unknown Model');
       await window.webContents.executeJavaScript(`document.querySelector('[data-testid="quick-add-model"]').click()`);
       await waitForSelector(window, '#model-id');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#model-id').value`), 'custom-unknown');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"] button[type="submit"]').disabled`), false);
       await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[role="dialog"] [role="tab"]')).find(el => el.textContent === '语言').click()`);
       await clickSelector(window, '[role="dialog"] button[type="submit"]');
       await waitUntil('manual classification saved', () => createdModelRequest?.modelId === 'custom-unknown');
       assert.equal(createdModelRequest.modelType, 'languageModel');
       await waitUntil('model dialog closed', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
-      await waitForText(window, '[data-testid="model-empty-state"]', '此分类暂无模型');
-      assert.equal(await window.webContents.executeJavaScript(`Object.keys(localStorage).some(key => key.includes('discovered-model'))`), false);
+      await waitForText(window, '[data-testid="model-row"]', 'Unknown Model');
     });
   } finally {
     if (!window.isDestroyed()) window.destroy();

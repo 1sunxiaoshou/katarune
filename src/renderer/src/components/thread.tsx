@@ -49,6 +49,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -393,6 +394,7 @@ const VoicePlaybackNotice: FC = () => {
 const AssistantActionBar: FC = () => {
   const avatarBusy = useAvatarState((s) => !!s.status.busy);
   const running = useAuiState((s) => s.thread.isRunning);
+  const speechStarting = useAuiState((s) => s.message.speech?.status.type === "starting");
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -422,9 +424,9 @@ const AssistantActionBar: FC = () => {
         }
       >
         <ActionBarPrimitive.StopSpeaking
-          render={<TooltipIconButton tooltip="停止朗读" />}
+          render={<TooltipIconButton tooltip={speechStarting ? "正在生成语音，点击取消" : "停止朗读"} aria-busy={speechStarting} />}
         >
-          <SquareIcon />
+          {speechStarting ? <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" /> : <SquareIcon />}
         </ActionBarPrimitive.StopSpeaking>
       </AuiIf>
       <ActionBarPrimitive.Reload render={<TooltipIconButton tooltip="Refresh" />}><RefreshCwIcon /></ActionBarPrimitive.Reload>

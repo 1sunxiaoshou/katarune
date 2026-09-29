@@ -104,11 +104,7 @@ namespace Katarune.Avatar
                 if (!ReferenceEquals(segments, _segments))
                 {
                     _segments = segments;
-                    var prefix = new StringBuilder();
-                    if (segments != null) foreach (var segment in segments) prefix.Append(segment?.text);
-                    var value = prefix.ToString();
-                    _covered = _text.StartsWith(value, StringComparison.Ordinal)
-                        && Timeline.ValidAlignment(value, segments, float.MaxValue) ? value.Length : 0;
+                    _covered = Timeline.AlignedLength(_text, segments);
                 }
                 float Start(int index) => _covered > _pages[index].start
                     ? Timeline.TimeAt(_pages[index].start, false, _segments)
@@ -137,7 +133,7 @@ namespace Katarune.Avatar
             {
                 text ??= "";
                 if (duration <= 0 || !float.IsFinite(duration)) return;
-                var aligned = ValidAlignment(text, segments, duration);
+                var aligned = text.Length > 0 && AlignedLength(text, segments) == text.Length;
                 var offset = 0;
                 while (offset < text.Length)
                 {
@@ -163,21 +159,17 @@ namespace Katarune.Avatar
                 }
             }
 
-            internal static bool ValidAlignment(string text, AvatarSpeechSegment[] segments, float duration)
+            internal static int AlignedLength(string text, AvatarSpeechSegment[] segments)
             {
-                if (segments == null || segments.Length == 0) return false;
+                if (segments == null || segments.Length == 0) return 0;
                 var joined = new StringBuilder();
-                var previous = 0f;
                 foreach (var segment in segments)
                 {
-                    if (segment == null || string.IsNullOrEmpty(segment.text)
-                        || !float.IsFinite(segment.startSeconds) || !float.IsFinite(segment.endSeconds)
-                        || segment.startSeconds < previous || segment.endSeconds <= segment.startSeconds
-                        || segment.endSeconds > duration + .05f) return false;
+                    if (segment == null || string.IsNullOrEmpty(segment.text)) return 0;
                     joined.Append(segment.text);
-                    previous = segment.endSeconds;
                 }
-                return joined.ToString() == text;
+                var prefix = joined.ToString();
+                return text.StartsWith(prefix, StringComparison.Ordinal) ? prefix.Length : 0;
             }
 
             internal static float TimeAt(int offset, bool end, AvatarSpeechSegment[] segments)

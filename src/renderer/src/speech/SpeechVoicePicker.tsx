@@ -5,10 +5,10 @@ import { selectionCopy } from "@/components/model-selection-copy";
 
 const EMPTY = "__empty_voice__";
 
-export function SpeechVoicePicker({ model, value, onChange, defaultName, disabled = false, testId }: {
-  model: ModelConfig | undefined; value: string | null;
+export function SpeechVoicePicker({ model, value, onChange, defaultName, disabled = false, testId, id }: {
+  model: Pick<ModelConfig, "metadata"> | undefined; value: string | null;
   onChange: (voice: string | null) => void; defaultName?: string;
-  disabled?: boolean; testId: string;
+  disabled?: boolean; testId: string; id?: string;
 }): React.JSX.Element {
   const [query, setQuery] = useState("");
   const voices = model ? parseSpeechModelMetadata(model.metadata)?.voices ?? [] : [];
@@ -26,7 +26,7 @@ export function SpeechVoicePicker({ model, value, onChange, defaultName, disable
   return <ModelSelectorRoot models={options} value={value ?? EMPTY}
     onOpenChange={() => setQuery("")}
     onValueChange={(next) => onChange(next === EMPTY ? null : next)}>
-    <ModelSelectorTrigger className="w-full min-w-0" aria-label="音色" data-testid={testId}
+    <ModelSelectorTrigger id={id} className="w-full min-w-0" aria-label="音色" data-testid={testId}
       title={!value && defaultName !== undefined ? `默认音色：${defaultName}` : options.find((option) => option.id === (value ?? EMPTY))?.name} disabled={disabled} />
     <ModelSelectorContent searchable align="end">
       <ModelSelectorSearch aria-label="搜索音色或输入 Voice ID" placeholder={voices.length === 0 ? "输入音色 ID" : "搜索音色或输入 Voice ID…"}

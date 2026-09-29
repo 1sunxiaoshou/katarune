@@ -30,11 +30,8 @@
 .quick-button:hover, .compact-mic:hover, .dock-handle:hover, .close-button:hover { background-color: var(--hover); }
 .quick-button:active, .compact-mic:active, .dock-handle.is-pointer-active, .close-button:active { background-color: #e5e5e5; }
 .keyboard-navigation .quick-button:focus, .keyboard-navigation .compact-mic:focus, .keyboard-navigation .dock-handle:focus, .keyboard-navigation .close-button:focus { border-color: #a3a3a3; }
-#quickMoreButton.is-selected { background-color: var(--hover); }
+#quickMoreButton.is-selected, #showcaseControlButton.is-selected { background-color: var(--hover); }
 .quick-button:disabled, .compact-mic:disabled, .dock-handle:disabled, .close-button:disabled { opacity: 0.5; }
-.mic-indicator { position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 3px; background-color: var(--listening); opacity: 0; }
-.is-selected > .mic-indicator, .is-error > .mic-indicator { opacity: 1; }
-.is-error > .mic-indicator { background-color: #d96672; }
 /* Same black selection treatment as SettingsPage; indicator moves below labels. */
 .tab-indicator { position: absolute; left: 0; top: 0; border-radius: 8px; background-color: var(--accent); }
 .tab-button { flex-grow: 1; flex-basis: 0; height: 32px; margin: 0 2px; padding: 0 2px; font-size: 14px; color: var(--muted); border-width: 1px; border-color: transparent; border-radius: 8px; background-color: transparent; }
@@ -81,12 +78,16 @@
 .notice-label { display: none; font-size: 12px; color: #a34e5b; background-color: #fcf1f3; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px 0; white-space: normal; }
 .notice-label.is-visible { display: flex; }
 .key-cap { min-width: 48px; height: 28px; padding: 0 9px; margin: 0; color: #404040; font-size: 13px; -unity-text-align: middle-center; border-width: 1px; border-color: var(--edge); border-radius: 5px; background-color: #f5f5f5; }
-.hud-tooltip { position: absolute; visibility: hidden; max-width: 280px; padding: 6px 12px; background-color: var(--ink); border-width: 0; border-radius: 8px; }
-.hud-tooltip.is-present { visibility: visible; }
-.hud-tooltip__label { font-size: 12px; color: white; margin: 0; white-space: normal; }
 .panel-scroll .hud-scroller { width: 8px; min-width: 8px; max-width: 8px; margin: 0; background-color: transparent; }
 .hud-scroll-slider { width: 8px; min-width: 8px; margin: 0; padding: 0; background-color: transparent; }
 .hud-scroll-slider .unity-base-slider__tracker { background-color: transparent; border-width: 0; }
 .hud-scroll-slider .unity-base-slider__dragger-border { display: none; }
 .hud-scroll-slider .unity-base-slider__dragger { width: 3px; min-width: 3px; margin-left: 4px; border-width: 0; border-radius: 2px; background-color: #e5e5e5; }
-.hud-scroll-slider:hover .unity-base-slider__dragger { background-color: #a3a3a3; }
+.hud-scroll-slider:hover .unity-base-slider__dragger { background-color: #a3a3a3; }.icon-move { background-image: url("Icons/move.svg"); }
+.icon-loading { background-image: url("Icons/loader-circle.svg"); }
+.icon-mic-error { background-image: url("Icons/mic-error.svg"); }
+.is-recording > .hud-icon { -unity-background-image-tint-color: var(--listening); translate: -4px 0; }
+.is-error > .hud-icon { -unity-background-image-tint-color: #d96672; }
+.voice-wave { display: none; position: absolute; right: 3px; top: 10px; height: 16px; flex-direction: row; align-items: center; }
+.is-recording > .voice-wave { display: flex; }
+.voice-wave-bar { width: 2px; height: 4px; margin-right: 1px; border-radius: 1px; background-color: var(--listening); }

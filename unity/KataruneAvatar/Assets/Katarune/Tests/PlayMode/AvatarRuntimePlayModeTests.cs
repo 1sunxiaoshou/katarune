@@ -310,7 +310,6 @@ namespace Katarune.Avatar.Tests
                 yield return null;
                 var custom = hud.RootElement.Q<Button>("action-custom.salute");
                 Assert.That(custom, Is.Not.Null);
-                Assert.That(custom.tooltip, Is.EqualTo("自定义敬礼"));
                 Assert.That(custom.style.display.value, Is.EqualTo(DisplayStyle.Flex));
                 Click(hud, "quickMoreButton");
                 Click(hud, "actionCategoryButton");
@@ -410,14 +409,11 @@ namespace Katarune.Avatar.Tests
                 hud.RootElement.Q<Toggle>("gazeTrackingToggle").value,
                 Is.True);
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
-            Click(hud, "showcaseControlToggle");
+            Click(hud, "showcaseControlButton");
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.True);
             Assert.That(lastShowcaseControlState, Is.True);
             Assert.That(showcaseControlChanges, Is.EqualTo(1));
-            Assert.That(
-                hud.RootElement.Q<Toggle>("showcaseControlToggle").value,
-                Is.True);
-            Click(hud, "showcaseControlToggle");
+            Click(hud, "showcaseControlButton");
             Assert.That(hud.CharacterShowcaseControlEnabled, Is.False);
             Assert.That(lastShowcaseControlState, Is.False);
             Assert.That(showcaseControlChanges, Is.EqualTo(2));

@@ -1,4 +1,5 @@
 import "../characters/character-fonts.css";
+import { SpeechVoicePicker } from "../speech/SpeechVoicePicker";
 import {
   ArrowUpDownIcon,
   AudioLinesIcon,
@@ -54,7 +55,6 @@ import {
   notify,
 } from "../notifications";
 import {
-  parseSpeechModelMetadata,
   parseSpeechModelSettings,
   speechModelSettingsSchema,
   type DiscoveredModel,
@@ -78,7 +78,7 @@ const MODEL_TYPE_LABELS: Readonly<Record<ModelType, string>> = {
   videoModel: "视频生成模型",
 };
 
-type ModelCategory = "all" | "unknown" | ModelType;
+type ModelCategory = "all" | ModelType;
 
 const MODEL_TYPE_CATEGORIES: ReadonlyArray<{
   readonly value: ModelType;
@@ -96,7 +96,7 @@ const MODEL_TYPE_CATEGORIES: ReadonlyArray<{
 const MODEL_CATEGORIES: ReadonlyArray<{
   readonly value: ModelCategory;
   readonly label: string;
-}> = [{ value: "all", label: "全部" }, ...MODEL_TYPE_CATEGORIES, { value: "unknown", label: "未分类" }];
+}> = [{ value: "all", label: "全部" }, ...MODEL_TYPE_CATEGORIES];
 
 const MODEL_TYPE_ICONS: Readonly<Record<ModelType, LucideIcon>> = {
   languageModel: MessageSquareTextIcon,
@@ -172,7 +172,7 @@ function ModelCategoryList({
       <TabsList
         aria-labelledby={labelledBy}
         className={`relative isolate grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground dark:bg-muted dark:text-muted-foreground ${
-          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[36rem] grid-cols-9"
+          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"
         }`}
       >
         <TabsIndicator className="model-category-indicator" />
@@ -215,10 +215,6 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
   const [modelType, setModelType] = useState<ModelType | null>(model?.modelType ?? initialType);
   const [modelId, setModelId] = useState(model?.modelId ?? initialModelId);
   const [displayName, setDisplayName] = useState(model?.displayName ?? initialDisplayName);
-  const speechMetadata =
-    model?.modelType === "speechModel"
-      ? parseSpeechModelMetadata(model.metadata)
-      : null;
   const [defaultVoiceId, setDefaultVoiceId] = useState(
     model?.modelType === "speechModel"
       ? parseSpeechModelSettings(model.settings)?.defaultVoiceId ?? ""
@@ -343,29 +339,14 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           {modelType === "speechModel" && (
             <div className="grid gap-2">
               <Label htmlFor="model-default-voice">模型默认 Voice ID</Label>
-              <Input
+              <SpeechVoicePicker
                 id="model-default-voice"
-                data-testid="model-default-voice"
-                list={
-                  (speechMetadata?.voices?.length ?? 0) > 0
-                    ? "model-default-voice-options"
-                    : undefined
-                }
-                maxLength={200}
-                placeholder="可从目录选择，也可手动输入"
-                spellCheck={false}
-                value={defaultVoiceId}
-                onChange={(event) => setDefaultVoiceId(event.target.value)}
+                testId="model-default-voice"
+                model={{ metadata: model?.modelType === "speechModel" ? model.metadata : null }}
+                value={defaultVoiceId || null}
+                onChange={(value) => setDefaultVoiceId(value ?? "")}
+                disabled={submitting}
               />
-              {(speechMetadata?.voices?.length ?? 0) > 0 && (
-                <datalist id="model-default-voice-options">
-                  {speechMetadata?.voices?.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.displayName}
-                    </option>
-                  ))}
-                </datalist>
-              )}
               <p className="text-xs text-muted-foreground">
                 音色目录只提供建议；手动 Voice ID 会原样交给供应商。
               </p>
@@ -412,7 +393,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
   }, [provider.id, discovery]);
 
   const beginCreate = (): void => {
-    setModelDialog({ mode: "create", modelType: category === "all" || category === "unknown" ? null : category, modelId: "", displayName: "" });
+    setModelDialog({ mode: "create", modelType: category === "all" ? null : category, modelId: "", displayName: "" });
   };
 
   const beginEdit = (model: ModelConfig): void => {
@@ -592,7 +573,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
     const configuredModelIds = new Set(models.map((model) => model.modelId));
     const visibleDiscoveredModels = discoveredModels.filter((model) =>
       !configuredModelIds.has(model.id) &&
-      (categoryValue === "all" || (categoryValue === "unknown" ? model.modelType === null : model.modelType === categoryValue)) &&
+      (categoryValue === "all" || model.modelType === categoryValue) &&
       matchesSearch(searchQuery, [
         model.displayName,
         model.id,
