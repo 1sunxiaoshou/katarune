@@ -58,7 +58,7 @@ async function launch() {
     let end: number;
     while ((end = buffer.indexOf("\n")) >= 0) {
       const request = JSON.parse(buffer.slice(0, end));
-      if (request.type !== "voice-state") requests.push(request);
+      if (request.type !== "binding") requests.push(request);
       buffer = buffer.slice(end + 1);
     }
   });
@@ -270,9 +270,7 @@ describe("Unity local control bridge", () => {
     expect(requests.map((r) => r.event)).toEqual(chunks);
     // Observing the tool request must never execute the action twice.
     expect(requests.every((r) => r.type === "event")).toBe(true);
-    await expect(
-      service.start({ ...binding, threadId: "other" }),
-    ).rejects.toThrow("角色仍在执行");
+    expect(service.status.busy).toBe(true);
     source.close();
     let closed = false;
     const done = reader.read().then((result) => {
@@ -345,9 +343,7 @@ describe("Unity local control bridge", () => {
     );
     await expect(action).resolves.toEqual({ ok: true });
     expect(expressionAccepted).toBe(false);
-    await expect(
-      service.start({ ...binding, threadId: "other" }),
-    ).rejects.toThrow("角色仍在执行");
+    expect(service.status.busy).toBe(true);
     socket.write(
       JSON.stringify({
         type: "result",
@@ -360,9 +356,7 @@ describe("Unity local control bridge", () => {
     expect(requests.find((r) => r.operation === "expression")).toMatchObject({
       toolCallId: "set_expression",
     });
-    await expect(
-      service.start({ ...binding, threadId: "other" }),
-    ).rejects.toThrow("角色仍在执行");
+    expect(service.status.busy).toBe(true);
     socket.write(
       JSON.stringify({
         type: "action",
@@ -438,9 +432,16 @@ describe("Unity local control bridge", () => {
 
 
 it("pushes playback failures even for Unity-owned dialogue IDs", async () => {
-  const { service, socket } = await launch();
+  const { service, socket, requests } = await launch();
+  const input = new ReadableStream<UIMessageChunk>({ start(controller) {
+    controller.enqueue({ type: "start", messageId: "message" }); controller.close();
+  } });
+  const reader = service.relay(binding, input, new AbortController().signal).getReader();
+  while (!(await reader.read()).done) { /* consume chat */ }
+  await vi.waitFor(() => expect(requests.some(r => r.type === "event")).toBe(true));
+  const runId = requests.find(r => r.type === "event")!.runId;
   const listener = vi.fn(); const unsubscribe = service.subscribe(listener);
-  socket.write(JSON.stringify({ type: "speech", id: "00000000-0000-4000-8000-000000000099", status: "failed", error: "播放设备失败" }) + "\n");
+  socket.write(JSON.stringify({ type: "speech", runId, id: "00000000-0000-4000-8000-000000000099", status: "failed", error: "播放设备失败" }) + "\n");
   await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ error: "播放设备失败" })));
   service.clearError(); expect(service.status.error).toBeNull(); unsubscribe();
 });
@@ -459,11 +460,17 @@ it("shows bound user subtitles immediately without occupying the playback queue"
 it("keeps the microphone choice on the active connection and reports actual playback state", async () => {
   const { service, socket, requests } = await launch();
   expect(service.status.voice?.desired).toBe(true);
-  socket.write(JSON.stringify({ type: "voice-command", enabled: false }) + "\n");
+  service.setVoiceDesired(false);
   await vi.waitFor(() => expect(service.status.voice?.desired).toBe(false));
-  socket.write(JSON.stringify({ type: "voice-command", enabled: true }) + "\n");
+  service.setVoiceDesired(true);
   await vi.waitFor(() => expect(service.status.voice?.desired).toBe(true));
-  const runId = "00000000-0000-4000-8000-000000000099";
+  const input = new ReadableStream<UIMessageChunk>({ start(controller) {
+    controller.enqueue({ type: "start", messageId: "message" }); controller.close();
+  } });
+  const reader = service.relay(binding, input, new AbortController().signal).getReader();
+  while (!(await reader.read()).done) { /* consume chat */ }
+  await vi.waitFor(() => expect(requests.some(r => r.type === "event")).toBe(true));
+  const runId = requests.find(r => r.type === "event")!.runId;
   socket.write(JSON.stringify({ type: "playback", runId, active: true, state: "playing" }) + "\n");
   await vi.waitFor(() => expect(service.status.playback?.state).toBe("playing"));
   service.controlPlayback(binding, "pause");

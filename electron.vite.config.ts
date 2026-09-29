@@ -38,6 +38,7 @@ export default defineConfig({
         exclude: ["zod", "zod/mini"],
       },
       rollupOptions: {
+        input: { index: resolve("src/preload/index.ts"), desktop: resolve("src/preload/desktop.ts") },
         output: {
           format: "cjs",
         },
@@ -47,6 +48,7 @@ export default defineConfig({
   renderer: {
     build: {
       minify: "esbuild",
+      rollupOptions: { input: { index: resolve("src/renderer/index.html"), desktop: resolve("src/renderer/desktop.html") } },
     },
     resolve: {
       alias: {

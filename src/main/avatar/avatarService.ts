@@ -1,3 +1,4 @@
+import type { AvatarPresentation, AvatarWindowReport, AvatarSubtitle } from "../../shared/avatarDesktop";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -35,6 +36,23 @@ function describeAction(action: AvatarCapabilities["actions"][number]): string {
 
 export class AvatarService {
   onOpenChat: (() => void) | undefined;
+  onWindowState: ((state: AvatarWindowReport) => void) | undefined;
+  onDesktopChanged: (() => void) | undefined;
+  presentation: AvatarPresentation | null = null;
+  subtitle: AvatarSubtitle | null = null;
+  get desktopCapabilities() { return this.capabilities ?? null; }
+  get inputLevel() { return this.voiceLevel; }
+  setVoiceDesired(enabled: boolean): void {
+    this.voiceDesired = enabled; this.voicePhase = enabled ? "preparing" : "idle";
+    this.voiceError = null; this.changed();
+  }
+  desktopCommand(operation: string, value: string): Promise<string> {
+    return this.request(operation, value, new AbortController().signal);
+  }
+  sendWindowLayout(value: unknown): void {
+    this.socket?.write(`${JSON.stringify({ type: "window-layout", value: JSON.stringify(value) })}\n`);
+  }
+  failDesktop(message: string): void { this.fail(message); }
   private speechService?: SpeechService;
   private dialogueRuns = new Map<string, AvatarDialogueSpeech>();
   private mutedRuns = new Set<string>();
@@ -51,7 +69,10 @@ export class AvatarService {
   private child: ChildProcess | undefined;
   private capabilities: AvatarCapabilities | undefined;
   private pending = new Map<string, Pending>();
-  private activeStreams = 0;
+  private activeRuns = new Set<string>();
+  private bindingEpoch = 0;
+  private switching: Promise<AvatarStatus> | undefined;
+  private releaseBarrier: Promise<unknown> = Promise.resolve();
   private activeInstructions = new Set<string>();
   private starting: Promise<AvatarStatus> | undefined;
   private rejectStartup: ((error: Error) => void) | undefined;
@@ -63,6 +84,7 @@ export class AvatarService {
   private changed(): void {
     const status = this.status;
     for (const listener of this.listeners) listener(status);
+    this.onDesktopChanged?.();
   }
   private currentState: AvatarStatus = {
     phase: "stopped",
@@ -78,7 +100,7 @@ export class AvatarService {
     private readonly logsDirectory: string,
   ) {}
   get status(): AvatarStatus {
-    return { ...this.state, busy: this.activeStreams > 0 || this.pending.size > 0 || this.activeInstructions.size > 0,
+    return { ...this.state, busy: this.activeRuns.size > 0 || this.pending.size > 0 || this.activeInstructions.size > 0,
       voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
   }
 
@@ -88,8 +110,7 @@ export class AvatarService {
     if (phase === "error") this.voiceDesired = false;
     this.voicePhase = phase;
     this.voiceError = error;
-    if (level !== undefined) this.voiceLevel = level;
-    this.sendVoiceState();
+    if (level !== undefined) { this.voiceLevel = level; this.onDesktopChanged?.(); }
     if (changed) this.changed();
   }
 
@@ -97,6 +118,7 @@ export class AvatarService {
     if (!this.matches(binding) || this.state.phase !== "ready") return;
     const runId = this.playingRunId;
     if (action === "interrupt") {
+      this.subtitle = null; this.changed();
       for (const [id, run] of this.dialogueRuns) {
         this.mutedRuns.add(id);
         run.silence();
@@ -105,12 +127,6 @@ export class AvatarService {
     } else if (runId) {
       this.socket?.write(`${JSON.stringify({ operation: action === "pause" ? "voice-pause" : "voice-resume", value: runId })}\n`);
     }
-  }
-
-  private sendVoiceState(): void {
-    if (!this.socket || this.state.phase !== "ready") return;
-    this.socket.write(`${JSON.stringify({ type: "voice-state", enabled: this.voiceDesired,
-      phase: this.voicePhase, error: this.voiceError ?? "", level: this.voiceLevel })}\n`);
   }
 
   showUserSubtitle(binding: AvatarBinding, text: string): void {
@@ -127,19 +143,17 @@ export class AvatarService {
   async start(binding: AvatarBinding): Promise<AvatarStatus> {
     if (this.matches(binding) && this.state.phase === "ready")
       return this.status;
-    if (this.starting) {
-      if (!this.matches(binding)) throw new Error("Unity 正在连接其他会话。");
-      return this.starting;
+    if (this.starting || this.switching) {
+      this.state = { ...this.state, binding };
+      return (this.switching ?? this.starting)!;
     }
-    if (
-      this.pending.size > 0 ||
-      this.activeStreams > 0 ||
-      this.activeInstructions.size > 0
-    )
-      throw new Error("角色仍在执行，请完成后再切换会话。");
+    if (this.state.phase === "ready" && this.socket && !this.socket.destroyed)
+      return this.rebind(binding);
     this.stop();
-    if (!existsSync(this.executable))
-      throw new Error("未找到 Unity Runtime，请先构建 Windows Player。");
+    if (!existsSync(this.executable)) {
+      this.state = { phase: "error", binding, error: "未找到 Unity Runtime，请先构建 Windows Player。" };
+      throw new Error(this.state.error!);
+    }
     this.state = { phase: "starting", binding, error: null };
     const pipeName = `katarune-avatar-${randomUUID()}`;
     this.starting = new Promise<AvatarStatus>((resolve, reject) => {
@@ -177,34 +191,38 @@ export class AvatarService {
             buffer = buffer.slice(end + 1);
             try {
               const reply = avatarReplySchema.parse(JSON.parse(line));
-              if (reply.type === "startup-error") {
+              if (reply.type === "presentation") {
+                this.presentation = reply;
+              } else if (reply.type === "window-state") {
+                this.onWindowState?.(reply);
+              } else if (reply.type === "subtitle") {
+                if (reply.epoch === this.bindingEpoch && this.state.phase === "ready"
+                    && (!reply.text || !this.mutedRuns.has(reply.runId))
+                    && (!reply.runId || this.activeRuns.has(reply.runId) || this.pending.has(reply.runId) || (!reply.text && this.subtitle?.runId === reply.runId)))
+                  this.subtitle = reply;
+              } else if (reply.type === "startup-error") {
                 this.fail(reply.error);
                 return;
               } else if (reply.type === "ready") {
                 this.capabilities = reply.capabilities;
-                this.state = { phase: "ready", binding, error: null };
-                this.voiceDesired = true;
-                this.voicePhase = "preparing";
-                this.sendVoiceState();
-                this.changed();
-                finish();
-              } else if (reply.type === "voice-command") {
-                this.voiceDesired = reply.enabled;
-                this.voicePhase = reply.enabled ? "preparing" : "idle";
-                this.voiceError = null;
-                this.sendVoiceState();
-                this.changed();
-              } else if (reply.type === "open-chat") {
-                this.onOpenChat?.();
+                if (this.state.phase === "starting") {
+                  this.voiceDesired = true;
+                  this.voicePhase = "preparing";
+                  this.state = { ...this.state, phase: "ready", error: null };
+                  socket.write(`${JSON.stringify({ type: "binding", epoch: this.bindingEpoch })}\n`);
+                                finish();
+                }
               } else if (reply.type === "playback") {
+                if (!this.activeRuns.has(reply.runId) || this.state.phase !== "ready") continue;
                 this.playingRunId = reply.active ? reply.runId : this.playingRunId === reply.runId ? null : this.playingRunId;
                 this.playbackState = { runId: reply.runId, state: reply.state };
                 this.changed();
               } else if (reply.type === "dialogue-completed") {
                 this.dialogueRuns.get(reply.runId)?.completed(reply.dialogueId);
               } else if (reply.type === "speech") {
-                if (reply.status === "failed") this.state = { ...this.state, error: reply.error || "桌宠语音播放失败。" };
                 const request = this.pending.get(reply.id);
+                if (!request && !(reply.runId && this.activeRuns.has(reply.runId))) continue;
+                if (reply.status === "failed") this.state = { ...this.state, error: reply.error || "桌宠语音播放失败。" };
                 if (!request) continue;
                 if (reply.status === "started") { request.started?.(); continue; }
                 this.pending.delete(reply.id);
@@ -215,6 +233,7 @@ export class AvatarService {
                 reply.type === "action" ||
                 reply.type === "expression"
               ) {
+                if (!this.activeInstructions.has(reply.id)) continue;
                 if (reply.type === "expression" || reply.status !== "started")
                   this.activeInstructions.delete(reply.id);
                 if (
@@ -248,7 +267,7 @@ export class AvatarService {
         });
       });
       this.server = server;
-      server.on("error", () => this.fail("无法建立 Unity 本机连接。"));
+      server.on("error", () => { if (this.server === server) this.fail("无法建立 Unity 本机连接。"); });
       server.listen(`\\\\.\\pipe\\${pipeName}`, () => {
         if (this.server !== server) return;
         try {
@@ -258,15 +277,15 @@ export class AvatarService {
             [
               // Override Unity's remembered window mode from earlier builds.
               "-screen-fullscreen",
-              "1",
-              "-window-mode",
-              "borderless",
+              "0",
+              "-screen-width", "480",
+              "-screen-height", "800",
               "-logFile",
               join(this.logsDirectory, "avatar.log"),
             ],
             {
               cwd: dirname(this.executable),
-              windowsHide: false,
+              windowsHide: true,
               stdio: "ignore",
               env: { ...process.env, KATARUNE_AVATAR_PIPE: pipeName },
             },
@@ -283,14 +302,57 @@ export class AvatarService {
         }
       });
     });
+    const startup = this.starting;
     try {
-      return await this.starting;
+      return await startup;
     } finally {
-      this.starting = undefined;
+      if (this.starting === startup) this.starting = undefined;
     }
   }
 
+  private async rebind(binding: AvatarBinding): Promise<AvatarStatus> {
+    const socket = this.socket;
+    const epoch = ++this.bindingEpoch;
+    this.subtitle = null;
+    const runs = [...this.dialogueRuns.values()];
+    const pending = [...this.pending.values()];
+    for (const run of runs) run.cancel();
+    for (const request of pending) request.cleanup();
+    this.pending.clear();
+    this.dialogueRuns.clear();
+    this.activeRuns.clear();
+    this.activeInstructions.clear();
+    this.mutedRuns.clear();
+    this.playingRunId = null;
+    this.playbackState = undefined;
+    this.voiceError = null;
+    this.voiceLevel = 0;
+    this.voicePhase = this.voiceDesired ? "preparing" : "idle";
+    this.state = { phase: "switching", binding, error: null };
+    const reset = this.request("session-reset", String(epoch), new AbortController().signal);
+    this.releaseBarrier = reset.catch(() => {});
+    const switching = reset.then(() => {
+      if (epoch !== this.bindingEpoch || this.socket !== socket) throw new Error("桌宠切换已取消。");
+      this.state = { ...this.state, phase: "ready" };
+        return this.status;
+    }).catch(error => {
+      if (epoch === this.bindingEpoch) this.fail("桌宠会话切换失败，请重试。");
+      throw error;
+    }).finally(() => {
+      for (const request of pending) request.reject(new Error("桌宠已切换会话。"));
+      for (const run of runs) void run.dispose().catch(() => {});
+      if (this.switching === switching) this.switching = undefined;
+    });
+    this.switching = switching;
+    return switching;
+  }
+
   stop(error = new Error("桌宠控制已停止。")): AvatarStatus {
+    this.bindingEpoch++;
+    this.subtitle = null; this.presentation = null;
+    this.starting = undefined;
+    this.switching = undefined;
+    this.activeRuns.clear();
     const speechRuns = [...this.dialogueRuns.values()];
     for (const run of speechRuns) run.cancel();
     this.dialogueRuns.clear();
@@ -337,10 +399,15 @@ export class AvatarService {
     );
   }
 
-  createTools(binding: AvatarBinding, signal: AbortSignal): ToolSet {
+  captureBinding(binding: AvatarBinding): number | null {
+    return this.matches(binding) && this.state.phase === "ready" ? this.bindingEpoch : null;
+  }
+
+  createTools(binding: AvatarBinding, signal: AbortSignal, epoch = this.bindingEpoch): ToolSet {
     const capabilities = this.capabilities;
     const socket = this.socket;
     if (
+      epoch !== this.bindingEpoch ||
       !capabilities ||
       !socket ||
       !this.matches(binding) ||
@@ -353,7 +420,7 @@ export class AvatarService {
       toolCallId: string,
       allowSpeech = true,
     ) => {
-      if (this.socket !== socket || !this.matches(binding))
+      if (this.socket !== socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready")
         throw new Error("角色连接已改变。");
       await this.request(
         operation,
@@ -399,19 +466,21 @@ export class AvatarService {
     binding: AvatarBinding,
     stream: ReadableStream<UIMessageChunk>,
     signal: AbortSignal,
+    epoch = this.bindingEpoch,
   ): ReadableStream<UIMessageChunk> {
     const socket = this.socket;
-    if (!socket || !this.matches(binding) || this.state.phase !== "ready")
+    if (!socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready")
       return stream;
+    const current = () => this.socket === socket && epoch === this.bindingEpoch && this.state.phase === "ready";
     const reader = stream.getReader();
-    this.activeStreams++;
-    this.state = { ...this.state, error: null };
     const runId = randomUUID();
+    this.activeRuns.add(runId);
+    this.state = { ...this.state, error: null };
     const speech = this.speechService
       ? new AvatarDialogueSpeech(runId, binding.characterId, this.speechService, message => {
-        if (this.socket === socket) socket.write(`${JSON.stringify(message)}\n`);
+        if (current()) socket.write(`${JSON.stringify(message)}\n`);
       }, this.speechDirectory, () => {
-        this.state = { ...this.state, error: "桌宠语音合成失败，请检查模型和音色后重试。" };
+        if (current()) this.state = { ...this.state, error: "桌宠语音合成失败，请检查模型和音色后重试。" };
       }) : undefined;
     if (speech) this.dialogueRuns.set(runId, speech);
     let released = false;
@@ -419,18 +488,18 @@ export class AvatarService {
     const abort = () => {
       if (cancellation) return;
       speech?.cancel();
-      cancellation = this.socket === socket
+      cancellation = current()
         ? this.request("run-cancel", runId, new AbortController().signal).catch(() => {})
         : Promise.resolve();
     };
     const release = () => {
       if (released) return;
       released = true;
-      this.activeStreams--;
+      this.activeRuns.delete(runId);
       this.changed();
       this.dialogueRuns.delete(runId);
       this.mutedRuns.delete(runId);
-      void (cancellation ?? Promise.resolve()).then(() => speech?.dispose()).catch(() => {});
+      void Promise.all([cancellation, this.releaseBarrier]).then(() => speech?.dispose()).catch(() => {});
       signal.removeEventListener("abort", abort);
     };
     signal.addEventListener("abort", abort, { once: true });
@@ -440,31 +509,31 @@ export class AvatarService {
         try {
           const chunk = await reader.read();
           if (chunk.done) {
-            speech?.seal();
+            if (current()) speech?.seal();
             // Unity owns playback; acknowledgement only releases borrowed audio files.
             // A completed generation's signal must not cancel its ongoing playback.
             signal.removeEventListener("abort", abort);
-            if (this.socket === socket)
+            if (current())
               void this.request("drain", runId, new AbortController().signal)
-                .catch(() => { this.state = { ...this.state, error: "桌宠播放未正常完成。" }; }).finally(release);
+                .catch(() => { if (current()) this.state = { ...this.state, error: "桌宠播放未正常完成。" }; }).finally(release);
             else release();
             reader.releaseLock();
             controller.close();
             return;
           }
-          if (this.socket === socket && !cancellation) {
+          if (current() && !cancellation) {
             await new Promise<void>((resolve) => {
               socket.write(
                 `${JSON.stringify({ type: "event", runId, speechEnabled: !!speech && !this.mutedRuns.has(runId), event: chunk.value })}\n`,
                 (error) => {
-                  if (error && this.socket === socket)
+                  if (error && current())
                     this.fail("Unity 事件转发失败。");
                   resolve();
                 },
               );
             });
           }
-          if (!this.mutedRuns.has(runId)) speech?.observe(chunk.value);
+          if (current() && !this.mutedRuns.has(runId)) speech?.observe(chunk.value);
           controller.enqueue(chunk.value);
         } catch (error) {
           abort();
@@ -486,11 +555,12 @@ export class AvatarService {
     audio: SpeechServiceResult,
     signal: AbortSignal,
     onStarted: () => void,
+    epoch = this.bindingEpoch,
   ): Promise<boolean> {
     signal.throwIfAborted();
-    if (this.activeStreams > 0) throw new Error("角色表演期间不能手动朗读。");
+    if (this.activeRuns.size > 0) throw new Error("角色表演期间不能手动朗读。");
     const socket = this.socket;
-    if (!socket || !this.matches(binding) || this.state.phase !== "ready") return false;
+    if (!socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready") return false;
     if (!["wav", "mp3", "ogg"].includes(audio.format)) throw new Error("Unity 不支持该语音格式。");
     const directory = await mkdtemp(join(this.speechDirectory, "katarune-speech-"));
     const id = randomUUID();
@@ -498,8 +568,8 @@ export class AvatarService {
       const path = join(directory, `speech.${audio.format}`);
       await writeFile(path, audio.audio, { signal });
       signal.throwIfAborted();
-      if (this.socket !== socket || !this.matches(binding)) throw new Error("角色连接已改变。");
-      if (this.activeStreams > 0) throw new Error("角色表演期间不能手动朗读。");
+      if (this.socket !== socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready") throw new Error("角色连接已改变。");
+      if (this.activeRuns.size > 0) throw new Error("角色表演期间不能手动朗读。");
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
           // Keep the request until Unity acknowledges cancellation, so the file stays valid during decode.
@@ -536,7 +606,7 @@ export class AvatarService {
   ): Promise<string> {
     signal.throwIfAborted();
     const socket = this.socket;
-    if (!socket || this.state.phase !== "ready")
+    if (!socket || (this.state.phase !== "ready" && !(operation === "session-reset" && this.state.phase === "switching")))
       return Promise.reject(new Error("Unity 尚未连接。"));
     const id = randomUUID();
     return new Promise<string>((resolve, reject) => {
@@ -547,7 +617,7 @@ export class AvatarService {
         cleanup();
         reject(signal.reason ?? new Error("角色请求已取消。"));
       };
-      const timer = setTimeout(() => this.fail("角色执行超时。"), 600_000);
+      const timer = setTimeout(() => this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。"), operation === "session-reset" ? 5_000 : 600_000);
       const cleanup = () => {
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);

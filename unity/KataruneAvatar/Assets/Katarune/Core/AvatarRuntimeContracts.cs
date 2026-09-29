@@ -366,9 +366,8 @@ namespace Katarune.Avatar
         void Unload();
         void ApplyBehavior(AvatarBehaviorSettings settings);
         void ApplyPresentation(AvatarPresentationSettings settings);
-        void SetManualVisemes(AvatarVisemeWeights weights);
+        void SetManualVisemes(AvatarVisemeWeights weights, bool immediate = false);
         void RequestBlink();
-        void ResetBehavior();
         AvatarActionRequestResult RequestAction(AvatarPresetAction action);
         AvatarActionRequestResult RequestAction(string actionId);
         void CancelAction();

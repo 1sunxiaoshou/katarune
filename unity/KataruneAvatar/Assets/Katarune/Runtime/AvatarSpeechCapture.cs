@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.IO;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace Katarune.Avatar
 {
@@ -21,7 +20,7 @@ namespace Katarune.Avatar
         private long _sampleOffset;
         private Transform _head;
         private bool _closeup;
-        private Label _subtitle;
+        private AvatarControlConnection _connection;
         [Serializable] private sealed class Frame {
             public string file, playbackId, subtitle; public double time; public float position, duration;
             public float aa, ih, ou, ee, oh;
@@ -85,10 +84,8 @@ namespace Katarune.Avatar
                 var frame = new Frame { file = $"frame-{index++:D5}.jpg", time = time,
                     playbackId = _player.PlaybackId, position = _player.PositionSeconds, duration = _player.DurationSeconds,
                     aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh };
-                if (_subtitle == null) foreach (var document in FindObjectsByType<UIDocument>(FindObjectsSortMode.None)) {
-                    _subtitle = document.rootVisualElement.Q<Label>("subtitleText"); if (_subtitle != null) break;
-                }
-                frame.subtitle = _subtitle?.text ?? "";
+                _connection ??= FindFirstObjectByType<AvatarControlConnection>();
+                frame.subtitle = _connection != null ? _connection.CurrentSubtitle : "";
                 var texture = ScreenCapture.CaptureScreenshotAsTexture();
                 File.WriteAllBytes(Path.Combine(_directory, frame.file), texture.EncodeToJPG(85));
                 Destroy(texture);

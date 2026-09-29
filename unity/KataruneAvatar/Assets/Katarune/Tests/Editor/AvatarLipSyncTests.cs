@@ -14,7 +14,7 @@ namespace Katarune.Avatar.Tests
             model.SetManualVisemes(new AvatarVisemeWeights(1, 0, 0, 0, 0));
             model.Tick(.1f, UnityEngine.Vector2.zero);
             Assert.That(model.CurrentFrame.Aa, Is.GreaterThan(0));
-            model.SetManualVisemes(default(AvatarVisemeWeights));
+            model.SetManualVisemes(default(AvatarVisemeWeights), immediate: true);
             Assert.That(model.CurrentFrame.Aa, Is.Zero);
             Assert.That(model.Affect, Is.EqualTo(AvatarAffectPreset.Happy));
         }

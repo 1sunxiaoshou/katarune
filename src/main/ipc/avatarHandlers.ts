@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, webContents } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import {
   AVATAR_CHANNELS,
   avatarBindingSchema,
@@ -10,20 +10,21 @@ import {
 import type { AvatarService } from "../avatar/avatarService";
 import type { DatabaseRuntime } from "../database/database";
 
+let chatWindow: BrowserWindow | undefined;
+export function setAvatarChatWindow(window: BrowserWindow): void { chatWindow = window; }
+
 export function registerAvatarHandlers(
   avatar: AvatarService,
   database: DatabaseRuntime,
 ): void {
   avatar.onOpenChat = () => {
-    const window = BrowserWindow.getAllWindows()[0];
-    if (!window) return;
+    const window = chatWindow;
+    if (!window || window.isDestroyed()) return;
     if (window.isMinimized()) window.restore();
     window.show(); window.focus();
   };
   avatar.subscribe(status => {
-    for (const contents of webContents.getAllWebContents()) {
-      if (!contents.isDestroyed()) contents.send(AVATAR_CHANNELS.changed, status);
-    }
+    if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send(AVATAR_CHANNELS.changed, status);
   });
   ipcMain.handle(AVATAR_CHANNELS.start, async (_event, value: unknown) => {
     const binding = avatarBindingSchema.parse(value);

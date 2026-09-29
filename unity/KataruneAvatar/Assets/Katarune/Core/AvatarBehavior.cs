@@ -91,6 +91,8 @@ namespace Katarune.Avatar
         private const float BlinkOpeningSeconds = 0.11f;
         private const float DoubleBlinkPauseSeconds = 0.09f;
         private const float ExpressionResponseSeconds = 0.12f;
+        private const float MouthOpeningSeconds = 0.08f;
+        private const float MouthClosingSeconds = 0.12f;
 
         private readonly IAvatarRandom _random;
         private readonly HeadEyeGazeProfile _gazeProfile;
@@ -142,24 +144,27 @@ namespace Katarune.Avatar
             PointerGazeTrackingEnabled = settings.PointerGazeTrackingEnabled;
         }
 
-        public void SetManualVisemes(float aa, float ih, float ou, float ee, float oh)
+        public void SetManualVisemes(float aa, float ih, float ou, float ee, float oh, bool immediate = false)
         {
             _manualMouth[0] = Mathf.Clamp01(aa);
             _manualMouth[1] = Mathf.Clamp01(ih);
             _manualMouth[2] = Mathf.Clamp01(ou);
             _manualMouth[3] = Mathf.Clamp01(ee);
             _manualMouth[4] = Mathf.Clamp01(oh);
-            // A cleared speech input is a lifecycle boundary, not an asymptotic fade.
-            if (aa == 0f && ih == 0f && ou == 0f && ee == 0f && oh == 0f)
+            if (immediate)
             {
-                Array.Clear(_mouthWeights, 0, _mouthWeights.Length);
-                _frame.Aa = _frame.Ih = _frame.Ou = _frame.Ee = _frame.Oh = 0f;
+                Array.Copy(_manualMouth, _mouthWeights, _mouthWeights.Length);
+                _frame.Aa = _mouthWeights[0];
+                _frame.Ih = _mouthWeights[1];
+                _frame.Ou = _mouthWeights[2];
+                _frame.Ee = _mouthWeights[3];
+                _frame.Oh = _mouthWeights[4];
             }
         }
 
-        public void SetManualVisemes(AvatarVisemeWeights weights)
+        public void SetManualVisemes(AvatarVisemeWeights weights, bool immediate = false)
         {
-            SetManualVisemes(weights.Aa, weights.Ih, weights.Ou, weights.Ee, weights.Oh);
+            SetManualVisemes(weights.Aa, weights.Ih, weights.Ou, weights.Ee, weights.Oh, immediate);
         }
 
         public void RequestBlink()
@@ -302,7 +307,15 @@ namespace Katarune.Avatar
         {
             Array.Copy(_manualMouth, _mouthTargets, _mouthTargets.Length);
 
-            var blend = 1f - Mathf.Exp(-deltaTime / 0.055f);
+            var currentOpening = 0f;
+            var targetOpening = 0f;
+            for (var index = 0; index < _mouthWeights.Length; index += 1)
+            {
+                currentOpening += _mouthWeights[index];
+                targetOpening += _mouthTargets[index];
+            }
+            var response = targetOpening < currentOpening ? MouthClosingSeconds : MouthOpeningSeconds;
+            var blend = 1f - Mathf.Exp(-deltaTime / response);
             for (var index = 0; index < _mouthWeights.Length; index += 1)
             {
                 _mouthWeights[index] = Mathf.Lerp(_mouthWeights[index], _mouthTargets[index], blend);

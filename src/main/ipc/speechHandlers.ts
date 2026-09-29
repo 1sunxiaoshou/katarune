@@ -20,6 +20,11 @@ export function registerSpeechHandlers(
   ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
     const request = speechGenerateRequestSchema.parse(value);
     const abortController = new AbortController();
+    const binding = request.threadId ? { characterId: request.characterId, threadId: request.threadId } : undefined;
+    const avatarEpoch = binding ? avatar?.captureBinding(binding) : null;
+    const unsubscribeAvatar = avatarEpoch != null && binding ? avatar?.subscribe(() => {
+      if (avatar.captureBinding(binding) !== avatarEpoch) abortController.abort();
+    }) : undefined;
     const senderId = event.sender.id;
     const unregister = speechRequests.register(
       senderId,
@@ -31,7 +36,7 @@ export function registerSpeechHandlers(
     event.sender.once("destroyed", handleSenderDestroyed);
 
     try {
-      if (avatar?.status.busy) throw new Error("角色表演期间不能手动朗读。");
+      if (avatarEpoch != null && avatar?.status.busy) throw new Error("角色表演期间不能手动朗读。");
       const result = await speechService.generate(
         request.characterId,
         request.text,
@@ -44,7 +49,7 @@ export function registerSpeechHandlers(
           requestId: request.requestId,
         });
       }
-      if (request.threadId && avatar && await avatar.playSpeech(
+      if (request.threadId && avatar && avatarEpoch != null && await avatar.playSpeech(
         { characterId: request.characterId, threadId: request.threadId },
         result,
         abortController.signal,
@@ -52,6 +57,7 @@ export function registerSpeechHandlers(
           if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.speechStarted,
             speechCancelRequestSchema.parse({ requestId: request.requestId }));
         },
+        avatarEpoch,
       )) {
         return speechGenerateResponseSchema.parse({ status: "played", requestId: request.requestId });
       }
@@ -84,6 +90,7 @@ export function registerSpeechHandlers(
         message: publicError.message,
       });
     } finally {
+      unsubscribeAvatar?.();
       unregister();
       event.sender.removeListener("destroyed", handleSenderDestroyed);
     }

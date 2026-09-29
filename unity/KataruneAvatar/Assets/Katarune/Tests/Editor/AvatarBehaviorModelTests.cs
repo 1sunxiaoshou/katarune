@@ -181,7 +181,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(frame.Ih, Is.LessThan(0.001f));
 
             model.SetManualVisemes(default(AvatarVisemeWeights));
-            Assert.That(SumMouth(model.Tick(0.5f, Vector2.zero)), Is.LessThan(0.001f));
+            Assert.That(SumMouth(model.Tick(0.9f, Vector2.zero)), Is.LessThan(0.001f));
         }
 
         [Test]

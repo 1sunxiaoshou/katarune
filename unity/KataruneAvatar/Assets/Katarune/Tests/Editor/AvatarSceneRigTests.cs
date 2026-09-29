@@ -44,8 +44,6 @@ namespace Katarune.Avatar.Tests
                 var state = rig.CaptureFraming();
                 var viewportBounds = AvatarSceneRig.GetViewportBounds(camera, bounds);
 
-                Assert.That(state.ZoomMagnification, Is.EqualTo(3f / 5f).Within(0.0001f));
-                Assert.That(state.TargetZoomMagnification, Is.EqualTo(3f / 5f).Within(0.0001f));
                 Assert.That(viewportBounds.yMin, Is.EqualTo(0.08f).Within(0.001f));
                 Assert.That(viewportBounds.xMax, Is.EqualTo(0.92f).Within(0.001f));
                 Assert.That(state.ShowcaseAvatar.localScale, Is.EqualTo(new Vector3(0.8f, 2f, 0.6f)));
@@ -276,117 +274,6 @@ namespace Katarune.Avatar.Tests
                 Assert.That(state.TargetShowcaseYaw, Is.EqualTo(yawDelta).Within(0.0001f));
                 Assert.That(Mathf.Sign(state.ShowcaseYaw), Is.EqualTo(expectedDirection));
                 Assert.That(Mathf.Sign(state.ShowcaseYawVelocity), Is.EqualTo(expectedDirection));
-            }
-            finally
-            {
-                Object.DestroyImmediate(avatar);
-                Object.DestroyImmediate(cameraObject);
-            }
-        }
-
-        [Test]
-        public void ShowcaseZoomChangesOnlyProjectionMagnificationAroundTheFixedTarget()
-        {
-            var cameraObject = new GameObject("Showcase Zoom Camera") { tag = "MainCamera" };
-            var camera = cameraObject.AddComponent<Camera>();
-            var rig = cameraObject.AddComponent<AvatarSceneRig>();
-            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            avatar.transform.position = new Vector3(3f, 0f, -2f);
-            avatar.transform.localScale = new Vector3(0.8f, 2f, 0.6f);
-
-            try
-            {
-                rig.Configure(true);
-                rig.Frame(avatar);
-                var before = rig.CaptureFraming();
-                var targetViewportBefore = camera.WorldToViewportPoint(before.FramingTarget);
-
-                rig.ApplyZoomSteps(2f);
-                var queued = rig.CaptureFraming();
-                rig.AdvanceShowcaseMotion(1f / 60f);
-                var zooming = rig.CaptureFraming();
-                var targetViewportAfter = camera.WorldToViewportPoint(zooming.FramingTarget);
-
-                Assert.That(queued.TargetZoomMagnification, Is.GreaterThan(before.ZoomMagnification));
-                Assert.That(queued.ZoomMagnification, Is.EqualTo(before.ZoomMagnification));
-                Assert.That(zooming.ZoomMagnification, Is.GreaterThan(before.ZoomMagnification));
-                Assert.That(zooming.ZoomMagnification, Is.LessThan(queued.TargetZoomMagnification));
-                Assert.That(zooming.CameraPosition, Is.EqualTo(before.CameraPosition));
-                Assert.That(zooming.CameraRotation, Is.EqualTo(before.CameraRotation));
-                Assert.That(zooming.CameraLensShift, Is.EqualTo(before.CameraLensShift));
-                Assert.That(zooming.CameraFieldOfView, Is.LessThan(before.CameraFieldOfView));
-                Assert.That(targetViewportAfter.x, Is.EqualTo(targetViewportBefore.x).Within(0.0001f));
-                Assert.That(targetViewportAfter.y, Is.EqualTo(targetViewportBefore.y).Within(0.0001f));
-                Assert.That(zooming.ShowcasePosition, Is.EqualTo(Vector3.zero));
-            }
-            finally
-            {
-                Object.DestroyImmediate(avatar);
-                Object.DestroyImmediate(cameraObject);
-            }
-        }
-
-        [Test]
-        public void ShowcaseCompositionPanChangesOnlyScreenSpaceProjection()
-        {
-            var cameraObject = new GameObject("Showcase Composition Camera") { tag = "MainCamera" };
-            var camera = cameraObject.AddComponent<Camera>();
-            var rig = cameraObject.AddComponent<AvatarSceneRig>();
-            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            avatar.transform.localScale = new Vector3(0.8f, 2f, 0.6f);
-
-            try
-            {
-                rig.Configure(true);
-                rig.Frame(avatar);
-                var before = rig.CaptureFraming();
-                var targetViewportBefore = camera.WorldToViewportPoint(before.FramingTarget);
-
-                rig.ApplyCompositionPanDelta(
-                    new Vector2(20f, -100f),
-                    new Vector2(1000f, 500f));
-                var queued = rig.CaptureFraming();
-                rig.AdvanceShowcaseMotion(1f / 60f);
-                var panning = rig.CaptureFraming();
-
-                Assert.That(queued.TargetCompositionOffsetViewport.x, Is.EqualTo(0.02f).Within(0.0001f));
-                Assert.That(queued.TargetCompositionOffsetViewport.y, Is.EqualTo(-0.2f).Within(0.0001f));
-                Assert.That(queued.CompositionOffsetViewport, Is.EqualTo(Vector2.zero));
-                Assert.That(panning.CompositionOffsetViewport.x, Is.GreaterThan(0f).And.LessThan(0.02f));
-                Assert.That(panning.CompositionOffsetViewport.y, Is.LessThan(0f).And.GreaterThan(-0.2f));
-                Assert.That(
-                    camera.lensShift.x,
-                    Is.EqualTo(panning.FixedLensShift.x - panning.CompositionOffsetViewport.x)
-                        .Within(0.0001f));
-                Assert.That(
-                    camera.lensShift.y,
-                    Is.EqualTo(panning.FixedLensShift.y - panning.CompositionOffsetViewport.y)
-                        .Within(0.0001f));
-                Assert.That(panning.CameraPosition, Is.EqualTo(before.CameraPosition));
-                Assert.That(panning.CameraRotation, Is.EqualTo(before.CameraRotation));
-                Assert.That(panning.CameraFieldOfView, Is.EqualTo(before.CameraFieldOfView));
-                Assert.That(panning.ShowcasePosition, Is.EqualTo(before.ShowcasePosition));
-                Assert.That(panning.ShowcaseRotation, Is.EqualTo(before.ShowcaseRotation));
-
-                rig.ApplyCompositionPanDelta(
-                    new Vector2(10000f, 10000f),
-                    new Vector2(1000f, 500f));
-                var limited = rig.CaptureFraming();
-                var baseViewportCenter = new Vector2(
-                    0.5f - limited.FixedLensShift.x,
-                    0.5f - limited.FixedLensShift.y);
-                var limitedViewportCenter =
-                    baseViewportCenter + limited.TargetCompositionOffsetViewport;
-                Assert.That(limitedViewportCenter.x, Is.EqualTo(0.92f).Within(0.0001f));
-                Assert.That(limitedViewportCenter.y, Is.EqualTo(0.92f).Within(0.0001f));
-
-                rig.ResetCharacterShowcaseView();
-                var reset = rig.CaptureFraming();
-                var targetViewportReset = camera.WorldToViewportPoint(reset.FramingTarget);
-                Assert.That(reset.CompositionOffsetViewport, Is.EqualTo(Vector2.zero));
-                Assert.That(reset.TargetCompositionOffsetViewport, Is.EqualTo(Vector2.zero));
-                Assert.That(targetViewportReset.x, Is.EqualTo(targetViewportBefore.x).Within(0.0001f));
-                Assert.That(targetViewportReset.y, Is.EqualTo(targetViewportBefore.y).Within(0.0001f));
             }
             finally
             {

@@ -21,11 +21,6 @@ namespace Katarune.Avatar
         private const float VerticalRotationSmoothTimeSeconds = 0.08f;
         private const float MinimumShowcasePitchDegrees = -45f;
         private const float MaximumShowcasePitchDegrees = 45f;
-        private const float ZoomExponentPerScrollStep = 0.16f;
-        private const float ZoomSmoothTimeSeconds = 0.14f;
-        private const float CompositionPanSmoothTimeSeconds = 0.08f;
-        private const float MinimumCompositionViewportCoordinate = 0.08f;
-        private const float MaximumCompositionViewportCoordinate = 0.92f;
         private const float MinimumZoomMagnification = 1f / 3f;
         private const float MaximumZoomMagnification = 1f / 0.35f;
 
@@ -42,7 +37,6 @@ namespace Katarune.Avatar
         private Bounds _framedBounds;
         private bool _hasFramedBounds;
         private Vector2Int _lastScreenSize;
-        private Func<Vector2, bool> _manualInputBlocker;
         private Transform _showcaseAvatar;
         private Vector3 _showcaseBasePosition;
         private Quaternion _showcaseBaseRotation;
@@ -50,9 +44,6 @@ namespace Katarune.Avatar
         private Vector3 _fixedCameraPosition;
         private Quaternion _fixedCameraRotation;
         private Vector2 _fixedLensShift;
-        private Vector2 _compositionOffsetViewport;
-        private Vector2 _targetCompositionOffsetViewport;
-        private Vector2 _compositionOffsetVelocity;
         private float _showcaseYaw;
         private float _targetShowcaseYaw;
         private float _showcaseYawVelocity;
@@ -61,20 +52,31 @@ namespace Katarune.Avatar
         private float _showcasePitch;
         private float _targetShowcasePitch;
         private float _showcasePitchVelocity;
-        private float _zoomMagnification = 1f;
-        private float _targetZoomMagnification = 1f;
-        private float _zoomMagnificationVelocity;
         private bool _isDragging;
-        private bool _isCompositionPanning;
         private Vector2 _previousPointerPosition;
         private bool _transparent;
         private float _baseVerticalFieldOfViewDegrees;
+        private float _desktopFieldOfViewDegrees;
+
+        private AvatarWindow _desktopWindow;
+        public Vector2 ReferenceWindowSize { get; private set; } = new Vector2(0.3f, 0.8f);
+        internal float DesktopYaw => _targetShowcaseYaw;
+        internal float DesktopPitch => _targetShowcasePitch;
+        internal void SetDesktopPose(float yaw, float pitch)
+        {
+            EndShowcaseDrag(preserveInertia: false);
+            _showcaseYaw = _targetShowcaseYaw = yaw;
+            _showcasePitch = _targetShowcasePitch = Mathf.Clamp(pitch, -45f, 45f);
+            _showcaseYawVelocity = _showcasePitchVelocity = _inertialYawVelocity = 0;
+            ApplyShowcaseRotation();
+        }
 
         public bool CharacterShowcaseControlEnabled { get; private set; }
 
         public void Configure(bool transparent)
         {
             _transparent = transparent;
+            if (transparent && !Application.isEditor) _desktopWindow = FindFirstObjectByType<AvatarWindow>();
             _camera = GetComponent<Camera>();
             if (_camera == null)
             {
@@ -99,33 +101,18 @@ namespace Katarune.Avatar
             ApplyOpaqueBackdrop();
         }
 
-        internal void SetManualInputBlocker(Func<Vector2, bool> inputBlocker)
-        {
-            _manualInputBlocker = inputBlocker;
-        }
-
         public void SetCharacterShowcaseControlEnabled(bool enabled)
         {
             CharacterShowcaseControlEnabled = enabled;
             if (!enabled)
             {
                 EndShowcaseDrag(preserveInertia: false);
-                EndCompositionPan();
                 _targetShowcaseYaw = _showcaseYaw;
                 _showcaseYawVelocity = 0f;
                 _inertialYawVelocity = 0f;
                 _targetShowcasePitch = _showcasePitch;
                 _showcasePitchVelocity = 0f;
-                _targetZoomMagnification = _zoomMagnification;
-                _zoomMagnificationVelocity = 0f;
-                _targetCompositionOffsetViewport = _compositionOffsetViewport;
-                _compositionOffsetVelocity = Vector2.zero;
             }
-        }
-
-        public void ResetCharacterShowcaseView()
-        {
-            if (_hasFramedBounds && _camera != null) ApplyFraming(_framedBounds, resetAvatar: true);
         }
 
         public Bounds Frame(GameObject avatar)
@@ -159,9 +146,6 @@ namespace Katarune.Avatar
                 _fixedCameraPosition,
                 _fixedCameraRotation,
                 _fixedLensShift,
-                _compositionOffsetViewport,
-                _targetCompositionOffsetViewport,
-                _compositionOffsetVelocity,
                 _showcaseYaw,
                 _targetShowcaseYaw,
                 _showcaseYawVelocity,
@@ -169,10 +153,8 @@ namespace Katarune.Avatar
                 _showcasePitch,
                 _targetShowcasePitch,
                 _showcasePitchVelocity,
-                _zoomMagnification,
-                _targetZoomMagnification,
-                _zoomMagnificationVelocity,
                 _camera != null ? _camera.fieldOfView : _baseVerticalFieldOfViewDegrees,
+                ReferenceWindowSize,
                 _floor != null && _floor.activeSelf,
                 _floor != null ? _floor.transform.position : Vector3.zero,
                 _floor != null ? _floor.transform.localScale : Vector3.one);
@@ -181,7 +163,7 @@ namespace Katarune.Avatar
         internal void RestoreFraming(AvatarFramingState state)
         {
             EndShowcaseDrag(preserveInertia: false);
-            EndCompositionPan();
+            ReferenceWindowSize = state.ReferenceWindowSize;
             _hasFramedBounds = state.HasBounds;
             _framedBounds = state.Bounds;
             CharacterShowcaseControlEnabled = state.CharacterShowcaseControlEnabled;
@@ -192,9 +174,6 @@ namespace Katarune.Avatar
             _fixedCameraPosition = state.FixedCameraPosition;
             _fixedCameraRotation = state.FixedCameraRotation;
             _fixedLensShift = state.FixedLensShift;
-            _compositionOffsetViewport = state.CompositionOffsetViewport;
-            _targetCompositionOffsetViewport = state.TargetCompositionOffsetViewport;
-            _compositionOffsetVelocity = state.CompositionOffsetVelocity;
             _showcaseYaw = state.ShowcaseYaw;
             _targetShowcaseYaw = state.TargetShowcaseYaw;
             _showcaseYawVelocity = state.ShowcaseYawVelocity;
@@ -202,9 +181,6 @@ namespace Katarune.Avatar
             _showcasePitch = state.ShowcasePitch;
             _targetShowcasePitch = state.TargetShowcasePitch;
             _showcasePitchVelocity = state.ShowcasePitchVelocity;
-            _zoomMagnification = state.ZoomMagnification;
-            _targetZoomMagnification = state.TargetZoomMagnification;
-            _zoomMagnificationVelocity = state.ZoomMagnificationVelocity;
             if (_showcaseAvatar != null)
             {
                 _showcaseAvatar.SetPositionAndRotation(state.ShowcasePosition, state.ShowcaseRotation);
@@ -214,6 +190,7 @@ namespace Katarune.Avatar
                 _camera.transform.SetPositionAndRotation(state.CameraPosition, state.CameraRotation);
                 _camera.lensShift = state.CameraLensShift;
                 _camera.fieldOfView = state.CameraFieldOfView;
+                _desktopFieldOfViewDegrees = state.CameraFieldOfView;
             }
             if (_floor != null)
             {
@@ -249,7 +226,6 @@ namespace Katarune.Avatar
             _hasFramedBounds = false;
             _showcaseAvatar = null;
             EndShowcaseDrag(preserveInertia: false);
-            EndCompositionPan();
             if (_floor != null) _floor.SetActive(false);
         }
 
@@ -260,6 +236,7 @@ namespace Katarune.Avatar
         {
             if (camera == null) throw new ArgumentNullException(nameof(camera));
             aspect = Mathf.Max(0.1f, aspect);
+            camera.aspect = aspect;
             camera.usePhysicalProperties = true;
             camera.gateFit = Camera.GateFitMode.None;
             camera.sensorSize = new Vector2(PhysicalSensorHeightMillimeters * aspect, PhysicalSensorHeightMillimeters);
@@ -279,7 +256,6 @@ namespace Katarune.Avatar
             if (!_hasFramedBounds || _camera == null || _showcaseAvatar == null)
             {
                 EndShowcaseDrag(preserveInertia: false);
-                EndCompositionPan();
                 return;
             }
 
@@ -291,9 +267,12 @@ namespace Katarune.Avatar
         {
             if (!_hasFramedBounds || _camera == null) return;
             var screenSize = new Vector2Int(Screen.width, Screen.height);
-            if (screenSize == _lastScreenSize) return;
-            ApplyFixedCompositionAndCameraPose();
-            _lastScreenSize = screenSize;
+            if (screenSize != _lastScreenSize)
+            {
+                if (_desktopWindow != null) ApplyDesktopProjection();
+                else ApplyFixedCompositionAndCameraPose();
+                _lastScreenSize = screenSize;
+            }
         }
 
         private void ReadShowcaseInput()
@@ -313,33 +292,7 @@ namespace Katarune.Avatar
                     ApplyPitchDelta(GetPitchDeltaFromPointerDelta(delta.y));
                 }
             }
-            else if (_isCompositionPanning)
-            {
-                if (!Input.GetMouseButton(2))
-                {
-                    EndCompositionPan();
-                }
-                else
-                {
-                    var delta = mousePosition - _previousPointerPosition;
-                    _previousPointerPosition = mousePosition;
-                    ApplyCompositionPanDelta(delta, new Vector2(Screen.width, Screen.height));
-                }
-            }
-            else if (Input.GetMouseButtonDown(0))
-            {
-                BeginShowcaseDrag(mousePosition);
-            }
-            else if (Input.GetMouseButtonDown(2))
-            {
-                BeginCompositionPan(mousePosition);
-            }
-
-            var scroll = Input.mouseScrollDelta.y;
-            if (Mathf.Abs(scroll) > 0.0001f && !IsManualInputBlocked(mousePosition))
-            {
-                ApplyZoomSteps(scroll);
-            }
+            else if (Input.GetMouseButtonDown(0)) BeginShowcaseDrag(mousePosition);
         }
 
         private void ApplyFraming(Bounds bounds, bool resetAvatar)
@@ -353,12 +306,6 @@ namespace Katarune.Avatar
             _fixedCameraRotation = Quaternion.LookRotation(
                 _framingTarget - _fixedCameraPosition,
                 Vector3.up);
-            _zoomMagnification = InitialZoomMagnification;
-            _targetZoomMagnification = InitialZoomMagnification;
-            _zoomMagnificationVelocity = 0f;
-            _compositionOffsetViewport = Vector2.zero;
-            _targetCompositionOffsetViewport = Vector2.zero;
-            _compositionOffsetVelocity = Vector2.zero;
             if (resetAvatar)
             {
                 _showcaseYaw = 0f;
@@ -373,12 +320,18 @@ namespace Katarune.Avatar
             }
             ApplyFixedCompositionAndCameraPose();
             EndShowcaseDrag(preserveInertia: false);
-            EndCompositionPan();
             _lastScreenSize = new Vector2Int(Screen.width, Screen.height);
         }
 
         private void ApplyFixedCompositionAndCameraPose()
         {
+            if (_desktopWindow != null)
+            {
+                CalibrateDesktopComposition();
+                ApplyDesktopProjection();
+                ApplyShowcaseCameraPose();
+                return;
+            }
             var screenHeight = Mathf.Max(1f, Screen.height);
             var aspect = Mathf.Max(0.1f, Screen.width / screenHeight);
             ConfigurePhysicalProjection(_camera, aspect);
@@ -387,22 +340,36 @@ namespace Katarune.Avatar
                 _baseVerticalFieldOfViewDegrees,
                 InitialZoomMagnification);
             var projectedBounds = GetViewportBounds(_camera, _framedBounds);
-            var viewportDelta = new Vector2(
-                1f - RightViewportMargin - projectedBounds.xMax,
-                BottomViewportMargin - projectedBounds.yMin);
+            var viewportDelta = new Vector2(1f - RightViewportMargin - projectedBounds.xMax, BottomViewportMargin - projectedBounds.yMin);
             _camera.lensShift = -viewportDelta;
             _fixedLensShift = _camera.lensShift;
-            _compositionOffsetViewport = ClampCompositionOffset(_compositionOffsetViewport);
-            _targetCompositionOffsetViewport = ClampCompositionOffset(_targetCompositionOffsetViewport);
-            ApplyProjection();
         }
 
-        private void ApplyProjection()
+        private void CalibrateDesktopComposition()
         {
-            _camera.fieldOfView = GetFieldOfViewForMagnification(
-                _baseVerticalFieldOfViewDegrees,
-                _zoomMagnification);
-            _camera.lensShift = _fixedLensShift - _compositionOffsetViewport;
+            // Model framing owns the projection. Resizing its window never refits the model.
+            var referenceOffset = Quaternion.AngleAxis(-4f, Vector3.right) * (_fixedCameraPosition - _framingTarget);
+            _camera.transform.SetPositionAndRotation(_framingTarget + referenceOffset, Quaternion.LookRotation(-referenceOffset, Vector3.up));
+            ConfigurePhysicalProjection(_camera, 1920f / 1080f);
+            _camera.fieldOfView = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees, 0.7f);
+            var reference = GetViewportBounds(_camera, _framedBounds);
+            ReferenceWindowSize = new Vector2(reference.width / 0.8f, reference.height / 0.8f);
+
+            var referenceAspect = ReferenceWindowSize.x * 1920f / (ReferenceWindowSize.y * 1080f);
+            ConfigurePhysicalProjection(_camera, referenceAspect);
+            _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
+            var fit = GetViewportBounds(_camera, _framedBounds);
+            _desktopFieldOfViewDegrees = GetFieldOfViewForMagnification(_baseVerticalFieldOfViewDegrees,
+                0.8f / Mathf.Max(fit.width, fit.height));
+            _fixedLensShift = Vector2.zero;
+        }
+
+        private void ApplyDesktopProjection()
+        {
+            // Follow the actual render viewport, including startup and DPI changes, without
+            // deriving a new zoom or camera pose from a transient native window size.
+            ConfigurePhysicalProjection(_camera, Screen.width / Mathf.Max(1f, Screen.height));
+            _camera.fieldOfView = _desktopFieldOfViewDegrees;
         }
 
         internal static float GetFieldOfViewForMagnification(float baseFieldOfViewDegrees, float magnification)
@@ -479,46 +446,6 @@ namespace Katarune.Avatar
             return -pointerDeltaY * VerticalRotationDegreesPerPixel;
         }
 
-        internal void ApplyZoomSteps(float scrollSteps)
-        {
-            if (!_hasFramedBounds || _camera == null) return;
-            _targetZoomMagnification = Mathf.Clamp(
-                _targetZoomMagnification * Mathf.Exp(scrollSteps * ZoomExponentPerScrollStep),
-                MinimumZoomMagnification,
-                MaximumZoomMagnification);
-        }
-
-        internal void ApplyCompositionPanDelta(Vector2 pointerDelta, Vector2 viewportSize)
-        {
-            if (!_hasFramedBounds || _camera == null) return;
-            var safeViewportSize = new Vector2(
-                Mathf.Max(1f, viewportSize.x),
-                Mathf.Max(1f, viewportSize.y));
-            var viewportDelta = new Vector2(
-                pointerDelta.x / safeViewportSize.x,
-                pointerDelta.y / safeViewportSize.y);
-            _targetCompositionOffsetViewport = ClampCompositionOffset(
-                _targetCompositionOffsetViewport + viewportDelta);
-        }
-
-        private Vector2 ClampCompositionOffset(Vector2 offset)
-        {
-            var baseViewportCenter = new Vector2(
-                0.5f - _fixedLensShift.x,
-                0.5f - _fixedLensShift.y);
-            var desiredViewportCenter = baseViewportCenter + offset;
-            var clampedViewportCenter = new Vector2(
-                Mathf.Clamp(
-                    desiredViewportCenter.x,
-                    MinimumCompositionViewportCoordinate,
-                    MaximumCompositionViewportCoordinate),
-                Mathf.Clamp(
-                    desiredViewportCenter.y,
-                    MinimumCompositionViewportCoordinate,
-                    MaximumCompositionViewportCoordinate));
-            return clampedViewportCenter - baseViewportCenter;
-        }
-
         internal void AdvanceShowcaseMotion(float deltaTime)
         {
             if (!_hasFramedBounds || _camera == null || _showcaseAvatar == null || deltaTime <= 0f) return;
@@ -549,23 +476,8 @@ namespace Katarune.Avatar
                 VerticalRotationSmoothTimeSeconds,
                 Mathf.Infinity,
                 deltaTime);
-            _zoomMagnification = Mathf.SmoothDamp(
-                _zoomMagnification,
-                _targetZoomMagnification,
-                ref _zoomMagnificationVelocity,
-                ZoomSmoothTimeSeconds,
-                Mathf.Infinity,
-                deltaTime);
-            _compositionOffsetViewport = Vector2.SmoothDamp(
-                _compositionOffsetViewport,
-                _targetCompositionOffsetViewport,
-                ref _compositionOffsetVelocity,
-                CompositionPanSmoothTimeSeconds,
-                Mathf.Infinity,
-                deltaTime);
             ApplyShowcaseRotation();
             ApplyShowcaseCameraPose();
-            ApplyProjection();
         }
 
         private void ApplyShowcaseRotation()
@@ -591,29 +503,10 @@ namespace Katarune.Avatar
 
         private void BeginShowcaseDrag(Vector2 mousePosition)
         {
-            if (IsManualInputBlocked(mousePosition)) return;
             _isDragging = true;
             _previousPointerPosition = mousePosition;
             _filteredDragVelocity = 0f;
             _inertialYawVelocity = 0f;
-        }
-
-        private bool IsManualInputBlocked(Vector2 mousePosition)
-        {
-            return _manualInputBlocker?.Invoke(mousePosition) ?? false;
-        }
-
-        private void BeginCompositionPan(Vector2 mousePosition)
-        {
-            if (IsManualInputBlocked(mousePosition)) return;
-            _isCompositionPanning = true;
-            _previousPointerPosition = mousePosition;
-            _compositionOffsetVelocity = Vector2.zero;
-        }
-
-        private void EndCompositionPan()
-        {
-            _isCompositionPanning = false;
         }
 
         private void EndShowcaseDrag(bool preserveInertia)
@@ -682,9 +575,6 @@ namespace Katarune.Avatar
                 Vector3 fixedCameraPosition,
                 Quaternion fixedCameraRotation,
                 Vector2 fixedLensShift,
-                Vector2 compositionOffsetViewport,
-                Vector2 targetCompositionOffsetViewport,
-                Vector2 compositionOffsetVelocity,
                 float showcaseYaw,
                 float targetShowcaseYaw,
                 float showcaseYawVelocity,
@@ -692,10 +582,8 @@ namespace Katarune.Avatar
                 float showcasePitch,
                 float targetShowcasePitch,
                 float showcasePitchVelocity,
-                float zoomMagnification,
-                float targetZoomMagnification,
-                float zoomMagnificationVelocity,
                 float cameraFieldOfView,
+                Vector2 referenceWindowSize,
                 bool floorActive,
                 Vector3 floorPosition,
                 Vector3 floorScale)
@@ -715,9 +603,6 @@ namespace Katarune.Avatar
                 FixedCameraPosition = fixedCameraPosition;
                 FixedCameraRotation = fixedCameraRotation;
                 FixedLensShift = fixedLensShift;
-                CompositionOffsetViewport = compositionOffsetViewport;
-                TargetCompositionOffsetViewport = targetCompositionOffsetViewport;
-                CompositionOffsetVelocity = compositionOffsetVelocity;
                 ShowcaseYaw = showcaseYaw;
                 TargetShowcaseYaw = targetShowcaseYaw;
                 ShowcaseYawVelocity = showcaseYawVelocity;
@@ -725,10 +610,8 @@ namespace Katarune.Avatar
                 ShowcasePitch = showcasePitch;
                 TargetShowcasePitch = targetShowcasePitch;
                 ShowcasePitchVelocity = showcasePitchVelocity;
-                ZoomMagnification = zoomMagnification;
-                TargetZoomMagnification = targetZoomMagnification;
-                ZoomMagnificationVelocity = zoomMagnificationVelocity;
                 CameraFieldOfView = cameraFieldOfView;
+                ReferenceWindowSize = referenceWindowSize;
                 FloorActive = floorActive;
                 FloorPosition = floorPosition;
                 FloorScale = floorScale;
@@ -749,9 +632,6 @@ namespace Katarune.Avatar
             public Vector3 FixedCameraPosition { get; }
             public Quaternion FixedCameraRotation { get; }
             public Vector2 FixedLensShift { get; }
-            public Vector2 CompositionOffsetViewport { get; }
-            public Vector2 TargetCompositionOffsetViewport { get; }
-            public Vector2 CompositionOffsetVelocity { get; }
             public float ShowcaseYaw { get; }
             public float TargetShowcaseYaw { get; }
             public float ShowcaseYawVelocity { get; }
@@ -759,10 +639,8 @@ namespace Katarune.Avatar
             public float ShowcasePitch { get; }
             public float TargetShowcasePitch { get; }
             public float ShowcasePitchVelocity { get; }
-            public float ZoomMagnification { get; }
-            public float TargetZoomMagnification { get; }
-            public float ZoomMagnificationVelocity { get; }
             public float CameraFieldOfView { get; }
+            public Vector2 ReferenceWindowSize { get; }
             public bool FloorActive { get; }
             public Vector3 FloorPosition { get; }
             public Vector3 FloorScale { get; }

@@ -138,7 +138,7 @@ class VoiceSession {
   }
   private busy() {
     const avatar = useAvatarState.getState();
-    return !!avatar.status.busy || this.target.state().busy || Object.values(avatar.queued).some(count => count > 0);
+    return !!avatar.status.busy || this.target.state().busy || (avatar.queued[this.binding.threadId] ?? 0) > 0;
   }
   reconcile() {
     if (this.closed) return;

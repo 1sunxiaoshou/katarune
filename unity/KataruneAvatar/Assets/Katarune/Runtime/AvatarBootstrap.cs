@@ -14,7 +14,6 @@ namespace Katarune.Avatar
         private AvatarMotionController _motions;
         private AvatarRuntimeSession _session;
         private AvatarRuntimeFacade _facade;
-        private AvatarHudController _hud;
         private AvatarWindow _avatarWindow;
         private AvatarSpeechPlayer _speech;
         private bool _captureStarted;
@@ -22,7 +21,6 @@ namespace Katarune.Avatar
         private bool _quitRequested;
 
         public IAvatarRuntimeFacade Runtime => _facade;
-        public AvatarHudController Hud => _hud;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Initialize()
@@ -87,41 +85,9 @@ namespace Katarune.Avatar
                 var speechCapture = Environment.GetEnvironmentVariable("KATARUNE_SPEECH_CAPTURE");
                 if (!string.IsNullOrWhiteSpace(speechCapture))
                     _speech.gameObject.AddComponent<AvatarSpeechCapture>().Configure(speechCapture, _facade, _speech);
-                var hudPrefab = Resources.Load<GameObject>("AvatarHud");
-                if (hudPrefab == null)
-                {
-                    throw new InvalidOperationException("AvatarHud prefab is missing from Resources.");
-                }
-                var hudObject = Instantiate(hudPrefab, transform);
-                hudObject.name = "Avatar HUD";
-                _hud = hudObject.GetComponent<AvatarHudController>();
-                if (_hud == null)
-                {
-                    throw new InvalidOperationException("AvatarHud prefab has no AvatarHudController.");
-                }
-                var pointerSource = AvatarPointerPositionSource.CreateDefault();
-                _hud.Configure(
-                    _facade,
-                    new AvatarVrmFilePicker(),
-                    string.IsNullOrWhiteSpace(_options.ScreenshotPath),
-                    pointerSource);
-                if (!string.IsNullOrEmpty(_motions.PackDiagnostics)) _hud.ShowNotice(_motions.PackDiagnostics);
-                _sceneRig.SetManualInputBlocker(_hud.IsScreenPositionOverInteractiveControl);
-                _hud.CharacterShowcaseControlChanged += HandleCharacterShowcaseControlChanged;
-                _hud.SetLocalShortcutEnabled(Application.isEditor || _avatarWindow == null);
-                if (_avatarWindow != null)
-                {
-                    _avatarWindow.BindHud(_hud.RootElement, pointerSource);
-                    _avatarWindow.HudToggleRequested += _hud.ToggleVisible;
-                    _hud.VisibilityChanged += _avatarWindow.SetHudVisible;
-                    _hud.PointerInteractionChanged += _avatarWindow.SetHudPointerInteractionActive;
-                    _avatarWindow.SetHudVisible(_hud.Visible);
-                }
-
                 var controlPipe = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_PIPE");
                 if (!string.IsNullOrWhiteSpace(controlPipe))
-                    gameObject.AddComponent<AvatarControlConnection>().Configure(
-                        _facade, hudObject.GetComponent<UnityEngine.UIElements.UIDocument>(), controlPipe, _speech);
+                    gameObject.AddComponent<AvatarControlConnection>().Configure(_facade, controlPipe, _speech);
 
                 var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
                 if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
@@ -200,24 +166,8 @@ namespace Katarune.Avatar
             return File.Exists(localDefaultPath) ? localDefaultPath : null;
         }
 
-        private void HandleCharacterShowcaseControlChanged(bool enabled)
-        {
-            _sceneRig?.SetCharacterShowcaseControlEnabled(enabled);
-            _avatarWindow?.SetCharacterShowcaseInteractionActive(enabled);
-        }
-
         private void OnDestroy()
         {
-            if (_hud != null)
-            {
-                _hud.CharacterShowcaseControlChanged -= HandleCharacterShowcaseControlChanged;
-            }
-            if (_avatarWindow != null && _hud != null)
-            {
-                _avatarWindow.HudToggleRequested -= _hud.ToggleVisible;
-                _hud.VisibilityChanged -= _avatarWindow.SetHudVisible;
-                _hud.PointerInteractionChanged -= _avatarWindow.SetHudPointerInteractionActive;
-            }
             _speech?.Release();
             _facade?.Dispose();
             _facade = null;

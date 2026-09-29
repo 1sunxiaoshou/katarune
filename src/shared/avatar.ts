@@ -1,3 +1,4 @@
+import { avatarPresentationSchema, avatarWindowReportSchema, avatarSubtitleSchema } from "./avatarDesktop";
 import * as z from "zod/mini";
 
 export const avatarBindingSchema = z.object({
@@ -7,7 +8,7 @@ export const avatarBindingSchema = z.object({
 export type AvatarBinding = z.infer<typeof avatarBindingSchema>;
 export const avatarStatusSchema = z.object({
   busy: z.optional(z.boolean()),
-  phase: z.enum(["stopped", "starting", "ready", "error"]),
+  phase: z.enum(["stopped", "starting", "switching", "ready", "error"]),
   binding: z.nullable(avatarBindingSchema),
   error: z.nullable(z.string()),
   voice: z.optional(z.object({
@@ -50,14 +51,14 @@ export const avatarCapabilitiesSchema = z.object({
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
+  avatarPresentationSchema, avatarWindowReportSchema, avatarSubtitleSchema,
   z.object({ type: z.literal("startup-error"), error: z.string().check(z.minLength(1), z.maxLength(4000)) }),
-  z.object({ type: z.literal("voice-command"), enabled: z.boolean() }),
-  z.object({ type: z.literal("open-chat") }),
   z.object({ type: z.literal("playback"), runId: z.string(), active: z.boolean(),
     state: z.enum(["playing", "paused", "completed", "interrupted"]) }),
   z.object({
     type: z.literal("speech"),
     id: z.uuid(),
+    runId: z.optional(z.nullable(z.string())),
     status: z.enum(["started", "completed", "cancelled", "failed"]),
     error: z.optional(z.nullable(z.string())),
   }),

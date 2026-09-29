@@ -1,0 +1,229 @@
+html,
+body,
+#root {
+  background: transparent !important;
+  min-width: 0 !important;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  user-select: none;
+}
+.capsule {
+  box-sizing: border-box;
+  width: 220px;
+  height: 44px;
+  margin: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border-radius: 24px;
+  background: var(--background);
+  color: var(--foreground);
+  border: none;
+  box-shadow:
+    0 1px 3px #00000010,
+    0 4px 8px #00000018;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.capsule.compact {
+  width: 100px;
+}
+.capsule button {
+  app-region: no-drag;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.capsule-extra {
+  display: flex;
+  flex: 0 0 auto;
+  width: 36px;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 100ms ease-out;
+}
+.capsule-actions {
+  width: 72px;
+}
+.compact .capsule-extra {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.capsule svg {
+  width: 16px;
+  height: 16px;
+}
+.drag-handle {
+  display: flex;
+  align-items: center;
+  width: 14px;
+  flex-shrink: 0;
+  height: 32px;
+  cursor: grab;
+  touch-action: none;
+  opacity: 0.5;
+  app-region: drag;
+}
+.desktop-panel {
+  height: calc(100% - 20px);
+  margin: 10px;
+  border: none;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 3px #00000010,
+    0 4px 8px #00000018;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 12px;
+  overflow: auto;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+}
+.desktop-panel[data-phase="open"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  animation: desktop-panel-enter 100ms ease-out both;
+}
+@keyframes desktop-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+html[data-reduce-motion] .capsule,
+html[data-reduce-motion] .capsule-extra {
+  transition: none;
+}
+html[data-reduce-motion] .desktop-panel {
+  animation: none;
+}
+.desktop-panel header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.desktop-panel header button {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.model-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.spacer {
+  flex: 1;
+}
+.expressions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.expressions.two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.expressions button {
+  font-size: 12px;
+  padding: 0 7px;
+}
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0;
+}
+.control-row > span {
+  flex-shrink: 0;
+}
+.desktop-choice-trigger {
+  width: auto;
+  min-width: 64px;
+  max-width: 190px;
+  flex: 0 1 auto;
+}
+.desktop-choice-content {
+  width: max-content;
+  min-width: var(--anchor-width);
+  max-width: min(260px, var(--available-width));
+}
+.shortcuts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 0;
+  gap: 12px;
+}
+kbd {
+  background: var(--muted);
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+}
+.desktop-error {
+  color: var(--destructive);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+.caption {
+  box-sizing: border-box;
+  margin: 4px;
+  padding: 12px 20px;
+  background: rgba(25, 25, 28, 0.92);
+  color: #fff;
+  border-radius: 18px;
+  font-size: 17px;
+  line-height: 1.65;
+  text-align: center;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 392px;
+  overflow: hidden;
+}
+.caption.user {
+  background: rgba(250, 250, 250, 0.95);
+  color: #252525;
+}
+.caption.adjusting {
+  cursor: move;
+  touch-action: none;
+  app-region: drag;
+}
+.voice {
+  position: relative;
+  display: flex;
+}
+.voice.error {
+  color: var(--destructive);
+}
+.voice-wave {
+  position: absolute;
+  inset: -6px;
+  border: 2px solid #61bba5;
+  border-radius: 50%;
+  transform: scale(calc(0.75 + var(--level) * 0.5));
+  opacity: calc(0.3 + var(--level) * 0.7);
+}

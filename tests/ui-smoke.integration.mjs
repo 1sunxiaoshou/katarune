@@ -195,10 +195,14 @@ function registerMockHandlers() {
     return { status: 'success', text, complete: !!text, speech: false };
   });
   ipcMain.handle("avatar:status", () => avatarStatus);
-  ipcMain.handle("avatar:start", (_event, binding) => avatarStatus = { phase: "ready", binding, error: null,
-    voice: { desired: true, phase: "preparing", error: null } });
-  ipcMain.handle("avatar:stop", () => avatarStatus = { phase: "stopped", binding: null, error: null,
-    voice: { desired: false, phase: "idle", error: null } });
+  ipcMain.handle("avatar:start", (event, binding) => {
+    avatarStatus = { phase: "ready", binding, error: null, voice: { desired: true, phase: "preparing", error: null } };
+    event.sender.send("avatar:changed", avatarStatus); return avatarStatus;
+  });
+  ipcMain.handle("avatar:stop", (event) => {
+    avatarStatus = { phase: "stopped", binding: null, error: null, voice: { desired: false, phase: "idle", error: null } };
+    event.sender.send("avatar:changed", avatarStatus); return avatarStatus;
+  });
   ipcMain.handle("avatar:voice-state", (event, request) => {
     if (avatarStatus.phase !== 'ready' || request.binding.threadId !== avatarStatus.binding.threadId) return;
     avatarStatus = { ...avatarStatus, voice: { desired: request.phase === 'error' ? false : avatarStatus.voice.desired,
@@ -1194,7 +1198,7 @@ async function run() {
       assert.equal(rendered.split("字幕对白第1句").length - 1, 1);
       await waitUntil("native text history persisted", () => JSON.stringify([...storedMessages.values()]).includes("字幕对白第3句"));
       await clickSelector(window, '[data-testid="avatar-toggle"]');
-      await waitForText(window, '[data-testid="avatar-toggle"]', "连接桌宠");
+      await waitForText(window, '[data-testid="avatar-toggle"]', "开启桌宠");
       await clickSelector(window, 'button[aria-label="新对话"]');
       await waitForSelector(window, ".aui-thread-welcome-root");
       await sendText("普通新会话标题");

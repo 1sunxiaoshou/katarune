@@ -1,77 +1,73 @@
 import { useAuiState } from "@assistant-ui/react";
-import { useState } from "react";
-import { ArrowLeftRightIcon, PawPrintIcon, CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { PawPrintIcon, CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { TooltipIconButton } from "../components/tooltip-icon-button";
+import { notify } from "../notifications/notificationCenter";
 import { useAvatarState } from "./avatarState";
+
+export function AvatarSessionBinding(): null {
+  const { activeCharacter } = useCharacterSession();
+  const threadId = useAuiState(s => s.threadListItem.remoteId ?? s.threadListItem.id);
+  const status = useAvatarState(s => s.status);
+  const followEnabled = useAvatarState(s => s.followEnabled);
+  const enabled = status.phase === "ready" || status.phase === "starting" || status.phase === "switching";
+  useEffect(() => {
+    if (!followEnabled || !useAvatarState.getState().followEnabled || !enabled || (status.binding?.characterId === activeCharacter.id && status.binding.threadId === threadId)) return;
+    let cancelled = false;
+    void window.katarune.startAvatar({ characterId: activeCharacter.id, threadId }).catch(error => {
+      if (!cancelled) notify({ level: "error", message: error instanceof Error ? error.message : "桌宠会话切换失败。" });
+    });
+    return () => { cancelled = true; };
+  }, [activeCharacter.id, threadId, enabled, followEnabled, status.binding]);
+  return null;
+}
 
 export function AvatarControl(): React.JSX.Element {
   const { activeCharacter } = useCharacterSession();
-  const threadId = useAuiState((s) => s.threadListItem.remoteId ?? s.threadListItem.id);
-  const running = useAuiState((s) => s.thread.isRunning);
-  const status = useAvatarState((s) => s.status);
-  const setStatus = useAvatarState((s) => s.setStatus);
+  const threadId = useAuiState(s => s.threadListItem.remoteId ?? s.threadListItem.id);
+  const status = useAvatarState(s => s.status);
   const [operation, setOperation] = useState<"connecting" | "stopping" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const bound =
-    status.binding?.characterId === activeCharacter.id &&
-    status.binding.threadId === threadId;
+  const alive = useRef(true);
+  const operationVersion = useRef(0);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const enabled = status.phase === "ready" || status.phase === "starting" || status.phase === "switching";
+  const disabled = operation === "stopping" || (operation === "connecting" && !enabled);
   const toggle = async () => {
-    if (operation || status.phase === "starting" || running) return;
-    setOperation(bound && status.phase === "ready" ? "stopping" : "connecting");
+    if (disabled) return;
+    const version = ++operationVersion.current;
+    useAvatarState.getState().setFollowEnabled(!enabled);
+    setOperation(enabled ? "stopping" : "connecting");
     setError(null);
     try {
-      if (bound && status.phase === "ready")
-        setStatus(await window.katarune.stopAvatar());
+      if (enabled) await window.katarune.stopAvatar();
       else {
-        setStatus(
-          await window.katarune.startAvatar({
-            characterId: activeCharacter.id,
-            threadId,
-          }),
-        );
+        await window.katarune.startAvatar({ characterId: activeCharacter.id, threadId });
       }
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "桌宠连接失败。");
-    } finally {
-      setOperation(null);
-    }
+      if (alive.current && operationVersion.current === version)
+        setError(failure instanceof Error ? failure.message : "桌宠连接失败。");
+    } finally { if (alive.current && operationVersion.current === version) setOperation(null); }
   };
-  const pending = operation !== null || status.phase === "starting";
-  const connected = bound && status.phase === "ready";
-  const elsewhere = !bound && status.phase === "ready";
+  const pending = operation !== null || status.phase === "starting" || status.phase === "switching";
   const failure = error || status.error;
-  const state = pending ? "pending" : failure ? "error" : connected ? "connected" : elsewhere ? "elsewhere" : "disconnected";
-  const label = pending
-    ? operation === "stopping" ? "正在停止桌宠…" : "正在连接桌宠…"
-    : failure ? connected ? "桌宠操作失败，点击停止桌宠" : "桌宠连接失败，点击重试"
-    : connected ? "停止桌宠"
-    : elsewhere ? "桌宠连接在其他会话，点击连接到当前会话"
-    : "连接桌宠";
-  const tooltip = [label, failure, running ? "当前回复生成中，暂时无法切换连接" : null].filter(Boolean).join("；");
-
+  const state = pending ? "pending" : failure ? "error" : enabled ? "connected" : "disconnected";
+  const label = enabled ? "停止桌宠" : failure ? "桌宠连接失败，点击重试" : "开启桌宠";
+  const tooltip = [status.phase === "switching" ? "正在切换会话，点击停止桌宠" : label, failure].filter(Boolean).join("；");
   return (
     <TooltipIconButton
-      data-testid="avatar-toggle"
-      data-state={state}
-      tooltip={tooltip}
-      aria-label={label}
-      side="top"
-      aria-disabled={pending || running}
-      aria-busy={pending}
-      className={`relative size-8 ${connected ? "bg-accent text-accent-foreground" : ""} ${failure && !pending ? "text-destructive" : ""} ${pending || running ? "cursor-default opacity-50 active:scale-100" : ""}`}
+      data-testid="avatar-toggle" data-state={state} tooltip={tooltip} aria-label={label}
+      side="top" aria-disabled={disabled} aria-busy={pending}
+      className={`relative size-8 ${enabled ? "bg-accent text-accent-foreground" : ""} ${failure && !pending ? "text-destructive" : ""} ${disabled ? "cursor-default opacity-50 active:scale-100" : ""}`}
       onClick={() => void toggle()}
     >
-      {pending ? (
-        <LoaderCircleIcon aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
-      ) : (
+      {pending ? <LoaderCircleIcon aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : (
         <>
           <PawPrintIcon aria-hidden="true" />
-          {(failure || connected || elsewhere) && (
-            <span aria-hidden="true" className="absolute right-0 bottom-0 rounded-full bg-background p-px [&>svg]:size-2.5">
-              {failure ? <CircleAlertIcon /> : connected ? <span className="block size-1.5 rounded-full bg-green-500" /> : <ArrowLeftRightIcon />}
-            </span>
-          )}
+          {(failure || enabled) && <span aria-hidden="true" className="absolute right-0 bottom-0 rounded-full bg-background p-px [&>svg]:size-2.5">
+            {failure ? <CircleAlertIcon /> : <span className="block size-1.5 rounded-full bg-green-500" />}
+          </span>}
         </>
       )}
       {failure && <span className="sr-only" role="alert">{failure}</span>}

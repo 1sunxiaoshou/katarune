@@ -59,11 +59,12 @@ namespace Katarune.Avatar
         private void OnLipSyncUpdate(LipSyncInfo info)
         {
             if (_runtime == null) return;
-            _runtime.SetManualVisemes(_source.isPlaying && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready
-                ? Map(info) : default);
+            if (_source.isPlaying && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
+                _runtime.SetManualVisemes(Map(info));
+            else Clear();
         }
 
-        public void Clear() => _runtime?.SetManualVisemes(default);
+        public void Clear() => _runtime?.SetManualVisemes(default, immediate: true);
 
         public void Release()
         {

@@ -73,7 +73,7 @@ namespace Katarune.Avatar
             PublishIfChanged();
         }
 
-        public void SetManualVisemes(AvatarVisemeWeights weights)
+        public void SetManualVisemes(AvatarVisemeWeights weights, bool immediate = false)
         {
             ThrowIfDisposed();
             _behavior.SetManualVisemes(new AvatarVisemeWeights(
@@ -81,23 +81,13 @@ namespace Katarune.Avatar
                 Mathf.Clamp01(weights.Ih),
                 Mathf.Clamp01(weights.Ou),
                 Mathf.Clamp01(weights.Ee),
-                Mathf.Clamp01(weights.Oh)));
+                Mathf.Clamp01(weights.Oh)), immediate);
         }
 
         public void RequestBlink()
         {
             ThrowIfDisposed();
             _behavior.RequestBlink();
-        }
-
-        public void ResetBehavior()
-        {
-            ThrowIfDisposed();
-            _behavior.ResetBehavior();
-            _behavior.SetManualVisemes(default);
-            _motions.CancelAction();
-            _motions.CancelAllBehaviors();
-            PublishIfChanged();
         }
 
         public void Dispose()

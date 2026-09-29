@@ -67,7 +67,7 @@ export interface ChatService {
 }
 
 interface CreateChatServiceOptions {
-  readonly avatar?: Pick<AvatarService, "createTools" | "relay">;
+  readonly avatar?: Pick<AvatarService, "captureBinding" | "createTools" | "relay">;
   readonly database: ChatServiceDatabase;
   readonly aiRuntime: ChatServiceAiRuntime;
   readonly createAgent?: typeof createCharacterAgent;
@@ -334,6 +334,7 @@ export function createChatService({
 }: CreateChatServiceOptions): ChatService {
   return {
     createResponse: async (request, abortSignal) => {
+      const avatarEpoch = avatar?.captureBinding(request);
       database.fetchThread(request.threadId, request.characterId);
       const character = database.fetchCharacter(request.characterId);
       const modelConfigId = resolveLanguageModelConfigId(database, character);
@@ -400,7 +401,7 @@ export function createChatService({
           `工具“${imageToolCollision}”与受信任的历史图片工具冲突。`,
         );
       }
-      const avatarTools = avatar?.createTools(request, abortSignal) ?? {};
+      const avatarTools = avatarEpoch != null ? avatar!.createTools(request, abortSignal, avatarEpoch) : {};
       for (const name of Object.keys(avatarTools)) {
         if (name in baseTools || name in memoryTools || name in imageTools)
           throw new Error(`Duplicate tool: ${name}`);
@@ -447,7 +448,7 @@ export function createChatService({
         onError: (error) => sanitizeChatError(error, filenames),
       });
       return createUIMessageStreamResponse({
-        stream: avatar ? avatar.relay(request, stream, abortSignal) : stream,
+        stream: avatar && avatarEpoch != null ? avatar.relay(request, stream, abortSignal, avatarEpoch) : stream,
       });
     },
     generateTitle: async (request) => {

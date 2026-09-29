@@ -1,3 +1,5 @@
+import { AvatarDesktopWindows } from "./avatar/avatarDesktopWindows";
+import { setAvatarChatWindow } from "./ipc/avatarHandlers";
 import { AvatarService } from "./avatar/avatarService";
 import { registerAsrHandlers } from './ipc/asrHandlers';
 import type { AsrService } from './speech/asrService';
@@ -26,6 +28,8 @@ import { createSpeechService } from "./speech/ttsService";
 import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
 import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
 
+let mainWindow: BrowserWindow | undefined;
+let desktopWindows: AvatarDesktopWindows | undefined;
 let avatarService: AvatarService | undefined;
 let asrService: AsrService | undefined;
 
@@ -80,6 +84,9 @@ function createMainWindow(): BrowserWindow {
     void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
+  mainWindow = window;
+  setAvatarChatWindow(window);
+  window.on("closed", () => { mainWindow = undefined; if (process.platform !== "darwin") app.quit(); });
   return window;
 }
 
@@ -169,9 +176,10 @@ void app.whenReady().then(async () => {
   );
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
+  desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"));
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
       createMainWindow();
     }
   });
@@ -181,6 +189,8 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  desktopWindows?.dispose();
+  desktopWindows = undefined;
   asrService?.dispose();
   avatarService?.stop();
   speechRequests?.cancelAll();

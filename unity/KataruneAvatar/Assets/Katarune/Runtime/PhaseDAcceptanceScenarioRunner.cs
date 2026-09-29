@@ -17,7 +17,7 @@ namespace Katarune.Avatar
         private string _secondInstanceId;
         private int _step;
         private float _stepElapsed;
-        private string _status = "Waiting for an avatar. Load a repository-external VRM from the HUD or --vrm.";
+        private string _status = "Waiting for an avatar. Load a repository-external VRM with --vrm.";
 
         internal void Configure(PhaseDAcceptanceScenario scenario) => _scenario = scenario;
 

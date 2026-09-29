@@ -53,9 +53,8 @@ namespace Katarune.Avatar
 
         public void SetAffect(AvatarAffectPreset affect, float intensity) => Model.SetAffect(affect, intensity);
         public void ApplySettings(AvatarBehaviorSettings settings) => Model.ApplySettings(settings);
-        public void SetManualVisemes(AvatarVisemeWeights weights) => Model.SetManualVisemes(weights);
+        public void SetManualVisemes(AvatarVisemeWeights weights, bool immediate = false) => Model.SetManualVisemes(weights, immediate);
         public void RequestBlink() => Model.RequestBlink();
-        public void ResetBehavior() => Model.Reset();
 
         private void LateUpdate()
         {
@@ -80,10 +79,7 @@ namespace Katarune.Avatar
             if (_camera == null) _camera = Camera.main;
             if (_camera == null) return Vector2.zero;
 
-            var pointer = Input.mousePosition;
-            var screenPosition = new Vector2(
-                Mathf.Clamp(pointer.x, 0f, Mathf.Max(1f, Screen.width) - 1f),
-                Mathf.Clamp(pointer.y, 0f, Mathf.Max(1f, Screen.height) - 1f));
+            var screenPosition = AvatarWindow.PointerPosition();
             return AvatarPointerGazeProjection.TryProject(
                 _camera,
                 screenPosition,

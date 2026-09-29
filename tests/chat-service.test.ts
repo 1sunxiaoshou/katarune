@@ -150,6 +150,7 @@ describe("chat service", () => {
       database: createDatabase(),
       aiRuntime: { resolveLanguageModel: () => model },
       avatar: {
+        captureBinding: () => connected ? 0 : null,
         createTools: () => connected ? { avatar_action: tool({ inputSchema: z.object({}), execute: async () => ({ completed: true }) }) } : {},
         relay: (_binding, stream) => stream,
       },
@@ -195,7 +196,7 @@ describe("chat service", () => {
       set_expression: tool({ inputSchema: z.object({}), execute: speech }),
     }));
     const signal = new AbortController().signal;
-    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: { createTools, relay: (_binding, stream) => stream } });
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: { captureBinding: () => 0, createTools, relay: (_binding, stream) => stream } });
     const output = (await service.createResponse(request, signal)).text();
     await vi.waitFor(() => { expect(action).toHaveBeenCalledOnce(); expect(speech).toHaveBeenCalledOnce(); });
     expect(step).toBe(1);
@@ -208,7 +209,7 @@ describe("chat service", () => {
     expect(result).toContain('"type":"text-delta"');
     expect(result).toContain("让我做个动作。");
     expect(result).not.toContain("speak");
-    expect(createTools).toHaveBeenCalledWith(expect.objectContaining({ characterId, threadId: request.threadId }), signal);
+    expect(createTools).toHaveBeenCalledWith(expect.objectContaining({ characterId, threadId: request.threadId }), signal, 0);
   });
 
   it("injects bounded core memory and exposes character-bound Memory Wiki tools", async () => {

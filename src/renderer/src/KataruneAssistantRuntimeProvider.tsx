@@ -10,6 +10,7 @@ import { realtimeVoice } from "./speech/realtimeVoice";
 import { createChatSendQueue } from "./chat/chatSendQueue";
 import { interruptForVoice } from "./chat/voiceInterruption";
 import { useAvatarState } from "./chat/avatarState";
+import { AvatarSessionBinding } from "./chat/AvatarControl";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -285,6 +286,7 @@ function CharacterRuntimeHost({
       <AssistantRuntimeProvider runtime={runtime}>
         {active ? (
           <>
+            <AvatarSessionBinding />
             <AutoReadReplies />
             <MemoryWikiToolUI />
             <ViewChatImageToolUI />
