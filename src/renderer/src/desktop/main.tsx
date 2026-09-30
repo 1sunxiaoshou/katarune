@@ -11,7 +11,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FolderOpen,
-  GripVertical,
   Keyboard,
   LoaderCircle,
   MessageCircle,
@@ -28,8 +27,7 @@ import type {
   DesktopSnapshot,
 } from "../../../shared/avatarDesktop";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ModelSelectorContent,
   ModelSelectorGroup,
@@ -207,9 +205,6 @@ function Desktop() {
         ref={capsuleRef}
         className={`capsule ${state.compact ? "compact" : ""}`}
       >
-        <span className="drag-handle" aria-label="拖动控制器">
-          <GripVertical size={14} />
-        </span>
         <Icon
           label={state.compact ? "展开" : "收起"}
           onClick={() => command("compact")}
@@ -338,22 +333,27 @@ function Desktop() {
       )}
       {state.panel === "more" ? (
         <>
-          <div
-            className={`expressions ${(state.capabilities?.expressions.length ?? 0) > 6 ? "two-columns" : ""}`}
+          <Tabs
+            className="expressions"
+            value={p?.affect ?? null}
+            onValueChange={(value) => {
+              if (typeof value === "string") command("affect", value);
+            }}
           >
-            {(state.capabilities?.expressions ?? []).map((affect) => (
-              <Button
-                key={affect}
-                variant="ghost"
-                size="sm"
-                aria-pressed={p?.affect === affect}
-                onClick={() => command("affect", affect)}
-              >
-                {affects[affect] ?? affect}
-              </Button>
-            ))}
-          </div>
-          <label className="control-row">
+            <TabsList aria-label="表情">
+              <TabsIndicator className="desktop-expression-indicator" />
+              {(state.capabilities?.expressions ?? []).map((affect) => (
+                <TabsTrigger key={affect} value={affect}>
+                  <span
+                    className={`expression-icon expression-icon-${Object.hasOwn(affects, affect) ? affect : "neutral"}`}
+                    aria-hidden="true"
+                  />
+                  {affects[affect] ?? affect}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <div className="control-row">
             <span>动作</span>
             <Choice
               label="动作"
@@ -368,8 +368,38 @@ function Desktop() {
               ]}
               onChange={(v) => command("action", v)}
             />
-          </label>
-          <label className="control-row">
+          </div>
+          <div className="control-row">
+            <span>视线追踪</span>
+            <Tabs
+              className="desktop-segmented"
+              value={p?.gaze ? "mouse" : "none"}
+              onValueChange={(v) => command("gaze", String(v === "mouse"))}
+            >
+              <TabsList className="desktop-tabs-list" aria-label="视线追踪">
+                <TabsIndicator className="desktop-tabs-indicator" />
+                <TabsTrigger value="none">无</TabsTrigger>
+                <TabsTrigger value="mouse">鼠标</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="control-row">
+            <span>描边</span>
+            <Tabs
+              className="desktop-segmented"
+              value={p?.outline ? "soft" : "original"}
+              onValueChange={(value) =>
+                command("outline", String(value === "soft"))
+              }
+            >
+              <TabsList className="desktop-tabs-list" aria-label="描边">
+                <TabsIndicator className="desktop-tabs-indicator" />
+                <TabsTrigger value="original">默认</TabsTrigger>
+                <TabsTrigger value="soft">柔和</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          <div className="control-row">
             <span>角色屏幕</span>
             <Choice
               label="角色屏幕"
@@ -378,31 +408,19 @@ function Desktop() {
               options={state.displays}
               onChange={(v) => command("display", v)}
             />
-          </label>
+          </div>
           <div className="control-row">
-            <span>视线追踪</span>
-            <Tabs
-              value={p?.gaze ? "mouse" : "none"}
-              onValueChange={(v) => command("gaze", String(v === "mouse"))}
+            <span>布局</span>
+            <Button
+              className="desktop-reset-button"
+              variant="outline"
+              aria-label="重置布局"
+              onClick={() => command("reset-layout")}
             >
-              <TabsList>
-                <TabsTrigger value="none">无</TabsTrigger>
-                <TabsTrigger value="mouse">鼠标</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <RotateCcw />
+              重置
+            </Button>
           </div>
-          <div className="control-row">
-            <span>描边</span>
-            <Switch
-              aria-label="描边"
-              checked={p?.outline ?? false}
-              onCheckedChange={(v) => command("outline", String(v))}
-            />
-          </div>
-          <Button variant="outline" onClick={() => command("reset-layout")}>
-            <RotateCcw />
-            重置布局
-          </Button>
         </>
       ) : (
         <div className="shortcuts">

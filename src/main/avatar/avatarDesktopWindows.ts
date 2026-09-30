@@ -19,6 +19,7 @@ import {
   type AvatarWindowReport,
 } from "../../shared/avatarDesktop";
 import type { AvatarService } from "./avatarService";
+import { nearestPanelBounds } from "./panelPlacement";
 
 type Placement = { display: string; x: number; y: number; height: number };
 type Preferences = {
@@ -160,7 +161,7 @@ export class AvatarDesktopWindows {
       yaw: 0,
       pitch: 4,
       gaze: false,
-      outline: true,
+      outline: false,
     };
   }
   private display(id?: string): Display {
@@ -503,20 +504,21 @@ export class AvatarDesktopWindows {
     const capsule = this.windows.get("capsule"),
       panel = this.windows.get("panel");
     if (!capsule || !panel) return;
-    const c = capsule.getBounds(),
-      a = screen.getDisplayMatching(c).workArea;
-    const height = Math.min(410, a.height - 24);
-    panel.setBounds(
-      this.inside(
-        {
-          x: c.x + c.width - 320,
-          y: c.y - height - 8 >= a.y ? c.y - height - 8 : c.y + c.height + 8,
-          width: Math.min(320, a.width - 24),
-          height,
-        },
-        a,
-      ),
-    );
+    const c = capsule.getBounds();
+    const visibleWidth = this.compact ? 100 : 220;
+    const visibleCenter = {
+      x: c.x + 10 + visibleWidth / 2,
+      y: c.y + c.height / 2,
+    };
+    const preferred = screen.getDisplayNearestPoint(visibleCenter);
+    const areas = [
+      preferred.workArea,
+      ...screen
+        .getAllDisplays()
+        .filter((display) => display.id !== preferred.id)
+        .map((display) => display.workArea),
+    ];
+    panel.setBounds(nearestPanelBounds(c, visibleWidth, areas));
   }
   private updateEscapeShortcut(): void {
     globalShortcut.unregister("Escape");

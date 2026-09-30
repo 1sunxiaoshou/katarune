@@ -281,14 +281,14 @@
 
 .selection-indicator {
   transition:
-    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    translate 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    width 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    translate 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .settings-tab-panel[data-active] {
-  animation: settings-panel-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: settings-panel-enter 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .discovered-model-row::before {

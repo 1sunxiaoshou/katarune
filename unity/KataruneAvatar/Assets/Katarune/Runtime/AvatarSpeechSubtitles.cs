@@ -82,8 +82,7 @@ namespace Katarune.Avatar
             private readonly string _text;
             private readonly List<(int start, int end, string text)> _pages = new();
             private AvatarSpeechSegment[] _segments;
-            private int _covered, _page;
-            private float _pageStarted;
+            private int _covered;
             public StreamingTimeline(string text)
             {
                 _text = text ?? "";
@@ -109,19 +108,17 @@ namespace Katarune.Avatar
                 float Start(int index) => _covered > _pages[index].start
                     ? Timeline.TimeAt(_pages[index].start, false, _segments)
                     : duration > 0 ? duration * _pages[index].start / _text.Length
-                    : _pageStarted + new StringInfo(_pages[_page].text).LengthInTextElements / 9f + 1f;
-                if (_page == 0 && _covered > 0 && position < Timeline.TimeAt(_pages[0].start, false, _segments)) return "";
-                while (_page + 1 < _pages.Count && position >= Start(_page + 1))
-                {
-                    _pageStarted = Start(_page + 1); _page++;
-                }
+                    : float.PositiveInfinity;
+                if (_covered > 0 && position < Timeline.TimeAt(_pages[0].start, false, _segments)) return "";
+                var page = 0;
+                while (page + 1 < _pages.Count && position >= Start(page + 1)) page++;
                 if (duration > 0 && position >= duration) return "";
-                if (_page + 1 < _pages.Count && _covered >= _pages[_page].end)
+                if (page + 1 < _pages.Count && _covered >= _pages[page].end)
                 {
-                    var end = Timeline.TimeAt(_pages[_page].end, true, _segments);
-                    if (_covered > _pages[_page + 1].start && Start(_page + 1) - end > .8f && position >= end) return "";
+                    var end = Timeline.TimeAt(_pages[page].end, true, _segments);
+                    if (_covered > _pages[page + 1].start && Start(page + 1) - end > .8f && position >= end) return "";
                 }
-                return _pages[_page].text;
+                return _pages[page].text;
             }
         }
 

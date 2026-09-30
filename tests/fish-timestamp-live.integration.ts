@@ -8,7 +8,12 @@ import { createHash } from "node:crypto";
 
 let stage = "environment";
 async function main() {
-process.loadEnvFile(resolve(".env.local"));
+try {
+  process.loadEnvFile(resolve(".env.local"));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  process.loadEnvFile(resolve(".env"));
+}
 let key = process.env.KATARUNE_TEST_FISH_AUDIO_API_KEY;
 let voice = process.env.KATARUNE_TEST_FISH_AUDIO_VOICE_ID;
 let baseURL: string | undefined;

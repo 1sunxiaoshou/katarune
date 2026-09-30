@@ -11,11 +11,16 @@ namespace Katarune.Avatar
     {
         private readonly object _gate = new object();
         private readonly float[] _samples;
-        private readonly int _prebuffer;
+        private readonly int _prebuffer, _rebuffer;
         private int _head, _count;
         private long _consumed, _received;
-        private bool _ended, _disposed, _buffering = true;
-        public AvatarPcmBuffer(int sampleRate) { _samples = new float[sampleRate * 2]; _prebuffer = sampleRate * 3 / 10; }
+        private bool _ended, _disposed, _buffering = true, _recovering;
+        public AvatarPcmBuffer(int sampleRate)
+        {
+            _samples = new float[sampleRate * 4];
+            _prebuffer = sampleRate * 3 / 4;
+            _rebuffer = sampleRate * 3 / 2;
+        }
         public long Consumed { get { lock (_gate) return _consumed; } }
         public long Received { get { lock (_gate) return _received; } }
         public bool Ended { get { lock (_gate) return _ended; } }
@@ -42,13 +47,18 @@ namespace Katarune.Avatar
             lock (_gate)
             {
                 if (_disposed) return;
-                if (_buffering && !_ended && _count < _prebuffer) return;
+                if (_buffering && !_ended && _count < (_recovering ? _rebuffer : _prebuffer)) return;
+                if (!_ended && _count < output.Length)
+                {
+                    _buffering = _recovering = true;
+                    return;
+                }
                 _buffering = false;
                 var amount = Math.Min(output.Length, _count);
                 for (var i = 0; i < amount; i++) output[i] = _samples[(_head + i) % _samples.Length];
                 _head = (_head + amount) % _samples.Length;
                 _count -= amount; _consumed += amount;
-                if (_count == 0 && !_ended) _buffering = true;
+                if (_count == 0 && !_ended) _buffering = _recovering = true;
                 Monitor.PulseAll(_gate);
             }
         }

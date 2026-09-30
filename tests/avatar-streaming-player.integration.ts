@@ -53,7 +53,7 @@ try {
   send({ type: "dialogue-audio", runId, dialogueId: "stream", streaming: true, value: stream.name, text: fixture.text });
   const begin = performance.now();
   await stream.write({ type: "format", sampleRate, channels: 1, encoding: "pcm-s16le" });
-  const firstBytes = sampleRate; // half a second, followed by a deliberate underrun
+  const firstBytes = sampleRate * 2; // one second, followed by a deliberate underrun
   await stream.write({ type: "audio", audio: pcm.subarray(0, firstBytes) });
   const started = await wait(m => m.type === "speech" && m.status === "started");
   await delay(1800);
@@ -82,7 +82,23 @@ try {
   await new Promise<void>(resolve => { child!.once("exit", () => resolve()); child!.kill(); });
   const frames = (await readFile(join(output, "frames.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
   const voiced = frames.filter(f => f.playbackId === started.id);
-  assert.ok(voiced.filter(f => Math.abs(f.position - .5) < .001).length >= 5, "underrun must freeze audio clock");
+  const firstPage = fixture.text.slice(0, fixture.text.indexOf("。") + 1);
+  const stalled = voiced.filter(f => Math.abs(f.position - 1) < .001);
+  assert.ok(stalled.length >= 5, "underrun must freeze audio clock");
+  assert.ok(stalled.every(f => f.subtitle === firstPage), "late alignment must not advance the subtitle during an underrun");
+  const aligned = alignOriginalSubtitles(fixture.text, finalAlignment?.segments) ?? [];
+  let covered = 0;
+  const nextPageStart = aligned.find(segment => {
+    const at = covered;
+    covered += segment.text.length;
+    return at >= firstPage.length;
+  })?.startSeconds;
+  assert.ok(nextPageStart !== undefined, "fixture must include a timestamp for the next page");
+  const secondPage = fixture.text.slice(firstPage.length);
+  const secondPageFrames = voiced.filter(f => f.subtitle === secondPage);
+  assert.ok(secondPageFrames.length > 0, "second subtitle page must appear");
+  assert.ok(secondPageFrames.every(f => f.position >= nextPageStart - .06), "subtitle must not precede aligned audio");
+  assert.ok(secondPageFrames[0].position <= nextPageStart + .12, "subtitle must follow aligned audio promptly");
   assert.ok(voiced.some(f => f.position >= pcm.length / (sampleRate * 2) - .05), "must consume final samples");
   assert.ok(voiced.some(f => Math.max(f.aa, f.ih, f.ou, f.ee, f.oh) > .05), "actual PCM must drive lipsync");
   // Compare the final voiced samples with actual AudioSource output, not the read cursor.
