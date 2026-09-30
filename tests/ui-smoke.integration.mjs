@@ -1492,7 +1492,7 @@ async function run() {
           baseUrlPlaceholder: document.querySelector('#provider-url').placeholder,
         })`),
         {
-          providerType: "Moonshot AIKimi 系列模型的官方接口。",
+          providerType: "Moonshot AI",
           displayName: "Moonshot AI",
           baseUrlPlaceholder: "https://api.moonshot.ai/v1",
         },
