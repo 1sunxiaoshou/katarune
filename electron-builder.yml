@@ -6,6 +6,7 @@ asar:
 npmRebuild: true
 compression: normal
 asarUnpack:
+  - node_modules/sherpa-onnx-*/**/*
   - node_modules/better-sqlite3/build/Release/better_sqlite3.node
 directories:
   buildResources: resources
@@ -27,6 +28,14 @@ files:
   - drizzle/**/*
   - package.json
 extraResources:
+  - from: resources/vad-segmenter.cjs
+    to: vad-segmenter.cjs
+  - from: resources/asr/silero-vad
+    to: asr/silero-vad
+  - from: resources/asr-worker.cjs
+    to: asr-worker.cjs
+  - from: resources/asr/sensevoice-int8
+    to: asr/sensevoice-int8
   - from: resources/characters
     to: characters
   - from: resources/fonts

@@ -1,0 +1,17 @@
+export const selectionCopy = {
+  modelPlaceholder: "无",
+  voicePlaceholder: "无",
+  modelRequired: "请选择模型",
+  defaultModelMissing: "未设置默认模型",
+  defaultVoiceMissing: "未设置默认音色",
+  unavailable: "所选模型不可用",
+  noModels: "暂无可用模型",
+  noConfiguredModels: "尚未添加模型",
+  noEnabledModels: "尚未启用模型",
+  noVoices: "暂无预设音色",
+  noModelMatches: "无匹配结果",
+  noVoiceMatches: "无匹配结果",
+  modelSettings: "前往模型设置",
+  loading: "加载中…",
+  loadFailed: "加载失败",
+} as const;

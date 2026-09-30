@@ -21,14 +21,15 @@ export function createCharacterRepository(
   const validateSpeechSelection = (
     speechModelConfigId: string | null,
     speechVoice: string | null,
+    useDefaultSpeechVoice = false,
   ): void => {
     if (
-      (speechModelConfigId === null) !==
+      !useDefaultSpeechVoice && (speechModelConfigId === null) !==
       (speechVoice === null)
     ) {
       throw new Error("语音模型和 voice 必须同时配置或同时清空。");
     }
-    if (speechModelConfigId === null || speechVoice === null) return;
+    if (speechModelConfigId === null) return;
     const rawModel = database
       .select()
       .from(modelConfigs)
@@ -70,12 +71,14 @@ export function createCharacterRepository(
         modelConfigId,
         speechModelConfigId,
         speechVoice,
+        useDefaultSpeechModel = false,
+        useDefaultSpeechVoice = false,
         systemPrompt,
       },
       portraitAsset,
       portraitFraming = DEFAULT_PORTRAIT_FRAMING,
     ) => {
-      validateSpeechSelection(speechModelConfigId, speechVoice);
+      validateSpeechSelection(speechModelConfigId, speechVoice, useDefaultSpeechVoice);
       const id = randomUUID();
       const latestCharacter = database
         .select({ createdAt: characters.createdAt })
@@ -112,6 +115,8 @@ export function createCharacterRepository(
             modelConfigId,
             speechModelConfigId,
             speechVoice,
+            useDefaultSpeechModel,
+            useDefaultSpeechVoice,
             systemPrompt,
             createdAt: now,
             updatedAt: now,
@@ -212,6 +217,8 @@ export function createCharacterRepository(
       modelConfigId,
       speechModelConfigId,
       speechVoice,
+      useDefaultSpeechModel,
+      useDefaultSpeechVoice,
       systemPrompt,
     }) => {
       const currentCharacter = fetchCharacter(id);
@@ -226,12 +233,15 @@ export function createCharacterRepository(
       validateSpeechSelection(
         nextSpeechModelConfigId,
         nextSpeechVoice,
+        useDefaultSpeechVoice ?? currentCharacter.useDefaultSpeechVoice,
       );
       const updates: {
         name?: string;
         modelConfigId?: string | null;
         speechModelConfigId?: string | null;
         speechVoice?: string | null;
+        useDefaultSpeechModel?: boolean;
+        useDefaultSpeechVoice?: boolean;
         systemPrompt?: string;
         updatedAt: Date;
       } = { updatedAt: new Date() };
@@ -241,6 +251,8 @@ export function createCharacterRepository(
         updates.speechModelConfigId = speechModelConfigId;
       }
       if (speechVoice !== undefined) updates.speechVoice = speechVoice;
+      if (useDefaultSpeechModel !== undefined) updates.useDefaultSpeechModel = useDefaultSpeechModel;
+      if (useDefaultSpeechVoice !== undefined) updates.useDefaultSpeechVoice = useDefaultSpeechVoice;
       if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
 
       const result = database

@@ -15,6 +15,7 @@ import {
 import { MODEL_TYPES } from "./models";
 import { PROVIDER_TYPES } from "./providers";
 import {
+  speechVoiceSchema,
   speechModelMetadataSchema,
   type SpeechModelMetadata,
 } from "./speech";
@@ -110,6 +111,7 @@ export const IPC_CHANNELS = {
   listAvailableModels: "models:list-available",
   generateSpeech: "speech:generate",
   cancelSpeech: "speech:cancel",
+  speechStarted: "speech:started",
   listProviderConfigs: "provider-configs:list",
   createProviderConfig: "provider-configs:create",
   fetchProviderConfig: "provider-configs:fetch",
@@ -318,9 +320,12 @@ export const setActiveCharacterRequestSchema = z.strictObject({
 
 export const appSettingsSchema = z.strictObject({
   defaultLanguageModelConfigId: z.nullable(z.uuid()),
+  defaultSpeechModelConfigId: z.nullable(z.uuid()),
+  defaultSpeechVoice: z.nullable(speechVoiceSchema),
+  defaultAsrModel: z.nullable(z.literal("sensevoice-small-int8")),
 });
 
-export const updateAppSettingsRequestSchema = appSettingsSchema;
+export const updateAppSettingsRequestSchema = z.partial(appSettingsSchema);
 
 export const operationSuccessSchema = z.strictObject({
   success: z.literal(true),
@@ -481,6 +486,12 @@ export const discoveredModelListSchema = z.strictObject({
   warning: z.nullable(z.string().check(z.minLength(1), z.maxLength(1000))),
 });
 
+export const discoverProviderModelsRequestSchema = z.strictObject({
+  id: z.uuid(),
+  autoAdd: z.optional(z.boolean()),
+});
+export type DiscoverProviderModelsRequest = Readonly<z.infer<typeof discoverProviderModelsRequestSchema>>;
+
 export const modelConfigIdRequestSchema = z.strictObject({
   id: z.uuid(),
 });
@@ -517,6 +528,7 @@ export const availableModelListSchema = z.strictObject({
 export const speechGenerateRequestSchema = z.strictObject({
   requestId: z.uuid(),
   characterId: z.uuid(),
+  threadId: z.optional(z.string().check(z.minLength(1))),
   text: z.string().check(z.minLength(1), z.maxLength(100_000)),
 });
 
@@ -525,6 +537,10 @@ export const speechCancelRequestSchema = z.strictObject({
 });
 
 export const speechGenerateResponseSchema = z.union([
+  z.strictObject({
+    status: z.literal("played"),
+    requestId: z.uuid(),
+  }),
   z.strictObject({
     status: z.literal("success"),
     requestId: z.uuid(),
@@ -632,6 +648,21 @@ export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSch
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
+  prepareRealtimeAsr(request: import('./asr').RealtimeAsrRequest): Promise<import('./asr').AsrResult>;
+  pushAsrFrame(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
+  resetRealtimeAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
+  onAsrTranscribing(listener: (requestId: string) => void): () => void;
+  onAvatarStatus(listener: (status: import('./avatar').AvatarStatus) => void): () => void;
+  prepareAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
+  transcribeAsr(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
+  cancelAsr(request: { requestId: string }): void;
+  startAvatar(request: import("./avatar").AvatarBinding): Promise<import("./avatar").AvatarStatus>;
+  stopAvatar(): Promise<import("./avatar").AvatarStatus>;
+  getAvatarStatus(): Promise<import("./avatar").AvatarStatus>;
+  setAvatarVoiceState(request: import("./avatar").AvatarVoiceStateRequest): Promise<void>;
+  controlAvatarPlayback(request: import("./avatar").AvatarPlaybackControlRequest): Promise<void>;
+  showAvatarUserSubtitle(request: import("./avatar").AvatarUserSubtitleRequest): Promise<void>;
+  onSpeechStarted(callback: (request: SpeechCancelRequest) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
   getDatabaseStatus(): Promise<DatabaseStatus>;
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;
@@ -671,7 +702,7 @@ export interface KataruneApi {
   fetchModelConfig(request: ModelConfigIdRequest): Promise<ModelConfig>;
   updateModelConfig(request: UpdateModelConfigRequest): Promise<ModelConfig>;
   deleteModelConfig(request: ModelConfigIdRequest): Promise<OperationSuccess>;
-  discoverProviderModels(request: ProviderConfigIdRequest): Promise<DiscoveredModelList>;
+  discoverProviderModels(request: DiscoverProviderModelsRequest): Promise<DiscoveredModelList>;
   refreshModelMetadata(request: ModelConfigIdRequest): Promise<ModelConfig>;
   testModelConnection(request: ModelConfigIdRequest): Promise<ModelConnectionTestResult>;
   listCharacters(): Promise<CharacterList>;

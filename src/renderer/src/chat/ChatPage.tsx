@@ -1,3 +1,4 @@
+import { AvatarControl } from "./AvatarControl";
 import { EyeIcon, EyeOffIcon, SettingsIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -86,6 +87,7 @@ export function ChatPage({
           >
             <SettingsIcon aria-hidden="true" />
           </TooltipIconButton>
+          <AvatarControl />
           <TooltipIconButton
             ref={visibilityButton}
             tooltip={collapsed ? "显示角色与会话" : "隐藏角色与会话"}

@@ -1,0 +1,17 @@
+{
+  "name": "Katarune.Avatar.Editor",
+  "rootNamespace": "Katarune.Avatar.Editor",
+  "references": [
+    "uLipSync.Runtime",
+    "Katarune.Avatar.Core",
+    "Katarune.Avatar.Motion",
+    "Katarune.Avatar.Runtime",
+    "Katarune.Avatar.UniVrm",
+    "UniGLTF",
+    "UniHumanoid",
+    "VRM10",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "VRM10.MToon10"
+  ],
+  "includePlatforms": ["Editor"]
+}

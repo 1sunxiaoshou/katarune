@@ -203,6 +203,8 @@ describe("generic asset service and protocol", () => {
     expect(handleAssetRequest(new Request(url), database, unsafeService).status).toBe(400);
     expect(readFileSync(join(process.cwd(), "src", "renderer", "index.html"), "utf8"))
       .toContain("img-src 'self' data: katarune-asset:");
+    expect(readFileSync(join(process.cwd(), "src", "renderer", "index.html"), "utf8"))
+      .toContain("media-src 'self' blob: katarune-asset:");
   });
 
   it("serves only registered staged portraits without caching and discards them", async () => {

@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import { realtimeVoice } from "./speech/realtimeVoice";
 import { ChatPage } from "./chat/ChatPage";
 import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
 import { SPEECH_CONFIG_CHANGED_EVENT } from "./speech/speechAvailability";
@@ -14,7 +15,10 @@ const CharacterPage = lazy(async () => {
 });
 
 export function App(): React.JSX.Element {
+  useEffect(() => realtimeVoice.mount(), []);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "characters">("chat");
+
+  const [settingsTab, setSettingsTab] = useState<"general" | "models">("general");
 
   return (
     <div className="h-dvh overflow-hidden">
@@ -22,7 +26,7 @@ export function App(): React.JSX.Element {
         {activeView === "chat" ? (
           <ChatPage
             onOpenCharacters={() => setActiveView("characters")}
-            onOpenSettings={() => setActiveView("settings")}
+            onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
           />
         ) : null}
       </KataruneAssistantRuntimePool>
@@ -35,6 +39,7 @@ export function App(): React.JSX.Element {
           }
         >
           <SettingsPage
+            initialTab={settingsTab}
             onClose={() => {
               window.dispatchEvent(new Event(SPEECH_CONFIG_CHANGED_EVENT));
               setActiveView("chat");
@@ -51,7 +56,7 @@ export function App(): React.JSX.Element {
         >
           <CharacterPage
             onClose={() => setActiveView("chat")}
-            onOpenSettings={() => setActiveView("settings")}
+            onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
           />
         </Suspense>
       ) : null}

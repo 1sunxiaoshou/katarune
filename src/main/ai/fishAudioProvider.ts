@@ -15,6 +15,10 @@ import {
   type FetchFunction,
 } from "@ai-sdk/provider-utils";
 import * as z from "zod/mini";
+import { readFishTimestampStream, streamFishTimestamps } from "./fishAudioTimestamps";
+import type { StreamingSpeechModel, SpeechStreamEvent } from "./streamingSpeech";
+import type { TimestampedSpeechModel } from "./timestampedSpeech";
+import { wavDuration, normalizeFishStreamingWav } from "./wavDuration";
 
 const fishAudioErrorSchema = z.object({
   status: z.optional(z.number()),
@@ -39,7 +43,7 @@ interface FishAudioSpeechModelConfig {
   readonly currentDate?: () => Date;
 }
 
-class FishAudioSpeechModel implements SpeechModelV4 {
+class FishAudioSpeechModel implements SpeechModelV4, TimestampedSpeechModel, StreamingSpeechModel {
   readonly specificationVersion = "v4";
   readonly provider = "fish-audio.speech";
 
@@ -131,6 +135,41 @@ class FishAudioSpeechModel implements SpeechModelV4 {
         body: rawResponse,
       },
     };
+  }
+
+  async *streamSpeech(options: Parameters<SpeechModelV4["doGenerate"]>[0]): AsyncIterable<SpeechStreamEvent> {
+    const sampleRate = 24000;
+    yield { type: "format", sampleRate, channels: 1, encoding: "pcm-s16le" };
+    const response = await this.timestampResponse(options, { format: "pcm", sample_rate: sampleRate, latency: "balanced" });
+    let tail = new Uint8Array();
+    for await (const event of streamFishTimestamps(response)) {
+      if (event.type !== "audio") { yield event; continue; }
+      const bytes = Buffer.concat([tail, event.audio]);
+      const aligned = bytes.length - bytes.length % 2;
+      tail = bytes.subarray(aligned);
+      if (aligned) yield { type: "audio", audio: new Uint8Array(bytes.subarray(0, aligned)) };
+    }
+    if (tail.length) throw new Error("Incomplete PCM sample.");
+    yield { type: "end" };
+  }
+
+  private async timestampResponse(options: Parameters<SpeechModelV4["doGenerate"]>[0], output: object) {
+    const response = await (this.config.fetch ?? fetch)(`${this.config.baseURL}/v1/tts/stream/with-timestamp`, {
+      method: "POST",
+      headers: Object.fromEntries(Object.entries(combineHeaders(this.config.headers(), { "Content-Type": "application/json", model: this.modelId }, options.headers)).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+      body: JSON.stringify({ text: options.text, reference_id: options.voice, ...output }),
+      ...(options.abortSignal ? { signal: options.abortSignal } : {}),
+    });
+    if (!response.ok || !response.body) throw new Error(`Fish timestamp synthesis failed (${response.status}).`);
+    return response.body;
+  }
+
+  async generateWithTimestamps(options: Parameters<SpeechModelV4["doGenerate"]>[0]) {
+    const result = await readFishTimestampStream(await this.timestampResponse(options, { format: "wav" }));
+    const audio = normalizeFishStreamingWav(result.audio);
+    const duration = wavDuration(audio);
+    if (result.segments?.some(segment => segment.endSeconds > duration + .05)) delete result.segments;
+    return { ...result, audio, format: "wav", mediaType: "audio/wav" as const };
   }
 }
 

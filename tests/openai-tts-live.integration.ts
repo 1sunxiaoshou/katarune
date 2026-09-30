@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,6 +71,7 @@ void app
       portraitFocusX: 0.5,
       portraitFocusY: 0,
       portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: modelConfigId,
       speechVoice: "alloy",
@@ -90,7 +92,8 @@ void app
     await cache.initialize();
     const service = createSpeechService({
       database: {
-        fetchCharacter: () => character,
+        getAppSettings: () => emptyAppSettings,
+    fetchCharacter: () => character,
         fetchProviderConfig: () => providerConfig,
         fetchModelConfig: () => modelConfig,
       },

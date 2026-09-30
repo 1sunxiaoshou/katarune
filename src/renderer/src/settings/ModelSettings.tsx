@@ -1,4 +1,5 @@
 import "../characters/character-fonts.css";
+import { SpeechVoicePicker } from "../speech/SpeechVoicePicker";
 import {
   ArrowUpDownIcon,
   AudioLinesIcon,
@@ -54,10 +55,10 @@ import {
   notify,
 } from "../notifications";
 import {
-  parseSpeechModelMetadata,
   parseSpeechModelSettings,
   speechModelSettingsSchema,
   type DiscoveredModel,
+  type DiscoveredModelList,
   type ModelConfig,
   type ModelType,
   type ProviderConfig,
@@ -192,6 +193,7 @@ function ModelCategoryList({
 const MODEL_DIALOG_NOTIFICATION_SCOPE = "settings.model-dialog";
 
 interface ModelSettingsProps {
+  readonly discovery: DiscoveredModelList | null;
   readonly provider: ProviderConfig;
   readonly models: readonly ModelConfig[];
   readonly availableModelIds: ReadonlySet<string>;
@@ -213,10 +215,6 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
   const [modelType, setModelType] = useState<ModelType | null>(model?.modelType ?? initialType);
   const [modelId, setModelId] = useState(model?.modelId ?? initialModelId);
   const [displayName, setDisplayName] = useState(model?.displayName ?? initialDisplayName);
-  const speechMetadata =
-    model?.modelType === "speechModel"
-      ? parseSpeechModelMetadata(model.metadata)
-      : null;
   const [defaultVoiceId, setDefaultVoiceId] = useState(
     model?.modelType === "speechModel"
       ? parseSpeechModelSettings(model.settings)?.defaultVoiceId ?? ""
@@ -329,7 +327,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="model-id">厂商模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Label htmlFor="model-id">模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
             <Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} />
           </div>
 
@@ -341,29 +339,14 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
           {modelType === "speechModel" && (
             <div className="grid gap-2">
               <Label htmlFor="model-default-voice">模型默认 Voice ID</Label>
-              <Input
+              <SpeechVoicePicker
                 id="model-default-voice"
-                data-testid="model-default-voice"
-                list={
-                  (speechMetadata?.voices?.length ?? 0) > 0
-                    ? "model-default-voice-options"
-                    : undefined
-                }
-                maxLength={200}
-                placeholder="可从目录选择，也可手动输入"
-                spellCheck={false}
-                value={defaultVoiceId}
-                onChange={(event) => setDefaultVoiceId(event.target.value)}
+                testId="model-default-voice"
+                model={{ metadata: model?.modelType === "speechModel" ? model.metadata : null }}
+                value={defaultVoiceId || null}
+                onChange={(value) => setDefaultVoiceId(value ?? "")}
+                disabled={submitting}
               />
-              {(speechMetadata?.voices?.length ?? 0) > 0 && (
-                <datalist id="model-default-voice-options">
-                  {speechMetadata?.voices?.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.displayName}
-                    </option>
-                  ))}
-                </datalist>
-              )}
               <p className="text-xs text-muted-foreground">
                 音色目录只提供建议；手动 Voice ID 会原样交给供应商。
               </p>
@@ -390,7 +373,7 @@ type QuickAddState = {
   readonly status: "saving" | "saved";
 };
 
-function ModelSettings({ provider, models, availableModelIds, onChanged }: ModelSettingsProps): React.JSX.Element {
+function ModelSettings({ provider, models, availableModelIds, onChanged, discovery }: ModelSettingsProps): React.JSX.Element {
   const [modelDialog, setModelDialog] = useState<ModelDialogState | null>(null);
   const [quickAddState, setQuickAddState] = useState<QuickAddState | null>(null);
   const [category, setCategory] = useState<ModelCategory>("all");
@@ -405,9 +388,9 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
     setModelDialog(null);
     setCategory("all");
     setSearchQuery("");
-    setDiscoveredModels([]);
+    setDiscoveredModels(discovery?.models ?? []);
     setQuickAddState(null);
-  }, [provider.id]);
+  }, [provider.id, discovery]);
 
   const beginCreate = (): void => {
     setModelDialog({ mode: "create", modelType: category === "all" ? null : category, modelId: "", displayName: "" });
@@ -420,12 +403,13 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
   const discoverModels = async (): Promise<void> => {
     setDiscovering(true);
     try {
-      const result = await window.katarune.discoverProviderModels({ id: provider.id });
+      const result = await window.katarune.discoverProviderModels({ id: provider.id, autoAdd: true });
       setDiscoveredModels(result.models);
+      await onChanged(provider.id);
       notify({
         channel: "toast",
         level: result.warning === null ? "success" : "warning",
-        message: result.warning ?? `获取到 ${result.models.length} 个模型。`,
+        message: result.warning ?? `获取到 ${result.models.length} 个模型，已自动添加识别到的模型。`,
         dedupeKey: `${notificationKeyPrefix}:discovery`,
       });
     } catch (error) {
@@ -600,8 +584,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
       return (
         <div className="grid h-full min-h-40 place-items-center px-6 text-center" data-testid="model-empty-state">
           <div className="grid gap-1">
-            <p className="font-medium">{searchQuery.trim().length > 0 ? "没有匹配的模型" : "此分类还没有模型"}</p>
-            <p className="text-sm text-muted-foreground">{searchQuery.trim().length > 0 ? "尝试显示名称或模型 ID。" : "添加或获取模型后，它会显示在这里。"}</p>
+            <p className="text-sm text-muted-foreground">{searchQuery.trim().length > 0 ? "无匹配结果" : "此分类暂无模型"}</p>
           </div>
         </div>
       );
@@ -769,7 +752,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged }: Model
   );
 }
 
-function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.Element {
+function EmptyModelPanel({ message, error = false }: { readonly message: string; readonly error?: boolean }): React.JSX.Element {
   const [category, setCategory] = useState<ModelCategory>("all");
 
   const changeCategory = (value: string): void => {
@@ -783,7 +766,7 @@ function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.E
         <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
             <TabsContent className="scrollbar-hidden grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
-              {message}
+              <span className={error ? "text-destructive" : undefined}>{message}</span>
             </TabsContent>
           ))}
           <ModelCategoryList floating />
@@ -794,6 +777,7 @@ function EmptyModelPanel({ message }: { readonly message: string }): React.JSX.E
 }
 
 interface ModelManagementProps {
+  readonly discovery: { providerId: string; result: DiscoveredModelList } | null;
   readonly dataState: SettingsDataState;
   readonly selectedProviderId: string | null;
   readonly selectedProvider: ProviderConfig | undefined;
@@ -806,6 +790,7 @@ interface ModelManagementProps {
 }
 
 export function ModelManagement({
+  discovery,
   dataState,
   selectedProviderId,
   selectedProvider,
@@ -833,9 +818,9 @@ export function ModelManagement({
           </CardAction>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="provider-list">
-          {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">正在读取配置……</p>}
-          {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>{dataState.message}</p><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
-          {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商。</p>}
+          {dataState.status === "loading" && <p className="mb-3 text-sm text-muted-foreground" role="status">加载中…</p>}
+          {dataState.status === "error" && <div className="grid gap-3 text-sm text-destructive" role="alert"><p>加载失败</p><details className="text-xs"><summary className="cursor-pointer">查看详情</summary><p className="mt-1 break-words">{dataState.message}</p></details><Button className="w-fit" variant="outline" onClick={() => void onReload()}>重试</Button></div>}
+          {dataState.status === "ready" && providers.length === 0 && <p className="grid flex-1 place-items-center text-sm text-muted-foreground">尚未添加供应商</p>}
           <div className="scrollbar-hidden relative isolate grid min-h-0 flex-1 content-start gap-2 overflow-y-auto pr-1" data-testid="provider-list-scroll">
             {selectedProviderIndex >= 0 ? (
               <span
@@ -882,8 +867,10 @@ export function ModelManagement({
 
       <div className="min-w-0 lg:h-full lg:min-h-0">
         <div className="sr-only" id="model-settings-title">模型设置</div>
-        {selectedProvider !== undefined ? (
+        {dataState.status === "ready" && selectedProvider !== undefined ? (
           <ModelSettings
+            key={selectedProvider.id}
+            discovery={discovery?.providerId === selectedProvider.id ? discovery.result : null}
             provider={selectedProvider}
             models={selectedModels}
             availableModelIds={
@@ -894,7 +881,7 @@ export function ModelManagement({
             onChanged={onReload}
           />
         ) : (
-          <EmptyModelPanel message={dataState.status === "loading" ? "正在读取模型配置……" : "选择一个 Provider，或添加新的模型供应商。"} />
+          <EmptyModelPanel error={dataState.status === "error"} message={dataState.status === "loading" ? "加载中…" : dataState.status === "error" ? "加载失败" : providers.length === 0 ? "尚未添加供应商" : "请选择供应商"} />
         )}
       </div>
     </section>

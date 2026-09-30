@@ -5,6 +5,8 @@ import {
   type LanguageModel,
   type SpeechResult,
 } from "ai";
+import { hasTimestampedSpeech, type TimestampedSpeechModel } from "./timestampedSpeech";
+import { hasStreamingSpeech, type StreamingSpeechModel } from "./streamingSpeech";
 import {
   aiRuntimeStatusSchema,
   modelConnectionTestResultSchema,
@@ -37,6 +39,8 @@ type ResolvedAiSdkSpeechModel = Exclude<
 >;
 
 export interface ResolvedSpeechModel {
+  readonly streamSpeech?: StreamingSpeechModel["streamSpeech"];
+  readonly generateWithTimestamps?: TimestampedSpeechModel["generateWithTimestamps"];
   readonly model: ResolvedAiSdkSpeechModel;
   readonly output: {
     readonly requestFormat: string;
@@ -231,11 +235,14 @@ export async function createAiRuntime({
       providerDefinitions,
     );
 
-    return {
-      model: speech.createModel(
+    const model = speech.createModel(
         registry,
         `${providerConfig.id}:${modelConfig.modelId}` as `${string}:${string}`,
-      ),
+      );
+    return {
+      model,
+      ...(hasTimestampedSpeech(model) ? { generateWithTimestamps: model.generateWithTimestamps.bind(model) } : {}),
+      ...(hasStreamingSpeech(model) ? { streamSpeech: model.streamSpeech.bind(model) } : {}),
       output: speech.output,
       normalizeAudio: speech.normalizeAudio,
       validateAudio: speech.validateAudio,

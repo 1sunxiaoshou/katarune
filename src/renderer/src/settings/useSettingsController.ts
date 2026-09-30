@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProviderConfig } from "../../../shared/ipc";
 import { notify } from "../notifications";
 import {
@@ -19,8 +19,12 @@ export function useSettingsController() {
   const [providerToDelete, setProviderToDelete] =
     useState<ProviderConfig | null>(null);
 
+  const reloading = useRef(false);
   const reload = useCallback(
     async (preferredProviderId?: string): Promise<void> => {
+      if (reloading.current) return;
+      reloading.current = true;
+      setDataState((current) => current.status === "error" ? { status: "loading" } : current);
       try {
         const [providerResult, modelResult, availableResult] = await Promise.all([
           window.katarune.listProviderConfigs(),
@@ -50,6 +54,8 @@ export function useSettingsController() {
           status: "error",
           message: errorMessage(error, "无法读取设置。"),
         });
+      } finally {
+        reloading.current = false;
       }
     },
     [],
