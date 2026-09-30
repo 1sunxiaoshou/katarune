@@ -1459,6 +1459,52 @@ async function run() {
       await waitUntil('model dialog closed', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
       await waitForText(window, '[data-testid="model-row"]', 'Unknown Model');
     });
+
+    await runStep("choose a provider type from the searchable picker", async () => {
+      await window.webContents.executeJavaScript(
+        `document.querySelector('[data-testid="add-provider"]').click()`,
+      );
+      await waitForSelector(window, '[data-testid="provider-type-trigger"]');
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[data-testid="provider-type-trigger"]').getAttribute('aria-expanded')`,
+        ),
+        "false",
+      );
+
+      await clickSelector(window, '[data-testid="provider-type-trigger"]');
+      await waitForSelector(window, '[data-testid="provider-type-search"]');
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('[data-testid="provider-type-search"]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(
+          input,
+          'moonshot',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await waitForSelector(window, '[data-testid="provider-type-option-moonshotai"]');
+      await clickSelector(window, '[data-testid="provider-type-option-moonshotai"]');
+
+      assert.deepEqual(
+        await window.webContents.executeJavaScript(`({
+          providerType: document.querySelector('[data-testid="provider-type-trigger"]').textContent,
+          displayName: document.querySelector('#provider-name').value,
+          baseUrlPlaceholder: document.querySelector('#provider-url').placeholder,
+        })`),
+        {
+          providerType: "Moonshot AIKimi 系列模型的官方接口。",
+          displayName: "Moonshot AI",
+          baseUrlPlaceholder: "https://api.moonshot.ai/v1",
+        },
+      );
+      assert.equal(
+        await window.webContents.executeJavaScript(
+          `document.querySelector('[data-testid="provider-type-trigger"]').getAttribute('aria-expanded')`,
+        ),
+        "false",
+      );
+      await clickSelector(window, '[data-slot="dialog-close"]');
+    });
   } finally {
     if (!window.isDestroyed()) window.destroy();
   }
