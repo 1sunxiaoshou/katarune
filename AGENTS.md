@@ -18,7 +18,7 @@ ATRI Chat 是参考实现、行为基准和资产来源，不是必须保持代�
 
 ## 当前阶段
 
-项目已经完成 P1 技术验证基线与 P2 最小垂直闭环，已贯通安全凭据、真实模型 Provider、main process 与 renderer 流传输、工具调用、可恢复会话和首个真实 TTS Provider；角色与资产管理、多会话、聊天附件及角色级 Memory Wiki 最小闭环等 P3 工作已同步展开。Electron 工具链、SQLite 持久化、AI SDK、assistant-ui、共享 Zod IPC 契约与 `vitest@4.1.10` 测试入口均已锁定，并通过开发、确定性 AI 流、真实 DeepSeek 最小调用、真实 Fish Audio TTS、Electron 集成测试和 Windows x64 unpacked 产物验证。聊天附件已实现本地复制托管、消息引用、当前消息临时字节物化和历史图片工具按需读取，但跨 Provider 文件能力仍需逐项验证；长期记忆首版已实现角色隔离的 Markdown Wiki、核心页注入、词法检索、局部读取、revision 补丁与紧凑工具 UI，独立管理页、版本恢复和语义检索仍待后续评估；首版桌面分发目标、安装包格式和无签名 Windows x64 NSIS 基线已经确定并验证，更新 Runtime 与发布后端、签名、公证和跨平台实机验收仍待完成。Fish 完整文本输入的增量 PCM 播放、SenseVoiceSmall INT8 离线听写、Silero 自动断句与桌宠全双工插话代码已接入；真实离线模型集成测试通过，耳机连续对话、外放及 Unity Player 实机验收仍待完成，流式文本输入尚未实现。VRM 已建立独立 Unity Runtime，并完成 Windows 全屏透明点击穿透覆盖层、右侧自适应取景、原子模型生命周期、标准化 Control Rig、基础姿态、行为调度、表情、视线、眨眼、微动作、调试伪口型和原始材质桌面渲染的第一阶段基线；Windows 开发环境已接通 Electron 管理的 Unity Player、实际动作/表情能力清单、Agent 控制工具、Unity 文本字幕和聊天输入排队，并完成原生对白 TTS、时间戳字幕、uLipSync 音色校准与 Fish 增量 PCM 播放的本地验收；自动重连、Unity 随安装包分发与最终动作资产仍待接入。在没有明确任务授权前，不要用脚手架提前锁定这些未决事项。
+P1/P2 已完成，P3/P4 正在推进。模型、会话、角色资产、Memory Wiki、TTS 与离线 ASR 已有开发基线；Unity 桌面角色、Electron 胶囊/面板、动作/表情工具、对白音频与字幕也已接入。真人全双工语音、原生窗口体验、自动重连、最终动作资产和正式分发仍需验收或实现。进度与限制见[路线图](docs/03-规划/路线图.md)；未决事项未经任务授权不要提前用脚手架锁定。
 
 ## Agent Skills
 

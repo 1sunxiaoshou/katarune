@@ -2,7 +2,7 @@
 
 言奏 VRM 的独立 Unity Runtime。当前基线为 Unity `6000.3.11f1`、URP `17.3.0`、UniVRM `0.131.0` 与 UniWindowController `0.9.8`。
 
-Unity UI Toolkit 桌宠 HUD 已贯通形体、渲染和本地动作预览闭环。当前默认测试待机由 VRMA 烘焙的 Humanoid Clip 循环播放，四个完整手势从现有动作菜单手动播放，统一经 `AvatarMotionInstance` 切换、停止并回到呼吸待机；不启用随机动作，也不再叠加程序化呼吸或摆头。自动眨眼、表情、口型、默认关闭的鼠标视线跟随和 Spring Bone 环境风保持独立。未安装动作库时使用静态基础姿态，菜单隐藏未安装的动作。渲染保留模型原材质与可选柔和描边，使用单一默认灯光 Profile 和 PC 4× MSAA。
+Unity 已贯通形体、渲染和本地动作预览闭环；产品控件由 Electron 胶囊与面板提供。当前默认测试待机由 VRMA 烘焙的 Humanoid Clip 循环播放，四个完整手势从现有动作菜单手动播放，统一经 `AvatarMotionInstance` 切换、停止并回到呼吸待机；不启用随机动作，也不再叠加程序化呼吸或摆头。自动眨眼、表情、口型、默认关闭的鼠标视线跟随和 Spring Bone 环境风保持独立。未安装动作库时使用静态基础姿态，菜单隐藏未安装的动作。渲染保留模型原材质与可选柔和描边，使用场景中的单一柔和主光、环境光和 PC 4× MSAA。
 
 开发环境的可替换测试资产为 `Assets/KataruneLocal/Models/default-avatar.vrm`、`Assets/KataruneLocal/Motions/idle-standing-breathing.vrma` 和同目录 `idle-variant-01.vrma` 至 `04.vrma`。未传入 `--vrm` 时自动加载默认模型；命令行显式模型路径优先，仍共享动作库。所有素材与生成结果均在 Git 忽略目录中，仅供本机测试，不公开分发。模型构建时复制到 Player 的对应目录，Humanoid Clip 和动作库独立打成 `MotionPacks/*.motionpack`，不再嵌入 Player，也不保留重复 VRMA 副本。
 
@@ -14,15 +14,15 @@ Windows 开发环境已接通现有聊天界面。先构建 `Builds/Windows/Kata
 
 Unity 通过本机 Named Pipe 公布当前动作与表情，Electron 将其注册为 `avatar_action` 和 `set_expression`。SDK 执行回调只等待 Unity 接收确认，实际播放不阻塞 Agent Loop。同时将当前绑定会话的完整 AI SDK `UIMessageChunk` 原样转发给 Unity；Unity 用原生文本和工具事件建立统一时间线，并通过 `toolCallId` 将受信任的执行请求填入对应工具节点。对白节点复用原生文本；有声时由实际音频播放游标推进，无声时按阅读时长完成，表情节点到达游标时切换并保持，动作节点在真正开始后根据 `allowSpeech` 决定是否放行后续对白。字幕在屏幕下方显示，浅粉半透明底、加粗深灰紫文字，保留鼠标穿透；过长文本自然分页。原生事件流结束即允许下一条输入生成；Unity 独立维护跨轮播放队列，后台 drain 只用于音频资源回收。TTS、时间戳字幕和 uLipSync 已接入同一对白节点；Fish 在完整 text 块结束后增量交付 PCM，不逐 token 输入。
 
-AI 输出期间可以继续在聊天中点击发送或按回车，输入会按顺序等待当前运行结束；队列只在内存中，已完成对白沿用聊天原生消息保存。当前未接自动重连，也未将 Unity 和本地测试素材纳入 Electron 安装包。
+AI 输出期间可以继续在聊天中发送文字，文字按顺序等待当前运行结束；确认式语音插话优先于未发送文字，队列只在内存中，已完成对白沿用聊天原生消息保存。当前未接自动重连，也未将 Unity 和本地测试素材纳入 Electron 安装包。
 
 实际 Player 控制与画面检查：构建后从仓库根目录运行 `node tests/avatar-player.integration.mjs`，会启动测试 Player、执行并行字幕/动作/表情、验证无效动作失败并自动关闭。结果、日志和截图位于 `.test-dist/avatar-player/`，不调用模型或 TTS Provider。
 
 ## 外部动画资源包
 
-主程序启动时扫描程序旁的 `MotionPacks/*.motionpack`；编辑器扫描 Unity 项目根目录的 `MotionPacks`。也可传入 `--motion-packs "C:/path/to/packs"` 指定一个独立目录。动作按包内稳定 ID 和显示名称登记，HUD 自动生成菜单，超过五个动作时每页四个、另有下一页与停止按钮。新增、替换或删除包后重启程序生效，不需改枚举、菜单代码或重建 Player。
+主程序启动时扫描程序旁的 `MotionPacks/*.motionpack`；编辑器扫描 Unity 项目根目录的 `MotionPacks`。也可传入 `--motion-packs "C:/path/to/packs"` 指定一个独立目录。动作按包内稳定 ID 和显示名称登记，Electron 面板按实际能力生成动作下拉项。新增、替换或删除包后重启程序生效，不需改枚举、菜单代码或重建 Player。
 
-资源包就是 Unity LZ4 AssetBundle，内容为 `AvatarMotionLibrary` ScriptableObject 与其 `.anim` 依赖，不是原始 `.anim` 的改名。只支持当前工程的 Unity `6000.3.11f1`、Windows x64、格式版本 1；升级 Unity 或包结构后需要重新打包。无网络下载与热重载，只安装可信来源的本地包；基础包提供循环待机，动作包可只提供动作。整个安装目录只能有一个基础循环；重复包 ID/动作 ID、坏包、版本不符、非 Humanoid Clip 或 AnimationEvent 会被隔离并写入日志和 HUD 提示。缺少基础循环时保留程序化姿态，手动动作不可用。首版限制 64 包、单包 128 MiB、每包 256 动作；不是对恶意原生资源的安全沙箱。
+资源包就是 Unity LZ4 AssetBundle，内容为 `AvatarMotionLibrary` ScriptableObject 与其 `.anim` 依赖，不是原始 `.anim` 的改名。只支持当前工程的 Unity `6000.3.11f1`、Windows x64、格式版本 1；升级 Unity 或包结构后需要重新打包。无网络下载与热重载，只安装可信来源的本地包；基础包提供循环待机，动作包可只提供动作。整个安装目录只能有一个基础循环；重复包 ID/动作 ID、坏包、版本不符、非 Humanoid Clip 或 AnimationEvent 会被隔离并写入日志并通过当前界面提示。缺少基础循环时保留程序化姿态，手动动作不可用。首版限制 64 包、单包 128 MiB、每包 256 动作；不是对恶意原生资源的安全沙箱。
 
 **以后添加动作：**
 
@@ -68,9 +68,9 @@ unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Edit
 ./Builds/Windows/KataruneAvatar.exe -force-d3d11 -force-d3d11-bitblt-model --vrm "C:/path/to/avatar.vrm"
 ```
 
-Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，角色根据窗口宽高比缩放并位于右侧安全区。UI Toolkit HUD 启动时只显示左下黑色四角星入口；左上 `#E9ECEF` 无描边状态卡默认关闭，可在“更多”中切换，开启后以纯黑头像占位、模型名和胶囊控件显示当前表情及动作。点击四角星以错峰动画展开“模型、表情、动作、视线跟随、角色展示、更多”，再点击分类展开第二圈；按钮文字只在悬停时以无尾巴黑底白字 Tooltip 显示。按住四角星可以在全屏范围拖动独立锚点，菜单靠近不同屏幕边缘或角落时自动朝内展开。全局 F1 显示或隐藏整个 HUD，截图模式始终隐藏 HUD。
+Windows Player 使用置顶的全屏透明窗口覆盖选定显示器；背景保持点击穿透。连接 Electron 后，胶囊与临时面板提供聊天、麦克风、角色调整和其他控制；Unity 在窗口内绘制角色及由音频时间轴驱动的字幕。调整时左键旋转、中键移动、滚轮缩放，只改变相机构图。模型选择由 Electron 打开系统文件选择器。`--opaque-window` 仅用于调试，`--soft-outline` 可指定启动表现。
 
-窗口使用 UI Toolkit 内置运行时事件系统，不创建旧 uGUI EventSystem。UniWindowController 自动帧尾 Raycast 关闭；Windows 薄适配器把原生光标转换为 Panel 坐标并只 Pick 圆形 Button，顶部状态、人物和透明区域继续穿透到桌面。按住中央入口后通过 Pointer Capture 保持交互，并在帧末采样最新光标移动锚点，不使用全屏透明捕获面。`AvatarRadialMenu` 使用 UXML 配置一、二级半径、扫过角和安全边距，靠边时生成朝内半圆，靠角时生成朝内四分之一圆。HUD 隐藏时整个覆盖层强制点击穿透。一级菜单直接提供视线跟随和默认关闭的角色展示开关；开启期间整窗接收输入，VRM 根固定在世界原点，左键水平拖动绕作者根轴旋转并带跟手阻尼与松手惯性，垂直拖动在上下各 `45°` 内俯仰观察；滚轮只平滑改变投影倍率，中键只平滑改变屏幕构图。关闭后保留当前角度、倍率和构图并恢复点击穿透。模型入口使用原生文件选择器单选 `.vrm`，其他入口可切换六种表情、本地可用动作及柔和描边。`--opaque-window` 只用于调试，`--soft-outline` 可指定启动表现；灯光统一读取默认 Profile，不提供 HUD 或命令行模式切换。当前统一使用 PC 4× MSAA 基线。
+窗口、输入命中、多屏和重置规则见[桌面交互设计](../../docs/00-项目/桌面交互设计.md)。
 
 ## Local motion preview
 
@@ -78,7 +78,7 @@ Windows Player 默认作为置顶的全屏透明覆盖层贴合主显示器，�
 
 需要在已有待机上增强动态时，在 Project 窗口选中循环 Humanoid `.anim`，执行 `Katarune > Avatar > Enhance Selected Idle Clip`。工具另存 `-enhanced.anim`，围绕原曲线的平均姿态放大胸肩（2 倍）、头颈（1.8 倍）和手臂（1.6 倍）变化，保留原时长、循环设置、根节点、腿脚和手指曲线；接近肌肉范围边界时降低增益。它只生成编辑器动画资产，效果需在目标模型上检查，再通过现有资源包流程使用。原始素材及派生动作继续保存在被忽略的本机资产目录。
 
-本机“妄想天使之舞”使用独立 AnyHumanMotionConverter 导出的 `Assets/KataruneLocal/Motions/Baked/dance-delusion-angel.anim`，本机修正工具导出后另存为 `dance-delusion-angel-fixed.anim`，现由外部基础包引用；原始导出保留不变。HUD 名称来自资源包配置；命令行可用 `--action dance-delusion-angel`，或传入其他已安装动作的稳定 ID。本机 AnyHumanMotionConverter 2.0.1 的导出器漏用了自带的手指绑定名称映射，导入器的 Spread 别名也存在差异；本机独立修正版统一复用其现有映射，不将二进制补丁或工具纳入项目。按用户要求只保留修正版安装，升级后必须重新核验补丁。转换器不进入项目或游戏，动作源与资源包均被 Git 忽略，公开分发许可未在此确认。
+本机“妄想天使之舞”使用独立 AnyHumanMotionConverter 导出的 `Assets/KataruneLocal/Motions/Baked/dance-delusion-angel.anim`，本机修正工具导出后另存为 `dance-delusion-angel-fixed.anim`，现由外部基础包引用；原始导出保留不变。动作显示名来自资源包配置；命令行可用 `--action dance-delusion-angel`，或传入其他已安装动作的稳定 ID。本机 AnyHumanMotionConverter 2.0.1 的导出器漏用了自带的手指绑定名称映射，导入器的 Spread 别名也存在差异；本机独立修正版统一复用其现有映射，不将二进制补丁或工具纳入项目。按用户要求只保留修正版安装，升级后必须重新核验补丁。转换器不进入项目或游戏，动作源与资源包均被 Git 忽略，公开分发许可未在此确认。
 
 当前不在仓库中固定正式待机或表演 Clip。需要预览技术动作时，从官方页面下载 [Universal Animation Library 1 Standard](https://quaternius.com/packs/universalanimationlibrary.html) 和 [Universal Animation Library 2 Standard](https://quaternius.com/packs/universalanimationlibrary2.html)，然后在 Unity 中打开 `Katarune > Avatar > Import Local Preset Motions...`，选择两个 ZIP 或解压目录。导入器验证 CC0 `License.txt`、配置 Humanoid/循环与 Root Transform，并在被 Git 忽略的 `Assets/KataruneLocal` 下生成一个基础循环和动作预览库。
 
@@ -100,7 +100,7 @@ UAL1 `Idle` 当前只作为技术预览的基础循环，不代表最终待机�
 
 ## Phase D acceptance scenes
 
-`Assets/Katarune/Scenes/Acceptance` 保留调度诊断场景结构；重新绑定用户确认的动作定义后，可通过 HUD 选择仓库外 VRM，或以 `--vrm "C:/path/to/avatar.vrm"` 启动。场景左上角显示权威实例状态、播放阶段、同步点、通道所有者和终态原因；组合输入只使用手动口型、默认凝视、行为请求与中断命令，不定义覆盖角色全身的对话阶段。调度表演采用 SmoothStep 固定时长混合：淡入 0.20 秒、自然回基础姿态 0.25 秒、安全退出回基础姿态 0.20 秒、立即取消视觉缓冲 0.12 秒。场景不接 Electron 或真实音频。
+`Assets/Katarune/Scenes/Acceptance` 保留调度诊断场景结构；重新绑定用户确认的动作定义后，可从 Electron 面板选择仓库外 VRM，或以 `--vrm "C:/path/to/avatar.vrm"` 启动。场景左上角显示权威实例状态、播放阶段、同步点、通道所有者和终态原因；组合输入只使用手动口型、默认凝视、行为请求与中断命令，不定义覆盖角色全身的对话阶段。调度表演采用 SmoothStep 固定时长混合：淡入 0.20 秒、自然回基础姿态 0.25 秒、安全退出回基础姿态 0.20 秒、立即取消视觉缓冲 0.12 秒。场景不接 Electron 或真实音频。
 
 行为请求只通过 `IAvatarRuntimeFacade.RequestBehavior` 提交稳定 behavior ID，暂停、继续、立即取消和安全退出通过 `ApplyPerformanceCommand` 作用于实例 ID。行为调度器是通道所有权的唯一写入点；人工预览动作与调度身体实例互斥，已由行为资产表达的能力不再通过固定预览槽发布。场景和 Resources 目录可由 `Katarune > Generate Phase D Acceptance Assets` 重建，但必须先为定义配置有效 Clip。
 
@@ -120,24 +120,16 @@ unity run . --editor-version 6000.3.11f1 --timeout 600 -- -force-d3d11 -executeM
 
 除本机默认模型外，其他测试模型继续从仓库外加载：将许可允许本地测试的 VRM 1.0 文件放在任意仓库外目录，通过上文 `--vrm "C:/path/to/avatar.vrm"` 启动，或设置 `KATARUNE_TEST_VRM_PATH` 后运行本地 PlayMode 烟测。它们不复制进 `Assets`、构建产物或测试夹具；加载后由 UniVrm 适配器映射为 `ICharacterRigBinding`，行为定义只校验统一能力，不读取模型路径或角色专属骨骼名。
 
-构建固定 D3D11、关闭 Flip Model/HDR，并启用 URP Alpha Processing。可用 `--screenshot <png>`、`--exit-after-capture` 和 `--exit-on-error` 执行自动烟测；`--capture-delay <seconds>` 可在 0–30 秒范围内延迟截图以观察动作主体。截图模式会强制隐藏 HUD。加载器只接受 VRM 1.0，不执行 VRM 0.x 运行时迁移。
+构建固定 D3D11、关闭 Flip Model/HDR，并启用 URP Alpha Processing。可用 `--screenshot <png>`、`--exit-after-capture` 和 `--exit-on-error` 执行自动烟测；`--capture-delay <seconds>` 可在 0–30 秒范围内延迟截图以观察动作主体。截图模式不显示产品控件。加载器只接受 VRM 1.0，不执行 VRM 0.x 运行时迁移。
 
 ## Runtime design
 
-- `IAvatarRuntimeFacade` 是 HUD 和未来输入适配器的唯一入口，公开带 `Revision` 的不可变语义状态快照；每帧姿态单独通过 `CurrentPose` 读取。
-- `AvatarRuntimeSession` 负责隐藏候选对象的 `prepare → validate → commit` 事务。连续加载通过请求序号和取消令牌仲裁；失败提交恢复旧 Driver、Visual、Motion 与 Framing，成功后才释放旧角色。
-- `Katarune.Avatar.Motion` 中的 `AvatarMotionController` 与每模型 `AvatarMotionInstance` 通过统一 `ICharacterRigBinding` 使用单一 PlayableGraph 混合基础循环、归一化的调度全身表演和互斥人工预览动作；所有动作关闭 Root Motion。上半身通道与可选 Mask 仍是资产能力，但当前无真实专用样片。UniVrm 只负责从 Control Rig 构造 Binding。
-- `UniVrmAvatarDriver` 隔离表情、视线和标准化骨骼接口；VRMA 格式适配只发生在编辑器的 `AvatarVrmaLibraryImporter`，运行时默认循环与手势均复用既有 PlayableGraph。视线作为独立增量保留并补偿动作的头部朝向；没有 authored pose 时才使用静态手臂基础姿态。
-- `AvatarBehaviorController` 将鼠标像素投射到摄像机与 VRM 眼睛原点之间的虚拟窗口平面，按角色根朝向计算视线角度；`AvatarPoseFrame` 的水平视线继续使用屏幕坐标语义（向右为正），驱动边界再转换到角色与 UniVRM 坐标，避免左右镜像。
-- `AvatarBehaviorController` 生成与输入源无关的 `AvatarPoseFrame`，执行顺序位于 UniVRM `LateUpdate` 之前。
-- `AvatarVisualController` 对候选模型执行材质分类；柔和描边开启时只覆盖四个 MToon 描边字段，关闭时精确恢复捕获值，并保留 VRM Expression 使用的原 Material 引用。
-- `AvatarVisualProfile` 只保存柔和描边参数及可选模型材质角色覆盖；默认资产位于 `Assets/Katarune/Resources`。
-- `AvatarLightingRig` 提供无阴影的柔和主光与中性环境光，并实时读取 `Assets/Katarune/Resources/AvatarLightingProfile.asset` 中唯一默认预设的主光强度、主光颜色和环境光；在 Play 模式中编辑该 Profile 可直接预览并保留调整。
-- `AvatarSceneRig` 将 VRM 根规范化到世界原点并只绕作者根轴水平旋转；模型 Bounds 只参与初始取景。受限纵向俯仰、FOV 投影倍率和 `lensShift` 构图偏移各自保存目标与阻尼状态，不会互相改写角色位置或基础画框。
-- `AvatarWindow` 负责全屏主显示器适配、置顶、UI Toolkit Button 局部命中、点击穿透和 Windows Player 的全局 F1 HUD 热键。
-- `AvatarHudController` 只订阅 Facade Snapshot 并调用 Facade；UXML、USS、Painter2D 装饰、SVG 图标和字体均可在 UI Builder 中继续编辑。
-- 程序集分为 `Katarune.Avatar.Core`、`Katarune.Avatar.Motion`、`Katarune.Avatar.UniVrm` 与 `Katarune.Avatar.Runtime`；Core 和 Motion 不引用 UniVRM 或 UniWindowController。
-- Camera Post Processing 和场景 Global Volume 均关闭；URP 默认 Volume Profile 保持为空，原始材质基线不经过 Bloom、Vignette、Tonemapping 或 Motion Blur。
+- `IAvatarRuntimeFacade` 是外部控制与语义状态快照的统一入口；`AvatarRuntimeSession` 以 `prepare → validate → commit` 事务更换模型，失败时保留旧角色。
+- Core 管理行为契约和通道所有权；Motion 使用单一 PlayableGraph 播放基础循环、调度表演与互斥的手动动作；UniVrm 负责 VRM 1.0 加载、Control Rig、表情与材质适配。
+- `AvatarSceneRig` 保存角色投影中心、占屏高度、朝向和 FOV；`AvatarWindow` 负责全屏窗口、局部输入命中、穿透与原生窗口策略。布局和显示器归属由 Electron main 统一管理。
+- Unity 根据 AudioSource 实际播放游标驱动字幕与口型，用户转写和角色对白均在角色窗口内绘制。原生 Agent 文本事件可在无音频时按阅读时间显示。
+- 默认渲染保留模型材质，柔和描边是可逆选项；灯光由启动场景中的 Light 与 Render Settings 管理，PC 使用 4× MSAA。
+- Core、Motion 不引用 UniVRM 或 UniWindowController；测试模型、动作源和构建产物留在 Git 忽略目录。
 
 ## Test
 
@@ -154,4 +146,4 @@ unity test . --mode PlayMode --output ./Logs/playmode-results.xml --editor-versi
 
 模型文件和构建产物不进入版本控制。测试模型的许可元数据可能比同目录说明更严格；只能本地验证，不得随项目分发。
 
-当前已接入 Electron 管理的 Player、跨进程控制、对白音频、时间戳字幕和 uLipSync；Fish 完整文本输入支持增量 PCM 播放。校准、测试入口与声画验收边界见[工程规范](../../docs/04-开发/工程规范.md#语音与-ulipsync-开发验收)。当前非目标包括 ASR、流式文本输入、双向语音打断、自动重连、随 Electron 安装包分发、多显示器产品策略、任意用户动作导入 UI、模型专属绑定、Root Motion、情绪模型和端到端形体生成。VRMA 当前仅用于可替换的本机测试默认待机和手势，不代表最终动作资产链路已完成。
+当前已接入 Electron 管理的 Player、动作/表情控制、对白音频、时间戳字幕、uLipSync、Fish 增量 PCM、离线 ASR 与确认式插话代码。自动重连、随安装包分发、真人耳机和外放体验仍待验证；流式文本输入、最终动作资产及面向用户的动作导入界面尚未完成。校准和声画验收见[工程规范](../../docs/04-开发/工程规范.md#语音与-ulipsync-开发验收)。
