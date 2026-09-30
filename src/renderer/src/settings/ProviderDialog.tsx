@@ -176,15 +176,12 @@ export function ProviderDialog({
                 aria-expanded={providerTypeOpen}
                 aria-haspopup="listbox"
                 disabled={editing}
-                className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-input bg-background px-3 py-2 text-left shadow-xs outline-none transition-[border-color,box-shadow,background-color] hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:opacity-60"
+                className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-input bg-background px-3 py-2 text-left shadow-xs outline-none transition-[border-color,box-shadow,background-color] hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:opacity-60"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center text-foreground">
                   <ProviderLogo providerType={providerType} className="size-[1.125rem]" />
                 </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate font-medium">{PROVIDER_CATALOG[providerType].label}</span>
-                  <span className="truncate text-xs text-muted-foreground">{PROVIDER_CATALOG[providerType].description}</span>
-                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">{PROVIDER_CATALOG[providerType].label}</span>
                 <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 in-aria-expanded:rotate-180" aria-hidden="true" />
               </PopoverTrigger>
               <PopoverContent
@@ -204,7 +201,7 @@ export function ProviderDialog({
                             key={type}
                             data-testid={`provider-type-option-${type}`}
                             value={type}
-                            keywords={[descriptor.label, descriptor.description]}
+                            keywords={[descriptor.label]}
                             data-checked={providerType === type}
                             className="items-center gap-3 rounded-lg px-2.5 py-2"
                             onSelect={() => {
@@ -215,10 +212,7 @@ export function ProviderDialog({
                             <span className="flex size-7 shrink-0 items-center justify-center text-foreground">
                               <ProviderLogo providerType={type} className="size-[1.125rem]" />
                             </span>
-                            <span className="flex min-w-0 flex-1 flex-col gap-0.5 pr-5">
-                              <span className="truncate font-medium">{descriptor.label}</span>
-                              <span className="truncate text-xs text-muted-foreground">{descriptor.description}</span>
-                            </span>
+                            <span className="min-w-0 flex-1 truncate font-medium">{descriptor.label}</span>
                           </CommandItem>
                         );
                       })}
