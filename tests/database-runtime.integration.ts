@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -233,9 +234,7 @@ try {
     appPath: process.cwd(),
     configValidator,
   });
-  assert.deepEqual(runtime.getAppSettings(), {
-    defaultLanguageModelConfigId: null,
-  });
+  assert.deepEqual(runtime.getAppSettings(), emptyAppSettings);
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({
@@ -434,8 +433,18 @@ try {
     runtime.updateAppSettings({
       defaultLanguageModelConfigId: modelConfig.id,
     }),
-    { defaultLanguageModelConfigId: modelConfig.id },
+    { ...emptyAppSettings, defaultLanguageModelConfigId: modelConfig.id },
   );
+  assert.throws(() => runtime?.updateAppSettings({ defaultSpeechModelConfigId: modelConfig.id }), /语音/);
+  runtime.updateAppSettings({ defaultSpeechModelConfigId: speechModelConfig.id, defaultSpeechVoice: "alloy" });
+  runtime.updateAppSettings({ defaultAsrModel: null });
+  assert.equal(runtime.getAppSettings().defaultSpeechVoice, "alloy");
+  assert.equal(runtime.getAppSettings().defaultAsrModel, "sensevoice-small-int8");
+  runtime.updateAppSettings({ defaultAsrModel: "sensevoice-small-int8" });
+  assert.equal(runtime.fetchCharacter(initialCharacterId).useDefaultSpeechModel, false);
+  const inherited = runtime.updateCharacter({ id: initialCharacterId, useDefaultSpeechModel: true, useDefaultSpeechVoice: true });
+  assert.equal(inherited.useDefaultSpeechVoice, true);
+  runtime.updateCharacter({ id: initialCharacterId, useDefaultSpeechModel: false, useDefaultSpeechVoice: false });
   assert.throws(
     () =>
       runtime?.createModelConfig({
@@ -537,6 +546,8 @@ try {
     configValidator,
   });
   assert.deepEqual(runtime.getAppSettings(), {
+    ...emptyAppSettings,
+    defaultSpeechModelConfigId: speechModelConfig.id, defaultSpeechVoice: "alloy",
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
@@ -740,7 +751,7 @@ try {
   assert.deepEqual(runtime.listModelConfigs().modelConfigs, []);
   assert.deepEqual(
     runtime.getAppSettings(),
-    { defaultLanguageModelConfigId: null },
+    emptyAppSettings,
     "删除默认模型所属 Provider 后应由外键自动清空应用默认模型",
   );
   assert.equal(
@@ -986,6 +997,77 @@ try {
     assert.deepEqual(deletionSqlite.prepare("PRAGMA foreign_key_check").all(), []);
   } finally {
     deletionSqlite.close();
+  }
+
+  // Reproduce local 0014: identical SQL was journaled with an earlier timestamp.
+  deletionRuntime = openDatabase({ userDataPath: deletionUserDataPath, appPath: process.cwd(), configValidator });
+  deletionRuntime.close();
+  deletionRuntime = undefined;
+  const historyPath = join(deletionUserDataPath, "katarune.sqlite");
+  const attachmentHash = "6a84178de374807e4565e5f6d9346f718a248e98dff0bcc3d21865191a4c9fc4";
+  function readApplicationRows(sqlite: BetterSqlite3.Database): unknown {
+    const tables = sqlite.prepare<[], { name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '__drizzle_migrations' ORDER BY name",
+    ).all();
+    return tables.map(({ name }) => ({
+      name,
+      rows: sqlite.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all(),
+    }));
+  }
+  const historySqlite = new BetterSqlite3(historyPath);
+  let originalRows: unknown;
+  let migrationCount: unknown;
+  try {
+    // A replay would incorrectly rewrite this attachment as a portrait.
+    historySqlite.prepare(
+      "INSERT INTO assets (id, kind, storage_key, status, created_at, updated_at) VALUES (?, 'chat_attachment', ?, 'missing', 1, 1)",
+    ).run("migration-attachment", "migration-attachment");
+    historySqlite.prepare(
+      "INSERT INTO threads (id, character_id, title, created_at, updated_at) SELECT 'migration-thread', id, 'Migration fixture', 1, 1 FROM characters LIMIT 1",
+    ).run();
+    historySqlite.prepare(
+      "INSERT INTO messages (id, thread_id, format, content, created_at) SELECT 'migration-message', id, 'ai-sdk/v6', '{}', 1 FROM threads LIMIT 1",
+    ).run();
+    historySqlite.prepare(
+      "INSERT INTO message_assets (message_id, asset_id) VALUES ('migration-message', 'migration-attachment')",
+    ).run();
+    originalRows = readApplicationRows(historySqlite);
+    migrationCount = historySqlite.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get();
+    assert.equal(historySqlite.prepare(
+      "UPDATE __drizzle_migrations SET created_at = 1785685134232 WHERE hash = ? AND created_at = 1785688523544",
+    ).run(attachmentHash).changes, 1);
+  } finally {
+    historySqlite.close();
+  }
+  for (let restart = 0; restart < 2; restart++) {
+    deletionRuntime = openDatabase({ userDataPath: deletionUserDataPath, appPath: process.cwd(), configValidator });
+    deletionRuntime.close();
+    deletionRuntime = undefined;
+    const check = new BetterSqlite3(historyPath, { readonly: true });
+    try {
+      assert.deepEqual(readApplicationRows(check), originalRows);
+      assert.deepEqual(check.prepare("SELECT count(*) AS count FROM __drizzle_migrations").get(), migrationCount);
+      assert.deepEqual(check.prepare("SELECT created_at FROM __drizzle_migrations WHERE hash = ?").get(attachmentHash), { created_at: 1785688523544 });
+      assert.deepEqual(check.pragma("foreign_key_check"), []);
+    } finally {
+      check.close();
+    }
+  }
+  const unknownHistory = new BetterSqlite3(historyPath);
+  try {
+    unknownHistory.prepare(
+      "UPDATE __drizzle_migrations SET hash = 'unknown-sql', created_at = 1785685134232 WHERE hash = ?",
+    ).run(attachmentHash);
+  } finally {
+    unknownHistory.close();
+  }
+  assert.throws(() => openDatabase({ userDataPath: deletionUserDataPath, appPath: process.cwd(), configValidator }));
+  const rejectedHistory = new BetterSqlite3(historyPath, { readonly: true });
+  try {
+    assert.deepEqual(readApplicationRows(rejectedHistory), originalRows);
+    assert.deepEqual(rejectedHistory.prepare("SELECT created_at FROM __drizzle_migrations WHERE hash = 'unknown-sql'").get(), { created_at: 1785685134232 });
+  } finally {
+    rejectedHistory.close();
   }
 
   console.log(

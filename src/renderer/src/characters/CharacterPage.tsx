@@ -75,7 +75,6 @@ export function CharacterPage({
         </TooltipIconButton>
         <span className="character-header-star" aria-hidden="true">✦</span>
         <h1>角色图鉴</h1>
-        <span>CHARACTER GALLERY</span>
         <div className="character-header-line" aria-hidden="true" />
         <span className="character-page-count">
           {selectedCharacter === undefined

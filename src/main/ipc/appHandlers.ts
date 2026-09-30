@@ -37,12 +37,16 @@ export function registerAppHandlers(
   );
   ipcMain.handle(IPC_CHANNELS.updateAppSettings, (_event, value: unknown) => {
     const request = updateAppSettingsRequestSchema.parse(value);
-    if (request.defaultLanguageModelConfigId !== null) {
+    if (request.defaultLanguageModelConfigId != null) {
       try {
         aiRuntime.resolveLanguageModel(request.defaultLanguageModelConfigId);
       } catch {
         throw new Error("只能选择当前可用的语言模型作为默认模型。");
       }
+    }
+    if (request.defaultSpeechModelConfigId != null) {
+      try { aiRuntime.resolveSpeechModel(request.defaultSpeechModelConfigId); }
+      catch { throw new Error("只能选择当前可用的语音合成模型作为默认模型。"); }
     }
     return appSettingsSchema.parse(database.updateAppSettings(request));
   });

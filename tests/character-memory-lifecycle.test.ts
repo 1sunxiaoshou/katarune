@@ -12,6 +12,7 @@ const replacementCharacter = {
   portraitFocusX: 0.5,
   portraitFocusY: 0,
   portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
   modelConfigId: null,
   speechModelConfigId: null,
   speechVoice: null,

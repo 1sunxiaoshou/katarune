@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "behaviorId": "katarune.performance.short-dance",
+  "version": 1,
+  "requiredCapabilities": [
+    "HumanoidBody"
+  ],
+  "channelClaims": [
+    {
+      "channel": "BodyFullPerformance",
+      "occupancy": "Exclusive"
+    }
+  ],
+  "clipGuid": "2364841bbf61cc946862a3300ffa2a63",
+  "loop": {
+    "startSeconds": 0.0,
+    "endSeconds": 1.0
+  },
+  "loopIterations": 15,
+  "syncPoints": [
+    {
+      "name": "exit.safe",
+      "timeSeconds": 0.5,
+      "safeExit": true
+    }
+  ],
+  "exitSyncPoint": "exit.safe",
+  "exit": {
+    "startSeconds": 1.0,
+    "endSeconds": 2.0
+  },
+  "fallbackStrategy": "None",
+  "fallbackBehaviorId": "",
+  "license": {
+    "distribution": "commercial-candidate",
+    "sourceName": "Universal Animation Library 1 Standard - Dance",
+    "sourceUri": "https://quaternius.com/packs/universalanimationlibrary.html",
+    "author": "Quaternius",
+    "licenseId": "CC0-1.0",
+    "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "acquiredOn": "2026-08-22",
+    "originalFormat": "FBX",
+    "commercialUseAllowed": true,
+    "modificationAllowed": true,
+    "redistributionAllowed": true,
+    "repositoryPolicy": "Track only the normalized two-segment Unity AnimationClip; keep the original UAL1 FBX in the Git-ignored local source area.",
+    "notes": "One-second CC0 dance loop repeats fifteen times; its stable 0.5-second standing pose is the named safe exit, followed by a one-second baked recovery to Unity's neutral Humanoid reference. Root and Motion transforms are locked to the neutral baseline."
+  }
+}

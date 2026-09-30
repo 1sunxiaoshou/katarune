@@ -1,0 +1,304 @@
+html,
+body,
+#root {
+  background: transparent !important;
+  min-width: 0 !important;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  user-select: none;
+}
+.capsule {
+  box-sizing: border-box;
+  width: 220px;
+  height: 44px;
+  margin: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  border-radius: 24px;
+  background: var(--background);
+  color: var(--foreground);
+  border: none;
+  box-shadow:
+    0 1px 3px #00000010,
+    0 4px 8px #00000018;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  app-region: drag;
+  cursor: grab;
+}
+.capsule.compact {
+  width: 100px;
+}
+.capsule button {
+  app-region: no-drag;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.capsule button:disabled {
+  cursor: default;
+}
+.capsule-extra {
+  display: flex;
+  flex: 0 0 auto;
+  width: 36px;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 100ms ease-out;
+}
+.capsule-actions {
+  width: 72px;
+}
+.compact .capsule-extra {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.capsule svg {
+  width: 16px;
+  height: 16px;
+}
+.desktop-panel {
+  height: calc(100% - 20px);
+  margin: 10px;
+  border: none;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 3px #00000010,
+    0 4px 8px #00000018;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 12px;
+  overflow: auto;
+  font-size: 14px;
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+}
+.desktop-panel[data-phase="open"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  animation: desktop-panel-enter 100ms ease-out both;
+}
+@keyframes desktop-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+html[data-reduce-motion] .capsule,
+html[data-reduce-motion] .capsule-extra {
+  transition: none;
+}
+html[data-reduce-motion] .desktop-panel {
+  animation: none;
+}
+.desktop-panel header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.desktop-panel header button {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.model-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.spacer {
+  flex: 1;
+}
+.expressions {
+  margin-bottom: 12px;
+}
+.expressions [data-slot="tabs-list"] {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 100%;
+  height: auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+}
+.expressions [data-slot="tabs-trigger"] {
+  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  gap: 6px;
+  font-size: 12px;
+  padding: 0 6px;
+  color: var(--foreground);
+  background: transparent;
+  box-shadow: none;
+}
+.expressions [data-slot="tabs-trigger"]:not([data-active]):hover {
+  background: var(--muted);
+}
+.expressions [data-slot="tabs-trigger"][data-active],
+.expressions [data-slot="tabs-trigger"][data-active]:hover {
+  color: var(--primary-foreground);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.desktop-expression-indicator {
+  width: var(--active-tab-width);
+  height: var(--active-tab-height);
+  translate: var(--active-tab-left) var(--active-tab-top);
+  background: var(--primary);
+}
+.expression-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  background: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+.expression-icon-neutral {
+  mask-image: url("./icons/mood-neutral.svg");
+}
+.expression-icon-happy {
+  mask-image: url("./icons/mood-happy.svg");
+}
+.expression-icon-relaxed {
+  mask-image: url("./icons/mood-smile.svg");
+}
+.expression-icon-sad {
+  mask-image: url("./icons/mood-sad.svg");
+}
+.expression-icon-angry {
+  mask-image: url("./icons/mood-angry.svg");
+}
+.expression-icon-surprised {
+  mask-image: url("./icons/mood-surprised.svg");
+}
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0;
+}
+.control-row > span {
+  flex-shrink: 0;
+}
+.control-row > .desktop-choice-trigger,
+.control-row > .desktop-segmented,
+.control-row > .desktop-reset-button {
+  width: 152px;
+  min-width: 0;
+  flex: 0 1 152px;
+}
+.desktop-segmented [data-slot="tabs-list"] {
+  width: 100%;
+}
+.desktop-tabs-list {
+  position: relative;
+  isolation: isolate;
+}
+.desktop-tabs-list [data-slot="tabs-trigger"],
+.desktop-tabs-list [data-slot="tabs-trigger"][data-active] {
+  z-index: 1;
+  background: transparent;
+  box-shadow: none;
+}
+.desktop-tabs-indicator {
+  width: var(--active-tab-width);
+  height: var(--active-tab-height);
+  translate: var(--active-tab-left) var(--active-tab-top);
+  background: var(--background);
+  box-shadow: 0 1px 2px #00000010;
+}
+.dark .desktop-tabs-indicator {
+  background: var(--input);
+}
+.desktop-choice-content {
+  width: max-content;
+  min-width: var(--anchor-width);
+  max-width: min(260px, var(--available-width));
+}
+.shortcuts > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 0;
+  gap: 12px;
+}
+kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--muted);
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+}
+.shortcuts kbd svg {
+  width: 16px;
+  height: 16px;
+}
+.mouse-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+}
+.mouse-left-click {
+  mask-image: url("./icons/mouse-left-click.svg");
+}
+.mouse-middle-click {
+  mask-image: url("./icons/mouse-middle-click.svg");
+}
+.mouse-scroll {
+  mask-image: url("./icons/mouse-scroll.svg");
+}
+.desktop-error {
+  color: var(--destructive);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+}
+.voice {
+  position: relative;
+  display: flex;
+}
+.voice.error {
+  color: var(--destructive);
+}
+.voice-wave {
+  position: absolute;
+  inset: -6px;
+  border: 2px solid #61bba5;
+  border-radius: 50%;
+  transform: scale(calc(0.75 + var(--level) * 0.5));
+  opacity: calc(0.3 + var(--level) * 0.7);
+}

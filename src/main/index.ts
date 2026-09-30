@@ -1,3 +1,8 @@
+import { AvatarDesktopWindows } from "./avatar/avatarDesktopWindows";
+import { setAvatarChatWindow } from "./ipc/avatarHandlers";
+import { AvatarService } from "./avatar/avatarService";
+import { registerAsrHandlers } from './ipc/asrHandlers';
+import type { AsrService } from './speech/asrService';
 import { join } from "node:path";
 import { app, BrowserWindow, Menu, safeStorage, shell } from "electron";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
@@ -20,6 +25,13 @@ import { createCredentialStore } from "./security/credentialStore";
 import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
 import { createTtsCache } from "./speech/ttsCache";
 import { createSpeechService } from "./speech/ttsService";
+import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
+import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
+
+let mainWindow: BrowserWindow | undefined;
+let desktopWindows: AvatarDesktopWindows | undefined;
+let avatarService: AvatarService | undefined;
+let asrService: AsrService | undefined;
 
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
@@ -43,11 +55,14 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
 
   window.once("ready-to-show", () => {
     window.show();
+    // Windows can inherit SW_HIDE from the launching terminal on the first show.
+    if (!window.isVisible()) window.show();
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -69,6 +84,9 @@ function createMainWindow(): BrowserWindow {
     void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
+  mainWindow = window;
+  setAvatarChatWindow(window);
+  window.on("closed", () => { mainWindow = undefined; if (process.platform !== "darwin") app.quit(); });
   return window;
 }
 
@@ -133,11 +151,20 @@ void app.whenReady().then(async () => {
     };
   }
   const speechService = createSpeechService({
+    artifactCache: createSpeechArtifactCache(join(app.getPath("userData"), "tts-cache")),
+    profileDirectory: join(app.getPath("userData"), "speech-profiles"),
     database: databaseRuntime,
     aiRuntime,
     cache: ttsCache,
   });
   registerAssetProtocol(databaseRuntime, assetService);
+  avatarService = new AvatarService(
+    app.isPackaged ? join(process.resourcesPath, "avatar", "KataruneAvatar.exe")
+      : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
+    join(app.getPath("userData"), "logs"),
+  );
+  avatarService.configureSpeech(speechService,
+    await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
@@ -145,11 +172,14 @@ void app.whenReady().then(async () => {
     assetService,
     speechService,
     memoryWiki,
+    avatarService,
   );
+  asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
+  desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"));
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!mainWindow || mainWindow.isDestroyed()) {
       createMainWindow();
     }
   });
@@ -159,6 +189,10 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  desktopWindows?.dispose();
+  desktopWindows = undefined;
+  asrService?.dispose();
+  avatarService?.stop();
   speechRequests?.cancelAll();
   speechRequests = undefined;
   void kataruneAiToolkit.close().catch((error: unknown) => {

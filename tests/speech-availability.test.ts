@@ -1,3 +1,4 @@
+import { emptyAppSettings } from "./defaultSettings";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Character, KataruneApi } from "../src/shared/ipc";
 import { isCharacterSpeechAvailable } from "../src/renderer/src/speech/speechAvailability";
@@ -10,6 +11,7 @@ const character: Character = {
   portraitFocusX: 0.5,
   portraitFocusY: 0,
   portraitZoom: 1,
+  useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
   modelConfigId: null,
   speechModelConfigId,
   speechVoice: "alloy",
@@ -30,10 +32,11 @@ describe("renderer speech availability", () => {
     vi.stubGlobal("window", {
       katarune: {
         listAvailableModels,
+        fetchModelConfig: async () => ({ id: speechModelConfigId, modelType: "speechModel", settings: null }) as Awaited<ReturnType<KataruneApi["fetchModelConfig"]>>,
       } as Partial<KataruneApi>,
     });
 
-    await expect(isCharacterSpeechAvailable(character)).resolves.toBe(true);
+    await expect(isCharacterSpeechAvailable(character, emptyAppSettings)).resolves.toBe(true);
     expect(listAvailableModels).toHaveBeenCalledOnce();
   });
 
@@ -42,6 +45,7 @@ describe("renderer speech availability", () => {
     vi.stubGlobal("window", {
       katarune: {
         listAvailableModels,
+        fetchModelConfig: async () => ({ id: speechModelConfigId, modelType: "speechModel", settings: null }) as Awaited<ReturnType<KataruneApi["fetchModelConfig"]>>,
       } as Partial<KataruneApi>,
     });
 
@@ -50,7 +54,7 @@ describe("renderer speech availability", () => {
         ...character,
         speechModelConfigId: null,
         speechVoice: null,
-      }),
+      }, emptyAppSettings),
     ).resolves.toBe(false);
     expect(listAvailableModels).not.toHaveBeenCalled();
   });

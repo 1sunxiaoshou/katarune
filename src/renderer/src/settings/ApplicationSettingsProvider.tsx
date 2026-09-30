@@ -7,7 +7,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import type { AppSettings } from "../../../shared/ipc";
+import type { AppSettings, UpdateAppSettingsRequest } from "../../../shared/ipc";
 import { Button } from "@/components/ui/button";
 import { applyTheme, readTheme, type Theme } from "../theme";
 import {
@@ -26,7 +26,7 @@ interface ApplicationSettingsContextValue {
   readonly setReduceMotion: (value: boolean) => void;
   readonly setTheme: (value: Theme) => void;
   readonly refreshAppSettings: () => Promise<void>;
-  readonly updateDefaultLanguageModel: (modelConfigId: string | null) => Promise<void>;
+  readonly updateDefaults: (request: UpdateAppSettingsRequest) => Promise<void>;
 }
 
 const ApplicationSettingsContext =
@@ -100,15 +100,9 @@ export function ApplicationSettingsProvider({
     applyReduceMotion(devicePreferences.reduceMotion);
   }, [devicePreferences.reduceMotion]);
 
-  const updateDefaultLanguageModel = useCallback(
-    async (defaultLanguageModelConfigId: string | null): Promise<void> => {
-      const settings = await window.katarune.updateAppSettings({
-        defaultLanguageModelConfigId,
-      });
-      setAppSettings(settings);
-    },
-    [],
-  );
+  const updateDefaults = useCallback(async (request: UpdateAppSettingsRequest): Promise<void> => {
+    setAppSettings(await window.katarune.updateAppSettings(request));
+  }, []);
 
   const value = useMemo<ApplicationSettingsContextValue | null>(
     () =>
@@ -123,7 +117,7 @@ export function ApplicationSettingsProvider({
             setAutoReadReplies,
             setReduceMotion,
             setTheme,
-            updateDefaultLanguageModel,
+            updateDefaults,
           },
     [
       appSettings,
@@ -134,7 +128,7 @@ export function ApplicationSettingsProvider({
       setReduceMotion,
       setTheme,
       theme,
-      updateDefaultLanguageModel,
+      updateDefaults,
     ],
   );
 

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "behaviorId": "katarune.performance.explain",
+  "version": 2,
+  "requiredCapabilities": [
+    "HumanoidBody"
+  ],
+  "channelClaims": [
+    {
+      "channel": "BodyFullPerformance",
+      "occupancy": "Exclusive"
+    }
+  ],
+  "clipGuid": "0f11bef37c3b9e94799c43f99c7c5554",
+  "entry": {
+    "startSeconds": 0.0,
+    "endSeconds": 0.35
+  },
+  "loopIterations": 0,
+  "syncPoints": [
+    {
+      "name": "stroke",
+      "timeSeconds": 1.2,
+      "safeExit": false
+    }
+  ],
+  "exit": {
+    "startSeconds": 0.35,
+    "endSeconds": 2.9333334
+  },
+  "fallbackStrategy": "None",
+  "fallbackBehaviorId": "",
+  "license": {
+    "distribution": "commercial-candidate",
+    "sourceName": "Universal Animation Library 1 Standard - Idle_Talking",
+    "sourceUri": "https://quaternius.com/packs/universalanimationlibrary.html",
+    "author": "Quaternius",
+    "licenseId": "CC0-1.0",
+    "licenseUri": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "acquiredOn": "2026-08-22",
+    "originalFormat": "FBX",
+    "commercialUseAllowed": true,
+    "modificationAllowed": true,
+    "redistributionAllowed": true,
+    "repositoryPolicy": "Track only the normalized Unity AnimationClip; keep the original UAL1 FBX in the Git-ignored local source area.",
+    "notes": "Quaternius universal humanoid skeleton; Idle_Talking is authored as a full-body motion and is therefore played unmasked. Gaze, expressions and visemes remain orthogonal non-body channels."
+  }
+}

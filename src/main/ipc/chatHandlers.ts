@@ -1,3 +1,4 @@
+import type { AvatarService } from "../avatar/avatarService";
 import { ipcMain } from "electron";
 import {
   appendThreadMessageRequestSchema,
@@ -29,11 +30,13 @@ export function registerChatHandlers(
   chatStreams: ChatStreamRegistry,
   assetService: AssetService,
   memoryWiki: MemoryWikiService,
+  avatar?: AvatarService,
 ): void {
   const chatService = createChatService({
     database,
     aiRuntime,
     memoryWiki,
+    ...(avatar ? { avatar } : {}),
     attachmentSupport: {
       assetService,
       imageProcessor: createElectronChatImageProcessor(),

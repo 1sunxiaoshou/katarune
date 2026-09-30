@@ -33,6 +33,7 @@ import {
 } from "../notifications";
 import {
   PROVIDER_TYPES,
+  type DiscoveredModelList,
   type ProviderConfig,
   type ProviderType,
 } from "../../../shared/ipc";
@@ -43,7 +44,7 @@ import { PROVIDER_CATALOG } from "./providerCatalog";
 interface ProviderDialogProps {
   readonly provider?: ProviderConfig | undefined;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onSaved: (providerId: string) => Promise<void>;
+  readonly onSaved: (providerId: string, discovery?: DiscoveredModelList) => Promise<void>;
 }
 
 const NOTIFICATION_SCOPE = "settings.provider-dialog";
@@ -66,6 +67,7 @@ export function ProviderDialog({
   const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [providerTypeOpen, setProviderTypeOpen] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const credentialRequired =
     getProviderCredentialRequirement(providerType).credentialMode === "required";
   const credentialInputRequired =
@@ -118,12 +120,27 @@ export function ProviderDialog({
           providerConfigId: savedProvider.id,
           secret,
         });
+        setSecret("");
       }
 
-      await onSaved(savedProvider.id);
+      let discoveryWarning: string | null = null;
+      let discovery: DiscoveredModelList | undefined;
+      if (!editing) {
+        setDiscovering(true);
+        try {
+          const result = await window.katarune.discoverProviderModels({ id: savedProvider.id, autoAdd: true });
+          discovery = result;
+          discoveryWarning = result.warning;
+        } catch (error) {
+          discoveryWarning = `供应商已保存。${errorMessage(error, "无法获取模型列表。")}可在模型页重试。`;
+        } finally {
+          setDiscovering(false);
+        }
+      }
+      await onSaved(savedProvider.id, discovery);
       notify({
-        level: "success",
-        message: "供应商配置已保存。",
+        level: discoveryWarning === null ? "success" : "warning",
+        message: discoveryWarning ?? (editing ? "供应商配置已保存。" : "供应商已保存，已自动添加识别到的模型。"),
         dedupeKey: `provider-saved:${savedProvider.id}`,
       });
       onOpenChange(false);
@@ -140,7 +157,7 @@ export function ProviderDialog({
   };
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={(open) => { if (!submitting) onOpenChange(open); }}>
       <DialogContent className="sm:max-w-lg">
         <form className="grid gap-5" onSubmit={(event) => void submit(event)}>
           <DialogHeader>
@@ -235,7 +252,7 @@ export function ProviderDialog({
           <InlineNotificationOutlet scope={NOTIFICATION_SCOPE} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
-            <Button type="submit" disabled={submitting}>{submitting ? (editing ? "保存中……" : "创建中……") : (editing ? "保存" : "创建")}</Button>
+            <Button type="submit" disabled={submitting}>{discovering ? "正在获取并添加模型……" : submitting ? (editing ? "保存中……" : "创建中……") : (editing ? "保存" : "创建")}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

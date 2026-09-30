@@ -16,6 +16,7 @@ import {
 export type FetchImplementation = typeof globalThis.fetch;
 
 export interface ProviderModelDiscoveryContext {
+  readonly discoveredModels?: readonly DiscoveredModel[];
   readonly provider: ProviderConfig;
   readonly apiKey: string | undefined;
   readonly fetchImplementation: FetchImplementation;

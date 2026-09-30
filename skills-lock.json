@@ -55,6 +55,24 @@
       "skillPath": "assistant-ui/skills/tools/SKILL.md",
       "computedHash": "4aabb67e0f8b01a9d3a1973baed589e1aaf6ad862a0c5cb316e9bb0d756a0498"
     },
+    "ui": {
+      "source": "Unity-Technologies/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui/SKILL.md",
+      "computedHash": "6f4190f4ef0a77aefadaf0bcbcbd9d7bc2c20593169f89b951b5fc30261e7930"
+    },
+    "ui-uitk": {
+      "source": "Unity-Technologies/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ui-uitk/SKILL.md",
+      "computedHash": "de71ce4ff446b4b4b6794b47d37d53f973d9211a0c73d6f8ea56caab61af10b4"
+    },
+    "unity-cli": {
+      "source": "Unity-Technologies/skills",
+      "sourceType": "github",
+      "skillPath": "skills/unity-cli/SKILL.md",
+      "computedHash": "49eda4f5a3bfe4e464ee14d3bbf4cf87652243fd36cc7ac269dab72702a37846"
+    },
     "update": {
       "source": "assistant-ui/skills",
       "sourceType": "github",

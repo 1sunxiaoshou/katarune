@@ -44,6 +44,29 @@ async function flush(): Promise<void> {
 }
 
 describe("assistant-ui TTS adapter", () => {
+  it("uses Unity started and completed events without creating browser audio", async () => {
+    const response = deferred<SpeechGenerateResponse>();
+    let started: ((value: { requestId: string }) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const generateSpeech = vi.fn((_request: SpeechGenerateRequest) => response.promise);
+    vi.stubGlobal("window", { katarune: {
+      generateSpeech, cancelSpeech,
+      onSpeechStarted: (callback: typeof started) => { started = callback; return unsubscribe; },
+    } });
+    adapter = new KataruneSpeechSynthesisAdapter(characterId, "thread-1");
+    const utterance = adapter.speak("Unity 朗读");
+    const requestId = generateSpeech.mock.calls[0]![0].requestId;
+    expect(generateSpeech.mock.calls[0]![0].threadId).toBe("thread-1");
+    started?.({ requestId });
+    expect(utterance.status.type).toBe("running");
+    expect(MockAudio.instances).toHaveLength(0);
+    response.resolve({ status: "played", requestId });
+    await flush();
+    expect(utterance.status).toEqual({ type: "ended", reason: "finished" });
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(MockAudio.instances).toHaveLength(0);
+  });
+
   const cancelSpeech = vi.fn();
   const createObjectURL = vi.fn((_blob: Blob) => "blob:katarune");
   const revokeObjectURL = vi.fn();
@@ -73,7 +96,7 @@ describe("assistant-ui TTS adapter", () => {
       (_request: SpeechGenerateRequest) => response.promise,
     );
     vi.stubGlobal("window", {
-      katarune: { generateSpeech, cancelSpeech } as Partial<KataruneApi>,
+      katarune: { generateSpeech, cancelSpeech, onSpeechStarted: vi.fn(() => () => {}) } as Partial<KataruneApi>,
     });
     adapter = new KataruneSpeechSynthesisAdapter(characterId);
 
@@ -110,7 +133,7 @@ describe("assistant-ui TTS adapter", () => {
       (_request: SpeechGenerateRequest) => response.promise,
     );
     vi.stubGlobal("window", {
-      katarune: { generateSpeech, cancelSpeech } as Partial<KataruneApi>,
+      katarune: { generateSpeech, cancelSpeech, onSpeechStarted: vi.fn(() => () => {}) } as Partial<KataruneApi>,
     });
     adapter = new KataruneSpeechSynthesisAdapter(characterId);
 
@@ -141,7 +164,7 @@ describe("assistant-ui TTS adapter", () => {
         new Promise<SpeechGenerateResponse>(() => undefined),
     );
     vi.stubGlobal("window", {
-      katarune: { generateSpeech, cancelSpeech } as Partial<KataruneApi>,
+      katarune: { generateSpeech, cancelSpeech, onSpeechStarted: vi.fn(() => () => {}) } as Partial<KataruneApi>,
     });
     adapter = new KataruneSpeechSynthesisAdapter(characterId);
     const first = adapter.speak("第一条");
@@ -170,7 +193,7 @@ describe("assistant-ui TTS adapter", () => {
         () => new Promise<SpeechGenerateResponse>(() => undefined),
       );
     vi.stubGlobal("window", {
-      katarune: { generateSpeech, cancelSpeech } as Partial<KataruneApi>,
+      katarune: { generateSpeech, cancelSpeech, onSpeechStarted: vi.fn(() => () => {}) } as Partial<KataruneApi>,
     });
     adapter = new KataruneSpeechSynthesisAdapter(characterId);
 

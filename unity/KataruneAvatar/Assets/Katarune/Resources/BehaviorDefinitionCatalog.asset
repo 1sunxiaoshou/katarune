@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1091170f48aa44f28ef23e8caf910baa, type: 3}
+  m_Name: BehaviorDefinitionCatalog
+  m_EditorClassIdentifier: Katarune.Avatar.Motion::Katarune.Avatar.BehaviorDefinitionCatalog
+  _definitions:
+  - {fileID: -7173706183594553208, guid: a1071bc4950bfb24393ab08a68c558ed, type: 3}
+  - {fileID: -7173706183594553208, guid: 9f3b76fce5b57b14090acfdeefa3dbd5, type: 3}

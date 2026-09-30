@@ -19,7 +19,8 @@ function extractAssetIds(value: unknown): string[] {
   const assetIds = new Set<string>();
   const visited = new Set<object>();
   const visit = (entry: unknown): void => {
-    if (typeof entry !== "object" || entry === null || visited.has(entry)) return;
+    if (typeof entry !== "object" || entry === null || visited.has(entry))
+      return;
     visited.add(entry);
     if (
       "type" in entry &&
@@ -77,7 +78,9 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
   }
 
   public async append(_item: ExportedMessageRepositoryItem): Promise<void> {
-    throw new Error("Katarune history requires a framework message format adapter.");
+    throw new Error(
+      "Katarune history requires a framework message format adapter.",
+    );
   }
 
   public withFormat<TMessage, TStorageFormat extends Record<string, unknown>>(
@@ -86,7 +89,9 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
     const getRemoteId = (): string | undefined =>
       this.aui.threadListItem().getState().remoteId;
 
-    const persist = async (item: MessageFormatItem<TMessage>): Promise<void> => {
+    const persist = async (
+      item: MessageFormatItem<TMessage>,
+    ): Promise<void> => {
       const { remoteId } = await this.aui.threadListItem().initialize();
       const content = formatAdapter.encode(item);
       await window.katarune.appendThreadMessage({
@@ -166,7 +171,10 @@ export function createKataruneThreadListAdapter(
     unstable_Provider: ThreadPersistenceProvider,
     list: () => window.katarune.listThreads({ characterId }),
     initialize: async (threadId) => {
-      const thread = await window.katarune.initializeThread({ threadId, characterId });
+      const thread = await window.katarune.initializeThread({
+        threadId,
+        characterId,
+      });
       return { remoteId: thread.remoteId, externalId: undefined };
     },
     fetch: (threadId) => window.katarune.fetchThread({ threadId, characterId }),

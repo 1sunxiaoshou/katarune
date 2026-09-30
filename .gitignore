@@ -1,12 +1,16 @@
 # Dependencies
 node_modules/
+resources/asr/sensevoice-int8/
 
 # Build output
 dist/
 dist-verify/
 out/
 build/
+/Builds/
+/Temp/
 coverage/
+.test-dist/
 .turbo/
 target/
 
@@ -16,6 +20,7 @@ target/
 !.env.example
 
 # Logs
+/Logs/
 *.log
 npm-debug.log*
 pnpm-debug.log*
@@ -33,3 +38,31 @@ Thumbs.db
 *.temp
 .cache/
 .playwright-cli/
+
+# Unity generated state and local build output
+unity/**/Library/
+unity/**/Temp/
+unity/**/Obj/
+unity/**/Logs/
+unity/**/TestResults/
+unity/**/UserSettings/
+unity/**/MemoryCaptures/
+unity/**/Recordings/
+unity/**/Builds/
+unity/**/*.csproj
+unity/**/*.sln
+unity/**/*.suo
+unity/**/*.user
+unity/**/*.pidb
+unity/**/*.booproj
+unity/**/.vs/
+unity/**/*.vrm
+unity/**/*.vrma
+unity/**/*.bvh
+unity/**/*.fbx
+unity/KataruneAvatar/Assets/KataruneLocal/
+unity/KataruneAvatar/Assets/KataruneLocal.meta
+
+# Local, separately distributed Unity animation bundles
+unity/KataruneAvatar/MotionPacks/
+resources/asr/silero-vad/

@@ -119,6 +119,8 @@ export function useCharacterPageController({
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,
+      useDefaultSpeechModel: true,
+      useDefaultSpeechVoice: true,
       systemPrompt: "",
       createdAt: now,
       updatedAt: now,
@@ -134,7 +136,9 @@ export function useCharacterPageController({
       setDraftCharacter((current) =>
         current === null
           ? null
-          : { ...current, ...request, updatedAt: new Date() },
+          : { ...current, ...request,
+              useDefaultSpeechModel: request.useDefaultSpeechModel ?? current.useDefaultSpeechModel,
+              useDefaultSpeechVoice: request.useDefaultSpeechVoice ?? current.useDefaultSpeechVoice, updatedAt: new Date() },
       );
     },
     [],

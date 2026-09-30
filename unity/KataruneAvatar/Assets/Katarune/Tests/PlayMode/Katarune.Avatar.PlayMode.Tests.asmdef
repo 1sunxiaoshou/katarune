@@ -1,0 +1,14 @@
+{
+  "name": "Katarune.Avatar.PlayMode.Tests",
+  "rootNamespace": "Katarune.Avatar.Tests",
+  "references": [
+    "Katarune.Avatar.Core",
+    "Katarune.Avatar.Motion",
+    "Katarune.Avatar.Runtime",
+    "Katarune.Avatar.UniVrm",
+    "VRM10",
+    "UniGLTF",
+    "UniHumanoid"
+  ],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

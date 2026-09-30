@@ -1,5 +1,6 @@
 import "../characters/character-fonts.css";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
   ArrowLeftIcon,
   BotIcon,
@@ -22,12 +23,16 @@ import { useApplicationSettings } from "./ApplicationSettingsProvider";
 
 interface SettingsPageProps {
   readonly onClose: () => void;
+  readonly initialTab?: "general" | "models";
 }
 
 export function SettingsPage({
   onClose,
+  initialTab = "general",
 }: SettingsPageProps): React.JSX.Element {
   const controller = useSettingsController();
+  const [tab, setTab] = useState<string>(initialTab);
+  const [discovery, setDiscovery] = useState<{ providerId: string; result: DiscoveredModelList } | null>(null);
   const { refreshAppSettings } = useApplicationSettings();
   const reload = useCallback(
     async (preferredProviderId?: string): Promise<void> => {
@@ -56,13 +61,13 @@ export function SettingsPage({
         </TooltipIconButton>
         <span className="settings-header-star" aria-hidden="true">✦</span>
         <h1>设置</h1>
-        <span>SETTINGS</span>
         <div className="settings-header-line" aria-hidden="true" />
       </header>
 
       <Tabs
         className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-20 lg:gap-10"
-        defaultValue="general"
+        value={tab}
+        onValueChange={setTab}
         data-testid="settings-workspace"
         orientation="vertical"
       >
@@ -93,10 +98,11 @@ export function SettingsPage({
           data-testid="settings-content"
         >
           <TabsContent className="settings-tab-panel h-full" value="general">
-            <GeneralSettings dataState={controller.dataState} />
+            <GeneralSettings dataState={controller.dataState} onOpenModels={() => setTab("models")} onReload={reload} />
           </TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="models">
             <ModelManagement
+              discovery={discovery}
               dataState={controller.dataState}
               selectedModels={controller.selectedModels}
               selectedProvider={controller.selectedProvider}
@@ -121,7 +127,10 @@ export function SettingsPage({
           onOpenChange={(open) => {
             if (!open) controller.closeProviderDialog();
           }}
-          onSaved={reload}
+          onSaved={async (providerId, result) => {
+            if (result) setDiscovery({ providerId, result });
+            await reload(providerId);
+          }}
         />
       )}
 

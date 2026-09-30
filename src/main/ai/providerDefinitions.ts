@@ -518,7 +518,7 @@ function discoveryBackedInspector(
   ) => SpeechInspectionDefaults | null,
 ): ProviderModelInspector {
   return async (context, modelId) => {
-    const discovered = (await discoverModels(context)).models.find(
+    const discovered = (context.discoveredModels ?? (await discoverModels(context)).models).find(
       (model) => model.id === modelId,
     );
     let modelType = discovered?.modelType ?? null;

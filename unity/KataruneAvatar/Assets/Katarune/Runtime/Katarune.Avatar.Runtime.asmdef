@@ -1,0 +1,11 @@
+{
+  "name": "Katarune.Avatar.Runtime",
+  "rootNamespace": "Katarune.Avatar",
+  "references": [
+    "uLipSync.Runtime",
+    "Katarune.Avatar.Core",
+    "Katarune.Avatar.Motion",
+    "Katarune.Avatar.UniVrm",
+    "Kirurobo.UniWindowController"
+  ]
+}

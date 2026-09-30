@@ -86,6 +86,10 @@ export const appSettings = sqliteTable(
     id: integer("id").primaryKey(),
     defaultLanguageModelConfigId: text("default_language_model_config_id")
       .references(() => modelConfigs.id, { onDelete: "set null" }),
+    defaultSpeechModelConfigId: text("default_speech_model_config_id")
+      .references(() => modelConfigs.id, { onDelete: "set null" }),
+    defaultAsrModel: text("default_asr_model").default("sensevoice-small-int8"),
+    defaultSpeechVoice: text("default_speech_voice"),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [check("app_settings_singleton_check", sql`${table.id} = 1`)],
@@ -105,6 +109,8 @@ export const characters = sqliteTable(
     modelConfigId: text("model_config_id"),
     speechModelConfigId: text("speech_model_config_id"),
     speechVoice: text("speech_voice"),
+    useDefaultSpeechModel: integer("use_default_speech_model", { mode: "boolean" }).notNull().default(false),
+    useDefaultSpeechVoice: integer("use_default_speech_voice", { mode: "boolean" }).notNull().default(false),
     systemPrompt: text("system_prompt").notNull().default(""),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),

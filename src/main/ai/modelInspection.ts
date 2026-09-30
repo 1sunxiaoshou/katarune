@@ -1,4 +1,5 @@
 import type {
+  DiscoveredModel,
   JsonObject,
   ModelMetadata,
   ModelType,
@@ -29,6 +30,7 @@ export async function inspectModelForPersistence({
   modelTypeHint,
   allowInspectionFallback,
   fetchImplementation = globalThis.fetch,
+  discoveredModels,
 }: {
   readonly provider: ProviderConfig;
   readonly definition: Pick<ProviderDefinition, "inspectModel">;
@@ -37,11 +39,12 @@ export async function inspectModelForPersistence({
   readonly modelTypeHint: ModelType | null;
   readonly allowInspectionFallback: boolean;
   readonly fetchImplementation?: FetchImplementation;
+  readonly discoveredModels?: readonly DiscoveredModel[];
 }): Promise<PersistableModelInspection> {
   let inspection: ProviderModelInspection;
   try {
     inspection = await definition.inspectModel(
-      { provider, apiKey, fetchImplementation },
+      { provider, apiKey, fetchImplementation, ...(discoveredModels === undefined ? {} : { discoveredModels }) },
       modelId,
     );
   } catch (error) {
