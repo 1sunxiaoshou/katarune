@@ -1,7 +1,6 @@
 import { DESKTOP_CHANNELS } from "../../shared/avatarDesktopChannels";
 import {
   BrowserWindow,
-  dialog,
   globalShortcut,
   ipcMain,
   screen,
@@ -668,29 +667,8 @@ export class AvatarDesktopWindows {
         this.saveSoon();
         break;
       }
-      case "open-model": {
-        this.dialogOpen = true;
-        try {
-          const result = await dialog.showOpenDialog(
-            this.windows.get("panel")!,
-            {
-              title: "打开 VRM 模型",
-              properties: ["openFile"],
-              filters: [{ name: "VRM", extensions: ["vrm"] }],
-            },
-          );
-          if (!result.canceled && result.filePaths[0])
-            await this.avatar.desktopCommand("load-model", result.filePaths[0]);
-        } finally {
-          this.dialogOpen = false;
-        }
-        break;
-      }
-      case "reload-model": {
-        const path = this.avatar.presentation?.modelPath;
-        if (path) await this.avatar.desktopCommand("load-model", path);
-        break;
-      }
+      case "open-model": { this.avatar.onOpenPackages?.(); break; }
+      case "reload-model": { await this.avatar.reloadPackage(); break; }
       case "affect":
       case "action":
         await this.avatar.desktopCommand(`desktop-${c.operation}`, value);

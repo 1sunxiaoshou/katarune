@@ -19,14 +19,17 @@ export function DictationControl(): React.JSX.Element {
   const busy = useAvatarState(state => state.status.busy);
   const running = useAuiState(state => state.thread.isRunning);
   useEffect(() => () => cancelLocalDictation(), [threadId]);
-  const label = realtime ? '桌宠语音请在 Unity HUD 中控制'
-    : phase === 'preparing' ? '正在准备离线识别，单击取消'
-    : phase === 'transcribing' ? '正在离线识别，单击取消'
-    : phase === 'recording' ? '结束录音并识别'
-    : !enabled ? '请在默认模型设置中启用语音识别'
-    : busy || running ? '当前回复中，暂时无法听写'
-    : '录音并填入聊天输入框';
   const loading = phase === 'preparing' || phase === 'transcribing';
+  const label = realtime ? '请在桌宠面板控制语音'
+    : loading ? '取消听写'
+    : phase === 'recording' ? '结束听写'
+    : !enabled ? '语音识别未启用'
+    : busy || running ? '回复中，听写不可用'
+    : '听写';
+  const statusText = realtime ? label
+    : phase === 'preparing' ? '正在准备听写…'
+    : phase === 'transcribing' ? '正在识别…'
+    : label;
   return <>
     <TooltipIconButton data-testid="dictation-toggle" data-state={phase}
       tooltip={label} aria-label={label}
@@ -40,8 +43,8 @@ export function DictationControl(): React.JSX.Element {
       {loading ? <LoaderCircleIcon className="size-4 animate-spin" />
         : phase === 'recording' ? <SquareIcon className="size-3.5 fill-current" /> : <MicIcon className="size-4" />}
     </TooltipIconButton>
-    <span className="sr-only" role="status">{label}</span>
-    {!realtime && phase !== 'idle' && <TooltipIconButton tooltip="取消语音输入" aria-label="取消语音输入"
+    <span className="sr-only" role="status">{statusText}</span>
+    {!realtime && phase !== 'idle' && <TooltipIconButton tooltip="取消听写" aria-label="取消听写"
       size="icon" variant="ghost" className="size-7 rounded-full" onClick={cancelLocalDictation}><XIcon className="size-4" /></TooltipIconButton>}
   </>;
 }

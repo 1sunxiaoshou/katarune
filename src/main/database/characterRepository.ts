@@ -3,13 +3,12 @@ import { count, desc, eq, ne, and } from "drizzle-orm";
 import {
   characterListSchema,
   characterSchema,
-  DEFAULT_PORTRAIT_FRAMING,
   deleteCharacterResultSchema,
   modelConfigSchema,
   type Character,
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
-import { appState, assets, characters, modelConfigs, threads } from "./schema";
+import { appState, assets, characters, characterPackages, modelConfigs, threads } from "./schema";
 import type {
   CharacterRepository,
   KataruneDatabase,
@@ -44,6 +43,12 @@ export function createCharacterRepository(
     }
   };
 
+  const present = (character: typeof characters.$inferSelect): Character => {
+    const pack = database.select().from(characterPackages).where(eq(characterPackages.id, character.packageId)).get();
+    const { portraitFocusX: _x, portraitFocusY: _y, portraitZoom: _zoom, ...current } = character;
+    return characterSchema.parse({ ...current, packagePortraitAssetId: pack?.portraitAssetId ?? null,
+      packageThumbnailAssetId: pack?.thumbnailAssetId ?? null });
+  };
   const fetchCharacter = (id: string): Character => {
     const character = database
       .select()
@@ -53,7 +58,7 @@ export function createCharacterRepository(
     if (character === undefined) {
       throw new Error(`Character "${id}" was not found.`);
     }
-    return characterSchema.parse(character);
+    return present(character);
   };
 
   return {
@@ -63,7 +68,7 @@ export function createCharacterRepository(
           .select()
           .from(characters)
           .orderBy(desc(characters.createdAt), desc(characters.id))
-          .all(),
+          .all().map(present),
       }),
     createCharacter: (
       {
@@ -76,7 +81,6 @@ export function createCharacterRepository(
         systemPrompt,
       },
       portraitAsset,
-      portraitFraming = DEFAULT_PORTRAIT_FRAMING,
     ) => {
       validateSpeechSelection(speechModelConfigId, speechVoice, useDefaultSpeechVoice);
       const id = randomUUID();
@@ -109,9 +113,6 @@ export function createCharacterRepository(
             id,
             name,
             portraitAssetId: portraitAsset?.id ?? null,
-            portraitFocusX: portraitFraming.focusX,
-            portraitFocusY: portraitFraming.focusY,
-            portraitZoom: portraitFraming.zoom,
             modelConfigId,
             speechModelConfigId,
             speechVoice,
@@ -206,8 +207,8 @@ export function createCharacterRepository(
         return deleteCharacterResultSchema.parse({
           deletedCharacterId: id,
           deletedThreadCount,
-          replacementCharacter: replacement,
-          activeCharacter,
+          replacementCharacter: present(replacement),
+          activeCharacter: present(activeCharacter),
         });
       }),
     fetchCharacter,
@@ -262,41 +263,6 @@ export function createCharacterRepository(
         .run();
       if (result.changes === 0) fetchCharacter(id);
       return fetchCharacter(id);
-    },
-    updateCharacterPortrait: (characterId, framing, asset) => {
-      const currentCharacter = fetchCharacter(characterId);
-      if (asset === undefined && currentCharacter.portraitAssetId === null) {
-        throw new Error("角色尚未设置立绘。");
-      }
-      const now = new Date();
-      database.transaction((transaction) => {
-        if (asset !== undefined) {
-          transaction
-            .insert(assets)
-            .values({
-              ...asset,
-              status: "ready",
-              createdAt: now,
-              updatedAt: now,
-            })
-            .run();
-        }
-        const result = transaction
-          .update(characters)
-          .set({
-            ...(asset === undefined ? {} : { portraitAssetId: asset.id }),
-            portraitFocusX: framing.focusX,
-            portraitFocusY: framing.focusY,
-            portraitZoom: framing.zoom,
-            updatedAt: now,
-          })
-          .where(eq(characters.id, characterId))
-          .run();
-        if (result.changes !== 1) {
-          throw new Error(`Character "${characterId}" was not found.`);
-        }
-      });
-      return fetchCharacter(characterId);
     },
   };
 }

@@ -1,3 +1,6 @@
+import { validateCharacterPackage } from "./validateCharacterPackage";
+import type { RuntimeCharacterPackage } from "../../shared/characterPackages";
+import { writeFileSync } from "node:fs";
 import type { AvatarPresentation, AvatarWindowReport, DesktopRect } from "../../shared/avatarDesktop";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
@@ -31,10 +34,28 @@ function describeAction(action: AvatarCapabilities["actions"][number]): string {
     duration !== undefined && duration > 0
       ? `，约 ${Math.max(1, Math.round(duration))} 秒`
       : "";
-  return `${action.id}（${action.label}${timing}）`;
+  return `${action.id}（${action.label}${timing}）${action.description ? `：${action.description}` : ""}`;
 }
 
 export class AvatarService {
+  onOpenPackages: (() => void) | undefined;
+  private packageResolver?: (characterId: string) => RuntimeCharacterPackage;
+  private activePackageId: string | undefined;
+  configurePackages(resolve: (characterId: string) => RuntimeCharacterPackage): void { this.packageResolver = resolve; }
+  async validatePackage(pack: RuntimeCharacterPackage, signal: AbortSignal): Promise<void> {
+    if (this.state.phase === "ready") await this.request("validate-package", JSON.stringify(pack), signal);
+    else await validateCharacterPackage(this.executable, pack, signal);
+  }
+  async switchPackage(characterId: string, pack: RuntimeCharacterPackage): Promise<void> {
+    if (this.starting) await this.starting;
+    if (this.switching) await this.switching;
+    if (this.state.binding?.characterId !== characterId || this.state.phase !== "ready") return;
+    await this.rebind(this.state.binding, pack);
+  }
+  async reloadPackage(): Promise<void> {
+    const binding = this.state.binding;
+    if (binding && this.packageResolver) await this.switchPackage(binding.characterId, this.packageResolver(binding.characterId));
+  }
   onOpenChat: (() => void) | undefined;
   onWindowState: ((state: AvatarWindowReport) => void) | undefined;
   onDesktopChanged: (() => void) | undefined;
@@ -142,11 +163,12 @@ export class AvatarService {
   clearError(): void { this.state = { ...this.state, error: null }; }
 
   async start(binding: AvatarBinding): Promise<AvatarStatus> {
-    if (this.matches(binding) && this.state.phase === "ready")
+    const startupPackage = this.packageResolver?.(binding.characterId);
+    if (this.matches(binding) && this.state.phase === "ready" && (!startupPackage || this.activePackageId === startupPackage.id))
       return this.status;
     if (this.starting || this.switching) {
-      this.state = { ...this.state, binding };
-      return (this.switching ?? this.starting)!;
+      await (this.switching ?? this.starting)!;
+      return this.start(binding);
     }
     if (this.state.phase === "ready" && this.socket && !this.socket.destroyed)
       return this.rebind(binding);
@@ -156,6 +178,9 @@ export class AvatarService {
       throw new Error(this.state.error!);
     }
     this.state = { phase: "starting", binding, error: null };
+    mkdirSync(this.logsDirectory, { recursive: true });
+    const packageFile = join(this.logsDirectory, "avatar-package.json");
+    if (startupPackage) writeFileSync(packageFile, JSON.stringify(startupPackage));
     const pipeName = `katarune-avatar-${randomUUID()}`;
     this.starting = new Promise<AvatarStatus>((resolve, reject) => {
       const timer = setTimeout(
@@ -182,7 +207,7 @@ export class AvatarService {
         socket.on("data", (chunk: string) => {
           if (this.socket !== socket) return;
           buffer += chunk;
-          if (Buffer.byteLength(buffer) > 65_536) {
+          if (Buffer.byteLength(buffer) > 2 * 1024 ** 2) {
             this.fail("Unity 返回了过大的消息。");
             return;
           }
@@ -202,6 +227,7 @@ export class AvatarService {
               } else if (reply.type === "ready") {
                 this.capabilities = reply.capabilities;
                 if (this.state.phase === "starting") {
+                  this.activePackageId = startupPackage?.id;
                   this.voiceDesired = true;
                   this.voicePhase = "preparing";
                   this.state = { ...this.state, phase: "ready", error: null };
@@ -282,7 +308,7 @@ export class AvatarService {
               cwd: dirname(this.executable),
               windowsHide: true,
               stdio: "ignore",
-              env: { ...process.env, KATARUNE_AVATAR_PIPE: pipeName },
+              env: { ...process.env, KATARUNE_AVATAR_PIPE: pipeName, KATARUNE_CHARACTER_PACKAGE: startupPackage ? packageFile : "" },
             },
           );
           this.child = child;
@@ -305,8 +331,11 @@ export class AvatarService {
     }
   }
 
-  private async rebind(binding: AvatarBinding): Promise<AvatarStatus> {
+  private async rebind(binding: AvatarBinding, packageOverride?: RuntimeCharacterPackage): Promise<AvatarStatus> {
     const socket = this.socket;
+    const previousBinding = this.state.binding;
+    const previousCapabilities = this.capabilities;
+    const pack = packageOverride ?? this.packageResolver?.(binding.characterId);
     const epoch = ++this.bindingEpoch;
     const runs = [...this.dialogueRuns.values()];
     const pending = [...this.pending.values()];
@@ -325,12 +354,22 @@ export class AvatarService {
     this.state = { phase: "switching", binding, error: null };
     const reset = this.request("session-reset", String(epoch), new AbortController().signal);
     this.releaseBarrier = reset.catch(() => {});
-    const switching = reset.then(() => {
+    const switching = reset.then(async () => {
+      if (epoch !== this.bindingEpoch || this.socket !== socket) throw new Error("桌宠切换已取消。");
+      if (pack && (packageOverride || this.activePackageId !== pack.id)) {
+        this.capabilities = undefined;
+        await this.request("load-package", JSON.stringify(pack), new AbortController().signal);
+        if (epoch !== this.bindingEpoch || this.socket !== socket) throw new Error("桌宠切换已取消。");
+        this.activePackageId = pack.id;
+      }
       if (epoch !== this.bindingEpoch || this.socket !== socket) throw new Error("桌宠切换已取消。");
       this.state = { ...this.state, phase: "ready" };
         return this.status;
     }).catch(error => {
-      if (epoch === this.bindingEpoch) this.fail("桌宠会话切换失败，请重试。");
+      if (epoch === this.bindingEpoch && this.socket === socket) {
+        this.capabilities = previousCapabilities;
+        this.state = { phase: "ready", binding: previousBinding, error: error instanceof Error ? error.message : "角色包切换失败。" };
+      }
       throw error;
     }).finally(() => {
       for (const request of pending) request.reject(new Error("桌宠已切换会话。"));
@@ -343,6 +382,7 @@ export class AvatarService {
 
   stop(error = new Error("桌宠控制已停止。")): AvatarStatus {
     this.bindingEpoch++;
+    this.activePackageId = undefined;
     this.presentation = null;
     this.starting = undefined;
     this.switching = undefined;
@@ -600,18 +640,24 @@ export class AvatarService {
   ): Promise<string> {
     signal.throwIfAborted();
     const socket = this.socket;
-    if (!socket || (this.state.phase !== "ready" && !(operation === "session-reset" && this.state.phase === "switching")))
+    if (!socket || (this.state.phase !== "ready" && !((operation === "session-reset" || operation === "load-package") && this.state.phase === "switching")))
       return Promise.reject(new Error("Unity 尚未连接。"));
     const id = randomUUID();
     return new Promise<string>((resolve, reject) => {
       const abort = () => {
+        if (operation === "validate-package") socket.write(`${JSON.stringify({ operation: "cancel-validation", value: id })}\n`);
         this.pending.delete(id);
         this.activeInstructions.delete(id);
         this.changed();
         cleanup();
         reject(signal.reason ?? new Error("角色请求已取消。"));
       };
-      const timer = setTimeout(() => this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。"), operation === "session-reset" ? 5_000 : 600_000);
+      const timer = setTimeout(() => {
+        if (operation === "validate-package") {
+          socket.write(`${JSON.stringify({ operation: "cancel-validation", value: id })}\n`);
+          this.pending.delete(id); cleanup(); reject(new Error("角色包验证超时。")); this.changed();
+        } else this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。");
+      }, operation === "session-reset" ? 5_000 : operation === "validate-package" || operation === "load-package" ? 120_000 : 600_000);
       const cleanup = () => {
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);

@@ -11,11 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
-import {
-  stagedCharacterPortraitSchema,
-  type DefaultCharacterConfig,
-  type StagedCharacterPortrait,
-} from "../../shared/characters";
+import type { DefaultCharacterConfig } from "../../shared/characters";
 import type {
   Asset,
   ImportChatAttachmentRequest,
@@ -43,19 +39,8 @@ const PORTRAIT_MIME_BY_EXTENSION = {
 type PortraitMime = (typeof PORTRAIT_MIME_BY_EXTENSION)[keyof typeof PORTRAIT_MIME_BY_EXTENSION];
 
 export interface AssetService {
-  stagePortrait(sourcePath: string): StagedCharacterPortrait;
-  commitStagedPortrait<T>(
-    stageId: string,
-    commit: (asset: ReadyAssetRegistration) => T,
-  ): T;
-  discardStagedPortrait(stageId: string): void;
   removeExact(assetId: string): void;
   resolveManagedPath(assetId: string): string;
-  resolveStagedPortrait(stageId: string): {
-    readonly path: string;
-    readonly mimeType: string;
-    readonly byteSize: number;
-  };
   reconcile(database: DatabaseRuntime, config: DefaultCharacterConfig): void;
   importChatAttachment(
     request: ImportChatAttachmentRequest,
@@ -166,7 +151,6 @@ export function createAssetService({
       unlinkSync(stalePath);
     }
   }
-  const stagedPortraits = new Map<string, ReadyAssetRegistration>();
 
   const resolveManagedPath = (assetId: string): string => {
     if (!UUID_PATTERN.test(assetId)) {
@@ -201,65 +185,11 @@ export function createAssetService({
   };
 
   return {
-    stagePortrait: (sourcePath) => {
-      const originalName = basename(sourcePath);
-      expectedMime(originalName);
-      const registration = copyIntoStage(sourcePath, randomUUID(), originalName);
-      stagedPortraits.set(registration.id, registration);
-      return stagedCharacterPortraitSchema.parse({
-        id: registration.id,
-        mimeType: registration.mimeType,
-        byteSize: registration.byteSize,
-        originalName: registration.originalName,
-      });
-    },
-    commitStagedPortrait: (stageId, commit) => {
-      const registration = stagedPortraits.get(stageId);
-      if (registration === undefined) {
-        throw new Error("立绘暂存项不存在或已失效。");
-      }
-      const stagingPath = resolve(stagingDirectory, `${stageId}.tmp`);
-      const finalPath = resolveManagedPath(stageId);
-      if (!existsSync(stagingPath) || existsSync(finalPath)) {
-        throw new Error("立绘暂存状态无效。");
-      }
-      renameSync(stagingPath, finalPath);
-      try {
-        const result = commit(registration);
-        stagedPortraits.delete(stageId);
-        return result;
-      } catch (error) {
-        renameSync(finalPath, stagingPath);
-        throw error;
-      }
-    },
-    discardStagedPortrait: (stageId) => {
-      if (!stagedPortraits.delete(stageId)) {
-        throw new Error("立绘暂存项不存在或已失效。");
-      }
-      const stagingPath = resolve(stagingDirectory, `${stageId}.tmp`);
-      if (existsSync(stagingPath)) unlinkSync(stagingPath);
-    },
     removeExact: (assetId) => {
       const path = resolveManagedPath(assetId);
       if (existsSync(path)) unlinkSync(path);
     },
     resolveManagedPath,
-    resolveStagedPortrait: (stageId) => {
-      const registration = stagedPortraits.get(stageId);
-      if (registration === undefined) {
-        throw new Error("立绘暂存项不存在或已失效。");
-      }
-      const path = resolve(stagingDirectory, `${stageId}.tmp`);
-      if (!path.startsWith(`${stagingDirectory}${sep}`) || !existsSync(path)) {
-        throw new Error("立绘暂存状态无效。");
-      }
-      return {
-        path,
-        mimeType: registration.mimeType,
-        byteSize: registration.byteSize,
-      };
-    },
     reconcile: (database, config) => {
       for (const asset of database.listAssets()) {
         if (asset.kind !== "character_portrait") continue;

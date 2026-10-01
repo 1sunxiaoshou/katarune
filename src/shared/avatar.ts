@@ -41,6 +41,7 @@ export const avatarCapabilitiesSchema = z.object({
       z.object({
         id: identifier,
         label: identifier,
+        description: z.optional(z.string().check(z.maxLength(2000))),
         durationSeconds: z.optional(
           z.number().check(z.gte(0), z.lte(3_600)),
         ),

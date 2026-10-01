@@ -26,7 +26,7 @@ function SettingCopy({
 }): React.JSX.Element {
   return (
     <span className="grid min-w-0 gap-0.5">
-      <span className="text-sm font-medium" id={id}>{title}</span>
+      <span className="text-sm font-medium text-foreground-secondary" id={id}>{title}</span>
       {description && <span className="text-xs leading-5 text-muted-foreground">{description}</span>}
     </span>
   );

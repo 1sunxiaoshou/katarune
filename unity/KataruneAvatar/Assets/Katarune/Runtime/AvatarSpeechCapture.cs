@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Katarune.Avatar
@@ -24,6 +25,7 @@ namespace Katarune.Avatar
         [Serializable] private sealed class Frame {
             public string file, playbackId, subtitle; public double time; public float position, duration;
             public float aa, ih, ou, ee, oh;
+            public string actionId, modelPath; public Quaternion headRotation;
         }
         [Serializable] private sealed class Block { public double time; public int channels, samples; public long offset; }
 
@@ -81,9 +83,13 @@ namespace Katarune.Avatar
                 if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) continue;
                 var time = AudioSettings.dspTime;
                 var pose = _runtime.CurrentPose;
+                if (_head == null) foreach (var animator in FindObjectsByType<Animator>(FindObjectsSortMode.None))
+                    if (animator.isHuman && animator.GetComponentsInChildren<Renderer>().Any(r => r.enabled)) { _head = animator.GetBoneTransform(HumanBodyBones.Head); break; }
                 var frame = new Frame { file = $"frame-{index++:D5}.jpg", time = time,
                     playbackId = _player.PlaybackId, position = _player.PositionSeconds, duration = _player.DurationSeconds,
-                    aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh };
+                    aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh,
+                    actionId = _runtime.Snapshot.Motion.CurrentActionId ?? "", modelPath = _runtime.Snapshot.Model?.Path ?? "",
+                    headRotation = _head != null ? _head.localRotation : Quaternion.identity };
                 _connection ??= FindFirstObjectByType<AvatarControlConnection>();
                 frame.subtitle = _connection != null ? _connection.CurrentSubtitle : "";
                 var texture = ScreenCapture.CaptureScreenshotAsTexture();

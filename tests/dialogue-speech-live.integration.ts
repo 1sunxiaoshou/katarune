@@ -39,8 +39,7 @@ void app.whenReady().then(async () => {
   });
   db.close();
   const character = characterSchema.parse({ id: selected.id, name: "Live test", portraitAssetId: null,
-    portraitFocusX: .5, portraitFocusY: 0, portraitZoom: 1,
-  useDefaultSpeechModel: false, useDefaultSpeechVoice: false, modelConfigId: languageRow.id,
+    useDefaultSpeechModel: false, useDefaultSpeechVoice: false, modelConfigId: languageRow.id,
     speechModelConfigId: selected.speech, speechVoice: selected.voice, systemPrompt: "", createdAt: now, updatedAt: now });
   const database = {
     listProviderConfigs: () => ({ providerConfigs: providers }), listModelConfigs: () => ({ modelConfigs: models }),

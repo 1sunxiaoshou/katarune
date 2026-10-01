@@ -49,6 +49,7 @@ export const DEFAULT_EFFORT_OPTIONS: readonly ModelSelectorEffortOption[] = [
 export type ModelOption = {
   id: string;
   name: string;
+  badge?: string;
   description?: string;
   icon?: ReactNode;
   disabled?: boolean;
@@ -277,7 +278,9 @@ export function ModelSelectorSetupButton({ warning = false, className, ...props 
 export type ModelSelectorTriggerProps = ComponentPropsWithoutRef<
   typeof PopoverTrigger
 > &
-  VariantProps<typeof modelSelectorTriggerVariants>;
+  VariantProps<typeof modelSelectorTriggerVariants> & {
+    onSetup?: (() => void) | undefined;
+  };
 
 function ModelSelectorTrigger({
   className,
@@ -285,18 +288,19 @@ function ModelSelectorTrigger({
   size,
   children,
   onKeyDown,
+  onSetup,
   ...props
 }: ModelSelectorTriggerProps) {
   const { setOpen } = useModelSelectorContext();
 
-  return (
+  const trigger = (
     <PopoverTrigger
       data-slot="model-selector-trigger"
       data-variant={variant ?? "outline"}
       data-size={size ?? "default"}
       role="combobox"
       aria-haspopup="listbox"
-      className={cn(modelSelectorTriggerVariants({ variant, size }), className)}
+      className={cn(modelSelectorTriggerVariants({ variant, size }), onSetup && "pr-10", className)}
       onKeyDown={(e) => {
         onKeyDown?.(e);
         if (e.defaultPrevented) return;
@@ -310,9 +314,25 @@ function ModelSelectorTrigger({
       {...props}
     >
       {children ?? <ModelSelectorValue />}
-      <ChevronDownIcon className="size-4 opacity-50" />
+      {!onSetup && <ChevronDownIcon className="size-4 opacity-50" />}
     </PopoverTrigger>
   );
+  if (!onSetup) return trigger;
+  return (
+    <span className="relative block w-full min-w-0">
+      {trigger}
+      <button type="button" aria-label={selectionCopy.modelSettings} title={selectionCopy.modelSettings}
+        disabled={props.disabled}
+        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-md text-primary hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50"
+        onClick={onSetup}>
+        <ArrowRightIcon className="size-4" aria-hidden="true" />
+      </button>
+    </span>
+  );
+}
+
+function ModelSelectorBadge({ children }: { children: string }): React.JSX.Element {
+  return <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal leading-none text-muted-foreground">{children}</span>;
 }
 
 export type ModelSelectorValueProps = {
@@ -369,8 +389,9 @@ function ModelSelectorValue({
       data-slot="model-selector-value"
       className={cn("flex min-w-0 items-center gap-2", selectedModel.placeholder && "text-muted-foreground", selectedModel.disabled && "text-warning", className)}
     >
+      {selectedModel.badge && !selectedModel.placeholder && <ModelSelectorBadge>{selectedModel.badge}</ModelSelectorBadge>}
       {selectedModel.icon && <ModelIcon>{selectedModel.icon}</ModelIcon>}
-      <span className="truncate font-medium">{selectedModel.name}</span>
+      <span className={cn("truncate", selectedModel.badge ? "font-normal" : "font-medium")}>{selectedModel.name}</span>
       {effortName && (
         <span className="text-muted-foreground min-w-7.5 truncate text-center">
           {effortName}
@@ -543,7 +564,7 @@ function ModelSelectorItem({
     <CommandItem
       data-slot="model-selector-item"
       value={model.id}
-      keywords={[model.name, ...(model.keywords ?? [])]}
+      keywords={[model.name, ...(model.badge ? [model.badge] : []), ...(model.keywords ?? [])]}
       {...(model.disabled ? { disabled: true } : undefined)}
       onSelect={(selectedValue) => {
         setValue(model.id);
@@ -562,7 +583,10 @@ function ModelSelectorItem({
             <ModelIcon className="mt-[3px]">{model.icon}</ModelIcon>
           )}
           <span className="flex min-w-0 flex-col">
-            <span className="truncate font-medium">{model.name}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              {model.badge && <ModelSelectorBadge>{model.badge}</ModelSelectorBadge>}
+              <span className={cn("truncate", model.badge ? "font-normal" : "font-medium")}>{model.name}</span>
+            </span>
             {model.description && (
               <span className="text-muted-foreground truncate text-xs">
                 {model.description}

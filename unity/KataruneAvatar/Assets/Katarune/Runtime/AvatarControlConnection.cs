@@ -29,7 +29,7 @@ namespace Katarune.Avatar
             public string RunId;
             public Request Command;
         }
-        [Serializable] private sealed class ActionInfo { public string id; public string label; public float durationSeconds; }
+        [Serializable] private sealed class ActionInfo { public string id; public string label; public string description; public float durationSeconds; }
         [Serializable] private sealed class Capabilities { public ActionInfo[] actions; public string[] expressions; }
         [Serializable] private sealed class Ready { public string type = "ready"; public Capabilities capabilities; }
         [Serializable] private sealed class StartupError { public string type = "startup-error"; public string error; }
@@ -58,6 +58,8 @@ namespace Katarune.Avatar
         private AvatarWindow _window;
         private volatile bool _connected;
         private volatile bool _stopping;
+        private CancellationTokenSource _packageCancellation;
+        private readonly Dictionary<string, CancellationTokenSource> _validations = new();
         private bool _timelineRunning;
         private bool _acting;
         private bool _actionStarted;
@@ -157,18 +159,7 @@ namespace Katarune.Avatar
                 Send(JsonUtility.ToJson(new StartupError { error = error.Length > 4000 ? error.Substring(0, 4000) : error }));
                 _startupErrorSent = true;
             }
-            if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
-            {
-                var caps = new Ready { capabilities = new Capabilities {
-                    actions = _runtime.AvailableActions.Select(a => new ActionInfo {
-                        id = a.Id, label = a.DisplayName, durationSeconds = a.DurationSeconds
-                    }).ToArray(),
-                    expressions = Enum.GetValues(typeof(AvatarAffectPreset)).Cast<AvatarAffectPreset>()
-                        .Where(p => _runtime.Snapshot.Capabilities.SupportsAffect(p)).Select(p => p.ToString().ToLowerInvariant()).ToArray(),
-                } };
-                var json = JsonUtility.ToJson(caps);
-                if (json != _lastCapabilities) { Send(json); _lastCapabilities = json; }
-            }
+            if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready) SendCapabilities();
             var snapshot = _runtime.Snapshot;
             var reference = _rig != null ? _rig.ReferenceWindowSize : new Vector2(0.3f, 0.8f);
             if (snapshot.Revision != _presentationRevision || reference != _presentationReference)
@@ -204,8 +195,13 @@ namespace Katarune.Avatar
                         if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var dialogue)) dialogue.Audio = request;
                         continue;
                     }
+                    if (request?.operation == "cancel-validation") {
+                        if (_validations.TryGetValue(request.value, out var validation)) validation.Cancel();
+                        continue;
+                    }
                     if (request?.operation == "session-reset")
                     {
+                        _packageCancellation?.Cancel();
                         StopAllCoroutines();
                         if (int.TryParse(request.value, out var epoch)) _epoch = epoch;
                         _speech?.Stop();
@@ -255,7 +251,8 @@ namespace Katarune.Avatar
                     }
                     if (request == null || !Guid.TryParse(request.id, out _) || (request.operation != "drain" && string.IsNullOrWhiteSpace(request.value)))
                         throw new ArgumentException("Invalid avatar request.");
-                    if (request.operation == "load-model") { LoadModel(request); continue; }
+                    if (request.operation == "load-model" || request.operation == "load-package") { LoadModel(request); continue; }
+                    if (request.operation == "validate-package") { ValidatePackage(request); continue; }
                     if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) throw new InvalidOperationException("角色尚未就绪。");
                     switch (request.operation)
                     {
@@ -294,8 +291,27 @@ namespace Katarune.Avatar
                         default: throw new ArgumentException("未知角色操作。");
                     }
                 }
-                catch (Exception error) { if (request != null) Reply(request, error.Message); }
+                catch (Exception error) {
+                    if (request == null) continue;
+                    if (!string.IsNullOrEmpty(request.toolCallId) && _toolNodes.TryGetValue(request.toolCallId, out var rejected)) {
+                        rejected.Kind = "skip"; _toolNodes.Remove(request.toolCallId); EnsureTimeline();
+                    }
+                    Reply(request, error.Message);
+                }
             }
+        }
+
+        private void SendCapabilities(bool force = false)
+        {
+                var caps = new Ready { capabilities = new Capabilities {
+                    actions = _runtime.AvailableActions.Select(a => new ActionInfo {
+                        id = a.Id, label = a.DisplayName, description = a.Description, durationSeconds = a.DurationSeconds
+                    }).ToArray(),
+                    expressions = Enum.GetValues(typeof(AvatarAffectPreset)).Cast<AvatarAffectPreset>()
+                        .Where(p => _runtime.Snapshot.Capabilities.SupportsAffect(p)).Select(p => p.ToString().ToLowerInvariant()).ToArray(),
+                } };
+                var json = JsonUtility.ToJson(caps);
+                if (force || json != _lastCapabilities) { Send(json); _lastCapabilities = json; }
         }
 
         // Native UIMessageChunk events remain unchanged on the wire. Only public text is dialogue.
@@ -320,16 +336,35 @@ namespace Katarune.Avatar
 
         private async void LoadModel(Request request)
         {
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
+            cancellation.CancelAfter(TimeSpan.FromSeconds(110));
+            _packageCancellation?.Cancel(); _packageCancellation = cancellation;
             try {
                 var yaw = _rig?.DesktopYaw ?? 0f; var pitch = _rig?.DesktopPitch ?? 4f;
                 var behavior = _runtime.Snapshot.Behavior; var epoch = _epoch;
-                var result = await _runtime.LoadAsync(request.value, destroyCancellationToken);
+                var result = request.operation == "load-package"
+                    ? await ((_runtime as IAvatarPackageRuntime) ?? throw new InvalidOperationException("Package runtime unavailable.")).LoadPackageAsync(JsonUtility.FromJson<AvatarCharacterPackage>(request.value), cancellation.Token)
+                    : await _runtime.LoadAsync(request.value, cancellation.Token);
                 if (result.Outcome == AvatarLoadOutcome.Loaded) {
                     _rig?.SetDesktopPose(yaw, pitch);
+                    SendCapabilities(force: true);
                     _runtime.ApplyBehavior(epoch == _epoch ? behavior : _runtime.Snapshot.Behavior.WithPointerGazeTracking(behavior.PointerGazeTrackingEnabled));
                 }
                 Reply(request, result.Outcome == AvatarLoadOutcome.Loaded ? null : result.Error ?? "模型加载失败。");
             } catch (Exception error) { Reply(request, error.Message); }
+            finally { if (ReferenceEquals(_packageCancellation, cancellation)) _packageCancellation = null; cancellation.Dispose(); }
+        }
+
+        private async void ValidatePackage(Request request)
+        {
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
+            cancellation.CancelAfter(TimeSpan.FromSeconds(110));
+            _validations.Add(request.id, cancellation);
+            try {
+                await ((_runtime as IAvatarPackageRuntime) ?? throw new InvalidOperationException("Package runtime unavailable.")).ValidatePackageAsync(JsonUtility.FromJson<AvatarCharacterPackage>(request.value), cancellation.Token);
+                Reply(request);
+            } catch (Exception error) { Reply(request, error.Message); }
+            finally { _validations.Remove(request.id); }
         }
 
         private void ShowUserSubtitle(string text)
@@ -551,8 +586,9 @@ namespace Katarune.Avatar
                     else if (item.Kind == "tool")
                     {
                         if (_mutedRuns.Contains(item.RunId)) { _timeline.Dequeue(); continue; }
-                        while (_connected && item.Command == null) yield return null;
+                        while (_connected && item.Kind == "tool" && item.Command == null) yield return null;
                         if (!_connected) yield break;
+                        if (item.Kind == "skip") { _timeline.Dequeue(); continue; }
                         if (item.Command.operation == "expression") ApplyExpression(item.Command);
                         else
                         {

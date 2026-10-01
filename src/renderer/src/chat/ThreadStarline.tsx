@@ -26,7 +26,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { notify } from "../notifications";
-import { formatThreadTime } from "./threadTime";
 import { normalizeThreadTitle } from "./threadSidebarState";
 
 interface ThreadStarlineProps {
@@ -40,19 +39,57 @@ function errorMessage(cause: unknown, fallback: string): string {
 }
 
 interface ThreadStarlineItemProps {
-  readonly now: Date;
   readonly onActiveChange: () => void;
 }
 
+function ThreadStarlineTitle({
+  title,
+}: {
+  readonly title: string | undefined;
+}): React.JSX.Element {
+  const viewportRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const text = textRef.current;
+    if (viewport === null || text === null) return;
+    let mounted = true;
+    const measure = (): void => {
+      const overflow = Math.max(0, text.scrollWidth - viewport.clientWidth);
+      viewport.dataset.overflow = String(overflow > 1);
+      viewport.style.setProperty("--title-scroll-offset", `${-overflow}px`);
+      viewport.style.setProperty(
+        "--title-scroll-duration",
+        `${Math.max(2.5, overflow / 40 + 1.2)}s`,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    void document.fonts.ready.then(() => {
+      if (mounted) measure();
+    });
+    return () => {
+      mounted = false;
+      observer.disconnect();
+    };
+  }, [title]);
+
+  return (
+    <span className="thread-starline-title" ref={viewportRef}>
+      <span className="thread-starline-title-text" ref={textRef}>
+        <ThreadListItemPrimitive.Title fallback="未命名会话" />
+      </span>
+    </span>
+  );
+}
+
 function ThreadStarlineItem({
-  now,
   onActiveChange,
 }: ThreadStarlineItemProps): React.JSX.Element {
   const runtime = useThreadListItemRuntime();
   const title = useAuiState((state) => state.threadListItem.title);
-  const lastMessageAt = useAuiState(
-    (state) => state.threadListItem.lastMessageAt,
-  );
   const threadId = useAuiState((state) => state.threadListItem.id);
   const mainThreadId = useAuiState((state) => state.threads.mainThreadId);
   const active = mainThreadId === threadId;
@@ -182,16 +219,10 @@ function ThreadStarlineItem({
               <ThreadListItemPrimitive.Trigger
                 className="thread-starline-row"
                 data-testid="thread-starline-trigger"
-                title={title ?? "未命名会话"}
               >
                 <span className="thread-starline-marker" aria-hidden="true" />
                 <span className="thread-starline-copy">
-                  <span className="thread-starline-title">
-                    <ThreadListItemPrimitive.Title fallback="未命名会话" />
-                  </span>
-                  <time dateTime={lastMessageAt?.toISOString()}>
-                    {formatThreadTime(lastMessageAt, now)}
-                  </time>
+                  <ThreadStarlineTitle title={title} />
                 </span>
               </ThreadListItemPrimitive.Trigger>
             )}
@@ -247,7 +278,6 @@ export function ThreadStarline({
   const listElement = useRef<HTMLOListElement>(null);
   const [canScrollUp, setCanScrollUp] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
-  const [now, setNow] = useState(() => new Date());
   const [activeMarkerTop, setActiveMarkerTop] = useState<number | null>(null);
   const [activeMarkerReady, setActiveMarkerReady] = useState(false);
   const activeMarkerReadyFrame = useRef<number | null>(null);
@@ -336,13 +366,6 @@ export function ThreadStarline({
     [],
   );
 
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, []);
-
   return (
     <ThreadListPrimitive.Root className="thread-starline-root">
       <div className="thread-starline-header">
@@ -393,7 +416,6 @@ export function ThreadStarline({
             <ThreadListPrimitive.Items>
               {() => (
                 <ThreadStarlineItem
-                  now={now}
                   onActiveChange={updateActiveMarker}
                 />
               )}

@@ -3,22 +3,18 @@ import {
   useEffect,
   useState,
   type ButtonHTMLAttributes,
-  type CSSProperties,
 } from "react";
 
 import { cn } from "@/lib/utils";
 import {
   assetUrl,
   type Character,
-  type PortraitFraming,
 } from "../../../shared/ipc";
 import { getCharacterNameReading } from "./characterName";
 
 interface CharacterCardProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onSelect"> {
   readonly character: Character;
-  readonly framing?: PortraitFraming;
-  readonly portraitSrc?: string | null;
   readonly selected: boolean;
   readonly onSelect?: () => void;
   readonly testId?: string;
@@ -29,8 +25,6 @@ export const CharacterCard = forwardRef<HTMLButtonElement, CharacterCardProps>(
     {
       character,
       className,
-      framing,
-      portraitSrc,
       selected,
       onSelect,
       testId = "character-list-item",
@@ -41,26 +35,14 @@ export const CharacterCard = forwardRef<HTMLButtonElement, CharacterCardProps>(
     const [portraitFailed, setPortraitFailed] = useState(false);
     useEffect(() => {
       setPortraitFailed(false);
-    }, [character.portraitAssetId, portraitSrc]);
+    }, [character.packageThumbnailAssetId, character.packagePortraitAssetId]);
     const reading = getCharacterNameReading(character.name);
     const portrait =
       portraitFailed
         ? null
-        : portraitSrc !== undefined
-          ? portraitSrc
-          : character.portraitAssetId === null
-            ? null
-            : assetUrl(character.portraitAssetId);
-    const resolvedFraming = framing ?? {
-      focusX: character.portraitFocusX,
-      focusY: character.portraitFocusY,
-      zoom: character.portraitZoom,
-    };
-    const portraitStyle = {
-      "--portrait-focus-x": `${resolvedFraming.focusX * 100}%`,
-      "--portrait-focus-y": `${resolvedFraming.focusY * 100}%`,
-      "--portrait-zoom": resolvedFraming.zoom,
-    } as CSSProperties;
+        : character.packageThumbnailAssetId || character.packagePortraitAssetId
+            ? assetUrl(character.packageThumbnailAssetId ?? character.packagePortraitAssetId!)
+            : null;
 
     return (
       <button
@@ -72,8 +54,7 @@ export const CharacterCard = forwardRef<HTMLButtonElement, CharacterCardProps>(
         type="button"
         onClick={onSelect}
       >
-        {selected && <span className="character-list-pointer" aria-hidden="true">◆</span>}
-        <span className="character-list-portrait" style={portraitStyle}>
+        <span className="character-list-portrait">
           {portrait === null ? (
             <span className="character-list-placeholder" aria-hidden="true">✦</span>
           ) : (

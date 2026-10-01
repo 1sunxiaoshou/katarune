@@ -1,4 +1,3 @@
-import "../characters/character-fonts.css";
 import { SpeechVoicePicker } from "../speech/SpeechVoicePicker";
 import {
   ArrowUpDownIcon,

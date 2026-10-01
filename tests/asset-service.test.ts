@@ -46,39 +46,6 @@ function readyAsset(byteSize: number): Asset {
 }
 
 describe("generic asset service and protocol", () => {
-  it("stages and commits a signed portrait into an extensionless immutable asset", () => {
-    const userDataPath = tempDirectory();
-    const resourcesPath = join(process.cwd(), "resources", "characters");
-    const service = createAssetService({
-      userDataPath,
-      characterResourcesPath: resourcesPath,
-    });
-    const staged = service.stagePortrait(
-      join(resourcesPath, "sunohara-kokona.png"),
-    );
-    const registration = service.commitStagedPortrait(staged.id, (asset) => asset);
-
-    expect(registration.mimeType).toBe("image/png");
-    expect(registration.sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(readFileSync(service.resolveManagedPath(registration.id)).byteLength).toBe(
-      registration.byteSize,
-    );
-    expect(service.resolveManagedPath(registration.id)).toBe(
-      join(userDataPath, "assets", registration.id),
-    );
-  });
-
-  it("rejects a portrait whose extension does not match its signature", () => {
-    const userDataPath = tempDirectory();
-    const invalidPath = join(userDataPath, "invalid.png");
-    writeFileSync(invalidPath, "not a png");
-    const service = createAssetService({
-      userDataPath,
-      characterResourcesPath: join(process.cwd(), "resources", "characters"),
-    });
-    expect(() => service.stagePortrait(invalidPath)).toThrow(/文件内容不一致/);
-  });
-
   it("moves an exact legacy portrait and keeps absent assets missing", () => {
     const userDataPath = tempDirectory();
     const resourcesPath = join(process.cwd(), "resources", "characters");
@@ -140,10 +107,8 @@ describe("generic asset service and protocol", () => {
       userDataPath,
       characterResourcesPath: join(process.cwd(), "resources", "characters"),
     });
-    const staged = service.stagePortrait(
-      join(process.cwd(), "resources", "characters", "sunohara-kokona.png"),
-    );
-    const imported = service.commitStagedPortrait(staged.id, (asset) => asset);
+    const imported = { id: "00000000-0000-4000-8000-000000000099", byteSize: readFileSync(join(process.cwd(), "resources/characters/sunohara-kokona.png")).length };
+    copyFileSync(join(process.cwd(), "resources/characters/sunohara-kokona.png"), service.resolveManagedPath(imported.id));
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
       fetchAsset: (id: string) => {
@@ -207,67 +172,11 @@ describe("generic asset service and protocol", () => {
       .toContain("media-src 'self' blob: katarune-asset:");
   });
 
-  it("serves only registered staged portraits without caching and discards them", async () => {
-    const userDataPath = tempDirectory();
-    const service = createAssetService({
-      userDataPath,
-      characterResourcesPath: join(process.cwd(), "resources", "characters"),
-    });
-    const staged = service.stagePortrait(
-      join(process.cwd(), "resources", "characters", "sunohara-kokona.png"),
-    );
-    const database = {
-      fetchAsset: () => {
-        throw new Error("staged requests must not query persisted assets");
-      },
-    } as unknown as DatabaseRuntime;
-    const url = `katarune-asset://staged/${staged.id}`;
-
-    const response = handleAssetRequest(new Request(url), database, service);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("content-type")).toBe("image/png");
-    expect((await response.arrayBuffer()).byteLength).toBe(staged.byteSize);
-    expect(
-      handleAssetRequest(
-        new Request(`katarune-asset://staged/${assetId}`),
-        database,
-        service,
-      ).status,
-    ).toBe(404);
-
-    service.discardStagedPortrait(staged.id);
-    expect(handleAssetRequest(new Request(url), database, service).status).toBe(404);
-  });
-
-  it("restores a staged portrait after a failed commit and removes stale stages on startup", () => {
-    const userDataPath = tempDirectory();
-    const resourcesPath = join(process.cwd(), "resources", "characters");
-    const stagingDirectory = join(userDataPath, "asset-staging");
-    mkdirSync(stagingDirectory, { recursive: true });
-    const staleId = "00000000-0000-4000-8000-000000000009";
-    const stalePath = join(stagingDirectory, `${staleId}.tmp`);
-    writeFileSync(stalePath, "stale");
-
-    const service = createAssetService({
-      userDataPath,
-      characterResourcesPath: resourcesPath,
-    });
-    expect(existsSync(stalePath)).toBe(false);
-
-    const staged = service.stagePortrait(join(resourcesPath, "sunohara-kokona.png"));
-    expect(() =>
-      service.commitStagedPortrait(staged.id, () => {
-        throw new Error("database failed");
-      }),
-    ).toThrow("database failed");
-    expect(service.resolveStagedPortrait(staged.id).byteSize).toBe(staged.byteSize);
-    expect(existsSync(service.resolveManagedPath(staged.id))).toBe(false);
-
-    const committed = service.commitStagedPortrait(staged.id, (asset) => asset);
-    expect(committed.id).toBe(staged.id);
-    expect(existsSync(service.resolveManagedPath(staged.id))).toBe(true);
-    expect(() => service.resolveStagedPortrait(staged.id)).toThrow(/不存在或已失效/);
+  it("removes stale generic asset stages on startup", () => {
+    const userDataPath = tempDirectory(), stage = join(userDataPath, "asset-staging");
+    mkdirSync(stage); const path = join(stage, `${assetId}.tmp`); writeFileSync(path, "stale");
+    createAssetService({ userDataPath, characterResourcesPath: join(process.cwd(), "resources/characters") });
+    expect(existsSync(path)).toBe(false);
   });
 
   it("copies arbitrary chat attachment bytes, normalizes MIME, verifies integrity, and releases drafts", () => {

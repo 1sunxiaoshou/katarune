@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Katarune.Avatar
 {
-    public sealed class AvatarRuntimeFacade : IAvatarRuntimeFacade
+    public sealed class AvatarRuntimeFacade : IAvatarRuntimeFacade, IAvatarPackageRuntime
     {
         public System.Collections.Generic.IReadOnlyList<AvatarActionInfo> AvailableActions => _motions.AvailableActions;
         private readonly AvatarRuntimeSession _session;
@@ -46,6 +46,15 @@ namespace Katarune.Avatar
         {
             ThrowIfDisposed();
             return await _session.LoadAsync(path, () => _presentation, cancellationToken);
+        }
+
+        public Task<AvatarLoadResult> LoadPackageAsync(AvatarCharacterPackage package, CancellationToken token = default)
+        {
+            ThrowIfDisposed(); return _session.LoadPackageAsync(package, () => _presentation, token);
+        }
+        public Task ValidatePackageAsync(AvatarCharacterPackage package, CancellationToken token = default)
+        {
+            ThrowIfDisposed(); return _session.ValidatePackageAsync(package, _presentation, token);
         }
 
         public void Unload()

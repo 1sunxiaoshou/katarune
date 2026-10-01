@@ -36,7 +36,10 @@ namespace Katarune.Avatar
         {
             try
             {
-                _options = AvatarCommandLine.Parse(Environment.GetCommandLineArgs());
+                var args = Environment.GetCommandLineArgs();
+                var validateIndex = Array.IndexOf(args, "--validate-package");
+                if (validateIndex >= 0) { await ValidatePackage(args, validateIndex); return; }
+                _options = AvatarCommandLine.Parse(args);
                 _sceneRig = FindFirstObjectByType<AvatarSceneRig>();
                 if (_sceneRig == null)
                 {
@@ -56,8 +59,9 @@ namespace Katarune.Avatar
 
                 _behavior = gameObject.AddComponent<AvatarBehaviorController>();
                 _motions = gameObject.AddComponent<AvatarMotionController>();
-                await _motions.LoadExternalPacksAsync(
-                    _options.MotionPacksDirectory ?? AvatarMotionPacks.DefaultDirectory, destroyCancellationToken);
+                var packageFile = Environment.GetEnvironmentVariable("KATARUNE_CHARACTER_PACKAGE");
+                if (string.IsNullOrWhiteSpace(packageFile))
+                    await _motions.LoadExternalPacksAsync(_options.MotionPacksDirectory ?? AvatarMotionPacks.DefaultDirectory, destroyCancellationToken);
                 destroyCancellationToken.ThrowIfCancellationRequested();
                 _behavior.SetMotionSource(_motions);
                 _visuals = gameObject.AddComponent<AvatarVisualController>();
@@ -90,13 +94,42 @@ namespace Katarune.Avatar
                     gameObject.AddComponent<AvatarControlConnection>().Configure(_facade, controlPipe, _speech);
 
                 var initialModelPath = ResolveInitialModelPath(_options.ModelPath, Application.dataPath);
-                if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
+                if (!string.IsNullOrWhiteSpace(packageFile))
+                    _ = _facade.LoadPackageAsync(JsonUtility.FromJson<AvatarCharacterPackage>(File.ReadAllText(packageFile)), destroyCancellationToken);
+                else if (!string.IsNullOrWhiteSpace(initialModelPath)) _ = _facade.LoadAsync(initialModelPath);
             }
             catch (OperationCanceledException) { }
             catch (Exception error)
             {
                 Debug.LogException(error);
                 if (_options != null && _options.ExitOnError) Application.Quit(1);
+            }
+        }
+
+        [Serializable] private sealed class PackageValidationResult { public bool ok; public string error; }
+        private async System.Threading.Tasks.Task ValidatePackage(string[] args, int inputIndex)
+        {
+            var outputIndex = Array.IndexOf(args, "--validation-result");
+            if (inputIndex + 1 >= args.Length || outputIndex < 0 || outputIndex + 1 >= args.Length) { Application.Quit(1); return; }
+            var report = new PackageValidationResult();
+            AvatarLoadCandidate candidate = null;
+            try
+            {
+                var package = JsonUtility.FromJson<AvatarCharacterPackage>(File.ReadAllText(args[inputIndex + 1]));
+                _motions = gameObject.AddComponent<AvatarMotionController>();
+                _visuals = gameObject.AddComponent<AvatarVisualController>();
+                _visuals.Configure(softOutlineEnabled: false);
+                var loader = new UniVrmAvatarLoader(_visuals, _motions);
+                candidate = await loader.LoadPackageAsync(package, new AvatarPresentationSettings(false), destroyCancellationToken);
+                candidate.Model.Motion.Tick(1f / 30f);
+                report.ok = true;
+            }
+            catch (Exception error) { report.error = error.Message; Debug.LogException(error); }
+            finally
+            {
+                candidate?.Dispose();
+                File.WriteAllText(args[outputIndex + 1], JsonUtility.ToJson(report));
+                Application.Quit(report.ok ? 0 : 1);
             }
         }
 

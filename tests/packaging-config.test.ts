@@ -87,7 +87,6 @@ describe("desktop packaging configuration", () => {
       "lucide-react",
       "react",
       "react-dom",
-      "react-easy-crop",
       "remark-gfm",
       "zustand",
     ]) {

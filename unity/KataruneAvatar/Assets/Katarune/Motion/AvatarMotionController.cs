@@ -16,7 +16,7 @@ namespace Katarune.Avatar
         private IAvatarMotionInstance _active;
         private AvatarMotionPacks _packs;
         private readonly List<AvatarActionInfo> _availableActions = new();
-        public IReadOnlyList<AvatarActionInfo> AvailableActions => _availableActions;
+        public IReadOnlyList<AvatarActionInfo> AvailableActions => _active is IAvatarMotionCatalog package ? package.AvailableActions : _availableActions;
         public string PackDiagnostics => _packs == null ? string.Empty : string.Join("\n", _packs.Diagnostics);
 
         public event Action Changed;

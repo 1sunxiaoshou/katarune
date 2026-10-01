@@ -18,6 +18,11 @@ export function App(): React.JSX.Element {
   useEffect(() => realtimeVoice.mount(), []);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "characters">("chat");
 
+  const [packageRequest, setPackageRequest] = useState<{ characterId: string | null } | null>(null);
+  useEffect(() => window.katarune.onOpenCharacterPackages(characterId => {
+    setPackageRequest({ characterId }); setActiveView("characters");
+  }), []);
+
   const [settingsTab, setSettingsTab] = useState<"general" | "models">("general");
 
   return (
@@ -55,6 +60,8 @@ export function App(): React.JSX.Element {
           }
         >
           <CharacterPage
+            packageRequest={packageRequest}
+            onPackageRequestHandled={() => setPackageRequest(null)}
             onClose={() => setActiveView("chat")}
             onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
           />

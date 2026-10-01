@@ -65,6 +65,12 @@ namespace Katarune.Avatar.Editor
                 playerDirectory,
                 Path.GetFileNameWithoutExtension(playerPath) + "_Data");
             CopyLocalAsset(AvatarDefaultAssets.ModelPath(Application.dataPath), AvatarDefaultAssets.ModelPath(dataDirectory));
+            var packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "resources", "characters", "default-package"));
+            foreach (var source in Directory.GetFiles(packageRoot, "*", SearchOption.AllDirectories))
+                CopyLocalAsset(source, Path.Combine(dataDirectory, "KataruneLocal", Path.GetRelativePath(packageRoot, source)));
+            var motions = Path.Combine(Application.dataPath, "KataruneLocal", "Motions");
+            if (Directory.Exists(motions)) foreach (var source in Directory.GetFiles(motions, "*.vrma"))
+                CopyLocalAsset(source, Path.Combine(dataDirectory, "KataruneLocal", "Motions", Path.GetFileName(source)));
         }
 
         private static void CopyLocalAsset(string sourcePath, string destinationPath)

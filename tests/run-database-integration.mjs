@@ -27,5 +27,5 @@ try {
     if (test.status !== 0) process.exitCode = test.status ?? 1;
   }
 } finally {
-  rmSync(resolve(projectRoot, ".test-dist"), { recursive: true, force: true });
+  rmSync(outputDirectory, { recursive: true, force: true });
 }

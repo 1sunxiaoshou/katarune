@@ -16,7 +16,7 @@ interface CharacterListProps {
   readonly isDeleteDisabled: (character: Character) => boolean;
   readonly onCreate: () => void;
   readonly onDeleteRequest: (character: Character) => void;
-  readonly onPortraitEdit: (character: Character) => Promise<void>;
+  readonly onOpenPackages: (character: Character) => Promise<void>;
   readonly selectedId: string;
   readonly scrollToId: string | null;
   readonly onSelect: (id: string) => void;
@@ -28,7 +28,7 @@ export function CharacterList({
   isDeleteDisabled,
   onCreate,
   onDeleteRequest,
-  onPortraitEdit,
+  onOpenPackages,
   selectedId,
   scrollToId,
   onSelect,
@@ -85,10 +85,10 @@ export function CharacterList({
             >
               <AppContextMenuItem
                 data-testid="character-context-portrait"
-                onClick={() => void onPortraitEdit(character)}
+                onClick={() => void onOpenPackages(character)}
               >
                 <CropIcon aria-hidden="true" />
-                {character.portraitAssetId === null ? "添加立绘" : "调整立绘"}
+                更换形象
               </AppContextMenuItem>
               <AppContextMenuSeparator />
               <AppContextMenuItem

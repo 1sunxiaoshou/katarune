@@ -51,10 +51,27 @@ namespace Katarune.Avatar
         public bool HasAvatar => _active != null;
         public event Action Changed;
 
-        public async Task<AvatarLoadResult> LoadAsync(
-            string path,
+        public async Task ValidatePackageAsync(AvatarCharacterPackage package, AvatarPresentationSettings presentation, CancellationToken token)
+        {
+            if (!(_loader is IAvatarPackageModelLoader loader)) throw new InvalidOperationException("Package loader unavailable.");
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeToken, token);
+            using var candidate = await loader.LoadPackageAsync(package, presentation, cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            candidate.Model.Motion.Tick(1f / 30f);
+        }
+
+        public Task<AvatarLoadResult> LoadPackageAsync(AvatarCharacterPackage package, Func<AvatarPresentationSettings> presentationProvider, CancellationToken token)
+        {
+            if (!(_loader is IAvatarPackageModelLoader loader)) throw new InvalidOperationException("Package loader unavailable.");
+            return PrepareAsync(presentationProvider, token, (presentation, cancellation) => loader.LoadPackageAsync(package, presentation, cancellation));
+        }
+        public Task<AvatarLoadResult> LoadAsync(string path, Func<AvatarPresentationSettings> presentationProvider, CancellationToken cancellationToken = default)
+            => PrepareAsync(presentationProvider, cancellationToken, (presentation, cancellation) => _loader.LoadAsync(path, presentation, cancellation));
+
+        private async Task<AvatarLoadResult> PrepareAsync(
             Func<AvatarPresentationSettings> presentationProvider,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken,
+            Func<AvatarPresentationSettings, CancellationToken, Task<AvatarLoadCandidate>> prepare)
         {
             if (presentationProvider == null) throw new ArgumentNullException(nameof(presentationProvider));
             var request = _requestGate.Begin();
@@ -71,7 +88,7 @@ namespace Katarune.Avatar
             AvatarLoadCandidate candidate = null;
             try
             {
-                candidate = await _loader.LoadAsync(path, presentationProvider(), token);
+                candidate = await prepare(presentationProvider(), token);
                 if (!_requestGate.IsCurrent(request))
                 {
                     return new AvatarLoadResult(AvatarLoadOutcome.Superseded);

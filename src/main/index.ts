@@ -1,3 +1,5 @@
+import { CharacterPackageService } from "./characters/characterPackageService";
+import { registerCharacterPackageHandlers } from "./ipc/characterPackageHandlers";
 import { AvatarDesktopWindows } from "./avatar/avatarDesktopWindows";
 import { setAvatarChatWindow } from "./ipc/avatarHandlers";
 import { AvatarService } from "./avatar/avatarService";
@@ -31,6 +33,7 @@ import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirector
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
 let avatarService: AvatarService | undefined;
+let characterPackageService: CharacterPackageService | undefined;
 let asrService: AsrService | undefined;
 
 if (!app.isPackaged) {
@@ -163,6 +166,14 @@ void app.whenReady().then(async () => {
       : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
     join(app.getPath("userData"), "logs"),
   );
+  const avatarData = join(app.isPackaged ? join(process.resourcesPath, "avatar") : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows"), "KataruneAvatar_Data", "KataruneLocal");
+  characterPackageService = new CharacterPackageService(databaseRuntime, assetService, app.getPath("userData"),
+    join(app.isPackaged ? join(process.resourcesPath, "characters") : join(app.getAppPath(), "resources", "characters"), "default-package"), avatarData,
+    (pack, signal) => avatarService!.validatePackage(pack, signal));
+  await characterPackageService.initialize();
+  avatarService.configurePackages(characterId => characterPackageService!.runtime(databaseRuntime!.fetchCharacter(characterId).packageId!));
+  avatarService.onOpenPackages = () => { mainWindow?.show(); mainWindow?.focus(); mainWindow?.webContents.send("character-packages:open", avatarService?.status.binding?.characterId ?? null); };
+  registerCharacterPackageHandlers(characterPackageService, databaseRuntime, avatarService);
   avatarService.configureSpeech(speechService,
     await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
   speechRequests = registerIpcHandlers(
@@ -198,6 +209,7 @@ app.on("before-quit", () => {
   void kataruneAiToolkit.close().catch((error: unknown) => {
     console.error("Failed to close the AI toolkit.", error);
   });
+  characterPackageService?.dispose();
   databaseRuntime?.close();
   databaseRuntime = undefined;
 });

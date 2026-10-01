@@ -10,9 +10,6 @@ import {
   availableModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
-  characterPortraitCommitRequestSchema,
-  characterPortraitStageIdRequestSchema,
-  characterPortraitStageResultSchema,
   chatStreamControlFrameSchema,
   chatStreamRequestSchema,
   chatStreamResponseFrameSchema,
@@ -141,10 +138,7 @@ describe("shared IPC contracts", () => {
       id: characterId,
       name: "星澜",
       portraitAssetId: "00000000-0000-4000-8000-000000000002",
-      portraitFocusX: 0.5,
-      portraitFocusY: 0,
-      portraitZoom: 1,
-            useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
+      useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,
@@ -397,9 +391,6 @@ describe("shared IPC contracts", () => {
             id: "00000000-0000-4000-8000-000000000001",
             name: "春原心奈",
             portraitAssetId: "00000000-0000-4000-8000-000000000002",
-            portraitFocusX: 0.5,
-            portraitFocusY: 0,
-            portraitZoom: 1,
             useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
             modelConfigId: null,
             speechModelConfigId: null,
@@ -433,61 +424,11 @@ describe("shared IPC contracts", () => {
       speechVoice: null,
       systemPrompt: "",
     });
-    expect(
-      characterPortraitCommitRequestSchema.parse({
-        mode: "draft",
-        stageId: "00000000-0000-4000-8000-000000000010",
-        framing: {
-          focusX: 0.35,
-          focusY: 0.2,
-          zoom: 1.5,
-        },
-        character: {
-          name: "流萤",
-          modelConfigId: null,
-          speechModelConfigId: null,
-          speechVoice: null,
-          systemPrompt: "",
-        },
-      }),
-    ).toMatchObject({
-      mode: "draft",
-      character: { name: "流萤" },
-      framing: { zoom: 1.5 },
-    });
-    expect(
-      characterPortraitStageResultSchema.parse({
-        canceled: false,
-        stage: {
-          id: "00000000-0000-4000-8000-000000000010",
-          mimeType: "image/png",
-          byteSize: 128,
-          originalName: "portrait.png",
-        },
-      }),
-    ).toMatchObject({ canceled: false, stage: { mimeType: "image/png" } });
-    expect(
-      characterPortraitStageIdRequestSchema.parse({
-        stageId: "00000000-0000-4000-8000-000000000010",
-      }),
-    ).toEqual({ stageId: "00000000-0000-4000-8000-000000000010" });
-    expect(
-      characterPortraitCommitRequestSchema.safeParse({
-        mode: "existing",
-        id: "00000000-0000-4000-8000-000000000001",
-        stageId: null,
-        framing: { focusX: 1.01, focusY: 0, zoom: 1 },
-      }).success,
-    ).toBe(false);
-
     const replacementCharacter = {
       id: "00000000-0000-4000-8000-000000000003",
       name: "未命名角色",
       portraitAssetId: null,
-      portraitFocusX: 0.5,
-      portraitFocusY: 0,
-      portraitZoom: 1,
-            useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
+      useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,

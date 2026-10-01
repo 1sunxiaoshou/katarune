@@ -41,7 +41,7 @@ extraResources:
   - from: resources/fonts
     to: fonts
   - from: node_modules/@fontsource/yellowtail/LICENSE
-    to: fonts/Apache-2.0-Yellowtail.txt
+    to: fonts/Yellowtail-LICENSE.txt
 win:
   target:
     - target: nsis

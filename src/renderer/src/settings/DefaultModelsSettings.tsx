@@ -42,7 +42,7 @@ export function DefaultModelsSettings({ dataState, onOpenModels }: { dataState: 
   const disabled = saving || dataState.status !== "ready";
   return <div className="grid w-full gap-1">
     <div className="grid min-h-14 items-center gap-3 py-2 sm:grid-cols-[6rem_minmax(0,1fr)]">
-      <span className="text-sm font-medium">对话</span>
+      <span className="text-sm font-medium text-foreground-secondary">对话</span>
       <div className="w-full min-w-0 max-w-[17rem] justify-self-end">
       <ModelChoice label="默认对话模型" testId="default-language-model" disabled={disabled} available={hasModels("languageModel")} onOpenSettings={onOpenModels}
         options={optionsFor("languageModel", appSettings.defaultLanguageModelConfigId)} value={appSettings.defaultLanguageModelConfigId ?? NONE}
@@ -50,7 +50,7 @@ export function DefaultModelsSettings({ dataState, onOpenModels }: { dataState: 
       </div>
     </div>
     <div className="grid min-h-14 items-center gap-3 pt-2 pb-1 sm:grid-cols-[6rem_minmax(0,1fr)]">
-      <span className="text-sm font-medium">语音合成</span>
+      <span className="text-sm font-medium text-foreground-secondary">语音合成</span>
       <div className="grid w-full min-w-0 max-w-[17rem] justify-self-end grid-cols-1 items-start gap-2">
         <ModelChoice label="默认语音合成模型" testId="default-speech-model" disabled={disabled} available={hasModels("speechModel")} onOpenSettings={onOpenModels}
           options={optionsFor("speechModel", appSettings.defaultSpeechModelConfigId)} value={appSettings.defaultSpeechModelConfigId ?? NONE}
@@ -69,7 +69,7 @@ export function DefaultModelsSettings({ dataState, onOpenModels }: { dataState: 
       </div>
     </div>
     <div className="grid min-h-14 items-center gap-3 py-2 sm:grid-cols-[6rem_minmax(0,1fr)]">
-      <span className="text-sm font-medium">语音识别</span>
+      <span className="text-sm font-medium text-foreground-secondary">语音识别</span>
       <div className="w-full min-w-0 max-w-[17rem] justify-self-end">
       <ModelChoice label="全局语音识别模型" testId="default-asr-model" disabled={disabled}
         options={[{ id: "sensevoice-small-int8", name: "SenseVoiceSmall INT8" }]}

@@ -16,7 +16,7 @@ namespace Katarune.Avatar
             CancellationToken cancellationToken);
     }
 
-    internal sealed class UniVrmAvatarLoader : IAvatarModelLoader
+    internal sealed class UniVrmAvatarLoader : IAvatarModelLoader, IAvatarPackageModelLoader
     {
         private readonly AvatarVisualController _visuals;
         private readonly AvatarMotionController _motions;
@@ -27,12 +27,17 @@ namespace Katarune.Avatar
             _motions = motions ?? throw new ArgumentNullException(nameof(motions));
         }
 
-        public async Task<AvatarLoadCandidate> LoadAsync(
+        public Task<AvatarLoadCandidate> LoadPackageAsync(AvatarCharacterPackage package, AvatarPresentationSettings presentation, CancellationToken token)
+            => PrepareAsync(package.model, presentation, token, package);
+        public Task<AvatarLoadCandidate> LoadAsync(string path, AvatarPresentationSettings presentation, CancellationToken token)
+            => PrepareAsync(path, presentation, token, null);
+
+        private async Task<AvatarLoadCandidate> PrepareAsync(
             string path,
             AvatarPresentationSettings presentation,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, AvatarCharacterPackage package)
         {
-            var fullPath = ResolveModelPath(path);
+            var fullPath = package != null ? Path.GetFullPath(path) : ResolveModelPath(path);
             Vrm10Instance loaded = null;
             IAvatarDriver driver = null;
             AvatarVisualInstance visual = null;
@@ -42,6 +47,7 @@ namespace Katarune.Avatar
                 var bytes = await Task.Run(() => File.ReadAllBytes(fullPath), cancellationToken);
                 using (var data = new GlbLowLevelParser(fullPath, bytes).Parse())
                 {
+                    VrmaSource.ValidateSelfContained(data);
                     if (Vrm10Data.Parse(data) == null)
                         throw new InvalidOperationException("当前仅支持 VRM 1.0。请先将 VRM 0.x 模型离线转换为 VRM 1.0，再重新连接桌宠。");
                 }
@@ -65,7 +71,7 @@ namespace Katarune.Avatar
                 runtimeInstance.EnableUpdateWhenOffscreen();
                 driver = new UniVrmAvatarDriver(loaded);
                 var rigBinding = CreateRigBinding(loaded);
-                motion = _motions.Prepare(rigBinding);
+                motion = package == null ? _motions.Prepare(rigBinding) : await VrmaMotionInstance.PrepareAsync(loaded, package, cancellationToken);
                 visual = _visuals.Prepare(loaded.gameObject, presentation);
                 var bounds = MeasureBounds(loaded.gameObject);
                 var capabilities = ReadCapabilities(driver, motion);

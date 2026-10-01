@@ -1,0 +1,10 @@
+{
+  "formatVersion": 1,
+  "name": "春原心奈",
+  "version": "1.0.0",
+  "portrait": "portrait.png",
+  "thumbnail": "thumbnail.png",
+  "model": "Models/default-avatar.vrm",
+  "systemActions": {},
+  "customActions": []
+}

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@fontsource-variable/noto-sans-sc";
-import "@fontsource-variable/noto-serif-sc";
+import "@fontsource/yellowtail/latin-400.css";
 import { App } from "./App";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CharacterSessionProvider } from "./characters/CharacterSessionProvider";

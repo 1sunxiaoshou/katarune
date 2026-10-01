@@ -1,4 +1,3 @@
-import "../characters/character-fonts.css";
 import { useCallback, useState } from "react";
 import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
@@ -52,7 +51,7 @@ export function SettingsPage({
     >
       <header className="settings-header">
         <TooltipIconButton
-          className="settings-back size-8 rounded-md active:scale-100"
+          className="size-8"
           data-testid="settings-back"
           tooltip="返回聊天"
           onClick={onClose}

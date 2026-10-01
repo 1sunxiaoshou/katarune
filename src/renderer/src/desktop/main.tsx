@@ -296,7 +296,7 @@ function Desktop() {
         {state.panel === "more" && (
           <>
             <Icon
-              label="打开模型"
+              label="更换形象"
               disabled={!ready || !!p?.loading}
               onClick={() => command("open-model")}
             >

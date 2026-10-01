@@ -5,9 +5,6 @@ import {
   type Character,
   type CharacterIdRequest,
   type CharacterList,
-  type CharacterPortraitCommitRequest,
-  type CharacterPortraitStageIdRequest,
-  type CharacterPortraitStageResult,
   type CreateCharacterRequest,
   type DeleteCharacterResult,
   type UpdateCharacterRequest,
@@ -23,30 +20,19 @@ import {
 export {
   characterIdRequestSchema,
   characterListSchema,
-  characterPortraitCommitRequestSchema,
-  characterPortraitStageIdRequestSchema,
-  characterPortraitStageResultSchema,
   characterSchema,
   createCharacterRequestSchema,
-  DEFAULT_PORTRAIT_FRAMING,
   deleteCharacterResultSchema,
   defaultCharacterConfigSchema,
-  portraitFramingSchema,
-  stagedCharacterPortraitSchema,
   updateCharacterRequestSchema,
 } from "./characters";
 export type {
   Character,
   CharacterIdRequest,
   CharacterList,
-  CharacterPortraitCommitRequest,
-  CharacterPortraitStageIdRequest,
-  CharacterPortraitStageResult,
   CreateCharacterRequest,
   DeleteCharacterResult,
   DefaultCharacterConfig,
-  PortraitFraming,
-  StagedCharacterPortrait,
   UpdateCharacterRequest,
 } from "./characters";
 export {
@@ -57,7 +43,6 @@ export {
   CHAT_ATTACHMENT_LIMITS,
   DEFAULT_ATTACHMENT_MEDIA_TYPE,
   parseAssetUrl,
-  stagedAssetUrl,
 } from "./assets";
 export type { Asset, AssetKind, AssetStatus } from "./assets";
 export { MODEL_TYPES } from "./models";
@@ -131,9 +116,6 @@ export const IPC_CHANNELS = {
   createCharacter: "characters:create",
   deleteCharacter: "characters:delete",
   updateCharacter: "characters:update",
-  stageCharacterPortrait: "characters:stage-portrait",
-  commitCharacterPortrait: "characters:commit-portrait",
-  discardCharacterPortraitStage: "characters:discard-portrait-stage",
   importChatAttachment: "chat-attachments:import",
   releaseChatAttachment: "chat-attachments:release",
 } as const;
@@ -648,6 +630,14 @@ export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSch
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
+  listCharacterPackages(): Promise<import("./characterPackages").CharacterPackage[]>;
+  fetchCharacterPackage(request: { id: string }): Promise<import("./characterPackages").CharacterPackage>;
+  importCharacterPackage(request: { requestId: string }): Promise<{ canceled: boolean; package: import("./characterPackages").CharacterPackage | null }>;
+  cancelCharacterPackageImport(request: { requestId: string }): Promise<OperationSuccess>;
+  deleteCharacterPackage(request: { id: string }): Promise<OperationSuccess>;
+  bindCharacterPackage(request: { characterId: string; packageId: string }): Promise<Character>;
+  onCharacterPackageProgress(listener: (progress: import("./characterPackages").PackageProgress) => void): () => void;
+  onOpenCharacterPackages(listener: (characterId: string | null) => void): () => void;
   prepareRealtimeAsr(request: import('./asr').RealtimeAsrRequest): Promise<import('./asr').AsrResult>;
   pushAsrFrame(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
   resetRealtimeAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
@@ -709,11 +699,4 @@ export interface KataruneApi {
   createCharacter(request: CreateCharacterRequest): Promise<Character>;
   deleteCharacter(request: CharacterIdRequest): Promise<DeleteCharacterResult>;
   updateCharacter(request: UpdateCharacterRequest): Promise<Character>;
-  stageCharacterPortrait(): Promise<CharacterPortraitStageResult>;
-  commitCharacterPortrait(
-    request: CharacterPortraitCommitRequest,
-  ): Promise<Character>;
-  discardCharacterPortraitStage(
-    request: CharacterPortraitStageIdRequest,
-  ): Promise<OperationSuccess>;
 }

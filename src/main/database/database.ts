@@ -1,3 +1,4 @@
+import { createCharacterPackageRepository } from "./characterPackageRepository";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { asc, count, eq } from "drizzle-orm";
@@ -250,6 +251,7 @@ export function openDatabase({
     ...modelRepository,
     ...characterRepository,
     ...assetRepository,
+    ...createCharacterPackageRepository(database),
     close: () => sqlite.close(),
   };
 }

@@ -79,7 +79,7 @@ export function ChatPage({
 
         <footer className="chat-sidebar-footer">
           <TooltipIconButton
-            tooltip="打开设置"
+            tooltip="设置"
             side="top"
             className="size-8"
             data-testid="settings-launcher"
@@ -90,7 +90,7 @@ export function ChatPage({
           <AvatarControl />
           <TooltipIconButton
             ref={visibilityButton}
-            tooltip={collapsed ? "显示角色与会话" : "隐藏角色与会话"}
+            tooltip={collapsed ? "显示侧栏" : "隐藏侧栏"}
             side="top"
             className="size-8"
             data-testid="thread-list-visibility-toggle"

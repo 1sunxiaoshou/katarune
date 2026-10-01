@@ -1,3 +1,4 @@
+import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
 import {
@@ -11,9 +12,6 @@ import {
   availableModelListSchema,
   characterIdRequestSchema,
   characterListSchema,
-  characterPortraitCommitRequestSchema,
-  characterPortraitStageIdRequestSchema,
-  characterPortraitStageResultSchema,
   characterSchema,
   chatStreamRequestSchema,
   chatStreamResponseFrameSchema,
@@ -57,8 +55,6 @@ import {
   updateCharacterRequestSchema,
   type AppendThreadMessageRequest,
   type CharacterIdRequest,
-  type CharacterPortraitCommitRequest,
-  type CharacterPortraitStageIdRequest,
   type ChatStreamFrameListener,
   type ChatStreamRequest,
   type ListThreadsRequest,
@@ -110,6 +106,17 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  listCharacterPackages: () => invokeValidated(PACKAGE_CHANNELS.list, packageListSchema),
+  fetchCharacterPackage: (value: { id: string }) => invokeValidated(PACKAGE_CHANNELS.detail, characterPackageSchema, packageIdRequestSchema.parse(value)),
+  importCharacterPackage: (value: { requestId: string }) => invokeValidated(PACKAGE_CHANNELS.import, packageImportResultSchema, packageImportRequestSchema.parse(value)),
+  cancelCharacterPackageImport: (value: { requestId: string }) => invokeValidated(PACKAGE_CHANNELS.cancel, operationSuccessSchema, packageImportRequestSchema.parse(value)),
+  deleteCharacterPackage: (value: { id: string }) => invokeValidated(PACKAGE_CHANNELS.remove, operationSuccessSchema, packageIdRequestSchema.parse(value)),
+  bindCharacterPackage: (value: { characterId: string; packageId: string }) => invokeValidated(PACKAGE_CHANNELS.bind, characterSchema, packageBindSchema.parse(value)),
+  onCharacterPackageProgress: (listener: (value: PackageProgress) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, value: unknown) => { const parsed = packageProgressSchema.safeParse(value); if (parsed.success) listener(parsed.data); };
+    ipcRenderer.on(PACKAGE_CHANNELS.progress, handle); return () => { ipcRenderer.removeListener(PACKAGE_CHANNELS.progress, handle); };
+  },
+  onOpenCharacterPackages: (listener: (characterId: string | null) => void) => { const handle = (_event: Electron.IpcRendererEvent, value: unknown) => listener(typeof value === "string" ? value : null); ipcRenderer.on("character-packages:open", handle); return () => { ipcRenderer.removeListener("character-packages:open", handle); }; },
   prepareRealtimeAsr: (request: RealtimeAsrRequest) => invokeValidated(ASR_CHANNELS.realtime, asrResultSchema, realtimeAsrRequestSchema.parse(request)),
   pushAsrFrame: (request: AsrRequest) => invokeValidated(ASR_CHANNELS.frame, asrResultSchema, asrFrameSchema.parse(request)),
   resetRealtimeAsr: (request: { requestId: string }) => invokeValidated(ASR_CHANNELS.reset, asrResultSchema, asrRequestIdSchema.parse(request)),
@@ -407,25 +414,7 @@ const api: KataruneApi = Object.freeze({
       characterSchema,
       updateCharacterRequestSchema.parse(request),
     ),
-  stageCharacterPortrait: () =>
-    invokeValidated(
-      IPC_CHANNELS.stageCharacterPortrait,
-      characterPortraitStageResultSchema,
-    ),
-  commitCharacterPortrait: (request: CharacterPortraitCommitRequest) =>
-    invokeValidated(
-      IPC_CHANNELS.commitCharacterPortrait,
-      characterSchema,
-      characterPortraitCommitRequestSchema.parse(request),
-    ),
-  discardCharacterPortraitStage: (
-    request: CharacterPortraitStageIdRequest,
-  ) =>
-    invokeValidated(
-      IPC_CHANNELS.discardCharacterPortraitStage,
-      operationSuccessSchema,
-      characterPortraitStageIdRequestSchema.parse(request),
-    ),
+
 });
 
 contextBridge.exposeInMainWorld("katarune", api);

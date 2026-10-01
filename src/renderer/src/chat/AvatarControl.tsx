@@ -53,8 +53,8 @@ export function AvatarControl(): React.JSX.Element {
   const pending = operation !== null || status.phase === "starting" || status.phase === "switching";
   const failure = error || status.error;
   const state = pending ? "pending" : failure ? "error" : enabled ? "connected" : "disconnected";
-  const label = enabled ? "停止桌宠" : failure ? "桌宠连接失败，点击重试" : "开启桌宠";
-  const tooltip = [status.phase === "switching" ? "正在切换会话，点击停止桌宠" : label, failure].filter(Boolean).join("；");
+  const label = enabled ? "停止桌宠" : failure ? "重试桌宠连接" : "开启桌宠";
+  const tooltip = [status.phase === "switching" ? "切换会话中 · 停止桌宠" : label, failure].filter(Boolean).join("；");
   return (
     <TooltipIconButton
       data-testid="avatar-toggle" data-state={state} tooltip={tooltip} aria-label={label}

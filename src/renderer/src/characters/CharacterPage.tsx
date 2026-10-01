@@ -1,62 +1,48 @@
-import "./character-fonts.css";
 import { ArrowLeftIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import type {
   Character,
-  StagedCharacterPortrait,
 } from "../../../shared/ipc";
-import { notify } from "../notifications";
 import { CharacterEditor } from "./CharacterEditor";
 import { CharacterList } from "./CharacterList";
-import { PortraitFramingDialog } from "./PortraitFramingDialog";
+import { CharacterPackageDialog } from "./CharacterPackageDialog";
+import { DEFAULT_PACKAGE_ID } from "../../../shared/characterPackages";
 import { useCharacterPageController } from "./useCharacterPageController";
 
 interface CharacterPageProps {
   readonly onClose: () => void;
   readonly onOpenSettings: () => void;
-}
-
-interface PortraitEditorState {
-  readonly character: Character;
-  readonly stage: StagedCharacterPortrait | null;
+  readonly packageRequest?: { characterId: string | null } | null;
+  readonly onPackageRequestHandled?: () => void;
 }
 
 export function CharacterPage({
   onClose,
   onOpenSettings,
+  packageRequest,
+  onPackageRequestHandled,
 }: CharacterPageProps): React.JSX.Element {
   const controller = useCharacterPageController({
     onClose,
     onOpenSettings,
   });
   const selectedCharacter = controller.selectedCharacter;
-  const [portraitEditor, setPortraitEditor] =
-    useState<PortraitEditorState | null>(null);
-
-  const openPortraitEditor = async (character: Character): Promise<void> => {
-    const selected = await controller.selectCharacter(character.id);
-    if (!selected) return;
-    if (character.portraitAssetId !== null) {
-      setPortraitEditor({ character, stage: null });
-      return;
-    }
-    try {
-      const result = await window.katarune.stageCharacterPortrait();
-      if (result.canceled || result.stage === null) return;
-      setPortraitEditor({ character, stage: result.stage });
-    } catch (error) {
-      notify({
-        channel: "toast",
-        level: "error",
-        message:
-          error instanceof Error ? error.message : "导入角色立绘失败，请重试。",
-        dedupeKey: `character-portrait-stage:${character.id}`,
-      });
-    }
+  const [packageCharacter, setPackageCharacter] = useState<Character | null>(null);
+  const openPackageSelector = async (character: Character): Promise<void> => {
+    if (await controller.selectCharacter(character.id)) setPackageCharacter(character);
   };
+  useEffect(() => {
+    if (!packageRequest || !selectedCharacter) return;
+    const target = packageRequest.characterId ? controller.characters.find(c => c.id === packageRequest.characterId) : selectedCharacter;
+    if (!target) return;
+    void controller.selectCharacter(target.id).then(selected => {
+      if (selected) setPackageCharacter(target);
+      onPackageRequestHandled?.();
+    });
+  }, [packageRequest, selectedCharacter, controller.characters, controller.selectCharacter, onPackageRequestHandled]);
 
   return (
     <main
@@ -66,7 +52,7 @@ export function CharacterPage({
     >
       <header className="character-header">
         <TooltipIconButton
-          className="character-back size-8 rounded-md active:scale-100"
+          className="size-8"
           data-testid="character-back"
           tooltip="返回聊天"
           onClick={() => void controller.leave("chat")}
@@ -122,7 +108,7 @@ export function CharacterPage({
             onCharacterUpdated={controller.updateCharacter}
             onDraftUpdated={controller.updateDraftCharacter}
             onOpenSettings={() => void controller.leave("settings")}
-            onPortraitEdit={() => openPortraitEditor(selectedCharacter)}
+            onOpenPackages={() => openPackageSelector(selectedCharacter)}
           />
           <CharacterList
             characters={controller.characterEntries}
@@ -135,7 +121,7 @@ export function CharacterPage({
             onDeleteRequest={(character) =>
               void controller.requestCharacterDelete(character)
             }
-            onPortraitEdit={openPortraitEditor}
+            onOpenPackages={openPackageSelector}
             selectedId={selectedCharacter.id}
             scrollToId={controller.focusNameId}
             onSelect={(id) => void controller.selectCharacter(id)}
@@ -162,22 +148,11 @@ export function CharacterPage({
         }}
         onConfirm={controller.confirmCharacterDelete}
       />
-      {portraitEditor !== null && (
-        <PortraitFramingDialog
-          character={portraitEditor.character}
-          initialStage={portraitEditor.stage}
-          onCommitted={(stageId, framing) =>
-            controller.commitPortrait(
-              portraitEditor.character.id,
-              stageId,
-              framing,
-            )
-          }
-          onOpenChange={(open) => {
-            if (!open) setPortraitEditor(null);
-          }}
-        />
-      )}
+      {packageCharacter !== null && <CharacterPackageDialog
+        packageId={packageCharacter.packageId ?? DEFAULT_PACKAGE_ID}
+        onUse={id => controller.bindPackage(controller.characterEntries.some(c => c.id === packageCharacter.id) ? packageCharacter.id : selectedCharacter!.id, id)}
+        onClose={() => setPackageCharacter(null)}
+      />}
     </main>
   );
 }

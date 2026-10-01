@@ -6,6 +6,7 @@ export type AssetStatus = (typeof ASSET_STATUSES)[number];
 export const ASSET_KINDS = [
   "character_portrait",
   "character_vrm",
+  "character_animation",
   "chat_attachment",
 ] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
@@ -74,6 +75,3 @@ export function parseAssetUrl(value: string | URL): string | null {
   const assetId = url.pathname.slice(1);
   return z.uuid().safeParse(assetId).success ? assetId : null;
 }
-
-export const stagedAssetUrl = (stageId: string): string =>
-  `katarune-asset://staged/${encodeURIComponent(stageId)}`;

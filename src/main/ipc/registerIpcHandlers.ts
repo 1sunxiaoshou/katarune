@@ -31,7 +31,7 @@ export function registerIpcHandlers(
   if (avatar) registerAvatarHandlers(avatar, database);
   registerSpeechHandlers(speechService, speechRequests, avatar);
   registerProviderHandlers(database, aiRuntime, credentialStore);
-  registerCharacterHandlers(database, assetService, chatStreams, memoryWiki);
+  registerCharacterHandlers(database, chatStreams, memoryWiki);
 
   return speechRequests;
 }

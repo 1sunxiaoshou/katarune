@@ -85,6 +85,34 @@ async function launch() {
 }
 
 describe("Unity local control bridge", () => {
+  it("replaces the action catalog on package switch and rejects tools captured from the old package", async () => {
+    const { service, socket, requests, invoke } = await launch();
+    const pack = { id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] };
+    const switching = service.switchPackage(binding.characterId, pack);
+    await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
+    const reset = requests.find(r => r.operation === "session-reset")!;
+    socket.write(JSON.stringify({ type: "result", id: reset.id, ok: true }) + "\n");
+    await vi.waitFor(() => expect(requests.some(r => r.operation === "load-package")).toBe(true));
+    const load = requests.find(r => r.operation === "load-package")!;
+    socket.write(JSON.stringify({ type: "ready", capabilities: { actions: [{ id: "22222222-2222-4222-8222-222222222222", label: "招手", description: "问候与告别", durationSeconds: 2 }], expressions: ["neutral"] } }) + "\n");
+    socket.write(JSON.stringify({ type: "result", id: load.id, ok: true }) + "\n");
+    await switching;
+    await expect(invoke("avatar_action", { action: "wave", allowSpeech: true })).rejects.toThrow("连接已改变");
+    const tools = service.createTools(binding, new AbortController().signal);
+    expect(tools.avatar_action!.description).toContain("问候与告别");
+    expect(tools.avatar_action!.description).not.toContain("wave");
+  });
+  it("keeps the Player and old catalog ready when a package candidate fails", async () => {
+    const { service, socket, requests } = await launch();
+    const switching = service.switchPackage(binding.characterId, { id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "bad.vrm", idle: "", idleVariations: [], customActions: [] });
+    const rejected = expect(switching).rejects.toThrow("broken candidate");
+    await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
+    socket.write(JSON.stringify({ type: "result", id: requests.find(r => r.operation === "session-reset")!.id, ok: true }) + "\n");
+    await vi.waitFor(() => expect(requests.some(r => r.operation === "load-package")).toBe(true));
+    socket.write(JSON.stringify({ type: "result", id: requests.find(r => r.operation === "load-package")!.id, ok: false, error: "broken candidate" }) + "\n");
+    await rejected; expect(service.status.phase).toBe("ready"); expect(fixture.child!.kill).not.toHaveBeenCalled();
+    expect(service.createTools(binding, new AbortController().signal).avatar_action!.description).toContain("wave");
+  });
   it("reports model startup failures immediately and releases the Player", async () => {
     fixture.pipe = "";
     const service = new AvatarService(process.execPath, ".test-dist/avatar-service");

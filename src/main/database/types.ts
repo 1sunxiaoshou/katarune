@@ -18,7 +18,6 @@ import type {
   ModelConfigList,
   ModelMetadata,
   ModelType,
-  PortraitFraming,
   ProviderConfig,
   ProviderConfigList,
   ProviderType,
@@ -50,7 +49,7 @@ export interface DatabaseConfigValidator {
   ): void;
 }
 
-export interface DatabaseRuntime {
+export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository> {
   getStatus(): DatabaseStatus;
   getAppState(): AppState;
   setActiveCharacter(characterId: string): AppState;
@@ -106,18 +105,12 @@ export interface DatabaseRuntime {
   createCharacter(
     request: CreateCharacterRequest,
     portraitAsset?: ReadyAssetRegistration,
-    portraitFraming?: PortraitFraming,
   ): Character;
   deleteCharacter(id: string): DeleteCharacterResult;
   fetchCharacter(id: string): Character;
   updateCharacter(request: UpdateCharacterRequest): Character;
   fetchAsset(id: string): Asset;
   listAssets(): readonly Asset[];
-  updateCharacterPortrait(
-    characterId: string,
-    framing: PortraitFraming,
-    asset?: ReadyAssetRegistration,
-  ): Character;
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
   registerReadyAsset(asset: ReadyAssetRegistration): Asset;
   deleteUnreferencedChatAttachment(id: string): boolean;
@@ -195,7 +188,6 @@ export type CharacterRepository = Pick<
   | "deleteCharacter"
   | "fetchCharacter"
   | "updateCharacter"
-  | "updateCharacterPortrait"
 >;
 export type AssetRepository = Pick<
   DatabaseRuntime,

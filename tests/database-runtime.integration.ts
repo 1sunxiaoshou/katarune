@@ -497,9 +497,6 @@ try {
   assert.equal(defaultCharacter.modelConfigId, null);
   assert.equal(defaultCharacter.speechModelConfigId, null);
   assert.equal(defaultCharacter.speechVoice, null);
-  assert.equal(defaultCharacter.portraitFocusX, 0.5);
-  assert.equal(defaultCharacter.portraitFocusY, 0);
-  assert.equal(defaultCharacter.portraitZoom, 1);
   let updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
     name: "数据库中的星澜",
@@ -582,25 +579,6 @@ try {
     speechModelConfig,
   ]);
   assert.deepEqual(runtime.fetchCharacter(updatedCharacter.id), updatedCharacter);
-  const framedCharacter = runtime.updateCharacterPortrait(updatedCharacter.id, {
-    focusX: 0.35,
-    focusY: 0.2,
-    zoom: 1.6,
-  });
-  assert.equal(framedCharacter.portraitAssetId, updatedCharacter.portraitAssetId);
-  assert.equal(framedCharacter.portraitFocusX, 0.35);
-  assert.equal(framedCharacter.portraitFocusY, 0.2);
-  assert.equal(framedCharacter.portraitZoom, 1.6);
-  assert.throws(
-    () =>
-      runtime?.updateCharacterPortrait(updatedCharacter.id, {
-        focusX: 1.1,
-        focusY: 0,
-        zoom: 1,
-      }),
-    /CHECK constraint failed/,
-    "数据库约束必须拒绝越界取景参数",
-  );
   assert.equal(
     runtime
       .listCharacters()
@@ -664,15 +642,6 @@ try {
     configValidator,
   });
   assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
-  assert.deepEqual(
-    {
-      focusX: runtime.fetchCharacter(updatedCharacter.id).portraitFocusX,
-      focusY: runtime.fetchCharacter(updatedCharacter.id).portraitFocusY,
-      zoom: runtime.fetchCharacter(updatedCharacter.id).portraitZoom,
-    },
-    { focusX: 0.35, focusY: 0.2, zoom: 1.6 },
-    "卡片取景应跨重启恢复",
-  );
   runtime.setThreadStatus(threadId, restoredCharacterId, "archived");
   assert.equal(
     runtime.fetchThread(threadId, restoredCharacterId).status,
@@ -901,26 +870,7 @@ try {
   assert.equal(createdCharacter.name, "未命名角色");
   assert.equal(createdCharacter.modelConfigId, null);
   assert.equal(createdCharacter.portraitAssetId, null);
-  assert.equal(createdCharacter.portraitFocusX, 0.5);
-  assert.equal(createdCharacter.portraitFocusY, 0);
-  assert.equal(createdCharacter.portraitZoom, 1);
   assert.equal(createdCharacter.systemPrompt, "");
-  const createdPortraitAssetId = "44444444-4444-4444-8444-444444444444";
-  const portraitCharacter = deletionRuntime.updateCharacterPortrait(
-    createdCharacter.id,
-    { focusX: 0.7, focusY: 0.1, zoom: 2 },
-    {
-      id: createdPortraitAssetId,
-      storageKey: createdPortraitAssetId,
-      kind: "character_portrait",
-      mimeType: "image/png",
-      byteSize: 8,
-      sha256: "a".repeat(64),
-      originalName: "portrait.png",
-    },
-  );
-  assert.equal(portraitCharacter.portraitAssetId, createdPortraitAssetId);
-  assert.equal(portraitCharacter.portraitZoom, 2);
   const secondCreatedCharacter = deletionRuntime.createCharacter({
     name: "未命名角色",
     modelConfigId: null,

@@ -33,7 +33,7 @@ export const assets = sqliteTable(
     check("assets_status_check", sql`${table.status} in ('ready', 'missing')`),
     check(
       "assets_kind_check",
-      sql`${table.kind} in ('character_portrait', 'character_vrm', 'chat_attachment')`,
+      sql`${table.kind} in ('character_portrait', 'character_vrm', 'character_animation', 'chat_attachment')`,
     ),
     check(
       "assets_ready_metadata_check",
@@ -95,11 +95,33 @@ export const appSettings = sqliteTable(
   (table) => [check("app_settings_singleton_check", sql`${table.id} = 1`)],
 );
 
+export const characterPackages = sqliteTable("character_packages", {
+  id: text("id").primaryKey(),
+  manifest: text("manifest", { mode: "json" }).$type<import("../../shared/characterPackages").CharacterPackageManifest>().notNull(),
+  builtin: integer("builtin", { mode: "boolean" }).notNull().default(false),
+  sourceHash: text("source_hash"),
+  portraitAssetId: text("portrait_asset_id").references(() => assets.id, { onDelete: "restrict" }),
+  thumbnailAssetId: text("thumbnail_asset_id").references(() => assets.id, { onDelete: "restrict" }),
+}, table => [uniqueIndex("character_packages_source_hash_unique").on(table.sourceHash)]);
+
+export const packageResources = sqliteTable("character_package_resources", {
+  packageId: text("package_id").notNull().references(() => characterPackages.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  assetId: text("asset_id").notNull().references(() => assets.id, { onDelete: "restrict" }),
+}, table => [primaryKey({ columns: [table.packageId, table.path] })]);
+
+export const packageActions = sqliteTable("character_package_actions", {
+  id: text("id").primaryKey(),
+  packageId: text("package_id").notNull().references(() => characterPackages.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), description: text("description").notNull(), file: text("file").notNull(),
+});
+
 export const characters = sqliteTable(
   "characters",
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    packageId: text("package_id").notNull().default("builtin:default").references(() => characterPackages.id, { onDelete: "restrict" }),
     portraitAssetId: text("portrait_asset_id").references(() => assets.id, {
       onDelete: "restrict",
     }),

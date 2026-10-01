@@ -1,5 +1,4 @@
 import { selectionCopy } from "@/components/model-selection-copy";
-import "./character-fonts.css";
 import {
   useCallback,
   useEffect,
@@ -89,7 +88,7 @@ interface CharacterEditorProps {
   readonly onDraftUpdated: (
     request: Partial<CreateCharacterRequest>,
   ) => void;
-  readonly onPortraitEdit: () => Promise<void>;
+  readonly onOpenPackages: () => Promise<void>;
   readonly onOpenSettings: () => void;
 }
 
@@ -103,7 +102,7 @@ export function CharacterEditor({
   providers,
   onCharacterUpdated,
   onDraftUpdated,
-  onPortraitEdit,
+  onOpenPackages,
   onOpenSettings,
 }: CharacterEditorProps): React.JSX.Element {
   const { appSettings } = useApplicationSettings();
@@ -111,11 +110,11 @@ export function CharacterEditor({
   const [portraitFailed, setPortraitFailed] = useState(false);
   useEffect(() => {
     setPortraitFailed(false);
-  }, [character.portraitAssetId]);
+  }, [character.packagePortraitAssetId]);
   const portrait =
-    character.portraitAssetId === null || portraitFailed
+    !character.packagePortraitAssetId || portraitFailed
       ? null
-      : assetUrl(character.portraitAssetId);
+      : assetUrl(character.packagePortraitAssetId);
   const [name, setName] = useState(character.name);
   const [systemPrompt, setSystemPrompt] = useState(character.systemPrompt);
   const [selectedSpeechModelId, setSelectedSpeechModelId] = useState<string | null>(
@@ -162,9 +161,13 @@ export function CharacterEditor({
   const currentModelAvailable =
     character.modelConfigId === null ||
     availableModels.some((model) => model.id === character.modelConfigId);
+  const defaultLanguageModel = availableModels.find((model) => model.id === appSettings.defaultLanguageModelConfigId);
   const defaultLanguageModelOption: ModelOption = {
     id: NO_MODEL_ID,
-    name: "使用默认",
+    name: appSettings.defaultLanguageModelConfigId === null ? selectionCopy.modelPlaceholder
+      : defaultLanguageModel?.displayName ?? defaultLanguageModel?.modelId
+        ?? selectionCopy.unavailable,
+    badge: "默认",
     placeholder: appSettings.defaultLanguageModelConfigId === null,
   };
   const availableSpeechModels = useMemo(
@@ -360,9 +363,14 @@ export function CharacterEditor({
         : null,
     [character.speechModelConfigId, currentSpeechModelAvailable],
   );
+  const defaultSpeechModel = availableSpeechModels.find((model) => model.id === appSettings.defaultSpeechModelConfigId);
   const defaultSpeechModelOption: ModelOption = {
     id: DEFAULT_SPEECH_ID,
-    name: "使用默认",
+    name: appSettings.defaultSpeechModelConfigId === null ? selectionCopy.modelPlaceholder
+      : defaultSpeechModel?.displayName ?? defaultSpeechModel?.modelId
+        ?? selectionCopy.unavailable,
+    badge: "默认",
+    placeholder: appSettings.defaultSpeechModelConfigId === null,
   };
   const speechModelOptions = [defaultSpeechModelOption,
     ...(unavailableSpeechModelOption ? [unavailableSpeechModelOption] : []),
@@ -422,7 +430,8 @@ export function CharacterEditor({
             <ModelSelectorTrigger
               id="character-model"
               className="w-full"
-              title={character.modelConfigId === null ? (appSettings.defaultLanguageModelConfigId === null ? "尚未设置默认模型" : "使用默认模型") : undefined}
+              title={character.modelConfigId === null ? `默认模型：${defaultLanguageModelOption.name}` : undefined}
+              onSetup={character.modelConfigId === null && appSettings.defaultLanguageModelConfigId === null ? openModelSettings : undefined}
               data-model-id={character.modelConfigId ?? ""}
               data-testid="character-model"
             />
@@ -473,7 +482,8 @@ export function CharacterEditor({
             <ModelSelectorTrigger
               id="character-speech-model"
               className="w-full"
-              title={selectedSpeechModelId === DEFAULT_SPEECH_ID && appSettings.defaultSpeechModelConfigId === null ? "尚未设置默认模型" : speechModelOptions.find((option) => option.id === (selectedSpeechModelId ?? NO_MODEL_ID))?.name}
+              title={selectedSpeechModelId === DEFAULT_SPEECH_ID ? `默认模型：${defaultSpeechModelOption.name}` : speechModelOptions.find((option) => option.id === (selectedSpeechModelId ?? NO_MODEL_ID))?.name}
+              onSetup={selectedSpeechModelId === DEFAULT_SPEECH_ID && appSettings.defaultSpeechModelConfigId === null ? openModelSettings : undefined}
               data-model-id={selectedSpeechModelId ?? ""}
               data-testid="character-speech-model"
             />
@@ -500,19 +510,14 @@ export function CharacterEditor({
           )}
           <SpeechVoicePicker key={effectiveSpeechModelId ?? "none"} model={selectedSpeechModel}
             testId="character-speech-voice" disabled={!selectedSpeechModel || selectedSpeechModelId === null}
-            defaultName={voiceName(defaultVoice) ?? selectionCopy.defaultVoiceMissing}
+            defaultName={voiceName(defaultVoice)}
+            onOpenSettings={openModelSettings}
             value={character.useDefaultSpeechVoice ? null : character.speechVoice}
             onChange={(voice) => void persist({ id: character.id,
               useDefaultSpeechModel: selectedSpeechModelId === DEFAULT_SPEECH_ID,
               useDefaultSpeechVoice: voice === null,
               speechModelConfigId: effectiveSpeechModelId, speechVoice: voice })} />
           </div>
-          {(selectedSpeechModelId === DEFAULT_SPEECH_ID || character.useDefaultSpeechVoice) && selectedSpeechModelId !== null && (
-            <p className="text-xs leading-5 text-muted-foreground break-words">
-              当前：{selectedSpeechModel?.displayName ?? selectedSpeechModel?.modelId ?? selectionCopy.modelPlaceholder}
-              {" · "}{voiceName(character.useDefaultSpeechVoice ? defaultVoice : character.speechVoice) ?? selectionCopy.voicePlaceholder}
-            </p>
-          )}
           {voiceNeedsConfirmation && <p className="text-xs text-destructive">默认模型已变更，请重新选择音色或使用默认音色。</p>}
         </div>
 
@@ -549,7 +554,7 @@ export function CharacterEditor({
       <CharacterPortraitPanel
         character={character}
         portrait={portrait}
-        onEdit={onPortraitEdit}
+        onEdit={onOpenPackages}
         onPortraitError={() => setPortraitFailed(true)}
       />
     </>

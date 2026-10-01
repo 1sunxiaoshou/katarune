@@ -34,7 +34,7 @@ export function CharacterPortraitPanel({
         onClick={() => void onEdit()}
       >
         <ImagePlusIcon aria-hidden="true" />
-        {portrait === null ? "导入立绘" : "编辑立绘"}
+        更换形象
       </Button>
     </section>
   );
