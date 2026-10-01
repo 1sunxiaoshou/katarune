@@ -127,7 +127,7 @@ export function CharacterEditor({
     status: "idle",
     message: draft
       ? "未修改的草稿会在离开角色时丢弃"
-      : "修改会在离开输入框时自动保存",
+      : "",
   });
   useEffect(() => {
     if (!focusName) return;
@@ -223,13 +223,13 @@ export function CharacterEditor({
         });
         return;
       }
-      setSaveState({ status: "saving", message: "正在保存…" });
+      setSaveState({ status: "saving", message: "保存中…" });
       const saving = onCharacterUpdated(request);
       pendingSaves.current.add(saving);
       try {
         await saving;
         saveFailed.current = false;
-        setSaveState({ status: "saved", message: "已保存" });
+        setSaveState({ status: "saved", message: "" });
       } catch (error) {
         saveFailed.current = true;
         setSaveState({
@@ -403,7 +403,7 @@ export function CharacterEditor({
                 if (draft) onDraftUpdated({ name: event.target.value });
                 setSaveState({
                   status: "dirty",
-                  message: draft ? "草稿将在离开角色时保存" : "已修改，离开输入框后保存",
+                  message: draft ? "草稿将在离开角色时保存" : "",
                 });
               }}
             />
@@ -537,18 +537,20 @@ export function CharacterEditor({
               if (draft) onDraftUpdated({ systemPrompt: event.target.value });
               setSaveState({
                 status: "dirty",
-                message: draft ? "草稿将在离开角色时保存" : "已修改，离开输入框后保存",
+                message: draft ? "草稿将在离开角色时保存" : "",
               });
             }}
           />
         </div>
 
-        <p className="character-save-state" data-state={saveState.status} role="status">
-          <span aria-hidden="true">
-            {saveState.status === "saving" ? "◇" : saveState.status === "error" ? "!" : "✦"}
-          </span>
-          {saveState.message}
-        </p>
+        {(draft || saveState.status === "saving" || saveState.status === "error") && (
+          <p className="character-save-state" data-state={saveState.status} role={saveState.status === "error" ? "alert" : "status"}>
+            <span aria-hidden="true">
+              {saveState.status === "saving" ? "◇" : saveState.status === "error" ? "!" : "✦"}
+            </span>
+            {saveState.message}
+          </p>
+        )}
       </section>
 
       <CharacterPortraitPanel

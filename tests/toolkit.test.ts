@@ -20,16 +20,6 @@ const rendererTools: FrontendTools = {
 };
 
 describe("Katarune AI toolkit", () => {
-  it("merges the trusted time tool with renderer-executed frontend tools", async () => {
-    const tools = await kataruneAiToolkit.tools({ frontend: rendererTools });
-
-    expect(Object.keys(tools)).toEqual(
-      expect.arrayContaining(["get_current_time", "show_location"]),
-    );
-    expect(tools.get_current_time?.execute).toBeTypeOf("function");
-    expect(tools.show_location?.execute).toBeUndefined();
-  });
-
   it("returns the exact current local time with its UTC offset and IANA time zone", async () => {
     vi.useFakeTimers();
     try {

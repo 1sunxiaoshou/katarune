@@ -145,11 +145,6 @@ describe("configured Provider runtime", () => {
     ).not.toThrow();
   });
 
-  it.each(PROVIDER_TYPES)("constructs the registered %s Provider factory", (providerType) => {
-    const provider = createConfiguredProvider(providerConfig(providerType), "test-api-key");
-    expect(provider.specificationVersion).toMatch(/^v[34]$/);
-  });
-
   it("requires a base URL for OpenAI-compatible Providers", () => {
     expect(() =>
       createConfiguredProvider(

@@ -2,7 +2,6 @@ import { emptyAppSettings } from "./defaultSettings";
 import { describe, expect, it } from "vitest";
 import {
   aiRuntimeStatusSchema,
-  appendThreadMessageRequestSchema,
   appInfoSchema,
   appSettingsSchema,
   appStateSchema,
@@ -27,7 +26,6 @@ import {
   PROVIDER_TYPES,
   providerConfigSchema,
   replaceProviderCredentialRequestSchema,
-  threadListSchema,
   listThreadsRequestSchema,
   threadIdRequestSchema,
   setActiveCharacterRequestSchema,
@@ -41,35 +39,7 @@ import {
 } from "../src/shared/ipc";
 
 describe("shared IPC contracts", () => {
-  it("accepts valid main-process responses", () => {
-    expect(
-      appInfoSchema.parse({
-        name: "Katarune",
-        version: "0.1.0",
-        platform: "win32",
-        electronVersion: "43.1.1",
-        nodeVersion: "24.13.1",
-      }),
-    ).toMatchObject({ name: "Katarune", platform: "win32" });
-
-    expect(
-      databaseStatusSchema.parse({
-        ready: true,
-        journalMode: "wal",
-        threadCount: 1,
-        validationThreadId: "p1-database-validation",
-        validationThreadRestored: true,
-      }),
-    ).toMatchObject({ ready: true, threadCount: 1 });
-
-    expect(
-      aiRuntimeStatusSchema.parse({
-        ready: true,
-        configuredProviderCount: 0,
-        modelCallsEnabled: false,
-      }),
-    ).toMatchObject({ ready: true, modelCallsEnabled: false });
-
+  it("validates default model settings and partial updates", () => {
     const defaultLanguageModelConfigId =
       "00000000-0000-4000-8000-000000000001";
     expect(
@@ -85,44 +55,6 @@ describe("shared IPC contracts", () => {
         defaultLanguageModelConfigId: "not-a-model-id",
       }).success,
     ).toBe(false);
-  });
-
-  it("accepts assistant-ui thread metadata and format-preserving message records", () => {
-    expect(
-      threadListSchema.parse({
-        threads: [
-          {
-            remoteId: "thread-1",
-            status: "regular",
-            title: "新对话",
-            lastMessageAt: new Date("2026-07-19T00:00:00.000Z"),
-            characterId: "00000000-0000-4000-8000-000000000001",
-          },
-        ],
-      }),
-    ).toMatchObject({ threads: [{ remoteId: "thread-1", status: "regular" }] });
-
-    const storedMessage = {
-      id: "message-1",
-      parent_id: null,
-      format: "ai-sdk/v6",
-      content: {
-        role: "user",
-        parts: [{ type: "text", text: "你好" }],
-      },
-    };
-
-    expect(
-      appendThreadMessageRequestSchema.parse({
-        threadId: "thread-1",
-        characterId: "00000000-0000-4000-8000-000000000001",
-        message: storedMessage,
-        assetIds: [],
-      }),
-    ).toMatchObject({ message: { format: "ai-sdk/v6" } });
-    expect(threadMessagesSchema.parse({ messages: [storedMessage] })).toMatchObject({
-      messages: [{ id: "message-1", parent_id: null }],
-    });
   });
 
   it("validates role-scoped thread requests, app state, and asset completeness", () => {

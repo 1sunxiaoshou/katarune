@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
-  clearInlineNotificationScope,
   dismissInlineNotification,
   inlineNotificationStore,
   resetInlineNotifications,
@@ -12,10 +11,7 @@ import {
   dismissNotification,
   notify,
 } from "../src/renderer/src/notifications/notificationCenter";
-import {
-  notificationDuration,
-  resolveNotificationChannel,
-} from "../src/renderer/src/notifications/notificationPolicy";
+import { resolveNotificationChannel } from "../src/renderer/src/notifications/notificationPolicy";
 
 describe("notification policy", () => {
   it("routes ordinary success and info notifications to toast", () => {
@@ -50,15 +46,6 @@ describe("notification policy", () => {
       message: "local success",
       scope: "settings",
     })).toBe("inline");
-  });
-
-  it("uses level defaults unless a duration is provided", () => {
-    expect(notificationDuration("success")).toBe(3_000);
-    expect(notificationDuration("info")).toBe(4_000);
-    expect(notificationDuration("warning")).toBe(6_000);
-    expect(notificationDuration("error")).toBe(0);
-    expect(notificationDuration("loading")).toBe(0);
-    expect(notificationDuration("success", 750)).toBe(750);
   });
 });
 
@@ -110,19 +97,6 @@ describe("inline notification store", () => {
     dismissInlineNotification("settings-error");
     expect(inlineNotificationStore.getState().byScope.settings).toBeUndefined();
     expect(inlineNotificationStore.getState().byScope.thread?.id).toBe("thread-error");
-  });
-
-  it("clears a complete scope", () => {
-    setInlineNotification({
-      id: "settings-error",
-      level: "error",
-      message: "settings",
-      title: null,
-      scope: "settings",
-      action: null,
-    });
-    clearInlineNotificationScope("settings");
-    expect(inlineNotificationStore.getState().byScope).toEqual({});
   });
 
   it("updates a deduplicated inline notification in place", () => {

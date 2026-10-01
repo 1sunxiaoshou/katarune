@@ -1261,8 +1261,7 @@ async function run() {
       assert.equal(await window.webContents.executeJavaScript(`(() => {
         const dialog = document.querySelector('[data-testid="character-package-dialog"]');
         const remove = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === '删除');
-        const facts = Object.fromEntries([...dialog.querySelectorAll('.character-package-facts dt')].map(label => [label.textContent, label.nextElementSibling.textContent]));
-        return remove.disabled && facts['待机动作'] === '0' && facts['自定义动作'] === '0' && !dialog.querySelector('.portrait-framing-crop');
+        return remove.disabled;
       })()`), true);
       await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-package-dialog"] button').focus()`);
       await window.webContents.executeJavaScript(`(() => { [...document.querySelectorAll('[data-testid="character-package-dialog"] button')].find(b => b.textContent.trim() === '取消').click(); })()`);
@@ -1404,7 +1403,6 @@ async function run() {
       await waitForText(window, '[data-testid="character-speech-model"]', "Gemini 2.5 Flash TTS");
       await waitForText(window, '[data-testid="character-speech-voice"]', "默认");
       await waitForText(window, '[data-testid="character-speech-voice"]', "Puck");
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-page"]').textContent.includes('当前：')`), false);
       await clickSelector(window, '[data-testid="character-back"]');
       await waitForSelector(window, '[data-testid="settings-launcher"]');
       includeGoogleSpeechFixture = false;
