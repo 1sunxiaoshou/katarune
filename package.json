@@ -28,21 +28,33 @@
     "test:ui": "npm run build && npm run test:ui:run",
     "test:ui:run": "node tests/run-ui-smoke.mjs",
     "test:startup": "npm run build && node tests/run-startup-integration.mjs",
+    "test:uninstall:win": "pwsh -NoProfile -File tests/run-windows-uninstall.ps1",
     "test:watch": "vitest",
     "validate:ai": "vitest run tests/chat-service.test.ts tests/chat-stream.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
     "build": "npm run typecheck && electron-vite build",
-    "package:dir": "npm run build && electron-builder --dir",
-    "package:win": "npm run build && electron-builder --win nsis --x64",
+    "build:avatar": "node scripts/build-windows-avatar.mjs",
+    "package:win:dir": "node scripts/verify-windows-resources.mjs && npm run build:avatar && npm run build && electron-builder --win --x64 --dir --publish never && node scripts/verify-windows-resources.mjs dist/win-unpacked/resources",
+    "package:win": "npm run package:win:dir && npm run build:installer",
+    "release:win": "npm test && npm run test:database && npm run package:win:dir && npm run test:ui:run && node tests/run-packaged-asset-verification.mjs dist/win-unpacked/Katarune.exe && npm run build:installer",
     "package:mac": "npm run build && electron-builder --mac dmg zip --x64 --arm64",
     "package:linux": "npm run build && electron-builder --linux AppImage deb --x64",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "setup:installer": "pwsh -NoProfile -File scripts/setup-qt-installer.ps1",
+    "build:installer": "node scripts/build-qt-installer.mjs",
+    "preview:installer": "node scripts/preview-qt-installer.mjs"
   },
   "engines": {
-    "node": ">=22.12.0",
+    "node": "^24.21.0",
     "npm": ">=11.0.0"
   },
-  "packageManager": "npm@11.8.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^24.21.0"
+    }
+  },
+  "packageManager": "npm@11.19.0",
   "dependencies": {
     "@ai-sdk/alibaba": "2.0.14",
     "@ai-sdk/anthropic": "4.0.16",

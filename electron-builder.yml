@@ -43,11 +43,18 @@ extraResources:
   - from: node_modules/@fontsource/yellowtail/LICENSE
     to: fonts/Yellowtail-LICENSE.txt
 win:
+  icon: katarune-logo.ico
+  extraResources:
+    - from: build/release/avatar
+      to: avatar
+      filter:
+        - "**/*"
+        - "!**/*_DoNotShip/**/*"
+        - "!**/*.pdb"
   target:
-    - target: nsis
+    - target: dir
       arch:
         - x64
-  verifyUpdateCodeSignature: true
 mac:
   target:
     - target: dmg
@@ -68,21 +75,3 @@ linux:
       arch:
         - x64
   category: Utility
-nsis:
-  artifactName: "${productName}-Setup-${version}.${ext}"
-  oneClick: true
-  perMachine: false
-  createDesktopShortcut: false
-  createStartMenuShortcut: true
-  runAfterFinish: true
-  deleteAppDataOnUninstall: false
-  differentialPackage: true
-  useZip: false
-  unicode: true
-  multiLanguageInstaller: true
-  installerLanguages:
-    - en_US
-    - zh_CN
-  displayLanguageSelector: false
-  uninstallDisplayName: "${productName}"
-  include: installer.nsh

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package>
+  <DisplayName>@@PRODUCT@@</DisplayName>
+  <Description>言奏</Description>
+  <Version>@@VERSION@@</Version>
+  <ReleaseDate>@@DATE@@</ReleaseDate>
+  <Default>true</Default>
+  <ForcedInstallation>true</ForcedInstallation>
+  <Script>component.qs</Script>
+  <UserInterfaces>
+    <UserInterface>Options.ui</UserInterface>
+    <UserInterface>Progress.ui</UserInterface>
+    <UserInterface>Finished.ui</UserInterface>
+  </UserInterfaces>
+</Package>

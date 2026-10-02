@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Installer>
+  <Name>@@PRODUCT@@</Name>
+  <Version>@@VERSION@@</Version>
+  <Title>言奏 · Katarune</Title>
+  <Publisher>Katarune</Publisher>
+  <InstallerApplicationIcon>icon</InstallerApplicationIcon>
+  <InstallerWindowIcon>icon.png</InstallerWindowIcon>
+  <TargetDir>@HomeDir@/Katarune</TargetDir>
+  <StartMenuDir>@@PRODUCT@@</StartMenuDir>
+  <MaintenanceToolName>Uninstall @@PRODUCT@@</MaintenanceToolName>
+  <ControlScript>controller.qs</ControlScript>
+  <StyleSheet>artwork.qss</StyleSheet>
+  <WizardStyle>Classic</WizardStyle>
+  <WizardDefaultWidth>960</WizardDefaultWidth>
+  <WizardDefaultHeight>640</WizardDefaultHeight>
+  <WizardMinimumWidth>960</WizardMinimumWidth>
+  <WizardMinimumHeight>640</WizardMinimumHeight>
+  <WizardShowPageList>false</WizardShowPageList>
+  <RemoveTargetDir>true</RemoveTargetDir>
+  <AllowNonAsciiCharacters>true</AllowNonAsciiCharacters>
+  <AllowSpaceInPath>true</AllowSpaceInPath>
+  <DisableAuthorizationFallback>true</DisableAuthorizationFallback>
+  <SupportsModify>false</SupportsModify>
+  <PersistentLocalCache>false</PersistentLocalCache>
+  <AllowRepositoriesForOfflineInstaller>false</AllowRepositoriesForOfflineInstaller>
+</Installer>

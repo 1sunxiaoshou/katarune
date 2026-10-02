@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Canvas</class>
+ <widget class="QWidget" name="@@PAGE@@">
+  <property name="windowTitle"><string/></property>
+  <layout class="QHBoxLayout" name="RootLayout" stretch="3,2">
+   <property name="spacing"><number>24</number></property>
+   <property name="leftMargin"><number>32</number></property>
+   <property name="topMargin"><number>20</number></property>
+   <property name="rightMargin"><number>32</number></property>
+   <property name="bottomMargin"><number>48</number></property>
+   <item><spacer name="CharacterSpace"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint"><size><width>0</width><height>0</height></size></property></spacer></item>
+   <item>
+    <widget class="QWidget" name="Panel">
+     <layout class="QVBoxLayout" name="PanelLayout" stretch="0,0,1,0,0">
+      <property name="spacing"><number>0</number></property>
+      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+      <item>
+       <widget class="QWidget" name="Brand">
+        <property name="minimumSize"><size><width>0</width><height>120</height></size></property>
+        <property name="maximumSize"><size><width>16777215</width><height>120</height></size></property>
+        <layout class="QHBoxLayout" name="BrandLayout" stretch="0,1">
+         <property name="spacing"><number>16</number></property>
+         <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+         <item alignment="Qt::AlignVCenter">
+          <widget class="QLabel" name="Logo">
+           <property name="minimumSize"><size><width>120</width><height>120</height></size></property>
+           <property name="maximumSize"><size><width>120</width><height>120</height></size></property>
+           <property name="pixmap"><pixmap resource="artwork.qrc">:/katarune/logo.png</pixmap></property>
+           <property name="scaledContents"><bool>true</bool></property>
+          </widget>
+         </item>
+         <item alignment="Qt::AlignVCenter">
+          <widget class="QWidget" name="BrandText">
+           <layout class="QVBoxLayout" name="BrandTextLayout">
+            <property name="spacing"><number>0</number></property>
+            <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+            <item><widget class="QLabel" name="Name"><property name="text"><string>言 奏</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+            <item><widget class="QLabel" name="LatinName"><property name="text"><string>katarune</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item><spacer name="BrandContentSpace"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint"><size><width>0</width><height>32</height></size></property></spacer></item>
+      <item>
+       <widget class="QWidget" name="Content">
+        <layout class="QVBoxLayout" name="ContentLayout" stretch="0,0,0,0,0,0,1">
+         <property name="spacing"><number>12</number></property>
+         <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+         <item>
+          <widget class="QWidget" name="InstallOptions">
+           <layout class="QVBoxLayout" name="OptionsLayout">
+            <property name="spacing"><number>12</number></property>
+            <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+            <item><widget class="QLabel" name="PathLabel"><property name="text"><string>安装位置</string></property></widget></item>
+            <item>
+             <layout class="QHBoxLayout" name="PathLayout" stretch="1,0">
+              <property name="spacing"><number>12</number></property>
+              <item><widget class="QLineEdit" name="Path"><property name="accessibleName"><string>安装位置</string></property></widget></item>
+              <item><widget class="QPushButton" name="Browse"><property name="text"><string>浏览</string></property></widget></item>
+             </layout>
+            </item>
+            <item><widget class="QCheckBox" name="Desktop"><property name="text"><string>桌面快捷方式</string></property><property name="checked"><bool>true</bool></property></widget></item>
+            <item><widget class="QCheckBox" name="Launch"><property name="text"><string>安装后启动</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item><widget class="QLabel" name="Status"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QCheckBox" name="DeleteAll"><property name="text"><string>删除全部本地数据</string></property></widget></item>
+         <item><widget class="QProgressBar" name="ArtProgress"><property name="value"><number>0</number></property><property name="accessibleName"><string>进度</string></property></widget></item>
+         <item><widget class="QLabel" name="Stage"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><widget class="QLabel" name="Feedback"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+         <item><spacer name="ContentSpace"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Expanding</enum></property><property name="sizeHint"><size><width>0</width><height>0</height></size></property></spacer></item>
+        </layout>
+       </widget>
+      </item>
+      <item><spacer name="ContentActionsSpace"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint"><size><width>0</width><height>24</height></size></property></spacer></item>
+      <item>
+       <widget class="QWidget" name="Actions">
+        <layout class="QHBoxLayout" name="ActionsLayout" stretch="1,0">
+         <property name="spacing"><number>12</number></property>
+         <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+         <item><widget class="QPushButton" name="Primary"><property name="text"><string>安装</string></property></widget></item>
+         <item><widget class="QPushButton" name="Cancel"><property name="text"><string>取消</string></property></widget></item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <tabstops><tabstop>Path</tabstop><tabstop>Browse</tabstop><tabstop>Desktop</tabstop><tabstop>Launch</tabstop><tabstop>DeleteAll</tabstop><tabstop>Primary</tabstop><tabstop>Cancel</tabstop></tabstops>
+ <resources><include location="artwork.qrc"/></resources>
+ <connections/>
+</ui>
