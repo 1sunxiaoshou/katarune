@@ -38,6 +38,9 @@ extraResources:
     to: asr/sensevoice-int8
   - from: resources/characters
     to: characters
+    filter:
+      - "**/*"
+      - "!katarune-portrait.png"
   - from: resources/fonts
     to: fonts
   - from: node_modules/@fontsource/yellowtail/LICENSE
@@ -52,7 +55,7 @@ win:
         - "!**/*_DoNotShip/**/*"
         - "!**/*.pdb"
   target:
-    - target: dir
+    - target: nsis
       arch:
         - x64
 mac:
@@ -75,3 +78,20 @@ linux:
       arch:
         - x64
   category: Utility
+nsis:
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: false
+  deleteAppDataOnUninstall: false
+  differentialPackage: false
+  unicode: true
+  installerLanguages:
+    - zh_CN
+  displayLanguageSelector: false
+  uninstallDisplayName: "${productName}"
+  include: installer/installer.nsh

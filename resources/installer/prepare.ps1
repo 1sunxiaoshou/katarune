@@ -1,5 +1,4 @@
 param(
-    [ValidateSet('Validate', 'Wait')][string]$Action = 'Validate',
     [Parameter(Mandatory)][string]$TargetDir,
     [Parameter(Mandatory)][string]$Product
 )
@@ -8,14 +7,6 @@ $ErrorActionPreference = 'Stop'
 try {
     $target = [IO.Path]::GetFullPath($TargetDir).TrimEnd('\', '/')
     if ($target -eq [IO.Path]::GetPathRoot($TargetDir).TrimEnd('\', '/')) { throw '不能安装到磁盘根目录。' }
-    if ($Action -eq 'Wait') {
-        $deadline = (Get-Date).AddSeconds(30)
-        while (Test-Path -LiteralPath $target) {
-            if ((Get-Date) -gt $deadline) { throw '旧版卸载尚未完成。' }
-            Start-Sleep -Milliseconds 100
-        }
-        exit 0
-    }
     $ancestor = $target
     while ($ancestor -and $ancestor -ne [IO.Path]::GetPathRoot($target)) {
         if (Test-Path -LiteralPath $ancestor) {
@@ -29,6 +20,7 @@ try {
         $identityFile = Join-Path $target '.installer/identity.json'
         if (-not (Test-Path -LiteralPath $identityFile)) { throw '该目录不为空，请选择其他位置。' }
         $identity = Get-Content -LiteralPath $identityFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($identity.engine -ne 'nsis') { throw '请先卸载旧版 Qt 安装，再安装此版本；默认卸载保留个人数据。' }
         if ($identity.product -ne $Product -or -not (Test-Path -LiteralPath (Join-Path $target "Uninstall $Product.exe"))) {
             throw '该目录已有其他安装，请选择其他位置。'
         }

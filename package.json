@@ -40,9 +40,8 @@
     "package:mac": "npm run build && electron-builder --mac dmg zip --x64 --arm64",
     "package:linux": "npm run build && electron-builder --linux AppImage deb --x64",
     "postinstall": "electron-builder install-app-deps",
-    "setup:installer": "pwsh -NoProfile -File scripts/setup-qt-installer.ps1",
-    "build:installer": "node scripts/build-qt-installer.mjs",
-    "preview:installer": "node scripts/preview-qt-installer.mjs"
+    "build:installer": "node scripts/build-nsis-installer.mjs",
+    "preview:installer": "node scripts/preview-nsis-installer.mjs"
   },
   "engines": {
     "node": "^24.21.0",

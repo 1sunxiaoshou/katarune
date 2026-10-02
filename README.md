@@ -23,7 +23,7 @@ ATRI Chat 是产品行为和资产参考，不是需要保持代码或数据兼�
 - 按角色隔离的资产、附件与 Markdown Memory Wiki；凭据由受信任的 main process 加密管理。
 - OpenAI、Google Gemini 与 Fish Audio TTS；SenseVoiceSmall INT8 离线听写和 Silero 自动断句。
 - Windows 开发环境中的 Unity VRM 角色、动作/表情工具、对白音频、字幕与口型；Electron 胶囊和面板负责桌面控制。
-- Windows x64 unpacked 与 Qt Installer Framework 离线安装器构建链路；安装 GUI 与隔离安装/卸载测试已通过；原生卸载视觉与完整包体验待手动验收。
+- Windows x64 unpacked 与 NSIS 离线安装器构建链路；无边框品牌界面，隔离安装/覆盖更新/卸载测试通过；完整安装后体验待手动验收。
 
 ## 当前限制
 
@@ -34,7 +34,7 @@ ATRI Chat 是产品行为和资产参考，不是需要保持代码或数据兼�
 
 完整进度和非目标见[路线图](docs/03-规划/路线图.md)。
 
-Windows 内部发行包使用 `npm run release:win` 构建，包含 Unity Player、默认角色与离线语音资源；命令运行自动化检查，再用 Qt Installer Framework 生成本地离线安装器。准备条件与人工验收边界见[工程规范](docs/04-开发/工程规范.md#windows-内部发行包)。
+Windows 内部发行包使用 `npm run release:win` 构建，包含 Unity Player、默认角色与离线语音资源；命令运行自动化检查，再用 NSIS 生成本地离线安装器。准备条件与人工验收边界见[工程规范](docs/04-开发/工程规范.md#windows-内部发行包)。
 
 ## 本地开发
 

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Asset } from "../src/shared/assets";
 import { createAssetService } from "../src/main/assets/assetService";
+import { loadDefaultCharacterConfig } from "../src/main/characters/defaultCharacter";
 import { handleAssetRequest } from "../src/main/assets/assetProtocol";
 import type { DatabaseRuntime } from "../src/main/database/database";
 
@@ -46,13 +47,31 @@ function readyAsset(byteSize: number): Asset {
 }
 
 describe("generic asset service and protocol", () => {
+  it("shares the bundled package portrait and rejects paths outside its resource root", () => {
+    const resourcesPath = join(process.cwd(), "resources", "characters");
+    const service = createAssetService({ userDataPath: tempDirectory(), characterResourcesPath: resourcesPath });
+    const config = loadDefaultCharacterConfig(resourcesPath);
+    let mimeType: string | undefined;
+    const database = {
+      listAssets: () => [{ ...readyAsset(0), status: "missing" }],
+      markAssetReady: (_id: string, metadata: { mimeType: string }) => { mimeType = metadata.mimeType; },
+    } as unknown as DatabaseRuntime;
+    service.reconcile(database, config);
+    expect(mimeType).toBe("image/png");
+    expect(readFileSync(service.resolveManagedPath(assetId))).toEqual(readFileSync(join(resourcesPath, "default-package/portrait.png")));
+    service.removeExact(assetId);
+    const unsafe = { ...config, character: { ...config.character, portrait: { assetId, file: "../outside.png" } } };
+    expect(() => service.reconcile(database, unsafe)).toThrow("Invalid bundled portrait path");
+    expect(existsSync(service.resolveManagedPath(assetId))).toBe(false);
+  });
+
   it("moves an exact legacy portrait and keeps absent assets missing", () => {
     const userDataPath = tempDirectory();
     const resourcesPath = join(process.cwd(), "resources", "characters");
     const legacyDirectory = join(userDataPath, "character-assets");
     mkdirSync(legacyDirectory);
     copyFileSync(
-      join(resourcesPath, "sunohara-kokona.png"),
+      join(resourcesPath, "default-package/portrait.png"),
       join(legacyDirectory, `${assetId}.png`),
     );
     const missingId = "00000000-0000-4000-8000-000000000004";
@@ -107,8 +126,8 @@ describe("generic asset service and protocol", () => {
       userDataPath,
       characterResourcesPath: join(process.cwd(), "resources", "characters"),
     });
-    const imported = { id: "00000000-0000-4000-8000-000000000099", byteSize: readFileSync(join(process.cwd(), "resources/characters/sunohara-kokona.png")).length };
-    copyFileSync(join(process.cwd(), "resources/characters/sunohara-kokona.png"), service.resolveManagedPath(imported.id));
+    const imported = { id: "00000000-0000-4000-8000-000000000099", byteSize: readFileSync(join(process.cwd(), "resources/characters/default-package/portrait.png")).length };
+    copyFileSync(join(process.cwd(), "resources/characters/default-package/portrait.png"), service.resolveManagedPath(imported.id));
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
       fetchAsset: (id: string) => {
