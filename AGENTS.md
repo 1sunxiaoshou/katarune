@@ -1,113 +1,102 @@
 # Katarune Agent Guide
 
-## 项目定位
+本文件面向参与开发的 coding agent。面向读者的产品介绍见 [README](README.md)，当前进度与验收边界见 [路线图](docs/03-规划/路线图.md)。
 
-言奏（Katarune）是一个以 Web 技术构建的数字角色 Harness。它组合模型、记忆、工具、语音与数字形体，并专注于角色体验、VRM 驱动、桌面能力和用户可控性。
+Katarune 的长期愿景是能与人共同生活、感知和探索世界的数字生命。电脑、虚拟世界和未来的实体躯体都是其活动载体；桌面聊天与角色显示是当前阶段的实现。
 
-开始工作前先阅读：
+产品讨论和对外文案应表达这一愿景，同时明确区分当前能力与尚未实现的目标。长期愿景不自动扩大具体任务的实现范围；未经任务授权，不提前锁定游戏、虚拟世界或实体躯体的技术方案。
 
-- `README.md`
-- `docs/README.md`
-- `docs/00-项目/项目定义.md`
-- `docs/01-决策/决策记录.md`
-- `docs/02-架构/技术选型.md`
-- `docs/03-规划/路线图.md`
-- `docs/04-开发/工程规范.md`
+## 开始工作
 
-ATRI Chat 是参考实现、行为基准和资产来源，不是必须保持代码兼容的基础工程。言奏不迁移 ATRI Chat 的用户数据或旧文件记忆。
+1. 先检查工作区差异，保护用户已有修改，不回滚、覆盖或提交无关内容。
+2. 明确本次用户价值、范围、非目标和可观察的验收条件；只实现已授权的任务，不提前用脚手架锁定待决定事项。
+3. 首次进入仓库先阅读以下文档。后续按任务查阅相关章节；长文档按目录分段读取，避免截断遗漏。
 
-## 当前阶段
+| 文档 | 用途 |
+| --- | --- |
+| [README](README.md)、[文档导航](docs/README.md) | 项目概览与资料入口 |
+| [项目定义](docs/00-项目/项目定义.md) | 产品定位与非目标 |
+| [决策记录](docs/01-决策/决策记录.md) | 已决定、待决定、暂缓及历史替代关系 |
+| [技术选型](docs/02-架构/技术选型.md) | 系统边界与依赖基线 |
+| [路线图](docs/03-规划/路线图.md) | 当前进度、优先级与待验收范围 |
+| [工程规范](docs/04-开发/工程规范.md) | 代码、验证、构建与提交规则 |
 
-P1/P2 已完成，P3/P4 正在推进。模型、会话、角色资产、Memory Wiki、TTS 与离线 ASR 已有开发基线；Unity 桌面角色、Electron 胶囊/面板、动作/表情工具、对白音频与字幕也已接入。真人全双工语音、原生窗口体验、自动重连、最终动作资产和正式分发仍需验收或实现。进度与限制见[路线图](docs/03-规划/路线图.md)；未决事项未经任务授权不要提前用脚手架锁定。
+桌宠窗口、输入和字幕任务同时阅读 [桌面交互设计](docs/00-项目/桌面交互设计.md)。文档中的历史验证不代表当前实现；核对现行设计、代码和锁文件，发现不一致时明确指出。
 
-## Agent Skills
+## 代码导航
 
-项目使用仓库级 Agent Skills，使 Codex 等兼容 Agent 在不同电脑上获得一致的框架知识。
+| 路径 | 职责 |
+| --- | --- |
+| `src/main/` | 可信 Harness、模型调用、数据、资产、凭据与桌面控制 |
+| `src/preload/` | 最小 IPC 桥接 |
+| `src/renderer/` | React、assistant-ui 与桌面界面 |
+| `src/shared/` | 跨进程契约；IPC Schema 入口为 `src/shared/ipc.ts` |
+| `unity/KataruneAvatar/` | 独立 Unity 角色运行时 |
+| `tests/`、`scripts/` | 自动化验证与开发、构建入口 |
 
-已安装来源：
+## 实现原则与安全边界
 
-- AI SDK：`vercel/ai`
-- assistant-ui：`assistant-ui/skills`
-- Unity：`Unity-Technologies/skills`，当前只按需安装 `unity-cli`
+- Katarune 是数字伙伴产品的 Harness。AI SDK 负责模型、工具、流式输出与基础 Agent 循环；assistant-ui 负责聊天 Runtime 和交互。自研集中在角色、记忆策略、VRM、语音协调、桌面能力和用户控制。
+- 优先组合成熟库、Provider 与现有协议。直接复用框架的类型、消息格式、生命周期和持久化 adapter；只在 SQLite、Electron IPC、安全边界及产品语义处做薄适配，不建立镜像模型、重复 Runtime 或没有真实迁移需求的兼容层。
+- 密钥、文件系统、数据库和高权限工具留在可信 main process 或受控子进程。renderer 通过最小 preload 接口访问，不获得真实凭据或文件路径权限，不信任其提交的模型、角色归属或授权信息。
+- 外部输入、持久化数据、IPC 和工具参数必须进行运行时校验。共享 Zod Schema 是结构和类型的单一来源；不要用类型断言或关闭严格检查绕过边界。
+- TTS 与 ASR 保持独立 Capability。Unity 负责角色实际加载、动作、音频播放和字幕时钟；宿主提交高层意图，不绕过其 Facade 直接操纵骨骼或复制运行状态。
+- 当前范围以项目定义和任务为准，不顺带扩展为文件、终端、编码代理或跨 Harness 平台；不为旧项目建立无真实需求的兼容层，不进行未经任务授权的历史数据或记忆迁移。
+- 不将密钥、Token、个人数据、真实供应商响应或本地绝对路径写入源码、测试夹具和日志。删除、迁移数据或执行高权限工具前，确认精确目标和影响范围；不通过删库或削弱校验掩盖失败。
+- 新依赖必须解决明确问题并说明采用理由，提交对应锁文件。已有框架能满足时不新增重复依赖；不混入无关格式化、构建产物或用户本地素材。
 
-规范与官方入口：
+## 按任务使用项目级 Skills
 
-- <https://ai-sdk.dev/docs/getting-started/coding-agents>
-- <https://github.com/vercel/ai>
-- <https://github.com/assistant-ui/skills>
-- <https://github.com/Unity-Technologies/skills>
-- <https://docs.unity3d.com/>
-- <https://agentskills.io/home>
-- <https://www.skills.sh/docs/cli>
+只加载任务相关的 Skill，入口为 `.agents/skills/<name>/SKILL.md`：
 
-### 新电脑恢复
+| 任务 | 必用 Skill |
+| --- | --- |
+| AI SDK 模型、工具、流式输出与 Agent | `ai-sdk` |
+| assistant-ui 跨领域问题 | 先读 `assistant-ui`，再按其路由选择具体 Skill |
+| Unity CLI、Editor 连接、构建或测试 | `unity-cli` |
 
-`.agents/skills/` 与 `skills-lock.json` 属于项目开发配置，应纳入版本控制。如果 Skill 文件缺失或需要按锁文件恢复，在仓库根目录运行：
+assistant-ui 路由：初次集成 `setup`；Runtime/状态 `runtime`；UI 组合 `primitives`；Markdown `markdown`；工具及工具 UI `tools`；流协议 `streaming`；会话侧栏 `thread-list`；升级 `update`。
+
+- Skill 不替代版本核对。实现前检查 `package.json`、锁文件、项目锁定的 `node_modules` 源码、类型定义与对应官方文档，不混用不同 AI SDK 或 assistant-ui 大版本示例。
+- `.agents/skills/` 与 `skills-lock.json` 纳入版本控制。新增 Skill 仅安装到本仓库并更新锁文件，不使用 `--global` / `-g`，不以全局 Skill 替代项目级 Skill。
+- AI SDK 来源为 `vercel/ai`，assistant-ui 来源为 `assistant-ui/skills`，Unity 来源为 `Unity-Technologies/skills`。Unity Skill 只按当前任务需要单项安装，不批量预装。
+- 普通功能任务不自动执行 `skills update`。安装或更新时检查来源、风险提示、文件 diff 和锁文件变化；执行 Skill 脚本前检查目标、参数和影响范围。
+
+在新电脑上缺少 Skill 文件或需要按锁文件恢复时，从仓库根目录运行：
 
 ```powershell
 npx skills experimental_install
 npx skills list --json
 ```
 
-不要以全局 Skill 代替项目级 Skill。所有新增 Skill 都只能安装到本仓库的 `.agents/skills/` 并写入 `skills-lock.json`，不得使用 `--global` / `-g`。不要批量安装当前任务无关的 Skill，也不要在普通功能任务中自动执行 `skills update`；Skill 安装和更新必须检查来源、风险提示、文件 diff 和锁文件变化后再接受。
+## Unity 特别规则
 
-### 使用规则
+- 讨论、规划、实现或评审 Unity 功能前，先读取 `unity/KataruneAvatar/ProjectSettings/ProjectVersion.txt` 和 `unity/KataruneAvatar/Packages/manifest.json`，再查询对应版本的 Unity 官方 Manual、Scripting API 或包文档。第三方包同时核对官方上游文档和项目锁定源码，不只依赖模型记忆或泛化教程。
+- Unity `6000.3.11f1`、Pipeline `0.8.0-exp.1` 与 Windows 中文工程路径的组合禁用 `eval` / `eval_file`；其他加载动态程序集的命令也须先验证。优先使用已注册的场景、播放、截图和测试命令；需要 C# 时写正常编译的 Editor 脚本。
+- 此组合下 `PipelineEval_*` 动态程序集可能发生 `GetName()` 失败，导致 QuickInstaller 持续刷错。恢复须保存场景并重载脚本域或重启 Editor，以卸载动态程序集；不能只清空 Console、屏蔽异常或修改 PackageCache。细节见工程规范的 Unity 编辑器排错记录。
 
-- AI SDK 相关任务必须使用 `.agents/skills/ai-sdk/SKILL.md`。
-- assistant-ui 的跨领域问题先使用 `.agents/skills/assistant-ui/SKILL.md`，再按它的路由选择最具体的 Skill。
-- 初次集成使用 `setup`；Runtime 与状态使用 `runtime`；UI 组合使用 `primitives`；工具及工具 UI 使用 `tools`；流协议使用 `streaming`；会话侧栏使用 `thread-list`；升级使用 `update`。
-- Unity CLI、Editor 连接、构建或测试任务必须使用 `.agents/skills/unity-cli/SKILL.md`。
-- Unity 6000.3.11f1 在含中文路径的 Windows 工程中，Pipeline 的 `eval` 会产生 `GetName()` 失败的 `PipelineEval_*` 动态程序集，可能导致 QuickInstaller 持续刷错。此组合下不要使用 `eval` / `eval_file`；其他会加载动态程序集的命令也须先验证。优先使用已注册的场景、播放、截图和测试命令；需要 C# 时使用正常编译的 Editor 脚本。出现该异常后须重载脚本域以卸载动态程序集，不能仅清空 Console 或屏蔽异常。详见工程规范的 Unity 编辑器排错记录。
-- 讨论、规划、实现或评审某项 Unity 功能前，先读取项目的 `ProjectVersion.txt` 和 `Packages/manifest.json`，再查询与该版本和功能对应的 Unity 官方 Manual、Scripting API 或包文档；不得只依赖模型记忆或泛化教程。第三方包同时核对其官方上游文档和项目锁定源码。
-- Unity 官方其他 Skill 只在当前任务明确涉及其领域且仓库尚未安装时，从 `Unity-Technologies/skills` 按单项安装到本仓库；不得为了备用一次性安装全部 Unity Skills。
-- 只在任务确实涉及某一领域时加载对应 Skill，不要一次读取全部 Skills。
-- 使用 Skill 时仍须核对项目锁定版本的 `node_modules` 源码、类型定义与官方文档。
-- 不允许混用不同 AI SDK 或 assistant-ui 大版本的 API 示例。
-- Skill 可以携带脚本和高权限操作。执行其脚本前必须确认与当前任务相关，并检查目标、参数和影响范围。
+## 验证与交付
 
-## 架构原则
+以 `package.json` 和工程规范为命令来源，按变更风险选择实际检查：
 
-- 言奏自身是产品 Harness，不重新发明通用 Agent Runtime。
-- AI SDK 负责模型调用、工具调用、流式输出和基础 Agent 循环。
-- assistant-ui 负责聊天交互框架与工具 UI 基础能力。
-- 非核心能力优先采用成熟库、Provider、MCP、ACP 或其他现成实现。
-- 框架已提供稳定类型、协议、生命周期或持久化格式时直接复用；不要建立镜像模型、重复转换层或没有真实迁移需求的兼容层。只在 SQLite、Electron IPC、安全边界和言奏特有领域语义处实现薄适配。
-- 自研重点是角色、记忆策略、VRM、TTS/ASR 协调、桌面能力和安全策略。
-- 密钥、文件系统、数据库和高权限工具不得放在不可信的 Electron renderer 边界内。
-- TTS 与 ASR 是独立 Capability，不与 Agent 循环强耦合。
-- 第一阶段只接入现有产品的核心能力，不提前扩展文件、终端或编码代理平台。
+| 变更 | 常用验证入口 |
+| --- | --- |
+| TypeScript 与业务行为 | `npm run typecheck`、`npm test` |
+| 数据、迁移与恢复 | `npm run test:database` |
+| 凭据边界 | `npm run test:credentials` |
+| Electron 界面与消息链路 | `npm run test:ui`（包含构建） |
+| 生产构建 | `npm run build`（包含类型检查） |
+| 角色包、Unity、语音、安装与分发 | 查工程规范中的对应集成入口与资源前置条件 |
 
-## 决策与文档
+- 纯文档改动检查差异、链接和命令准确性即可。仓库没有统一格式化/Lint 脚本，不声称未提供或未运行的检查已通过。
+- 测试优先覆盖实际业务路径的数据保持、安全、状态切换和失败恢复；可逆文案、样式不新增实现镜像或源码字符串断言测试。
+- `test:ai:*` 等真实供应商测试可能产生费用，不进入普通测试；只有任务已授权且本地测试凭据可用时执行，不输出密钥和真实回复内容。
+- 自动化、真实供应商/Player 联调与使用者实机验收分别报告。构建成功、截图存在、隐藏窗口测试或隔离安装载荷不等于最终界面、真人语音或完整安装后体验通过。
+- 交付说明写清改了什么、实际执行的验证以及仍未验证的范围。提交遵循 Conventional Commits；提交前检查暂存差异和敏感信息，只纳入本任务内容。
 
-- 已决定、待决定和暂缓事项必须明确区分。
-- 不要把候选方案写成当前事实。
-- 新的架构选择先更新 `docs/01-决策/决策记录.md`。
-- 当前系统边界变化时同步更新 `docs/02-架构/技术选型.md`。
-- 路线和优先级变化时更新 `docs/03-规划/路线图.md`。
-- README 只保留高层概览，详细说明进入现有 `docs/` 主题，不创建重复文档。
+## 依赖升级与文档维护
 
-## 开发流程
-
-每个实现任务遵循以下闭环：
-
-1. 明确用户价值、范围、非目标和验收条件。
-2. 读取项目文档并加载最相关的官方 Skill。
-3. 根据锁定依赖的源码和类型确认实际 API。
-4. 优先组合现成能力，只实现言奏特有部分。
-5. 运行格式、类型、单元测试和必要的实际交互检查。
-6. 仅在事实或决策发生变化时更新文档。
-
-## 依赖升级
-
-- AI SDK 与 assistant-ui 的升级必须是独立任务，不混入普通功能提交。
-- 优先使用官方 dry-run、upgrade 和 codemod。
-- 升级前记录当前版本，升级后检查 peer dependencies。
-- 升级必须通过类型检查、测试和关键聊天/工具流验证。
-- 同步更新包锁、`skills-lock.json` 和受影响的决策记录。
-
-## 安全与变更范围
-
-- 仓库可能包含用户未提交的修改，不回滚或覆盖无关改动。
-- 不提交密钥、访问令牌、个人数据或真实供应商凭据。
-- 删除、迁移数据和执行高权限工具前必须确认精确目标。
-- 新依赖需要说明它解决的问题；已有框架能满足时不新增重复依赖。
+- AI SDK 与 assistant-ui 升级必须作为独立任务，不夹带在普通功能变更中。先记录现有版本，优先官方 dry-run、upgrade 和 codemod；升级后核对 peer dependencies，通过类型、测试和关键聊天/工具流验证，同步包锁、`skills-lock.json` 及受影响决策。
+- 新架构选择先更新决策记录；系统边界变化同步技术选型；路线或优先级变化同步路线图。仅事实或决策变化时更新文档，不另建重复说明。
+- README 面向首次了解项目的读者，重点是产品体验、使用入口与文档导航。阶段与平台只作简短说明；内部实现、开发进度和验收记录进入现有 `docs/` 主题。数据说明使用读者能理解的语言，不展开数据库、存储格式或加密实现。
+- 明确区分已决定、待决定、暂缓和已废弃；不把候选方案写成当前事实，也不把未经验证的实现标为已验收。
