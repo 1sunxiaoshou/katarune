@@ -81,6 +81,21 @@ function Invoke-Gui([string]$file, [string]$mode, [string]$selection) {
         $phases = @($events | Where-Object event -eq 'page' | ForEach-Object page)
         $expected = if ($mode -eq 'install') { @(0, 1, 2) } else { @(3, 4, 5) }
         foreach ($phase in $expected) { Assert-Test ($phase -in $phases) "Missing GUI phase $phase" }
+        $busyPage = if ($mode -eq 'install') { 1 } else { 4 }
+        $samples = @($events | Where-Object { $_.page -eq $busyPage -and $_.event -in @('phase-update', 'progress-update') })
+        Assert-Test ($samples.Count -gt 0) 'No actual worker progress samples'
+        $previous = 0
+        foreach ($sample in $samples) {
+            Assert-Test ($sample.percent -ge $previous -and $sample.percent -lt 100) 'Progress regressed or reported completion before the worker finished'
+            $previous = $sample.percent
+        }
+        $finishPage = if ($mode -eq 'install') { 2 } else { 5 }
+        Assert-Test (@($events | Where-Object { $_.event -eq 'page' -and $_.page -eq $finishPage -and $_.percent -eq 100 }).Count -gt 0) 'Completion did not report 100 percent'
+        if ($mode -eq 'install') {
+            Assert-Test (@($events | Where-Object event -eq 'extraction-detail').Count -gt 0) 'Actual 7z byte details were not displayed'
+        } else {
+            Assert-Test (@($events | Where-Object event -eq 'log-update').Count -gt 0) 'Actual uninstall details were not displayed'
+        }
         Assert-Test (-not ($events | Where-Object { $_.caption -or -not $_.rounded -or $_.multiline })) 'Window style, region or single-line input validation failed'
         $repaints = @($events | Where-Object { $_.event -eq 'paint' -and $_.page -in @(1, 2, 4, 5) })
         Assert-Test ($repaints.Count -gt 0) 'GUI transition painting was not observed'
@@ -93,6 +108,13 @@ function Invoke-Gui([string]$file, [string]$mode, [string]$selection) {
 try {
     Write-Fixture (Join-Path $fixture "$product.exe")
     Write-Fixture (Join-Path $fixture 'resources/fixture.txt')
+    # A compressible payload makes extraction last long enough to observe the
+    # real plugin's byte details; a tiny text fixture skips that entire window.
+    $progressPayload = [IO.File]::Create((Join-Path $fixture 'resources/progress-fixture.bin'))
+    try {
+        $block = [byte[]]::new(1MB)
+        for ($index = 0; $index -lt 128; $index++) { $progressPayload.Write($block, 0, $block.Length) }
+    } finally { $progressPayload.Dispose() }
     Write-Fixture (Join-Path $fixture 'obsolete.txt')
     Write-Fixture (Join-Path $devData 'development.txt')
     New-Item -Path $devRegistry -Force | Out-Null

@@ -5,6 +5,10 @@ asar:
   smartUnpack: false
 npmRebuild: true
 compression: normal
+electronLanguages:
+  - zh-CN
+  - zh-TW
+  - en-US
 asarUnpack:
   - node_modules/sherpa-onnx-*/**/*
   - node_modules/better-sqlite3/build/Release/better_sqlite3.node
@@ -14,6 +18,10 @@ directories:
 files:
   - out/**/*
   - "!**/*.map"
+  # These packages expose compiled JS at runtime; retain their licenses.
+  - "!node_modules/{ai,zod,assistant-stream}/{src,docs}/**/*"
+  - "!node_modules/@ai-sdk/*/{src,docs}/**/*"
+  - "!node_modules/**/*.d.{ts,cts,mts}"
   - "!node_modules/**/{test,tests,__tests__}/**/*"
   - "!node_modules/**/*.{test,spec}.{js,cjs,mjs,ts,tsx,jsx}"
   - "!node_modules/better-sqlite3/binding.gyp"

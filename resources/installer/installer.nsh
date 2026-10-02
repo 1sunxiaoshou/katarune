@@ -162,9 +162,10 @@ FunctionEnd
   FileWrite $0 '{"product":"${PRODUCT_NAME}","engine":"nsis"}'
   FileClose $0
 !macroend
-; electron-builder suppresses file details before extraction. Resume its
-; native detail stream at the supported post-extraction hook.
+; Extraction enables details in the staged upstream template. This hook marks
+; the configuration phase after extraction and copying have actually finished.
 !macro customFiles_x64
+  System::Call '$PLUGINSDIR\KataruneSkin.dll::ProgressPhase(i 95, i 4, w "正在配置应用和快捷方式…") v c'
   SetDetailsPrint both
   DetailPrint "正在配置应用和快捷方式…"
 !macroend
@@ -178,6 +179,8 @@ FunctionEnd
   ${EndIf}
 !macroend
 !macro customUnInstall
+  SetDetailsPrint both
+  System::Call '$PLUGINSDIR\KataruneSkin.dll::ProgressPhase(i 0, i 15, w "正在检查并清理本地数据…") v c'
   ${IfNot} ${isUpdated}
     !insertmacro KataruneAssets
     nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\cleanup.ps1" -Action Validate -DeleteAll "$KataruneDeleteAll" -DataName "${KATARUNE_DATA_NAME}" -UnityProduct "${KATARUNE_UNITY_PRODUCT}"'

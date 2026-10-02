@@ -17,7 +17,7 @@ const script = `Unicode true
 ; This preview intentionally never executes sections.
 !pragma warning disable 8000
 RequestExecutionLevel user
-Name "言奏界面预览"
+Name "Katarune界面预览"
 OutFile "${output}"
 !include "nsDialogs.nsh"
 !include "FileFunc.nsh"

@@ -299,7 +299,7 @@ describe("chat service", () => {
           isUrlSupportedByModel: false,
         },
       ]),
-    ).rejects.toThrow("不受言奏托管");
+    ).rejects.toThrow("不受Katarune托管");
   });
 
   it("reports unsupported attachment formats with the original filename", () => {

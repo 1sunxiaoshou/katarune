@@ -67,7 +67,7 @@ void app.whenReady().then(async () => {
   await avatar.start(binding);
   const controller = new AbortController();
   const result = streamText({ model: aiRuntime.resolveLanguageModel(languageRow.id),
-    prompt: "只回复这句话，不要添加其他内容：你好，我们正在测试言奏的语音与口型同步。", abortSignal: controller.signal });
+    prompt: "只回复这句话，不要添加其他内容：你好，我们正在测试Katarune的语音与口型同步。", abortSignal: controller.signal });
   let textEnds = 0;
   const stream = avatar.relay(binding, result.toUIMessageStream(), controller.signal);
   for await (const chunk of stream) if (chunk.type === "text-end") textEnds++;

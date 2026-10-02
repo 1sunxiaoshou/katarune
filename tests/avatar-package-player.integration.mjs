@@ -9,7 +9,7 @@ import { writePackageVrmaFixture } from "./packageVrmaFixture.mjs";
 const output = resolve(".test-dist/avatar-packages", String(Date.now()));
 await mkdir(output, { recursive: true });
 const executable = resolve(
-  "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe",
+  process.argv[2] ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe",
 );
 const model = join(
   dirname(executable),

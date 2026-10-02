@@ -145,7 +145,7 @@ export function createChatAttachmentDownload(
           return prepared;
         }
         if (isUrlSupportedByModel) return null;
-        throw new ChatAttachmentError("附件引用无效或不受言奏托管。");
+        throw new ChatAttachmentError("附件引用无效或不受Katarune托管。");
       }),
     );
 }

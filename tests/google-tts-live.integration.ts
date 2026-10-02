@@ -100,7 +100,7 @@ void app
       cache,
     });
 
-    const text = "你好，言奏。";
+    const text = "你好，Katarune。";
     const first = await service.generate(
       characterId,
       text,

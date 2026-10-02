@@ -1,4 +1,4 @@
-﻿// Katarune's visual layer only. NSIS retains installation, navigation and removal.
+// Katarune's visual layer only. NSIS retains installation, navigation and removal.
 // Build as x86 Unicode: the NSIS stub is x86 even for an x64 application payload.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -26,6 +26,9 @@ std::unique_ptr<Image> background, logo;
 std::vector<HFONT> fonts;
 std::wstring version, currentPath, progressLog;
 int page = 0, percent = 0;
+int progressBase = 0, progressSpan = 10;
+constexpr UINT ProgressPhaseMessage = WM_APP + 41;
+struct PhaseUpdate { int base, span; const wchar_t* text; };
 bool checked = true, busy = false, closeRequested = false;
 float scale = 1;
 HICON folderIcon;
@@ -48,8 +51,8 @@ void trace(const char* event, const RECT* rect = nullptr) {
     int regionType = GetWindowRgn(window, region);
     bool roundedWindow = !PtInRegion(region, 0, 0) && PtInRegion(region, px(400), px(300));
     DeleteObject(region);
-    fprintf(file, "{\"event\":\"%s\",\"page\":%d,\"caption\":%s,\"rounded\":%s,\"multiline\":%s,\"regionType\":%d,\"minimized\":%s,\"x\":%ld,\"y\":%ld,\"width\":%ld,\"height\":%ld}\n",
-        event, page, (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) ? "true" : "false",
+    fprintf(file, "{\"event\":\"%s\",\"page\":%d,\"percent\":%d,\"phase\":%d,\"caption\":%s,\"rounded\":%s,\"multiline\":%s,\"regionType\":%d,\"minimized\":%s,\"x\":%ld,\"y\":%ld,\"width\":%ld,\"height\":%ld}\n",
+        event, page, percent, progressBase, (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) ? "true" : "false",
         roundedWindow ? "true" : "false", pathEdit && (GetWindowLongPtrW(pathEdit, GWL_STYLE) & ES_MULTILINE) ? "true" : "false",
         regionType, IsIconic(window) ? "true" : "false",
         rect ? rect->left : 0, rect ? rect->top : 0, rect ? rect->right - rect->left : 0, rect ? rect->bottom - rect->top : 0);
@@ -103,7 +106,7 @@ void backdrop(Graphics& g) {
     titleFormat.SetAlignment(StringAlignmentCenter);
     titleFormat.SetLineAlignment(StringAlignmentCenter);
     GraphicsPath title;
-    title.AddString(L"katarune", -1, &titleFamily, FontStyleRegular, 44, RectF(532, 208, 366, 75), &titleFormat);
+    title.AddString(L"Katarune", -1, &titleFamily, FontStyleRegular, 44, RectF(532, 208, 366, 75), &titleFormat);
     RectF titleBounds;
     title.GetBounds(&titleBounds);
     Matrix centerTitle;
@@ -155,7 +158,7 @@ void content(Graphics& g) {
     } else if (page == 2 || page == 5) {
         text(g, page == 2 ? L"安装完成" : L"卸载完成", 532, 385, 366, 50, 27, Color(255, 65, 60, 54), true);
     } else if (page == 3) {
-        text(g, L"卸载言奏", 532, 374, 366, 30, 27);
+        text(g, L"卸载Katarune", 532, 374, 366, 30, 27);
     }
 }
 void paint(HDC dc, POINT origin = {0, 0}) {
@@ -343,7 +346,9 @@ void showPage(int mode, const wchar_t* path) {
     page = mode;
     closeRequested = false;
     busy = page == 1 || page == 4;
-    percent = 0;
+    percent = page == 2 || page == 5 ? 100 : 0;
+    progressBase = 0;
+    progressSpan = page == 4 ? 15 : 10;
     progressLog = page == 1 ? L"正在解压并安装应用文件…" : L"正在准备卸载…";
     EnableWindow(closeButton, !busy);
     if (page == 0) {
@@ -360,7 +365,7 @@ void showPage(int mode, const wchar_t* path) {
         SendMessageW(choice, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     const wchar_t* caption = page == 0 ? L"立即安装" : page == 1 ? L"正在安装" :
-        page == 2 ? L"启动言奏" : page == 3 ? L"卸载" : page == 4 ? L"正在卸载" : L"完成";
+        page == 2 ? L"启动Katarune" : page == 3 ? L"卸载" : page == 4 ? L"正在卸载" : L"完成";
     if (!busy) action = control(L"BUTTON", caption, BS_OWNERDRAW, ActionId, 532, 483, 366, 48, 20);
     if (busy) SetTimer(window, ProgressTimer, 60, nullptr); else KillTimer(window, ProgressTimer);
     // NSIS may show its native page after the custom callback returns. Keep
@@ -381,6 +386,21 @@ void showPage(int mode, const wchar_t* path) {
 }
 LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
+    case ProgressPhaseMessage: {
+        const auto& update = *reinterpret_cast<const PhaseUpdate*>(lp);
+        // Retry/fallback extraction must not move a completed phase backwards.
+        if (update.base < progressBase) return 0;
+        progressBase = update.base;
+        progressSpan = update.span;
+        percent = std::max(percent, progressBase);
+        progressLog = update.text;
+        RECT area{px(532), px(374), px(899), px(443)};
+        InvalidateRect(hwnd, &area, FALSE);
+#ifdef KATARUNE_SKIN_TEST
+        trace("phase-update");
+#endif
+        return 0;
+    }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: {
         PAINTSTRUCT ps;
@@ -414,15 +434,22 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         if (point.y < px(60) && point.x < px(850)) return HTCAPTION;
         return HTCLIENT;
     }
-    case WM_DPICHANGED:
+    case WM_DPICHANGED: {
+        const int savedPercent = percent, savedBase = progressBase, savedSpan = progressSpan;
+        const auto savedLog = progressLog;
         scale = HIWORD(wp) / 96.f;
         layout();
         cacheBackdrop();
         SetWindowPos(closeButton, nullptr, px(906), px(4), px(40), px(36), SWP_NOZORDER);
         SetWindowPos(minimizeButton, nullptr, px(860), px(4), px(40), px(36), SWP_NOZORDER);
         showPage(page, currentPath.c_str());
+        percent = savedPercent;
+        progressBase = savedBase;
+        progressSpan = savedSpan;
+        progressLog = savedLog;
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
+    }
     case WM_TIMER:
 #ifdef KATARUNE_SKIN_TEST
         if (wp == TestTimer) {
@@ -449,16 +476,20 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                 PBRANGE range{};
                 SendMessageW(progress, PBM_GETRANGE, FALSE, reinterpret_cast<LPARAM>(&range));
                 int pos = static_cast<int>(SendMessageW(progress, PBM_GETPOS, 0, 0));
-                int next = range.iHigh > range.iLow ? (pos - range.iLow) * 100 / (range.iHigh - range.iLow) : 0;
+                int local = range.iHigh > range.iLow ? (pos - range.iLow) * 100 / (range.iHigh - range.iLow) : 0;
+                int next = std::max(percent, std::min(99, progressBase + std::clamp(local, 0, 100) * progressSpan / 100));
                 if (next != percent) {
                     percent = std::clamp(next, 0, 100);
+#ifdef KATARUNE_SKIN_TEST
+                    trace("progress-update");
+#endif
                     RECT area{px(532), px(374), px(899), px(404)};
                     InvalidateRect(hwnd, &area, FALSE);
                 }
             }
             HWND details = nullptr;
             EnumChildWindows(hwnd, findDetails, reinterpret_cast<LPARAM>(&details));
-            if (details) {
+            if (details && !(page == 1 && progressBase == 10)) {
                 int count = static_cast<int>(SendMessageW(details, LVM_GETITEMCOUNT, 0, 0));
                 if (count > 0) {
                     wchar_t line[2048]{};
@@ -474,6 +505,21 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
                         RECT area{px(532), px(416), px(899), px(443)};
                         InvalidateRect(hwnd, &area, FALSE);
                     }
+                }
+            }
+            // Nsis7z::ExtractWithDetails writes byte progress to the native
+            // status label (1006), not to the NSIS details list.
+            if (page == 1 && progressBase == 10) {
+                HWND parent = progress ? GetParent(progress) : nullptr;
+                wchar_t line[2048]{};
+                if (parent) GetDlgItemTextW(parent, 1006, line, 2048);
+                if (wcsncmp(line, L"解压：", 3) == 0 && progressLog != line) {
+                    progressLog = line;
+#ifdef KATARUNE_SKIN_TEST
+                    trace("extraction-detail");
+#endif
+                    RECT area{px(532), px(416), px(899), px(443)};
+                    InvalidateRect(hwnd, &area, FALSE);
                 }
             }
             // NSIS enables Next when its real worker has completed. Advance
@@ -547,6 +593,11 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
 }
 
 extern "C" {
+__declspec(dllexport) void __cdecl ProgressPhase(int base, int span, const wchar_t* text) {
+    if (!window) return;
+    PhaseUpdate update{base, span, text};
+    SendMessageW(window, ProgressPhaseMessage, 0, reinterpret_cast<LPARAM>(&update));
+}
 __declspec(dllexport) void __cdecl Attach(HWND parent, const wchar_t* assets, const wchar_t* release) {
     if (window) return;
     // Keep the drawing callbacks alive until process exit; no installer data is owned here.
@@ -586,7 +637,7 @@ __declspec(dllexport) void __cdecl Page(int mode, const wchar_t* path) {
 __declspec(dllexport) void __cdecl PreviewPage(int mode, const wchar_t* path) {
     showPage(mode, path);
     busy = false;
-    percent = 45;
+    percent = mode == 2 || mode == 5 ? 100 : 45;
     if (mode == 1 || mode == 4) progressLog = mode == 1 ? L"正在解压应用文件…（预览示例）" : L"正在移除应用文件…（预览示例）";
     KillTimer(window, ProgressTimer);
     EnableWindow(action, TRUE);

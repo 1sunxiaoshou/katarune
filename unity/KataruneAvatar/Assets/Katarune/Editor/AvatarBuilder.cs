@@ -17,6 +17,7 @@ namespace Katarune.Avatar.Editor
         {
             var companyName = PlayerSettings.companyName;
             var productName = PlayerSettings.productName;
+            var strippingLevel = PlayerSettings.GetManagedStrippingLevel(NamedBuildTarget.Standalone);
             try
             {
                 BuildWindowsPlayer();
@@ -26,6 +27,7 @@ namespace Katarune.Avatar.Editor
                 // Building a release must not change the Editor/development data identity.
                 PlayerSettings.companyName = companyName;
                 PlayerSettings.productName = productName;
+                PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.Standalone, strippingLevel);
                 AssetDatabase.SaveAssets();
             }
         }
@@ -44,6 +46,8 @@ namespace Katarune.Avatar.Editor
 
             Directory.CreateDirectory(outputDirectory);
             ConfigurePlayer();
+            // Strip the release player without changing the Editor's development setting.
+            PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.Standalone, ManagedStrippingLevel.Medium);
             ConfigureTransparentUrp();
             ConfigureAvatarRenderingAssets();
             PreserveRuntimeShaders();

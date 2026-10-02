@@ -1202,6 +1202,7 @@ async function run() {
       await clickSelector(window, '[data-testid="character-launcher"]');
       await waitForSelector(window, '[data-testid="character-page"]');
       const choose = async (testId, text) => {
+        await waitForSelector(window, `[data-testid="${testId}"]`);
         await clickSelector(window, `[data-testid="${testId}"]`);
         await waitForSelector(window, '[data-slot="model-selector-content"]');
         await window.webContents.executeJavaScript(`(() => {
