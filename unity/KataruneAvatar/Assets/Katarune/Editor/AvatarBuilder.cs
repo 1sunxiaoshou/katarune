@@ -15,12 +15,30 @@ namespace Katarune.Avatar.Editor
     {
         public static void BuildWindows()
         {
-            var outputPath = Path.GetFullPath(Path.Combine(
+            var companyName = PlayerSettings.companyName;
+            var productName = PlayerSettings.productName;
+            try
+            {
+                BuildWindowsPlayer();
+            }
+            finally
+            {
+                // Building a release must not change the Editor/development data identity.
+                PlayerSettings.companyName = companyName;
+                PlayerSettings.productName = productName;
+                AssetDatabase.SaveAssets();
+            }
+        }
+
+        private static void BuildWindowsPlayer()
+        {
+            var outputOverride = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_BUILD_OUTPUT");
+            var outputPath = string.IsNullOrEmpty(outputOverride) ? Path.GetFullPath(Path.Combine(
                 Application.dataPath,
                 "..",
                 "Builds",
                 "Windows",
-                "KataruneAvatar.exe"));
+                "KataruneAvatar.exe")) : Path.GetFullPath(outputOverride);
             var outputDirectory = Path.GetDirectoryName(outputPath);
             if (string.IsNullOrEmpty(outputDirectory)) throw new InvalidOperationException("The build output directory could not be resolved.");
 
@@ -127,7 +145,8 @@ namespace Katarune.Avatar.Editor
         private static void ConfigurePlayer()
         {
             PlayerSettings.companyName = "Katarune";
-            PlayerSettings.productName = "Katarune Avatar";
+            PlayerSettings.productName = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KATARUNE_AVATAR_BUILD_OUTPUT"))
+                ? "Katarune Avatar" : "Katarune Avatar Desktop";
             PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
             PlayerSettings.defaultIsNativeResolution = true;
             PlayerSettings.resizableWindow = false;

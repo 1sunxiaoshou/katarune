@@ -80,7 +80,7 @@ void app
         db.listCharacters().characters[0]!.portraitAssetId,
         oldPortrait,
       );
-      const portrait = await readFile(join(images, "sunohara-kokona.png"));
+      const portrait = await readFile(join(images, "default-package/portrait.png"));
       const makeZip = async (
         name: string,
         extra: Parameters<typeof packageZip>[0] = [],

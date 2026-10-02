@@ -310,7 +310,7 @@ describe("shared IPC contracts", () => {
           systemPrompt: "你是春原心奈。",
           portrait: {
             assetId: "00000000-0000-4000-8000-000000000002",
-            file: "sunohara-kokona.png",
+            file: "default-package/portrait.png",
           },
         },
       }),

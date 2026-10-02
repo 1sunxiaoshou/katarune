@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { DefaultCharacterConfig } from "../../shared/characters";
 import type {
   Asset,
@@ -208,15 +208,16 @@ export function createAssetService({
         } else {
           const bundledPortrait = config.character.portrait;
           if (bundledPortrait?.assetId === asset.id) {
-            const bundledPath = join(characterResourcesPath, bundledPortrait.file);
-            if (basename(bundledPortrait.file) !== bundledPortrait.file) {
+            const bundledPath = resolve(characterResourcesPath, bundledPortrait.file);
+            const remainder = relative(resolve(characterResourcesPath), bundledPath);
+            if (!remainder || remainder.startsWith("..") || isAbsolute(remainder)) {
               throw new Error("Invalid bundled portrait path.");
             }
             if (existsSync(bundledPath)) {
               const registration = copyIntoStage(
                 bundledPath,
                 asset.id,
-                bundledPortrait.file,
+                basename(bundledPortrait.file),
               );
               renameSync(
                 resolve(stagingDirectory, `${asset.id}.tmp`),
