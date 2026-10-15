@@ -9,6 +9,10 @@ import {
   type CharacterPackage,
   type RuntimeCharacterPackage,
   type PackageProgress,
+  SYSTEM_ACTION_KEYS,
+  packageAnimationFiles,
+  primaryPlaybackFile,
+  type ActionPlayback,
 } from "../../shared/characterPackages";
 import type { AssetService } from "../assets/assetService";
 import type {
@@ -96,6 +100,8 @@ export class CharacterPackageService {
       newAssets,
       customActions: manifest.customActions.map((a, i) => ({
         ...a,
+        file: primaryPlaybackFile(a.playback),
+        key: a.key ?? a.name,
         id: ids[i]!,
       })),
     });
@@ -146,15 +152,30 @@ export class CharacterPackageService {
   ): RuntimeCharacterPackage {
     const defaults =
       this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID).manifest.systemActions;
+    const resolvePlayback = (playback: ActionPlayback): ActionPlayback => {
+      const layer: NonNullable<ActionPlayback["layer"]> = playback.layer ?? "body";
+      const blending: NonNullable<ActionPlayback["blending"]> = playback.blending ?? (layer === "head" ? "additive" : "override");
+      const common = {
+        layer, blending, blendSeconds: playback.blendSeconds ?? .2,
+        ...(playback.reference ? { reference: resolve(playback.reference) } : {}),
+      };
+      return playback.kind === "oneShot"
+        ? { ...playback, ...common, file: resolve(playback.file) }
+        : { ...playback, ...common, loop: resolve(playback.loop), ...(playback.enter ? { enter: resolve(playback.enter) } : {}), ...(playback.exit ? { exit: resolve(playback.exit) } : {}) };
+    };
+    const systemBehaviors: NonNullable<RuntimeCharacterPackage["systemBehaviors"]> = [];
+    for (const key of SYSTEM_ACTION_KEYS) {
+      const playback = pack.manifest.systemActions[key];
+      if (playback) systemBehaviors.push({ id: `system.${key.toLowerCase()}`, name: key, description: "", playback: resolvePlayback(playback) });
+    }
     return {
+      formatVersion: pack.manifest.formatVersion,
       id: pack.id,
       version: pack.manifest.version,
       model: resolve(pack.manifest.model),
       idle: pack.manifest.systemActions.idle
         ? resolve(pack.manifest.systemActions.idle.file)
-        : defaults.idle
-          ? fallback(defaults.idle.file)
-          : "",
+        : "",
       idleVariations:
         pack.manifest.systemActions.idle_variations?.map((a) =>
           resolve(a.file),
@@ -164,7 +185,9 @@ export class CharacterPackageService {
       customActions: pack.customActions.map((a) => ({
         ...a,
         file: resolve(a.file),
+        playback: resolvePlayback(a.playback),
       })),
+      systemBehaviors,
     };
   }
   async import(
@@ -212,13 +235,7 @@ export class CharacterPackageService {
       add(manifest.portrait, "character_portrait");
       if (manifest.thumbnail) add(manifest.thumbnail, "character_portrait");
       add(manifest.model, "character_vrm");
-      if (manifest.systemActions.idle)
-        add(manifest.systemActions.idle.file, "character_animation");
-      for (const a of [
-        ...(manifest.systemActions.idle_variations ?? []),
-        ...manifest.customActions,
-      ])
-        add(a.file, "character_animation");
+      for (const file of packageAnimationFiles(manifest)) add(file, "character_animation");
       const allowed = new Set([
         "manifest.json",
         "LICENSE.txt",
@@ -333,6 +350,8 @@ export class CharacterPackageService {
       const id = randomUUID();
       const customActions = manifest.customActions.map((a) => ({
         ...a,
+        file: primaryPlaybackFile(a.playback),
+        key: a.key ?? a.name,
         id: randomUUID(),
       }));
       progress({ requestId, phase: "validating", files: files.length });

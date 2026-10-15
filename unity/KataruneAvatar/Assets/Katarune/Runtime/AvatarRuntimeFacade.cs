@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Katarune.Avatar
 {
-    public sealed class AvatarRuntimeFacade : IAvatarRuntimeFacade, IAvatarPackageRuntime
+    public sealed class AvatarRuntimeFacade : IAvatarRuntimeFacade, IAvatarPackageRuntime, IAvatarActionControl
     {
         public System.Collections.Generic.IReadOnlyList<AvatarActionInfo> AvailableActions => _motions.AvailableActions;
         private readonly AvatarRuntimeSession _session;
@@ -129,6 +129,11 @@ namespace Katarune.Avatar
             ThrowIfDisposed();
             _motions.CancelAction();
         }
+        public bool FinishAction(string actionId) { ThrowIfDisposed(); return _session.State == AvatarRuntimeState.Ready && _motions.FinishAction(actionId); }
+        public string CurrentInstanceId => _motions.CurrentInstanceId;
+        public string GetActionInstanceId(string actionId) => _motions.GetActionInstanceId(actionId);
+        public bool CancelAction(string actionId) => _motions.CancelAction(actionId);
+        public PerformanceInstanceState? GetActionState(string instanceId) => _motions.GetActionState(instanceId);
 
         public BehaviorRequestResult RequestBehavior(
             BehaviorIntent intent,

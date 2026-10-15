@@ -7,11 +7,11 @@ import {
   parsePackageManifest,
   readImageHeader,
 } from "../src/main/characters/packageArchive";
-import { isPackagePath } from "../src/shared/characterPackages";
+import { isPackagePath, packageAnimationFiles } from "../src/shared/characterPackages";
 import { packageZip } from "./packageZip";
 
 const manifest = {
-  formatVersion: 1,
+  formatVersion: 2,
   name: "测试包",
   version: "1.0.0",
   portrait: "portrait.png",
@@ -40,6 +40,37 @@ async function extract(
   return extractPackage(archive, target, signal, progress);
 }
 describe("character package import boundary", () => {
+  const v2 = { ...manifest, formatVersion: 2, systemActions: { think: { kind: "loop", enter: "enter.vrma", loop: "loop.vrma", exit: "exit.vrma" } }, customActions: [{ key: "001", name: "问候", description: "打招呼", playback: { kind: "oneShot", file: "greet.vrma" } }] };
+  it("accepts system semantics, numbered custom actions and every phase reference", () => {
+    const parsed = parsePackageManifest(JSON.stringify(v2));
+    expect(packageAnimationFiles(parsed)).toEqual(["enter.vrma", "loop.vrma", "exit.vrma", "greet.vrma"]);
+    expect(parsed.customActions[0]).toHaveProperty("key", "001");
+  });
+  it("collects and validates masked additive reference assets", () => {
+    const parsed = parsePackageManifest(JSON.stringify({ ...manifest, systemActions: { nod: { kind: "oneShot", file: "nod.vrma", layer: "head", reference: "neutral.vrma" }, greet: { kind: "oneShot", file: "greet.vrma", layer: "upperBody" } } }));
+    expect(packageAnimationFiles(parsed)).toEqual(["greet.vrma", "nod.vrma", "neutral.vrma"]);
+    for (const invalid of [{ layer: "body", blending: "additive" }, { layer: "upperBody", reference: "neutral.vrma" }, { layer: "head", reference: "../outside.vrma" }, { layer: "hands" }])
+      expect(() => parsePackageManifest(JSON.stringify({ ...manifest, systemActions: { nod: { kind: "oneShot", file: "nod.vrma", ...invalid } } }))).toThrow();
+  });
+  it("uses unique names when keys are omitted, but rejects ambiguous custom identifiers", () => {
+    const action = { name: "招手", description: "问候", playback: { kind: "oneShot", file: "greet.vrma" } };
+    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [action] }))).not.toThrow();
+    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [action, action] }))).toThrow();
+    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [{ ...action, key: "招手" }, action] }))).toThrow();
+  });
+  it.each([
+    { systemActions: { think: { kind: "loop", enter: "enter.vrma" } } },
+    { systemActions: { think: { kind: "loop", loop: "../outside.vrma" } } },
+    { systemActions: { think: { kind: "oneShot", file: "clip.vrma", loop: "clip.vrma" } } },
+    { systemActions: { think: { kind: "loop", loop: "clip.vrma", blendSeconds: -1 } } },
+    { systemActions: { "greet-wave": { kind: "oneShot", file: "clip.vrma" } } },
+    { customActions: [{ ...v2.customActions[0], key: 1 }] },
+  ])("rejects invalid v2 playback and obsolete preset declarations %j", invalid => {
+    expect(() => parsePackageManifest(JSON.stringify({ ...v2, ...invalid }))).toThrow();
+  });
+  it("rejects the unpublished v1 contract rather than guessing missing playback metadata", () => {
+    expect(() => parsePackageManifest(JSON.stringify({ ...manifest, formatVersion: 1 }))).toThrow();
+  });
   it("accepts an empty animation list and Unicode names", () => {
     expect(
       parsePackageManifest(JSON.stringify(manifest)).systemActions,

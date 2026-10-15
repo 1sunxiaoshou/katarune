@@ -71,7 +71,9 @@ namespace Katarune.Avatar
                 runtimeInstance.EnableUpdateWhenOffscreen();
                 driver = new UniVrmAvatarDriver(loaded);
                 var rigBinding = CreateRigBinding(loaded);
-                motion = package == null ? _motions.Prepare(rigBinding) : await VrmaMotionInstance.PrepareAsync(loaded, package, cancellationToken);
+                motion = package == null && _motions.HasInstalledLibrary
+                    ? _motions.Prepare(rigBinding)
+                    : await VrmaMotionInstance.PrepareAsync(loaded, package ?? new AvatarCharacterPackage { id = "builtin:default" }, bytes, cancellationToken);
                 visual = _visuals.Prepare(loaded.gameObject, presentation);
                 var bounds = MeasureBounds(loaded.gameObject);
                 var capabilities = ReadCapabilities(driver, motion);

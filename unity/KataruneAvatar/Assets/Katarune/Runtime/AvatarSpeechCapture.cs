@@ -20,12 +20,19 @@ namespace Katarune.Avatar
         private volatile bool _recording;
         private long _sampleOffset;
         private Transform _head;
+        private Animator _animator;
+        private AvatarMotionController _motions;
+        private double _frameInterval, _nextFrame;
         private bool _closeup;
         private AvatarControlConnection _connection;
         [Serializable] private sealed class Frame {
             public string file, playbackId, subtitle; public double time; public float position, duration;
             public float aa, ih, ou, ee, oh;
             public string actionId, modelPath; public Quaternion headRotation;
+            public Quaternion hipsRotation, legRotation, armRotation;
+            public Quaternion leftForearmRotation, rightForearmRotation, rightHandRotation;
+            public Vector3 hipsPosition;
+            public string performance;
         }
         [Serializable] private sealed class Block { public double time; public int channels, samples; public long offset; }
 
@@ -34,6 +41,8 @@ namespace Katarune.Avatar
             _directory = Path.GetFullPath(directory);
             Directory.CreateDirectory(_directory);
             _runtime = runtime; _player = player;
+            _motions = FindFirstObjectByType<AvatarMotionController>();
+            if (int.TryParse(Environment.GetEnvironmentVariable("KATARUNE_CAPTURE_FPS"), out var fps) && fps >= 1 && fps <= 60) _frameInterval = 1d / fps;
             _closeup = Environment.GetEnvironmentVariable("KATARUNE_SPEECH_CLOSEUP") == "1";
             _frames = new StreamWriter(Path.Combine(_directory, "frames.jsonl")) { AutoFlush = true };
             _blocks = new StreamWriter(Path.Combine(_directory, "audio.jsonl")) { AutoFlush = true };
@@ -82,14 +91,20 @@ namespace Katarune.Avatar
                 FlushAudio();
                 if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) continue;
                 var time = AudioSettings.dspTime;
+                if (time < _nextFrame) continue;
+                _nextFrame = time + _frameInterval;
                 var pose = _runtime.CurrentPose;
                 if (_head == null) foreach (var animator in FindObjectsByType<Animator>(FindObjectsSortMode.None))
-                    if (animator.isHuman && animator.GetComponentsInChildren<Renderer>().Any(r => r.enabled)) { _head = animator.GetBoneTransform(HumanBodyBones.Head); break; }
+                    if (animator.isHuman && animator.GetComponentsInChildren<Renderer>().Any(r => r.enabled)) { _animator = animator; _head = animator.GetBoneTransform(HumanBodyBones.Head); break; }
                 var frame = new Frame { file = $"frame-{index++:D5}.jpg", time = time,
                     playbackId = _player.PlaybackId, position = _player.PositionSeconds, duration = _player.DurationSeconds,
                     aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh,
                     actionId = _runtime.Snapshot.Motion.CurrentActionId ?? "", modelPath = _runtime.Snapshot.Model?.Path ?? "",
-                    headRotation = _head != null ? _head.localRotation : Quaternion.identity };
+                    headRotation = _head != null ? _head.localRotation : Quaternion.identity,
+                    hipsRotation = BoneRotation(HumanBodyBones.Hips), legRotation = BoneRotation(HumanBodyBones.LeftUpperLeg), armRotation = BoneRotation(HumanBodyBones.RightUpperArm),
+                    leftForearmRotation = BoneRotation(HumanBodyBones.LeftLowerArm), rightForearmRotation = BoneRotation(HumanBodyBones.RightLowerArm), rightHandRotation = BoneRotation(HumanBodyBones.RightHand),
+                    hipsPosition = _animator != null ? _animator.GetBoneTransform(HumanBodyBones.Hips).localPosition : Vector3.zero,
+                    performance = _motions != null ? _motions.PerformanceDiagnostics : _runtime.Snapshot.Motion.PerformanceDiagnostics };
                 _connection ??= FindFirstObjectByType<AvatarControlConnection>();
                 frame.subtitle = _connection != null ? _connection.CurrentSubtitle : "";
                 var texture = ScreenCapture.CaptureScreenshotAsTexture();
@@ -98,6 +113,7 @@ namespace Katarune.Avatar
                 _frames.WriteLine(JsonUtility.ToJson(frame));
             }
         }
+        private Quaternion BoneRotation(HumanBodyBones bone) => _animator != null && _animator.GetBoneTransform(bone) != null ? _animator.GetBoneTransform(bone).localRotation : Quaternion.identity;
 
         private void OnDestroy()
         {

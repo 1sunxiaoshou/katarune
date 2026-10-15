@@ -1,0 +1,20 @@
+默认人体待机与行为动作
+
+来源：本机原神 7.1.0 公共 Girl 人体待机与荧（PlayerGirl）待机资源。
+idle-standing-breathing.vrma：Ani_Avatar_Girl_Standby，2 秒、60 FPS 人体待机循环；来源为荧控制器基础层的实际引用。
+内置 AvatarIdleBasePose：Show_01 第 0 帧；与 Show_02 起始姿态交叉核对，作为固定基础站姿候选。
+idle-variation-01.vrma：Show_01，约 5.5 秒。
+idle-variation-02.vrma：Show_02，约 9.33 秒。
+
+新增 62 个片段：公共 Ani_Avatar_NPC_Girl 人体动作，以及 PlayerGirl 的 Nod01/02、ShakeHead01/02。涵盖 Greet01、Chat01/02、Talk03、Think01、ThinkHand01、Clap01、Cheer01、Encourage01、Confuse01、Shrug01、PointF01/L01/R01、Akimbo01/02、HoldArm01、Afraid01、Downcast01、Alert01、PersonalRead01、Whisper01 的一次性或 BS/Loop/AS 阶段。
+通用 NPC 的 *_0 片段是空占位，未作为运动资源使用。公共 Girl 片段包含 95 条人体肌肉曲线；头部片段取自荧的 HeadAnimLayer，仅保留颈头轨道，播放时扣除参考姿态后叠加。
+问候、Talk03、鼓掌在系统语义中作为上半身遮罩播放，源动作的髋腿变化不参与；完整版本以自定义动作保留。ThinkHand01 作为上半身持续行为，其退出恢复下层姿态。欢呼、鼓励及其他身体姿态保留全身轨道。
+全部以 60 FPS 转换；循环末 0.2 秒修正小于 0.071 度的解码接缝，首末姿态闭合。
+18 组 BS/Loop 已在离线制作阶段按原控制器的实际切换起点和时长烘焙衔接，并同步旋转完整循环的相位，使入场末帧与循环首帧完全一致；保留完整周期与原循环轨迹，不需要包内状态机参数。
+
+转换：读取 Humanoid 肌肉曲线，由 Unity 6000.3.11f1 默认人体限位求解为 VRMA 1.0。人体与手指动作已保留，未复现原游戏的自定义限位、IK、表情、眼神与道具。
+固定站姿不是原游戏完整待机循环，仅用于未配置 idle 时的兜底。默认包已配置公共人体待机，按有 idle 的规则直接播放；原角色专用的头发、裙摆、饰物曲线未加入，由目标 VRM 自身的 Spring Bone 跟随身体运动，不施加持续环境风。
+
+AdaptiveIdleDefault 是本项目根据默认 VRM 的 Spring Bone、外形、蒙皮和碰撞代理自动适配生成的 2 秒次级循环，仅在未配置 idle 的兜底路径使用。播放兜底烘焙循环时暂停物理写回，预制动作期间恢复物理。
+
+原角色和源动画权利归原权利人；转换不产生源资产的再分发授权。

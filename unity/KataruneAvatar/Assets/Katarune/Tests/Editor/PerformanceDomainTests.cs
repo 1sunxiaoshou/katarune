@@ -17,7 +17,7 @@ namespace Katarune.Avatar.Tests
             PerformanceChannelOccupancy.Exclusive);
 
         [Test]
-        public void FirstVersionDefinesExactlySixSemanticChannels()
+        public void DefinesIndependentBodyGestureHeadFaceGazeAndSpeechChannels()
         {
             Assert.That(Enum.GetValues(typeof(PerformanceChannel)), Is.EquivalentTo(new[]
             {
@@ -27,6 +27,7 @@ namespace Katarune.Avatar.Tests
                 PerformanceChannel.FaceExpression,
                 PerformanceChannel.AttentionGaze,
                 PerformanceChannel.SpeechViseme,
+                PerformanceChannel.HeadGesture,
             }));
             Assert.That(Enum.GetValues(typeof(PerformanceChannelOccupancy)), Is.EquivalentTo(new[]
             {

@@ -80,7 +80,7 @@ namespace Katarune.Avatar
             _runtime.SpringBone.SetModelLevel(
                 _instance.transform,
                 new BlittableModelLevel(
-                    externalForce: frame.SpringBoneExternalForce,
+                    stopSpringBoneWriteback: _instance.GetComponent<AdaptiveIdlePlayback>()?.IsBakedActive ?? false,
                     supportsScalingAtRuntime: true));
             if (!frame.HasAuthoredBodyPose) RestoreBones();
             var authoredGazeCompensation = Vector2.zero;
@@ -96,8 +96,13 @@ namespace Katarune.Avatar
             ApplyRotation(HumanBodyBones.Spine, frame.SpineEuler, bodyWeight, frame.HasAuthoredBodyPose);
             ApplyRotation(HumanBodyBones.Chest, frame.ChestEuler, bodyWeight, frame.HasAuthoredBodyPose);
             ApplyRotation(HumanBodyBones.UpperChest, frame.UpperChestEuler, bodyWeight, frame.HasAuthoredBodyPose);
-            ApplyRotation(HumanBodyBones.Neck, frame.NeckEuler, bodyWeight, frame.HasAuthoredBodyPose);
-            ApplyRotation(HumanBodyBones.Head, frame.HeadEuler, bodyWeight, frame.HasAuthoredBodyPose);
+            // Gaze is an independent additive layer after authored motion. Body fallback
+            // weight must not disable head following when a package supplies its own pose.
+            var yaw = AvatarCoordinateSpace.ViewportYawToAvatarYaw(frame.HeadGaze.x);
+            var neckGaze = new Vector3(-frame.HeadGaze.y * .3f, yaw * .35f, 0f);
+            var headGaze = new Vector3(-frame.HeadGaze.y * .7f, yaw * .65f, 0f);
+            ApplyRotation(HumanBodyBones.Neck, (frame.NeckEuler - neckGaze) * bodyWeight + neckGaze, 1f, frame.HasAuthoredBodyPose);
+            ApplyRotation(HumanBodyBones.Head, (frame.HeadEuler - headGaze) * bodyWeight + headGaze, 1f, frame.HasAuthoredBodyPose);
             var armWeight = Mathf.Clamp01(frame.ProceduralArmWeight);
             if (armWeight > 0f)
             {

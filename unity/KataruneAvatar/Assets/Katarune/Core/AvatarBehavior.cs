@@ -60,6 +60,7 @@ namespace Katarune.Avatar
         public float Blink;
         public float GazeYaw;
         public float GazePitch;
+        public Vector2 HeadGaze;
         public Vector2 ProceduralGazeCompensation;
         public float Happy;
         public float Relaxed;
@@ -71,7 +72,6 @@ namespace Katarune.Avatar
         public float Ou;
         public float Ee;
         public float Oh;
-        public Vector3 SpringBoneExternalForce;
         public Vector3 HipsPositionOffset;
         public Vector3 SpineEuler;
         public Vector3 ChestEuler;
@@ -327,6 +327,7 @@ namespace Katarune.Avatar
             _frame.Blink = _blinkWeight;
             _frame.GazeYaw = gaze.Eyes.x;
             _frame.GazePitch = gaze.Eyes.y;
+            _frame.HeadGaze = gaze.Head;
             _frame.ProceduralGazeCompensation = Vector2.zero;
             _frame.Happy = _expressionWeights[0];
             _frame.Relaxed = _expressionWeights[1];
@@ -338,7 +339,6 @@ namespace Katarune.Avatar
             _frame.Ou = _mouthWeights[2];
             _frame.Ee = _mouthWeights[3];
             _frame.Oh = _mouthWeights[4];
-            _frame.SpringBoneExternalForce = AvatarAmbientWind.Sample(_elapsed);
 
             var bodyEnergy = profile.BodyEnergy;
             _frame.HipsPositionOffset = Vector3.zero;

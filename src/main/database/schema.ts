@@ -114,6 +114,8 @@ export const packageActions = sqliteTable("character_package_actions", {
   id: text("id").primaryKey(),
   packageId: text("package_id").notNull().references(() => characterPackages.id, { onDelete: "cascade" }),
   name: text("name").notNull(), description: text("description").notNull(), file: text("file").notNull(),
+  key: text("key"),
+  playback: text("playback", { mode: "json" }).$type<import("../../shared/characterPackages").ActionPlayback>(),
 });
 
 export const characters = sqliteTable(

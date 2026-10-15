@@ -35,6 +35,12 @@ export type AvatarVoiceStateRequest = z.infer<typeof avatarVoiceStateSchema>;
 export type AvatarPlaybackControlRequest = z.infer<typeof avatarPlaybackControlSchema>;
 
 const identifier = z.string().check(z.minLength(1), z.maxLength(256));
+// JsonUtility writes an unset string as "". Normalize only optional identifiers;
+// action IDs, labels and other required identifiers must still be nonempty.
+const optionalIdentifier = z.optional(z.pipe(
+  z.nullable(z.union([identifier, z.literal("")])),
+  z.transform((value: string | null) => value === "" ? null : value),
+));
 export const avatarCapabilitiesSchema = z.object({
   actions: z
     .array(
@@ -42,12 +48,16 @@ export const avatarCapabilitiesSchema = z.object({
         id: identifier,
         label: identifier,
         description: z.optional(z.string().check(z.maxLength(2000))),
+        kind: z.optional(z.enum(["oneShot", "loop"])),
+        layer: z.optional(z.enum(["body", "upperBody", "head"])),
+        key: optionalIdentifier,
+        semantic: optionalIdentifier,
         durationSeconds: z.optional(
           z.number().check(z.gte(0), z.lte(3_600)),
         ),
       }),
     )
-    .check(z.maxLength(256)),
+    .check(z.maxLength(276)),
   expressions: z.array(identifier).check(z.maxLength(32)),
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
@@ -67,6 +77,8 @@ export const avatarReplySchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("action"),
     id: z.uuid(),
+    instanceId: optionalIdentifier,
+    loop: z.optional(z.boolean()),
     status: z.enum(["started", "completed", "cancelled", "failed"]),
     error: z.optional(z.string()),
   }),

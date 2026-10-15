@@ -34,7 +34,11 @@ function describeAction(action: AvatarCapabilities["actions"][number]): string {
     duration !== undefined && duration > 0
       ? `，约 ${Math.max(1, Math.round(duration))} 秒`
       : "";
-  return `${action.id}（${action.label}${timing}）${action.description ? `：${action.description}` : ""}`;
+  const layer = action.layer === "head" ? "，头部" : action.layer === "upperBody" ? "，上半身" : "，全身";
+  return `${actionSelector(action)}（${action.label}${layer}${action.kind === "loop" ? "，持续姿态" : timing}）${action.description ? `：${action.description}` : ""}`;
+}
+function actionSelector(action: AvatarCapabilities["actions"][number]): string {
+  return action.semantic ? `system:${action.semantic}` : action.key ? `custom:${action.key}` : action.id;
 }
 
 export class AvatarService {
@@ -43,8 +47,9 @@ export class AvatarService {
   private activePackageId: string | undefined;
   configurePackages(resolve: (characterId: string) => RuntimeCharacterPackage): void { this.packageResolver = resolve; }
   async validatePackage(pack: RuntimeCharacterPackage, signal: AbortSignal): Promise<void> {
-    if (this.state.phase === "ready") await this.request("validate-package", JSON.stringify(pack), signal);
-    else await validateCharacterPackage(this.executable, pack, signal);
+    // Baking and cancellation belong to an import worker, keeping the current
+    // avatar's animation and speech independent of preparation.
+    await validateCharacterPackage(this.executable, pack, signal);
   }
   async switchPackage(characterId: string, pack: RuntimeCharacterPackage): Promise<void> {
     if (this.starting) await this.starting;
@@ -97,6 +102,7 @@ export class AvatarService {
   private switching: Promise<AvatarStatus> | undefined;
   private releaseBarrier: Promise<unknown> = Promise.resolve();
   private activeInstructions = new Set<string>();
+  private heldInstructions = new Set<string>();
   private starting: Promise<AvatarStatus> | undefined;
   private rejectStartup: ((error: Error) => void) | undefined;
   private listeners = new Set<(status: AvatarStatus) => void>();
@@ -255,12 +261,13 @@ export class AvatarService {
                 reply.type === "action" ||
                 reply.type === "expression"
               ) {
-                if (!this.activeInstructions.has(reply.id)) continue;
-                if (reply.type === "expression" || reply.status !== "started")
+                if (!this.activeInstructions.has(reply.id) && !this.heldInstructions.has(reply.id)) continue;
+                if (reply.type === "action" && reply.loop && reply.status === "started") this.heldInstructions.add(reply.id);
+                else this.heldInstructions.delete(reply.id);
+                if (reply.type === "expression" || reply.status !== "started" || reply.loop)
                   this.activeInstructions.delete(reply.id);
                 if (
-                  reply.status === "failed" ||
-                  (reply.type === "action" && reply.status === "cancelled")
+                  reply.status === "failed"
                 )
                   this.state = {
                     ...this.state,
@@ -345,6 +352,7 @@ export class AvatarService {
     this.dialogueRuns.clear();
     this.activeRuns.clear();
     this.activeInstructions.clear();
+    this.heldInstructions.clear();
     this.mutedRuns.clear();
     this.playingRunId = null;
     this.playbackState = undefined;
@@ -405,6 +413,7 @@ export class AvatarService {
     }
     this.pending.clear();
     this.activeInstructions.clear();
+    this.heldInstructions.clear();
     const socket = this.socket;
     this.socket = undefined;
     socket?.destroy();
@@ -480,18 +489,24 @@ export class AvatarService {
       });
     if (capabilities.actions.length)
       tools.avatar_action = tool({
-        description: `用你的身体做一个动作。选择符合当前表达和情境的动作。可用动作：${capabilities.actions.map(describeAction).join("；")}。`,
+        description: `选择动作或持续姿态。play 开始或切换；finish 自然退出持续姿态；cancel 立即停止该动作。头部、上半身和身体可并行；同一通道的一次性动作结束恢复原姿态，持续姿态保持到切换或结束。可用动作：${capabilities.actions.map(describeAction).join("；")}。`,
         inputSchema: z.object({
           action: z
-            .enum(capabilities.actions.map((a) => a.id))
+            .enum(capabilities.actions.map(actionSelector))
             .describe("你要做的动作"),
           allowSpeech: z
             .boolean()
             .default(true)
             .describe("做动作时是否同时说话"),
+          command: z.enum(["play", "finish", "cancel"]).default("play"),
         }),
-        execute: ({ action, allowSpeech }, { toolCallId }) =>
-          execute("action", action, toolCallId, allowSpeech),
+        execute: ({ action, allowSpeech = true, command = "play" }, { toolCallId }) => {
+          const available = capabilities.actions.find(item => actionSelector(item) === action);
+          if (!available) throw new Error("当前角色包没有该动作。");
+          if (available.kind === "loop" && !allowSpeech) throw new Error("持续姿态需要允许同时说话。");
+          if (command === "finish" && available.kind !== "loop") throw new Error("只有持续姿态可以自然退出。");
+          return execute(command === "play" ? "action" : `action-${command}`, available.id, toolCallId, allowSpeech);
+        },
       });
     return tools;
   }
@@ -645,7 +660,6 @@ export class AvatarService {
     const id = randomUUID();
     return new Promise<string>((resolve, reject) => {
       const abort = () => {
-        if (operation === "validate-package") socket.write(`${JSON.stringify({ operation: "cancel-validation", value: id })}\n`);
         this.pending.delete(id);
         this.activeInstructions.delete(id);
         this.changed();
@@ -653,17 +667,14 @@ export class AvatarService {
         reject(signal.reason ?? new Error("角色请求已取消。"));
       };
       const timer = setTimeout(() => {
-        if (operation === "validate-package") {
-          socket.write(`${JSON.stringify({ operation: "cancel-validation", value: id })}\n`);
-          this.pending.delete(id); cleanup(); reject(new Error("角色包验证超时。")); this.changed();
-        } else this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。");
-      }, operation === "session-reset" ? 5_000 : operation === "validate-package" || operation === "load-package" ? 120_000 : 600_000);
+        this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。");
+      }, operation === "session-reset" ? 5_000 : operation === "load-package" ? 120_000 : 600_000);
       const cleanup = () => {
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
       };
       this.pending.set(id, { resolve: () => resolve(id), reject, cleanup });
-      if (operation === "action" || operation === "expression")
+      if (operation === "action" || operation === "action-finish" || operation === "action-cancel" || operation === "expression")
         this.activeInstructions.add(id);
       this.changed();
       signal.addEventListener("abort", abort, { once: true });

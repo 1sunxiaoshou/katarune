@@ -5,6 +5,7 @@ export async function writePackageVrmaFixture(
   model,
   destination,
   unsupported = false,
+  tracks = [{ bone: "head", axis: [0, 0, 1], amplitude: .4 }],
 ) {
   const bytes = await readFile(model),
     json = JSON.parse(
@@ -31,25 +32,31 @@ export async function writePackageVrmaFixture(
   );
   let root = bones.hips.node;
   while (parents.has(root)) root = parents.get(root);
-  const times = [0, 0.75, 1.5, 2.25, 3],
-    binary = Buffer.alloc(times.length * 20);
-  const initial = nodes[bones.head.node].rotation ?? [0, 0, 0, 1];
+  // Match production's 60 FPS samples. Unity's quaternion continuity pass can
+  // ease widely spaced rotation keys, which obscures a numeric blend check.
+  const times = Array.from({ length: 181 }, (_, i) => i / 60),
+    binary = Buffer.alloc(times.length * (4 + 16 * tracks.length));
   times.forEach((time, i) => {
     binary.writeFloatLE(time, i * 4);
-    const angle = i % 2 ? 0.4 : 0,
+    tracks.forEach((track, trackIndex) => {
+    const initial = nodes[bones[track.bone].node].rotation ?? [0, 0, 0, 1];
+    const phase = (time % 1.5) / .75;
+    const angle = track.amplitude * (phase <= 1 ? phase : 2 - phase),
       sine = Math.sin(angle / 2),
       cosine = Math.cos(angle / 2);
-    // Quaternion initial * rotation about the local Z axis.
+    const [dx, dy, dz] = track.axis.map(v => v * sine);
+    // Quaternion initial * local axis rotation.
     const [x, y, z, w] = initial,
       q = [
-        x * cosine + y * sine,
-        y * cosine - x * sine,
-        z * cosine + w * sine,
-        w * cosine - z * sine,
+        x * cosine + w * dx + y * dz - z * dy,
+        y * cosine + w * dy + z * dx - x * dz,
+        z * cosine + w * dz + x * dy - y * dx,
+        w * cosine - x * dx - y * dy - z * dz,
       ];
     q.forEach((value, component) =>
-      binary.writeFloatLE(value, times.length * 4 + (i * 4 + component) * 4),
+      binary.writeFloatLE(value, times.length * 4 + trackIndex * times.length * 16 + (i * 4 + component) * 4),
     );
+    });
   });
   const scene = {
     asset: { version: "2.0", generator: "Katarune acceptance fixture" },
@@ -67,11 +74,11 @@ export async function writePackageVrmaFixture(
     buffers: [{ byteLength: binary.length }],
     bufferViews: [
       { buffer: 0, byteOffset: 0, byteLength: times.length * 4 },
-      {
+      ...tracks.map((_, index) => ({
         buffer: 0,
-        byteOffset: times.length * 4,
+        byteOffset: times.length * 4 + index * times.length * 16,
         byteLength: times.length * 16,
-      },
+      })),
     ],
     accessors: [
       {
@@ -82,15 +89,13 @@ export async function writePackageVrmaFixture(
         min: [0],
         max: [3],
       },
-      { bufferView: 1, componentType: 5126, count: times.length, type: "VEC4" },
+      ...tracks.map((_, index) => ({ bufferView: index + 1, componentType: 5126, count: times.length, type: "VEC4" })),
     ],
     animations: [
       {
         name: "Head tilt acceptance fixture",
-        samplers: [{ input: 0, output: 1, interpolation: "LINEAR" }],
-        channels: [
-          { sampler: 0, target: { node: bones.head.node, path: "rotation" } },
-        ],
+        samplers: tracks.map((_, index) => ({ input: 0, output: index + 1, interpolation: "LINEAR" })),
+        channels: tracks.map((track, index) => ({ sampler: index, target: { node: bones[track.bone].node, path: "rotation" } })),
       },
     ],
   };

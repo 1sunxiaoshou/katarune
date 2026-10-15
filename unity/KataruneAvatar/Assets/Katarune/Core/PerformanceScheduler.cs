@@ -206,6 +206,31 @@ namespace Katarune.Avatar
             return null;
         }
 
+        // A covered package loop retains its instance/time but lends its channel
+        // to a temporary action. Generic Pause keeps its original grant semantics.
+        internal void Suspend(string instanceId)
+        {
+            var instance = Find(instanceId) ?? throw new ArgumentException(nameof(instanceId));
+            if (Apply(instanceId, PerformanceCommand.Pause()) != PerformanceTransitionOutcome.Applied)
+                throw new InvalidOperationException("Performance cannot be suspended.");
+            RemoveGrants(instance); BumpRevision();
+        }
+        internal void ResumeSuspended(string instanceId)
+        {
+            var instance = Find(instanceId) ?? throw new ArgumentException(nameof(instanceId));
+            if (!CanGrant(instance) || Apply(instanceId, PerformanceCommand.Resume()) != PerformanceTransitionOutcome.Applied)
+                throw new InvalidOperationException("Suspended performance cannot regain its channel.");
+            Grant(instance); BumpRevision();
+        }
+        private void Grant(PerformanceInstance instance)
+        {
+            foreach (var claim in instance.Plan.ChannelClaims)
+            {
+                _grants.Add(new PerformanceChannelGrant(instance.InstanceId, claim));
+                _owners.Add(new PerformanceChannelOwner(instance.InstanceId, claim));
+            }
+        }
+
         private bool CanGrant(PerformanceInstance instance)
         {
             var claims = instance.Plan.ChannelClaims;
@@ -225,12 +250,7 @@ namespace Katarune.Avatar
                 || instance.Start() != PerformanceTransitionOutcome.Applied)
                 throw new InvalidOperationException("A queued performance could not enter Running state.");
 
-            var claims = instance.Plan.ChannelClaims;
-            for (var index = 0; index < claims.Count; index += 1)
-            {
-                _grants.Add(new PerformanceChannelGrant(instance.InstanceId, claims[index]));
-                _owners.Add(new PerformanceChannelOwner(instance.InstanceId, claims[index]));
-            }
+            Grant(instance);
             _active.Add(instance);
             BumpRevision();
             Started?.Invoke(instance);
@@ -240,6 +260,13 @@ namespace Katarune.Avatar
         {
             _queued.Remove(instance);
             _active.Remove(instance);
+            RemoveGrants(instance);
+            BumpRevision();
+            Ended?.Invoke(instance);
+            PromoteQueued();
+        }
+        private void RemoveGrants(PerformanceInstance instance)
+        {
             for (var index = _grants.Count - 1; index >= 0; index -= 1)
             {
                 if (string.Equals(_grants[index].OwnerId, instance.InstanceId, StringComparison.Ordinal))
@@ -250,9 +277,6 @@ namespace Katarune.Avatar
                 if (string.Equals(_owners[index].InstanceId, instance.InstanceId, StringComparison.Ordinal))
                     _owners.RemoveAt(index);
             }
-            BumpRevision();
-            Ended?.Invoke(instance);
-            PromoteQueued();
         }
 
         private void PromoteQueued()

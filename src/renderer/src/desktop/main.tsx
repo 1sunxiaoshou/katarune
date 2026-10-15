@@ -146,18 +146,12 @@ function Desktop() {
   }, []);
   useLayoutEffect(() => {
     if (surface !== "panel" || state?.panelPhase !== "preparing") return;
-    const revision = state.panelRevision;
-    // Keep the native window hidden until the new content has had a paint
-    // opportunity in its transparent start state. Closing cancels preparation.
-    let frame = requestAnimationFrame(() => {
-      frame = requestAnimationFrame(() => {
-        void window.avatarDesktop.command({
-          operation: "panel-ready",
-          value: String(revision),
-        });
-      });
+    // The DOM is committed here. Hidden native windows may not receive paint
+    // frames; the CSS entry keyframes supply the transparent first frame.
+    void window.avatarDesktop.command({
+      operation: "panel-ready",
+      value: String(state.panelRevision),
     });
-    return () => cancelAnimationFrame(frame);
   }, [state?.panelPhase, state?.panelRevision]);
   useLayoutEffect(() => {
     if (panelRef.current) panelRef.current.scrollTop = 0;

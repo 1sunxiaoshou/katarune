@@ -9,9 +9,11 @@ mkdirSync(output, { recursive: true });
 const directory = mkdtempSync(join(output, "run-"));
 mkdirSync(join(directory, "session-data"));
 const { ELECTRON_RENDERER_URL: _devUrl, ...environment } = process.env;
+const development = process.argv.includes("--dev");
 const child = spawn(
-  electronPath,
-  [join(root, "tests", "startup.integration.mjs")],
+  development ? process.execPath : electronPath,
+  development ? [join(root, "node_modules/electron-vite/bin/electron-vite.js"), "--entry", join(root, "tests/startup.integration.mjs")]
+    : [join(root, "tests", "startup.integration.mjs")],
   {
     cwd: root,
     windowsHide: true,

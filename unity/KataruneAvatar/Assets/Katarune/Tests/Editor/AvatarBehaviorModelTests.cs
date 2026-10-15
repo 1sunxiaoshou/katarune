@@ -230,34 +230,6 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void AmbientWindRemainsWeakContinuousAndBounded()
-        {
-            var previous = AvatarAmbientWind.Sample(0f);
-            var changed = false;
-            var maximumObserved = previous.magnitude;
-            var minimumHorizontal = previous.x;
-            var maximumHorizontal = previous.x;
-            Assert.That(previous.magnitude, Is.GreaterThan(0f));
-
-            for (var frame = 1; frame <= 3600; frame += 1)
-            {
-                var current = AvatarAmbientWind.Sample(frame / 60f);
-                Assert.That(current.magnitude, Is.LessThanOrEqualTo(AvatarAmbientWind.MaximumForce + 0.0001f));
-                Assert.That(Vector3.Distance(previous, current), Is.LessThan(0.01f));
-                if (Vector3.Distance(previous, current) > 0.00001f) changed = true;
-                maximumObserved = Mathf.Max(maximumObserved, current.magnitude);
-                minimumHorizontal = Mathf.Min(minimumHorizontal, current.x);
-                maximumHorizontal = Mathf.Max(maximumHorizontal, current.x);
-                previous = current;
-            }
-
-            Assert.That(changed, Is.True);
-            Assert.That(maximumObserved, Is.GreaterThan(0.002f));
-            Assert.That(minimumHorizontal, Is.LessThan(0f));
-            Assert.That(maximumHorizontal, Is.GreaterThan(0f));
-        }
-
-        [Test]
         public void ResetRestoresDefaultBehavior()
         {
             var model = CreateModel();

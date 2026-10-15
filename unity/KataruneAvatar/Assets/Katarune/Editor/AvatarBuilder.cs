@@ -34,6 +34,7 @@ namespace Katarune.Avatar.Editor
 
         private static void BuildWindowsPlayer()
         {
+            AvatarDefaultIdleBaker.Bake();
             var outputOverride = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_BUILD_OUTPUT");
             var outputPath = string.IsNullOrEmpty(outputOverride) ? Path.GetFullPath(Path.Combine(
                 Application.dataPath,

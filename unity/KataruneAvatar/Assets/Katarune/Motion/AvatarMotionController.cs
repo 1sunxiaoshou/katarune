@@ -9,7 +9,7 @@ using UnityEngine.Playables;
 namespace Katarune.Avatar
 {
     [DefaultExecutionOrder(9000)]
-    public sealed class AvatarMotionController : MonoBehaviour, IAvatarMotionPoseSource
+    public sealed class AvatarMotionController : MonoBehaviour, IAvatarMotionPoseSource, IAvatarActionControl
     {
         private AvatarMotionLibrary _library;
         private BehaviorDefinitionCatalog _behaviorCatalog;
@@ -22,7 +22,7 @@ namespace Katarune.Avatar
         public event Action Changed;
 
         public bool LibraryAvailable => HasInstalledLibrary || (_active?.HasAuthoredBodyPose ?? false);
-        private bool HasInstalledLibrary => (_library != null && _library.IsValid) || HasBehaviorBase();
+        public bool HasInstalledLibrary => (_library != null && _library.IsValid) || HasBehaviorBase();
         public bool HasAuthoredBodyPose => _active?.HasAuthoredBodyPose ?? false;
         public float ProceduralBodyWeight => _active?.ProceduralBodyWeight ?? 1f;
         public float ProceduralArmWeight => _active?.ProceduralArmWeight ?? 1f;
@@ -150,6 +150,16 @@ namespace Katarune.Avatar
         }
 
         public void CancelAction() => _active?.CancelAction();
+        public bool FinishAction(string actionId) => (_active as IAvatarActionControl)?.FinishAction(actionId) ?? false;
+        public string CurrentInstanceId => (_active as IAvatarActionControl)?.CurrentInstanceId;
+        public string GetActionInstanceId(string actionId) => (_active as IAvatarActionControl)?.GetActionInstanceId(actionId);
+        public bool CancelAction(string actionId)
+        {
+            if (_active is IAvatarActionControl control) return control.CancelAction(actionId);
+            if (_active?.CurrentActionId != actionId) return false;
+            _active.CancelAction(); return true;
+        }
+        public PerformanceInstanceState? GetActionState(string instanceId) => (_active as IAvatarActionControl)?.GetActionState(instanceId);
 
         public void CancelAllBehaviors() => _active?.CancelAllBehaviors();
 

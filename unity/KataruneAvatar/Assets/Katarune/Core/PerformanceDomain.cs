@@ -20,6 +20,7 @@ namespace Katarune.Avatar
         FaceExpression,
         AttentionGaze,
         SpeechViseme,
+        HeadGesture,
     }
 
     public enum PerformanceChannelOccupancy

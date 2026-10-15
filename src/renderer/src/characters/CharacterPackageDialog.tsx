@@ -63,6 +63,7 @@ export function CharacterPackageDialog({
       defaultSystemActions?.idle_variations ??
       []
     ).length;
+  const systemCount = idleCount + Object.keys(systemActions ?? {}).filter(key => key !== "idle" && key !== "idle_variations").length;
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -158,8 +159,8 @@ export function CharacterPackageDialog({
                   <dd>{selected.manifest.author ?? "未提供"}</dd>
                   <dt>版本</dt>
                   <dd>{selected.manifest.version}</dd>
-                  <dt>待机动作</dt>
-                  <dd>{idleCount}</dd>
+                  <dt>系统动作</dt>
+                  <dd>{systemCount}</dd>
                   <dt>自定义动作</dt>
                   <dd>{selected.customActions.length}</dd>
                 </dl>
@@ -184,7 +185,7 @@ export function CharacterPackageDialog({
             {progress.phase === "extracting"
               ? `正在读取资源（${progress.files} 个文件）……`
               : progress.phase === "validating"
-                ? "正在验证模型和动作……"
+                ? "正在准备角色和动作……"
                 : "正在保存形象资源……"}
           </div>
         )}

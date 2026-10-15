@@ -127,6 +127,13 @@
       "when": 1790843595295,
       "tag": "0017_wise_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791995710170,
+      "tag": "0018_early_wendell_rand",
+      "breakpoints": true
     }
   ]
 }

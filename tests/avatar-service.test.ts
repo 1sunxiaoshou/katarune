@@ -4,6 +4,7 @@ import { connect, type Socket } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AvatarService } from "../src/main/avatar/avatarService";
+import { avatarReplySchema, type AvatarCapabilities } from "../src/shared/avatar";
 
 const fixture = vi.hoisted(() => ({
   pipe: "",
@@ -28,7 +29,10 @@ afterEach(() => {
   sockets.splice(0).forEach((socket) => socket.destroy());
 });
 
-async function launch() {
+async function launch(capabilities: AvatarCapabilities = {
+  actions: [{ id: "wave", label: "挥手", durationSeconds: 2.4 }],
+  expressions: ["neutral", "happy"],
+}) {
   fixture.pipe = "";
   const service = new AvatarService(
     process.execPath,
@@ -65,10 +69,7 @@ async function launch() {
   socket.write(
     JSON.stringify({
       type: "ready",
-      capabilities: {
-        actions: [{ id: "wave", label: "挥手", durationSeconds: 2.4 }],
-        expressions: ["neutral", "happy"],
-      },
+      capabilities,
     }) + "\n",
   );
   await startup;
@@ -85,9 +86,52 @@ async function launch() {
 }
 
 describe("Unity local control bridge", () => {
+  it("starts with JsonUtility empty optional identifiers and routes the correct semantic or custom action", async () => {
+    const customId = "22222222-2222-4222-8222-222222222222";
+    const { service, invoke, socket, requests } = await launch({
+      actions: [
+        { id: "system.nod", label: "nod", kind: "oneShot", layer: "head", key: "", semantic: "nod" },
+        { id: customId, label: "点头 2", kind: "oneShot", layer: "head", key: "Nod02", semantic: "" },
+      ], expressions: ["neutral"],
+    });
+    expect(service.status.phase).toBe("ready");
+    expect(service.desktopCapabilities?.actions.map(a => [a.key, a.semantic])).toEqual([[null, "nod"], ["Nod02", null]]);
+    for (const [selector, id] of [["system:nod", "system.nod"], ["custom:Nod02", customId]]) {
+      const action = invoke("avatar_action", { action: selector, allowSpeech: true });
+      await vi.waitFor(() => expect(requests.some(r => r.operation === "action" && r.value === id)).toBe(true));
+      const request = requests.find(r => r.operation === "action" && r.value === id)!;
+      socket.write(JSON.stringify({ type: "result", id: request.id, ok: true, error: "" }) + "\n");
+      await action;
+      socket.write(JSON.stringify({ type: "action", id: request.id, status: "failed", error: selector + " unavailable", instanceId: "", loop: false }) + "\n");
+      await vi.waitFor(() => expect(service.status.error).toBe(selector + " unavailable"));
+      expect(service.status.phase).toBe("ready");
+    }
+  });
+  it("still rejects malformed required identifiers and non-string optional identifiers", () => {
+    const action = { id: "system.nod", label: "nod", kind: "oneShot", layer: "head", key: "", semantic: "nod" };
+    for (const invalid of [{ id: "" }, { label: "" }, { key: 123 }, { semantic: "x".repeat(257) }, { layer: "unknown" }])
+      expect(avatarReplySchema.safeParse({ type: "ready", capabilities: { actions: [{ ...action, ...invalid }], expressions: [] } }).success).toBe(false);
+  });
+  it("cancels import preparation in a worker while the active Player stays ready", async () => {
+    const { service, requests } = await launch();
+    const active = fixture.child!;
+    const controller = new AbortController();
+    const preparing = service.validatePackage({ formatVersion: 2, id: "import", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] }, controller.signal);
+    const rejected = expect(preparing).rejects.toThrow("cancelled import");
+    await vi.waitFor(() => expect(fixture.child).not.toBe(active));
+    const worker = fixture.child!;
+    controller.abort(new Error("cancelled import"));
+    expect(worker.kill).toHaveBeenCalledOnce();
+    expect(active.kill).not.toHaveBeenCalled();
+    worker.emit("exit", 1);
+    await rejected;
+    expect(service.status.phase).toBe("ready");
+    expect(requests.some(r => r.operation === "validate-package")).toBe(false);
+    expect(service.createTools(binding, new AbortController().signal).avatar_action!.description).toContain("wave");
+  });
   it("replaces the action catalog on package switch and rejects tools captured from the old package", async () => {
     const { service, socket, requests, invoke } = await launch();
-    const pack = { id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] };
+    const pack = { formatVersion: 2 as const, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] };
     const switching = service.switchPackage(binding.characterId, pack);
     await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
     const reset = requests.find(r => r.operation === "session-reset")!;
@@ -104,7 +148,7 @@ describe("Unity local control bridge", () => {
   });
   it("keeps the Player and old catalog ready when a package candidate fails", async () => {
     const { service, socket, requests } = await launch();
-    const switching = service.switchPackage(binding.characterId, { id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "bad.vrm", idle: "", idleVariations: [], customActions: [] });
+    const switching = service.switchPackage(binding.characterId, { formatVersion: 2, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "bad.vrm", idle: "", idleVariations: [], customActions: [] });
     const rejected = expect(switching).rejects.toThrow("broken candidate");
     await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
     socket.write(JSON.stringify({ type: "result", id: requests.find(r => r.operation === "session-reset")!.id, ok: true }) + "\n");
@@ -250,7 +294,7 @@ describe("Unity local control bridge", () => {
     const { tools } = await launch();
 
     expect(tools.avatar_action?.description).toContain(
-      "wave（挥手，约 2 秒）",
+      "wave（挥手，全身，约 2 秒）",
     );
   });
 
@@ -399,6 +443,38 @@ describe("Unity local control bridge", () => {
         status: "applied",
       }) + "\n",
     );
+  });
+
+  it("resolves semantic and numbered selectors and keeps held loops out of the busy barrier", async () => {
+    const { service, socket, requests } = await launch();
+    socket.write(JSON.stringify({ type: "ready", capabilities: { actions: [
+      { id: "system.think", label: "思考", semantic: "think", kind: "loop" },
+      { id: "custom-internal-id", label: "问候", key: "001", kind: "oneShot" },
+    ], expressions: [] } }) + "\n");
+    await vi.waitFor(() => expect(service.createTools(binding, new AbortController().signal).avatar_action!.description).toContain("system:think"));
+    const tool = service.createTools(binding, new AbortController().signal).avatar_action!;
+    const invoke = (input: unknown) => Promise.resolve(tool.execute!(input as never, { toolCallId: "v2-action", messages: [], context: undefined }));
+    const playing = invoke({ action: "system:think", command: "play" });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({ operation: "action", value: "system.think" });
+    socket.write(JSON.stringify({ type: "result", id: requests[0]!.id, ok: true }) + "\n");
+    await playing;
+    socket.write(JSON.stringify({ type: "action", id: requests[0]!.id, status: "started", instanceId: "pose-instance", loop: true }) + "\n");
+    await vi.waitFor(() => expect(service.status.busy).toBe(false));
+    const finishing = invoke({ action: "system:think", command: "finish" });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toMatchObject({ operation: "action-finish", value: "system.think" });
+    socket.write(JSON.stringify({ type: "result", id: requests[1]!.id, ok: true }) + "\n");
+    await finishing;
+    const custom = invoke({ action: "custom:001", command: "play" });
+    await vi.waitFor(() => expect(requests).toHaveLength(3));
+    expect(requests[2]).toMatchObject({ operation: "action", value: "custom-internal-id" });
+    socket.write(JSON.stringify({ type: "result", id: requests[2]!.id, ok: true }) + "\n");
+    await custom;
+    expect(() => invoke({ action: "custom:missing" })).toThrow("没有该动作");
+    expect(() => invoke({ action: "system:think", allowSpeech: false })).toThrow("同时说话");
+    socket.write(JSON.stringify({ type: "action", id: requests[0]!.id, status: "failed", instanceId: "pose-instance", loop: true, error: "循环播放失败" }) + "\n");
+    await vi.waitFor(() => expect(service.status.error).toBe("循环播放失败"));
   });
 
   it("reports runtime failure without claiming a successful action", async () => {

@@ -16,7 +16,7 @@ function fixture() {
     writeFileSync(join(root, file), "fixture");
   }
   mkdirSync(join(root, "avatar/MonoBleedingEdge"));
-  const manifest = JSON.stringify({ model: "Models/default-avatar.vrm", portrait: "portrait.png", systemActions: {}, customActions: [] });
+  const manifest = JSON.stringify({ formatVersion: 2, model: "Models/default-avatar.vrm", portrait: "portrait.png", systemActions: {}, customActions: [] });
   writeFileSync(join(root, "characters/default-package/manifest.json"), manifest);
   writeFileSync(join(root, "avatar/KataruneAvatar_Data/KataruneLocal/manifest.json"), manifest);
   return root;
@@ -45,7 +45,7 @@ describe("Windows packaged resources", () => {
     expect(verify(root).stderr).toContain("model.onnx");
     writeFileSync(join(root, "asr/silero-vad/model.onnx"), "fixture");
     writeFileSync(join(root, "characters/default-package/manifest.json"), JSON.stringify({
-      model: "Models/default-avatar.vrm", portrait: "portrait.png",
+      formatVersion: 2, model: "Models/default-avatar.vrm", portrait: "portrait.png",
       systemActions: { idle: { file: "Motions/idle.vrma" } }, customActions: [] }));
     expect(verify(root).stderr).toContain("idle.vrma");
   });

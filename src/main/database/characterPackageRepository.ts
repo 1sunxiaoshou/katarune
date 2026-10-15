@@ -39,6 +39,8 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
       .get();
     if (!row || !row.portraitAssetId)
       throw new Error("角色包不存在或尚未准备完成。");
+    if (row.manifest?.formatVersion !== 2)
+      throw new Error("角色包格式已更新，请按 v2 清单重新导入。");
     const actions = db
       .select()
       .from(packageActions)
@@ -51,7 +53,7 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
         manifest: row.manifest,
         portraitAssetId: row.portraitAssetId,
         thumbnailAssetId: row.thumbnailAssetId,
-        customActions: actions.map(({ packageId: _p, ...a }) => a),
+        customActions: actions.map(({ packageId: _p, key, playback, ...a }) => ({ ...a, ...(key !== null ? { key } : {}), ...(playback !== null ? { playback } : {}) })),
         referenceCount:
           db
             .select({ n: count() })
@@ -74,11 +76,11 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
     fetchCharacterPackage,
     listCharacterPackages: (): CharacterPackage[] =>
       db
-        .select({ id: characterPackages.id })
+        .select({ id: characterPackages.id, manifest: characterPackages.manifest })
         .from(characterPackages)
         .all()
         .filter(
-          (row) =>
+          (row) => row.manifest?.formatVersion === 2 &&
             db
               .select({ portrait: characterPackages.portraitAssetId })
               .from(characterPackages)

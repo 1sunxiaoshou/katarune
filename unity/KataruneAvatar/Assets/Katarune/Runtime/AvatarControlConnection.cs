@@ -29,14 +29,14 @@ namespace Katarune.Avatar
             public string RunId;
             public Request Command;
         }
-        [Serializable] private sealed class ActionInfo { public string id; public string label; public string description; public float durationSeconds; }
+        [Serializable] private sealed class ActionInfo { public string id; public string label; public string description; public float durationSeconds; public string kind; public string key; public string semantic; public string layer; }
         [Serializable] private sealed class Capabilities { public ActionInfo[] actions; public string[] expressions; }
         [Serializable] private sealed class Ready { public string type = "ready"; public Capabilities capabilities; }
         [Serializable] private sealed class StartupError { public string type = "startup-error"; public string error; }
         [Serializable] private sealed class Result { public string type = "result"; public string id; public bool ok; public string error; }
         [Serializable] private sealed class PlaybackEvent { public string type = "playback"; public string runId; public bool active; public string state; }
 
-        [Serializable] private sealed class ActionEvent { public string type = "action"; public string id; public string status; public string error; }
+        [Serializable] private sealed class ActionEvent { public string type = "action"; public string id; public string status; public string error; public string instanceId; public bool loop; }
         [Serializable] private sealed class ExpressionEvent { public string type = "expression"; public string id; public string status; public string error; }
 
         private readonly BlockingCollection<string> _incoming = new BlockingCollection<string>(256);
@@ -61,8 +61,8 @@ namespace Katarune.Avatar
         private CancellationTokenSource _packageCancellation;
         private readonly Dictionary<string, CancellationTokenSource> _validations = new();
         private bool _timelineRunning;
-        private bool _acting;
-        private bool _actionStarted;
+        private readonly Dictionary<string, string> _blockingActions = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _pendingActions = new(StringComparer.Ordinal);
         private string _lastCapabilities;
         private bool _startupErrorSent;
         private string _activeRunId;
@@ -144,7 +144,7 @@ namespace Katarune.Avatar
                     _mutedRuns.Clear(); _playingRunId = null;
                     ClearSubtitle();
                     _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear(); _lastCapabilities = null;
-                    _timelineRunning = false; _acting = false; _actionStarted = false;
+                    _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
                 }
                 return;
             }
@@ -209,7 +209,7 @@ namespace Katarune.Avatar
                         _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(AvatarAffectPreset.Neutral, 0f));
                         _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear();
                         _mutedRuns.Clear(); _activeRunId = null; _playingRunId = null;
-                        _timelineRunning = false; _acting = false; _actionStarted = false;
+                        _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
                         _userSubtitleActive = false;
                         ClearSubtitle();
                         Reply(request); continue;
@@ -224,7 +224,7 @@ namespace Katarune.Avatar
                             if (_playingRunId != null) Send(JsonUtility.ToJson(new PlaybackEvent { runId = _playingRunId, active = false, state = "interrupted" }));
                             _playingRunId = null;
                             _mutedRuns.Remove(request.value);
-                            _timelineRunning = false; _acting = false; _actionStarted = false;
+                            _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
                             if (!_userSubtitleActive) ClearSubtitle();
                             _activeRunId = null;
                             foreach (var drain in drains) Reply(drain);
@@ -260,8 +260,16 @@ namespace Katarune.Avatar
                             if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var affect) || !_runtime.Snapshot.Capabilities.SupportsAffect(affect)) throw new ArgumentException("表情不可用。");
                             _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, 1f)); Reply(request); break;
                         case "desktop-action":
-                            _runtime.CancelAction();
-                            if (request.value != "none") {
+                            if (request.value == "none") {
+                                if (_runtime is IAvatarActionControl control) {
+                                    // Release temporary gestures first, then naturally exit the
+                                    // restored loops. Other action selections keep independent lanes.
+                                    foreach (var action in _runtime.AvailableActions.Where(a => a.Kind != "loop"))
+                                        if (control.GetActionInstanceId(action.Id) != null) control.CancelAction(action.Id);
+                                    foreach (var action in _runtime.AvailableActions.Where(a => a.Kind == "loop"))
+                                        if (control.GetActionInstanceId(action.Id) != null) control.FinishAction(action.Id);
+                                } else _runtime.CancelAction();
+                            } else {
                                 var result = _runtime.RequestAction(request.value);
                                 if (result.Outcome != AvatarActionRequestOutcome.Started) throw new InvalidOperationException(result.Error ?? "动作不可用。");
                             }
@@ -282,7 +290,10 @@ namespace Katarune.Avatar
                             EnsureTimeline();
                             break;
                         case "action":
+                        case "action-finish":
+                        case "action-cancel":
                             if (!_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
+                            if (request.operation == "action" && !request.allowSpeech && _runtime.AvailableActions.Any(a => a.Id == request.value && a.Kind == "loop")) throw new ArgumentException("持续姿态需要允许同时说话。");
                             AcceptCommand(request); break;
                         case "expression":
                             if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var preset)
@@ -305,7 +316,7 @@ namespace Katarune.Avatar
         {
                 var caps = new Ready { capabilities = new Capabilities {
                     actions = _runtime.AvailableActions.Select(a => new ActionInfo {
-                        id = a.Id, label = a.DisplayName, description = a.Description, durationSeconds = a.DurationSeconds
+                        id = a.Id, label = a.DisplayName, description = a.Description, durationSeconds = a.DurationSeconds, kind = a.Kind, key = a.Key, semantic = a.Semantic, layer = a.Layer
                     }).ToArray(),
                     expressions = Enum.GetValues(typeof(AvatarAffectPreset)).Cast<AvatarAffectPreset>()
                         .Where(p => _runtime.Snapshot.Capabilities.SupportsAffect(p)).Select(p => p.ToString().ToLowerInvariant()).ToArray(),
@@ -478,12 +489,12 @@ namespace Katarune.Avatar
         }
 
         private static bool MatchesTool(TimelineItem item, Request request) =>
-            (item.ToolName == "avatar_action" && request.operation == "action")
+            (item.ToolName == "avatar_action" && (request.operation == "action" || request.operation == "action-finish" || request.operation == "action-cancel"))
             || (item.ToolName == "set_expression" && request.operation == "expression");
 
         private void ReportInstructionFailure(Request request, string error)
         {
-            if (request.operation == "action") ReportAction(request, "failed", error);
+            if (request.operation.StartsWith("action", StringComparison.Ordinal)) ReportAction(request, "failed", error);
             else ReportExpression(request, "failed", error);
         }
 
@@ -592,19 +603,22 @@ namespace Katarune.Avatar
                         if (item.Command.operation == "expression") ApplyExpression(item.Command);
                         else
                         {
-                            while (_connected && _acting) yield return null;
+                            var action = _runtime.AvailableActions.FirstOrDefault(a => a.Id == item.Command.value);
+                            var layer = action.Layer ?? "body";
+                            var barrier = item.Command.operation == "action" && action.Kind != "loop";
+                            while (_connected && barrier && _blockingActions.ContainsKey(layer)) yield return null;
                             if (!_connected) yield break;
-                            _acting = true;
-                            _actionStarted = false;
+                            _pendingActions.Add(item.Command.id);
+                            if (barrier) _blockingActions[layer] = item.Command.id;
                             StartCoroutine(Act(item.Command));
-                            while (_connected && _acting && !_actionStarted) yield return null;
+                            while (_connected && _pendingActions.Contains(item.Command.id)) yield return null;
                             if (!item.Command.allowSpeech)
-                                while (_connected && _acting) yield return null;
+                                while (_connected && _blockingActions.Values.Contains(item.Command.id)) yield return null;
                         }
                     }
                     else if (item.Kind == "drain")
                     {
-                        while (_connected && _acting) yield return null;
+                        while (_connected && _blockingActions.Count > 0) yield return null;
                         if (_connected) Reply(item.Command);
                         _mutedRuns.Remove(item.Command.value);
                     }
@@ -633,30 +647,71 @@ namespace Katarune.Avatar
 
         private IEnumerator Act(Request request)
         {
+            var control = _runtime as IAvatarActionControl;
+            var loop = _runtime.AvailableActions.Any(action => action.Id == request.value && action.Kind == "loop");
+            string instanceId = null;
             try
             {
-                while (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready
-                    && _runtime.Snapshot.Motion.CurrentActionId != null) yield return null;
                 if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready)
-                { _actionStarted = true; ReportAction(request, "failed", "角色尚未就绪。"); yield break; }
-                var result = _runtime.RequestAction(request.value);
-                if (result.Outcome != AvatarActionRequestOutcome.Started)
-                { _actionStarted = true; ReportAction(request, "failed", result.Error ?? "动作不可用。"); yield break; }
-                ReportAction(request, "started");
-                _actionStarted = true;
+                { ReportAction(request, "failed", "角色尚未就绪。"); yield break; }
+                if (request.operation == "action-cancel")
+                {
+                    instanceId = control?.GetActionInstanceId(request.value);
+                    if (control != null ? !control.CancelAction(request.value) : _runtime.Snapshot.Motion.CurrentActionId != request.value)
+                    { ReportAction(request, "failed", "该动作当前未播放。"); yield break; }
+                    if (control == null) _runtime.CancelAction();
+                    ReportAction(request, "completed", instanceId: instanceId, loop: loop); yield break;
+                }
+                if (request.operation == "action-finish")
+                {
+                    instanceId = control?.GetActionInstanceId(request.value);
+                    if (control == null || !control.FinishAction(request.value))
+                    { ReportAction(request, "failed", "该持续姿态当前未播放。"); yield break; }
+                }
+                else
+                {
+                    var result = _runtime.RequestAction(request.value);
+                    if (result.Outcome != AvatarActionRequestOutcome.Started)
+                    { ReportAction(request, "failed", result.Error ?? "动作不可用。"); yield break; }
+                    instanceId = control?.GetActionInstanceId(request.value);
+                }
+                while (instanceId != null && control.GetActionState(instanceId) == PerformanceInstanceState.Requested
+                    && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready) yield return null;
+                if (instanceId != null && control.GetActionState(instanceId)?.IsTerminal() == true) {
+                    var terminal = control.GetActionState(instanceId);
+                    ReportAction(request, terminal == PerformanceInstanceState.Completed ? "completed" : terminal == PerformanceInstanceState.Failed ? "failed" : "cancelled", instanceId: instanceId, loop: loop); yield break;
+                }
+                ReportAction(request, "started", instanceId: instanceId, loop: loop);
+                _pendingActions.Remove(request.id);
+                // Holding a pose is not a dialogue barrier. Its coroutine only observes
+                // the authoritative instance, so a later gesture cannot deadlock on it.
                 var sequence = _runtime.Snapshot.Motion.ActionSequence;
                 while (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready
-                    && _runtime.Snapshot.Motion.ActionSequence == sequence
-                    && _runtime.Snapshot.Motion.CurrentActionId == request.value) yield return null;
-                var changed = _runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready
-                    || _runtime.Snapshot.Motion.ActionSequence != sequence;
-                ReportAction(request, changed ? "cancelled" : "completed", changed ? "动作被模型切换或手动操作中止。" : null);
+                    || (instanceId != null && _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Loading))
+                {
+                    if (instanceId != null)
+                    {
+                        var state = control.GetActionState(instanceId);
+                        if (!state.HasValue || state.Value.IsTerminal()) break;
+                    }
+                    else if (_runtime.Snapshot.Motion.ActionSequence != sequence || _runtime.Snapshot.Motion.CurrentActionId != request.value) break;
+                    yield return null;
+                }
+                var final = instanceId != null ? control.GetActionState(instanceId) : null;
+                var cancelled = instanceId != null ? final != PerformanceInstanceState.Completed
+                    : _runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready || _runtime.Snapshot.Motion.ActionSequence != sequence;
+                var failed = final == PerformanceInstanceState.Failed;
+                ReportAction(request, failed ? "failed" : cancelled ? "cancelled" : "completed", failed ? "动作播放失败。" : null, instanceId, loop);
             }
-            finally { _actionStarted = true; _acting = false; }
+            finally
+            {
+                _pendingActions.Remove(request.id);
+                foreach (var layer in _blockingActions.Where(pair => pair.Value == request.id).Select(pair => pair.Key).ToArray()) _blockingActions.Remove(layer);
+            }
         }
 
-        private void ReportAction(Request request, string status, string error = null) =>
-            Send(JsonUtility.ToJson(new ActionEvent { id = request.id, status = status, error = error ?? "" }));
+        private void ReportAction(Request request, string status, string error = null, string instanceId = null, bool loop = false) =>
+            Send(JsonUtility.ToJson(new ActionEvent { id = request.id, status = status, error = error ?? "", instanceId = instanceId, loop = loop }));
 
         private void ReportExpression(Request request, string status, string error = null) =>
             Send(JsonUtility.ToJson(new ExpressionEvent { id = request.id, status = status, error = error ?? "" }));

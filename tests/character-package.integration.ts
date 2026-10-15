@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app } from "electron";
+import BetterSqlite3 from "better-sqlite3";
 import { openDatabase } from "../src/main/database/database";
 import { createAssetService } from "../src/main/assets/assetService";
 import { CharacterPackageService } from "../src/main/characters/characterPackageService";
@@ -64,8 +65,17 @@ void app
       const oldPortrait = db.listCharacters().characters[0]!.portraitAssetId;
       await service.initialize();
       const builtin = service.detail(DEFAULT_PACKAGE_ID);
-      assert.equal(builtin.customActions.length, 0);
-      assert.equal(service.runtime(DEFAULT_PACKAGE_ID).idle, "");
+      assert.equal(builtin.customActions.length, 9);
+      const builtinRuntime = service.runtime(DEFAULT_PACKAGE_ID);
+      assert.equal(builtinRuntime.idle, join(images, "Motions/idle-standing-breathing.vrma"));
+      assert.deepEqual(builtinRuntime.idleVariations, [
+        join(images, "Motions/idle-variation-01.vrma"),
+        join(images, "Motions/idle-variation-02.vrma"),
+      ]);
+      assert.equal(builtinRuntime.systemBehaviors?.length, 20);
+      assert.equal(builtinRuntime.systemBehaviors?.find(a => a.name === "nod")?.playback.layer, "head");
+      assert.equal(builtinRuntime.systemBehaviors?.find(a => a.name === "greet")?.playback.layer, "upperBody");
+      assert.equal(builtinRuntime.systemBehaviors?.find(a => a.name === "think")?.playback.layer, "body");
       assert.throws(() => service.remove(DEFAULT_PACKAGE_ID), /不可删除/);
       assert.ok(
         db
@@ -88,14 +98,14 @@ void app
       ) => {
         const path = join(directory, `${name}.zip`);
         const manifest = {
-          formatVersion: 1,
+          formatVersion: 2,
           name,
           version: "1.0.0",
           portrait: "portrait.png",
           model: "avatar.vrm",
           systemActions: {},
           customActions: [
-            { name: "挥手", description: "问候", file: "wave.vrma" },
+            { name: "挥手", description: "问候", playback: { kind: "oneShot", file: "wave.vrma" } },
           ],
         };
         await writeFile(
@@ -189,6 +199,37 @@ void app
         /额外/,
       );
       const actionId = first.customActions[0]!.id;
+      const v2Manifest = {
+        formatVersion: 2, name: "循环测试包", version: "1.0.0", portrait: "portrait.png", model: "avatar.vrm",
+        systemActions: { think: { kind: "loop", enter: "wave.vrma", loop: "loop.vrma", exit: "exit.vrma" } },
+        customActions: [
+          { key: "001", name: "问候", description: "打招呼", playback: { kind: "oneShot", file: "wave.vrma" } },
+          { name: "抱臂", description: "保持姿态", playback: { kind: "loop", loop: "loop.vrma" } },
+        ],
+      };
+      const v2 = await service.import(await makeZip("v2", [
+        { name: "loop.vrma", data: "loop fixture validated by callback" },
+        { name: "exit.vrma", data: "exit fixture validated by callback" },
+      ], Buffer.from(JSON.stringify(v2Manifest))), randomUUID(), () => {});
+      const v2Runtime = service.runtime(v2.id);
+      assert.equal(v2Runtime.customActions[0]!.key, "001");
+      assert.equal(v2Runtime.customActions[1]!.key, "抱臂");
+      assert.equal(v2Runtime.systemBehaviors?.[0]?.id, "system.think");
+      assert.equal(v2Runtime.systemBehaviors?.[0]?.playback.kind, "loop");
+      assert.equal(v2Runtime.formatVersion, 2);
+      assert.equal(v2Runtime.systemBehaviors?.[0]?.playback.blendSeconds, .2);
+      const v2Id = v2.customActions[0]!.id;
+      // A pre-release record remains untouched, but must not hide valid v2 choices.
+      const oldId = randomUUID();
+      const oldManifest = JSON.stringify({ ...first.manifest, formatVersion: 1 });
+      const raw = new BetterSqlite3(join(directory, "katarune.sqlite"));
+      try {
+        raw.prepare("INSERT INTO character_packages (id, builtin, source_hash, manifest, portrait_asset_id, thumbnail_asset_id) SELECT ?, 0, NULL, ?, portrait_asset_id, thumbnail_asset_id FROM character_packages WHERE id = ?").run(oldId, oldManifest, first.id);
+        assert.ok(!service.list().some(pack => pack.id === oldId));
+        assert.ok(service.list().some(pack => pack.id === DEFAULT_PACKAGE_ID));
+        assert.throws(() => db.fetchCharacterPackage(oldId), /v2.*重新导入/);
+        assert.deepEqual(raw.prepare("SELECT manifest FROM character_packages WHERE id = ?").get(oldId), { manifest: oldManifest });
+      } finally { raw.close(); }
       db.close();
       db = openDatabase(options);
       assert.equal(db.fetchCharacter(role.id).packageId, first.id);
@@ -197,6 +238,10 @@ void app
         actionId,
       );
       assert.equal(db.fetchCharacter(role.id).systemPrompt, "保留提示词");
+      assert.equal(db.fetchCharacterPackage(v2.id).customActions[0]!.id, v2Id);
+      assert.equal(db.fetchCharacterPackage(v2.id).customActions[0]!.key, "001");
+      assert.equal(db.fetchCharacterPackage(v2.id).customActions[1]!.playback?.kind, "loop");
+      db.deleteCharacterPackage(v2.id);
       const sharedModel = assets.resolveManagedPath(
         db
           .fetchCharacterPackage(first.id)

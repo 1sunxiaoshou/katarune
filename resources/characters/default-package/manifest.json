@@ -1,10 +1,249 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "name": "春原心奈",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "portrait": "portrait.png",
   "thumbnail": "thumbnail.png",
   "model": "Models/default-avatar.vrm",
-  "systemActions": {},
-  "customActions": []
+  "systemActions": {
+    "idle": {
+      "file": "Motions/idle-standing-breathing.vrma"
+    },
+    "idle_variations": [
+      {
+        "file": "Motions/idle-variation-01.vrma"
+      },
+      {
+        "file": "Motions/idle-variation-02.vrma"
+      }
+    ],
+    "greet": {
+      "kind": "oneShot",
+      "file": "Motions/Greet01.vrma",
+      "layer": "upperBody"
+    },
+    "nod": {
+      "kind": "oneShot",
+      "file": "Motions/NodHead01.vrma",
+      "layer": "head"
+    },
+    "shakeHead": {
+      "kind": "oneShot",
+      "file": "Motions/ShakeHead01.vrma",
+      "layer": "head"
+    },
+    "talk": {
+      "kind": "loop",
+      "enter": "Motions/Chat01BS.vrma",
+      "loop": "Motions/Chat01Loop.vrma",
+      "exit": "Motions/Chat01AS.vrma",
+      "layer": "body"
+    },
+    "talkGesture": {
+      "kind": "oneShot",
+      "file": "Motions/Talk03.vrma",
+      "layer": "upperBody"
+    },
+    "think": {
+      "kind": "loop",
+      "enter": "Motions/Think01BS.vrma",
+      "loop": "Motions/Think01Loop.vrma",
+      "exit": "Motions/Think01AS.vrma",
+      "layer": "body"
+    },
+    "thinkGesture": {
+      "kind": "loop",
+      "enter": "Motions/ThinkHand01BS.vrma",
+      "loop": "Motions/ThinkHand01Loop.vrma",
+      "exit": "Motions/ThinkHand01AS.vrma",
+      "layer": "upperBody"
+    },
+    "clap": {
+      "kind": "oneShot",
+      "file": "Motions/Clap01.vrma",
+      "layer": "upperBody"
+    },
+    "cheer": {
+      "kind": "loop",
+      "enter": "Motions/Cheer01BS.vrma",
+      "loop": "Motions/Cheer01Loop.vrma",
+      "exit": "Motions/Cheer01AS.vrma",
+      "layer": "body"
+    },
+    "encourage": {
+      "kind": "oneShot",
+      "file": "Motions/Encourage01.vrma",
+      "layer": "body"
+    },
+    "confused": {
+      "kind": "loop",
+      "enter": "Motions/Confuse01BS.vrma",
+      "loop": "Motions/Confuse01Loop.vrma",
+      "exit": "Motions/Confuse01AS.vrma",
+      "layer": "body"
+    },
+    "shrug": {
+      "kind": "loop",
+      "enter": "Motions/Shrug01BS.vrma",
+      "loop": "Motions/Shrug01Loop.vrma",
+      "exit": "Motions/Shrug01AS.vrma",
+      "layer": "body"
+    },
+    "point": {
+      "kind": "loop",
+      "enter": "Motions/PointF01BS.vrma",
+      "loop": "Motions/PointF01Loop.vrma",
+      "exit": "Motions/PointF01AS.vrma",
+      "layer": "body"
+    },
+    "akimbo": {
+      "kind": "loop",
+      "enter": "Motions/Akimbo01BS.vrma",
+      "loop": "Motions/Akimbo01Loop.vrma",
+      "exit": "Motions/Akimbo01AS.vrma",
+      "layer": "body"
+    },
+    "holdArms": {
+      "kind": "loop",
+      "enter": "Motions/HoldArm01BS.vrma",
+      "loop": "Motions/HoldArm01Loop.vrma",
+      "exit": "Motions/HoldArm01AS.vrma",
+      "layer": "body"
+    },
+    "afraid": {
+      "kind": "loop",
+      "enter": "Motions/Afraid01BS.vrma",
+      "loop": "Motions/Afraid01Loop.vrma",
+      "exit": "Motions/Afraid01AS.vrma",
+      "layer": "body"
+    },
+    "downcast": {
+      "kind": "loop",
+      "enter": "Motions/Downcast01BS.vrma",
+      "loop": "Motions/Downcast01Loop.vrma",
+      "exit": "Motions/Downcast01AS.vrma",
+      "layer": "body"
+    },
+    "alert": {
+      "kind": "loop",
+      "enter": "Motions/Alert01BS.vrma",
+      "loop": "Motions/Alert01Loop.vrma",
+      "exit": "Motions/Alert01AS.vrma",
+      "layer": "body"
+    },
+    "read": {
+      "kind": "loop",
+      "enter": "Motions/PersonalRead01BS.vrma",
+      "loop": "Motions/PersonalRead01Loop.vrma",
+      "exit": "Motions/PersonalRead01AS.vrma",
+      "layer": "body"
+    },
+    "whisper": {
+      "kind": "loop",
+      "enter": "Motions/Whisper01_BS.vrma",
+      "loop": "Motions/Whisper01_Loop.vrma",
+      "exit": "Motions/Whisper01_AS.vrma",
+      "layer": "body"
+    }
+  },
+  "customActions": [
+    {
+      "key": "Nod02",
+      "name": "点头 2",
+      "description": "第二套点头",
+      "playback": {
+        "kind": "oneShot",
+        "file": "Motions/NodHead02.vrma",
+        "layer": "head"
+      }
+    },
+    {
+      "key": "ShakeHead02",
+      "name": "摇头 2",
+      "description": "第二套摇头",
+      "playback": {
+        "kind": "oneShot",
+        "file": "Motions/ShakeHead02.vrma",
+        "layer": "head"
+      }
+    },
+    {
+      "key": "Chat02",
+      "name": "交谈 2",
+      "description": "第二套交谈循环",
+      "playback": {
+        "kind": "loop",
+        "enter": "Motions/Chat02BS.vrma",
+        "loop": "Motions/Chat02Loop.vrma",
+        "exit": "Motions/Chat02AS.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "Akimbo02",
+      "name": "叉腰 2",
+      "description": "第二套叉腰循环",
+      "playback": {
+        "kind": "loop",
+        "enter": "Motions/Akimbo02BS.vrma",
+        "loop": "Motions/Akimbo02Loop.vrma",
+        "exit": "Motions/Akimbo02AS.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "PointL01",
+      "name": "向左指",
+      "description": "持续向左指",
+      "playback": {
+        "kind": "loop",
+        "enter": "Motions/PointL01BS.vrma",
+        "loop": "Motions/PointL01Loop.vrma",
+        "exit": "Motions/PointL01AS.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "PointR01",
+      "name": "向右指",
+      "description": "持续向右指",
+      "playback": {
+        "kind": "loop",
+        "enter": "Motions/PointR01BS.vrma",
+        "loop": "Motions/PointR01Loop.vrma",
+        "exit": "Motions/PointR01AS.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "Greet01Full",
+      "name": "完整问候",
+      "description": "保留源动作腿部与重心变化",
+      "playback": {
+        "kind": "oneShot",
+        "file": "Motions/Greet01.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "Talk03Full",
+      "name": "完整说话手势",
+      "description": "保留源动作腿部与重心变化",
+      "playback": {
+        "kind": "oneShot",
+        "file": "Motions/Talk03.vrma",
+        "layer": "body"
+      }
+    },
+    {
+      "key": "Clap01Full",
+      "name": "完整鼓掌",
+      "description": "保留源动作腿部与重心变化",
+      "playback": {
+        "kind": "oneShot",
+        "file": "Motions/Clap01.vrma",
+        "layer": "body"
+      }
+    }
+  ]
 }

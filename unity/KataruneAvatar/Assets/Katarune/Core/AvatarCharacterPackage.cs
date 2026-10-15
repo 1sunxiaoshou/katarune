@@ -7,12 +7,14 @@ namespace Katarune.Avatar
 {
     [Serializable] public sealed class AvatarCharacterPackage
     {
+        public int formatVersion = 2;
         public string id;
         public string version;
         public string model;
         public string idle;
         public string[] idleVariations;
         public AvatarPackageAction[] customActions;
+        public AvatarPackageAction[] systemBehaviors;
     }
     [Serializable] public sealed class AvatarPackageAction
     {
@@ -20,6 +22,29 @@ namespace Katarune.Avatar
         public string name;
         public string description;
         public string file;
+        public string key;
+        public AvatarPackagePlayback playback;
+
+    }
+    [Serializable] public sealed class AvatarPackagePlayback
+    {
+        public string kind;
+        public string file;
+        public string enter;
+        public string loop;
+        public string exit;
+        public float blendSeconds = .2f;
+        public string layer;
+        public string blending;
+        public string reference;
+    }
+    public interface IAvatarActionControl
+    {
+        bool FinishAction(string actionId);
+        string CurrentInstanceId { get; }
+        PerformanceInstanceState? GetActionState(string instanceId);
+        string GetActionInstanceId(string actionId);
+        bool CancelAction(string actionId);
     }
     public interface IAvatarPackageRuntime
     {

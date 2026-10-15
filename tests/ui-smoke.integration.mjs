@@ -783,7 +783,7 @@ function registerMockHandlers() {
     return updated;
   });
   const builtin = { id: "builtin:default", builtin: true,
-    manifest: { formatVersion: 1, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", systemActions: {}, customActions: [] },
+    manifest: { formatVersion: 2, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", systemActions: {}, customActions: [] },
     portraitAssetId: "00000000-0000-4000-8000-000000000002", thumbnailAssetId: "00000000-0000-4000-8000-000000000004", customActions: [], referenceCount: characters.length };
   let packages = [builtin, { ...builtin,
     id: "00000000-0000-4000-8000-000000000031", builtin: false,
