@@ -1,5 +1,5 @@
 import { AvatarControl } from "./AvatarControl";
-import { EyeIcon, EyeOffIcon, SettingsIcon } from "lucide-react";
+import { BookOpenIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Thread } from "@/components/thread";
@@ -15,11 +15,13 @@ import { ThreadStarline } from "./ThreadStarline";
 interface ChatPageProps {
   readonly onOpenCharacters: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenMemory: () => void;
 }
 
 export function ChatPage({
   onOpenCharacters,
   onOpenSettings,
+  onOpenMemory,
 }: ChatPageProps): React.JSX.Element {
   const { activeCharacter } = useCharacterSession();
   const [collapsed, setCollapsed] = useState(() =>
@@ -86,6 +88,9 @@ export function ChatPage({
             onClick={onOpenSettings}
           >
             <SettingsIcon aria-hidden="true" />
+          </TooltipIconButton>
+          <TooltipIconButton tooltip="记忆" side="top" className="size-8" data-testid="memory-launcher" onClick={onOpenMemory}>
+            <BookOpenIcon aria-hidden="true" />
           </TooltipIconButton>
           <AvatarControl />
           <TooltipIconButton

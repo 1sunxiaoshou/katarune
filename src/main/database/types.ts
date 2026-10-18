@@ -49,7 +49,7 @@ export interface DatabaseConfigValidator {
   ): void;
 }
 
-export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository> {
+export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository>, ReturnType<typeof import("./memoryRepository").createMemoryRepository> {
   getStatus(): DatabaseStatus;
   getAppState(): AppState;
   setActiveCharacter(characterId: string): AppState;

@@ -630,6 +630,14 @@ export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSch
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
 export interface KataruneApi {
+  listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
+  readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
+  saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;
+  forgetMemory(request: { characterId: string; id: string; revision: number }): Promise<import("./memory").MemoryWriteResult>;
+  getMemoryDiaryState(request: { id: string }): Promise<import("./memory").MemoryDiaryState>;
+  onMemoryChanged(listener: (characterId: string) => void): () => void;
+  retryMemoryDiaries(request: { id: string }): Promise<import("./memory").MemoryDiaryState>;
+  setMemoryDiaryEnabled(request: { characterId: string; enabled: boolean }): Promise<import("./memory").MemoryDiaryState>;
   listCharacterPackages(): Promise<import("./characterPackages").CharacterPackage[]>;
   fetchCharacterPackage(request: { id: string }): Promise<import("./characterPackages").CharacterPackage>;
   importCharacterPackage(request: { requestId: string }): Promise<{ canceled: boolean; package: import("./characterPackages").CharacterPackage | null }>;

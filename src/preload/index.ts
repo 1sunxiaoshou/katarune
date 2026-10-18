@@ -2,6 +2,12 @@ import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterP
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  MEMORY_CHANNELS, listMemoryRequestSchema, memoryDiarySettingsSchema, memoryDiaryStateSchema, memoryChangedSchema,
+  memoryEntrySchema, memoryIdRequestSchema, memoryListSchema, memoryVersionRequestSchema,
+  memoryWriteResultSchema, saveMemoryRequestSchema,
+  type ListMemoryRequest, type MemorySaveInput,
+} from "../shared/memory";
+import {
   discoverProviderModelsRequestSchema,
   type DiscoverProviderModelsRequest,
   aiRuntimeStatusSchema,
@@ -106,6 +112,18 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  retryMemoryDiaries: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.retryDiary, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),
+  onMemoryChanged: (listener: (characterId: string) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, value: unknown) => { const parsed = memoryChangedSchema.safeParse(value); if (parsed.success) listener(parsed.data.characterId); };
+    ipcRenderer.on(MEMORY_CHANNELS.changed, handle);
+    return () => { ipcRenderer.removeListener(MEMORY_CHANNELS.changed, handle); };
+  },
+  listMemory: (request: ListMemoryRequest) => invokeValidated(MEMORY_CHANNELS.list, memoryListSchema, listMemoryRequestSchema.parse(request)),
+  readMemory: (request: { characterId: string; id: string }) => invokeValidated(MEMORY_CHANNELS.read, memoryEntrySchema, memoryIdRequestSchema.parse(request)),
+  saveMemory: (request: MemorySaveInput & { characterId: string }) => invokeValidated(MEMORY_CHANNELS.save, memoryWriteResultSchema, saveMemoryRequestSchema.parse(request)),
+  forgetMemory: (request: { characterId: string; id: string; revision: number }) => invokeValidated(MEMORY_CHANNELS.forget, memoryWriteResultSchema, memoryVersionRequestSchema.parse(request)),
+  getMemoryDiaryState: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.diaryState, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),
+  setMemoryDiaryEnabled: (request: { characterId: string; enabled: boolean }) => invokeValidated(MEMORY_CHANNELS.diarySettings, memoryDiaryStateSchema, memoryDiarySettingsSchema.parse(request)),
   listCharacterPackages: () => invokeValidated(PACKAGE_CHANNELS.list, packageListSchema),
   fetchCharacterPackage: (value: { id: string }) => invokeValidated(PACKAGE_CHANNELS.detail, characterPackageSchema, packageIdRequestSchema.parse(value)),
   importCharacterPackage: (value: { requestId: string }) => invokeValidated(PACKAGE_CHANNELS.import, packageImportResultSchema, packageImportRequestSchema.parse(value)),

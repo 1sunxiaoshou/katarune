@@ -12,7 +12,6 @@ import {
   PlugZapIcon,
   PlusIcon,
   RefreshCwIcon,
-  SearchIcon,
   Trash2Icon,
   VideoIcon,
   Volume2Icon,
@@ -36,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/search-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -704,10 +704,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
     <>
       <Card className="min-h-[31rem] rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
       <CardHeader className="flex flex-row items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input className="rounded-full pl-8" data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
-        </div>
+        <SearchInput data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
         <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering || quickAddState !== null}><PlusIcon aria-hidden="true" /></TooltipIconButton>
         <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering || quickAddState !== null}>
           <DownloadIcon className={discovering ? "animate-pulse" : ""} aria-hidden="true" />

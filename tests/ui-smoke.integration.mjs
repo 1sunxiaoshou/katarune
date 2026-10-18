@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { openDatabase } from "../src/main/database/database";
+import { createDiaryService } from "../src/main/memory/diaryService";
+import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
+import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -144,6 +148,7 @@ let releaseAvatarOutput;
 let canceledAvatarStreams = 0;
 let pendingThreadListLoads = 0;
 let completedThreadListLoads = 0;
+let memoryDatabase;
 
 function silentWav(durationMs = 2_000) {
   const sampleRate = 8_000;
@@ -174,6 +179,8 @@ function messageKey(threadId, characterId) {
 }
 
 function registerMockHandlers() {
+  memoryDatabase = openDatabase({ userDataPath, appPath: projectRoot, configValidator: { validateModelMetadata, validateModelSettings, validateProviderSettings } });
+  registerMemoryHandlers({ ...memoryDatabase, getAppState: () => ({ activeCharacter: characters.find(item => item.id === activeCharacterId) }) });
   ipcMain.handle('asr:prepare', () => { ordinaryPrepareCount++; return { status: 'success', text: '' }; });
   ipcMain.handle('asr:transcribe', (_event, request) => {
     assert.ok(request.samples instanceof Float32Array);
@@ -409,7 +416,7 @@ function registerMockHandlers() {
           toolOnlyRequests += 1;
           if (request.messages.at(-1)?.role === "user" && JSON.stringify(request.messages.at(-1)).includes("测试工具终态")) {
             writer.write({ type: "start-step" });
-            writer.write({ type: "tool-input-available", toolCallId: "terminal-memory", toolName: "wiki_search", input: { query: "终态测试" } });
+            writer.write({ type: "tool-input-available", toolCallId: "terminal-memory", toolName: "memory_search", input: { query: "终态测试" } });
             writer.write({ type: "tool-output-available", toolCallId: "terminal-memory", output: { status: "ok", results: [] } });
             writer.write({ type: "finish-step" });
             return;
@@ -438,22 +445,20 @@ function registerMockHandlers() {
         }
         const shouldRenderMemoryTool =
           serializedMessages.includes("测试记忆工具") &&
-          !serializedMessages.includes("wiki_search");
+          !serializedMessages.includes("memory_search");
         if (shouldRenderMemoryTool) {
           writer.write({ type: "start-step" });
           const toolCalls = [
             {
               id: "memory-search-call",
-              name: "wiki_search",
-              input: { query: "不应显示的搜索词" },
+              name: "memory_search",
+              input: { query: "不应显示的搜索词", kind: null },
               output: {
                 status: "ok",
                 results: [
                   {
-                    page: "profile.md",
-                    line: 2,
-                    excerpt: "不应显示的记忆正文",
-                    revision: `sha256:${"a".repeat(64)}`,
+                    id: "00000000-0000-4000-8000-000000000011", kind: "person", title: "示例人物", isUser: true,
+                    body: "不应显示的记忆正文", revision: 1, bodyTruncated: false,
                   },
                 ],
                 truncated: false,
@@ -461,31 +466,35 @@ function registerMockHandlers() {
             },
             {
               id: "memory-get-call",
-              name: "wiki_get",
-              input: { page: "profile.md" },
+              name: "memory_read",
+              input: { id: "00000000-0000-4000-8000-000000000011" },
               output: {
                 status: "found",
-                page: "profile.md",
-                revision: `sha256:${"a".repeat(64)}`,
-                totalLines: 2,
-                startLine: 1,
-                endLine: 2,
-                content: "不应显示的读取正文",
+                entry: { id: "00000000-0000-4000-8000-000000000011", kind: "person", title: "示例人物", isUser: true,
+                  body: "不应显示的读取正文", revision: 1, bodyTruncated: false },
               },
             },
             {
-              id: "memory-patch-call",
-              name: "wiki_apply_patch",
+              id: "memory-save-call",
+              name: "memory_save",
               input: {
-                baseRevision: `sha256:${"a".repeat(64)}`,
-                patch: "*** Begin Patch\\n*** Update File: profile.md\\n@@\\n-secret\\n+不应显示的补丁\\n*** End Patch",
+                id: "00000000-0000-4000-8000-000000000011", revision: 1,
+                kind: "person", title: "示例人物", body: "不应显示的保存正文", isUser: true,
               },
               output: {
-                status: "applied",
-                page: "profile.md",
-                revision: `sha256:${"b".repeat(64)}`,
+                status: "saved",
+                id: "00000000-0000-4000-8000-000000000011", revision: 2,
               },
             },
+            { id: "memory-forget-call", name: "memory_forget",
+              input: { id: "00000000-0000-4000-8000-000000000011", revision: 2 },
+              output: { status: "forgotten", id: "00000000-0000-4000-8000-000000000011", revision: 3 } },
+            { id: "memory-conflict-call", name: "memory_save",
+              input: { id: "00000000-0000-4000-8000-000000000011", revision: 1, kind: "person", title: "示例人物", body: "过时正文", isUser: true },
+              output: { status: "conflict", message: "请重新读取。" } },
+            { id: "memory-duplicate-call", name: "memory_save",
+              input: { id: null, revision: null, kind: "person", title: "示例人物", body: "重复正文", isUser: true },
+              output: { status: "duplicate", existing: { id: "00000000-0000-4000-8000-000000000011", title: "示例人物" }, message: "请先读取。" } },
           ];
           for (const toolCall of toolCalls) {
             writer.write({
@@ -510,8 +519,8 @@ function registerMockHandlers() {
               output: toolCall.output,
             });
           }
-          writer.write({ type: "tool-input-error", toolCallId: "memory-invalid-input", toolName: "wiki_search", input: { query: 42 }, errorText: "Invalid input for tool wiki_search: query: expected string" });
-          writer.write({ type: "tool-output-error", toolCallId: "memory-invalid-input", errorText: "Invalid input for tool wiki_search: query: expected string" });
+          writer.write({ type: "tool-input-error", toolCallId: "memory-invalid-input", toolName: "memory_search", input: { query: 42 }, errorText: "Invalid input for tool memory_search: query: expected string" });
+          writer.write({ type: "tool-output-error", toolCallId: "memory-invalid-input", errorText: "Invalid input for tool memory_search: query: expected string" });
           writer.write({ type: "finish-step" });
           writer.write({ type: "start-step" });
         }
@@ -913,10 +922,9 @@ async function clickSelector(window, selector) {
   });
 }
 
-function createTestWindow() {
+function createTestWindow(size = { width: 1280, height: 900 }) {
   return new BrowserWindow({
-    width: 1280,
-    height: 900,
+    ...size,
     show: false,
     backgroundColor: "#ffffff",
     webPreferences: {
@@ -956,6 +964,253 @@ async function run() {
         }
       `);
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
+    });
+
+    await runStep("browse, edit and forget real SQLite memories", async () => {
+      const key = async (keyCode, modifiers = []) => {
+        window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+        window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+      };
+      const fill = async (selector, value, richText = false) => {
+        if (richText) {
+          await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+          await key('A', ['control']);
+          await window.webContents.insertText(value);
+        } else await window.webContents.executeJavaScript(`(() => {
+          const input = document.querySelector(${JSON.stringify(selector)});
+          Object.getOwnPropertyDescriptor(input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+      };
+      await clickSelector(window, '[data-testid="memory-launcher"]');
+      await waitForSelector(window, '[data-testid="memory-page"]');
+      await waitForText(window, '.memory-empty', '把相处留在日记里');
+      await waitUntil('diary settings loaded', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="memory-diary-toggle"]').disabled`));
+      await clickSelector(window, '[data-testid="memory-diary-toggle"]');
+      await waitUntil('diary disabled persisted', () => !memoryDatabase.getMemoryDiaryState(characterId).enabled);
+      await clickSelector(window, '[data-testid="memory-tab-person"]');
+      await clickSelector(window, '[data-testid="memory-add"]');
+      await waitForSelector(window, '[data-testid="memory-editor"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null && document.querySelector('.memory-reading > [data-testid="memory-editor"]') !== null`), true, 'editing must remain in the original reading area');
+      await fill('[data-testid="memory-title-input"]', '小林');
+      await fill('[data-testid="memory-body-input"]', '用户的朋友，喜欢读书。', true);
+      await clickSelector(window, '.memory-user-label [role="switch"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-user-label [role="switch"]').getAttribute('aria-checked')`), 'true');
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '用户的朋友');
+      assert.equal(memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries[0].isUser, true, 'the shared person switch must persist the user flag');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#memory-is-user') === null`), true, 'reading a profile must not show the editing switch');
+      await waitForText(window, '[data-testid="memory-list-item"][aria-current="true"] [aria-label="你的画像"]', '你');
+      await clickSelector(window, '[data-testid="memory-tab-event"]');
+      await clickSelector(window, '[data-testid="memory-add"]');
+      await waitForSelector(window, '[data-testid="memory-editor"]');
+      await fill('[data-testid="memory-title-input"]', '准备生日礼物');
+      await fill('[data-testid="memory-body-input"]', '给小林挑选一本书。\n\n先了解她最近在读什么。', true);
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '给小林挑选一本书');
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-implementation.png'), (await window.webContents.capturePage()).toPNG());
+      const compact = createTestWindow({ width: 760, height: 520 });
+      try {
+        await compact.loadFile(join(projectRoot, 'out', 'renderer', 'index.html'));
+        await waitForSelector(compact, '[data-testid="memory-launcher"]');
+        await clickSelector(compact, '[data-testid="memory-launcher"]');
+        await waitForSelector(compact, '[data-testid="memory-tab-event"]');
+        await clickSelector(compact, '[data-testid="memory-tab-event"]');
+        await waitForText(compact, '[data-testid="memory-detail"]', '给小林挑选一本书');
+        assert.equal(await compact.webContents.executeJavaScript('document.documentElement.scrollWidth <= window.innerWidth'), true);
+        await compact.webContents.insertCSS('*, *::before, *::after { animation: none !important; transition: none !important; }');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        writeFileSync(join(projectRoot, '.test-dist', 'memory-compact.png'), (await compact.webContents.capturePage()).toPNG());
+      } finally { compact.destroy(); }
+      await clickSelector(window, '[data-testid="memory-tab-person"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '用户的朋友');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="memory-tab-person"]').getAttribute('aria-selected')`), 'true');
+      await clickSelector(window, '[data-testid="memory-edit"]');
+      await waitForSelector(window, '[data-testid="memory-editor"]');
+      await fill('[data-testid="memory-body-input"]', '用户的朋友，喜欢科幻小说。', true);
+      await key('A', ['control']);
+      await key('B', ['control']);
+      await window.webContents.insertText('用户的朋友，喜欢科幻小说。');
+      await key('B', ['control']);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="memory-body-input"] strong')?.textContent`), '用户的朋友，喜欢科幻小说。');
+      const currentProfile = memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries[0];
+      const latestProfile = memoryDatabase.readMemory(characterId, currentProfile.id);
+      memoryDatabase.saveMemory(characterId, { id: latestProfile.id, revision: latestProfile.revision, content: { kind: 'person', title: '小林', isUser: false, body: '后台更新的画像。' } });
+      await waitForText(window, '[data-testid="memory-body-input"]', '喜欢科幻小说');
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="memory-editor"] [role="alert"]', '这条记忆已被更新');
+      assert.equal(memoryDatabase.readMemory(characterId, currentProfile.id).content.body, '后台更新的画像。');
+      await clickSelector(window, '[data-testid="memory-cancel"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '后台更新的画像');
+      await clickSelector(window, '[data-testid="memory-edit"]');
+      await waitForSelector(window, '[data-testid="memory-body-input"]');
+      await fill('[data-testid="memory-body-input"]', '用户的朋友，喜欢科幻小说。', true);
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '喜欢科幻小说');
+      await clickSelector(window, '[data-testid="memory-forget"]');
+      await waitForSelector(window, '[data-testid="confirm-dialog-confirm"]');
+      await clickSelector(window, '[data-testid="confirm-dialog-confirm"]');
+      await waitForText(window, '.memory-empty', '慢慢认识身边的人');
+      await waitUntil('memory forget dialog closed', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="confirm-dialog-confirm"]') === null`));
+      assert.equal(memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries.length, 0);
+      memoryDatabase.initializeThread('memory-ui-source', characterId);
+      memoryDatabase.appendThreadMessage({ characterId, threadId: 'memory-ui-source', assetIds: [], message: {
+        id: 'memory-ui-message', parent_id: null, format: 'ai-sdk/v6', content: { role: 'user', parts: [{ type: 'text', text: '小林的生日快到了，想送她一本科幻小说。' }] },
+      } });
+      memoryDatabase.saveMemory(characterId, { id: null, revision: null, content: {
+        kind: 'diary', day: '2026-10-17', title: '书店里的午后', body: '今天我听她讲起路过的小书店。',
+      } });
+      memoryDatabase.saveMemory(characterId, { id: null, revision: null, content: {
+        kind: 'diary', day: '2026-10-18', title: '一起挑选生日礼物', body: '今天聊到了小林的生日。知道她喜欢科幻小说后，我们把礼物的方向定在了一本书上。\n\n还没有决定具体哪一本，准备先了解她最近在读什么。',
+      } });
+      await clickSelector(window, '[data-testid="memory-tab-diary"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '一起挑选生日礼物');
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-diary.png'), (await window.webContents.capturePage()).toPNG());
+      const selectDiary = async (title) => {
+        await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes(${JSON.stringify(title)})).click()`);
+        await waitForText(window, '[data-testid="memory-detail"]', title);
+      };
+      const diaryLayout = target => target.webContents.executeJavaScript(`(() => {
+        const viewport = document.querySelector('.memory-diary-scroll');
+        const body = document.querySelector('.memory-body');
+        const rect = element => Array.from(element.getClientRects(), box => [box.x, box.y, box.width, box.height]);
+        const lines = [];
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const range = document.createRange();
+          range.selectNodeContents(walker.currentNode);
+          lines.push([walker.currentNode.textContent, rect(range)]);
+        }
+        return { scroll: viewport.scrollTop, height: viewport.scrollHeight, viewport: rect(viewport), title: rect(document.querySelector('.memory-title-input')), lines };
+      })()`);
+      const checkDiaryModeSwitch = async target => {
+        await target.webContents.executeJavaScript(`document.fonts.ready.then(() => { window.memoryBodyBeforeSwitch = document.querySelector('.memory-body'); return true; })`);
+        const before = await diaryLayout(target);
+        await clickSelector(target, '[data-testid="memory-edit"]');
+        await waitForSelector(target, '[data-testid="memory-editor"] .memory-body[contenteditable="true"]');
+        assert.deepEqual(await diaryLayout(target), before, 'entering edit must preserve text layout and scroll position');
+        assert.equal(await target.webContents.executeJavaScript(`window.memoryBodyBeforeSwitch === document.querySelector('.memory-body')`), true, 'reading and editing must retain the same document node');
+        await clickSelector(target, '[data-testid="memory-cancel"]');
+        await waitForSelector(target, '[data-testid="memory-detail"] .memory-body[contenteditable="false"]');
+        assert.deepEqual(await diaryLayout(target), before, 'cancel without changes must preserve layout and scroll position');
+        await clickSelector(target, '[data-testid="memory-edit"]');
+        await waitForSelector(target, '[data-testid="memory-editor"] .memory-body[contenteditable="true"]');
+        await clickSelector(target, '[data-testid="memory-save"]');
+        await waitForSelector(target, '[data-testid="memory-detail"] .memory-body[contenteditable="false"]');
+        assert.deepEqual(await diaryLayout(target), before, 'save without changes must preserve layout and scroll position');
+        assert.equal(await target.webContents.executeJavaScript(`window.memoryBodyBeforeSwitch === document.querySelector('.memory-body')`), true, 'save refresh must retain the same document node');
+      };
+      const checkDiaryEnd = async target => {
+        await target.webContents.executeJavaScript(`(() => { const viewport = document.querySelector('.memory-diary-scroll'); viewport.scrollTop = viewport.scrollHeight; })()`);
+        assert.equal(await target.webContents.executeJavaScript(`(() => {
+          const viewport = document.querySelector('.memory-diary-scroll').getBoundingClientRect();
+          const body = document.querySelector('.memory-body');
+          const last = body.lastElementChild.getBoundingClientRect();
+          return last.left >= viewport.left - 1 && last.right <= viewport.right + 1 && last.top >= viewport.top - 1 && last.bottom <= viewport.bottom + 1;
+        })()`), true, 'scrolling to the bottom must reveal the last paragraph');
+      };
+      await checkDiaryModeSwitch(window);
+      await selectDiary('书店里的午后');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').scrollHeight <= document.querySelector('.memory-diary-scroll').clientHeight + 1`), true, 'a short diary should fit naturally');
+      for (const [day, title, body] of [
+        ['2026-10-10', '以代码块结尾', '\x60\x60\x60text\n' + Array.from({ length: 70 }, (_, index) => `记录 ${index + 1}`).join('\n') + '\n\x60\x60\x60'],
+        ['2026-10-11', '以表格结尾', '| 时刻 | 小事 |\n| --- | --- |\n' + Array.from({ length: 30 }, (_, index) => `| ${index + 1} | 值得记住的小事 |`).join('\n')],
+      ]) {
+        const result = memoryDatabase.saveMemory(characterId, { id: null, revision: null, content: { kind: 'diary', day, title, body: '整理中。' } });
+        assert.equal(result.status, 'saved');
+        await waitForText(window, '.memory-list', title);
+        await selectDiary(title);
+        const updated = memoryDatabase.saveMemory(characterId, { id: result.entry.id, revision: result.entry.revision, content: { kind: 'diary', day, title, body } });
+        assert.equal(updated.status, 'saved');
+        await waitUntil('background diary content rendered', () => window.webContents.executeJavaScript(`!document.querySelector('.memory-body').textContent.includes('整理中。')`));
+        assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').scrollHeight > document.querySelector('.memory-diary-scroll').clientHeight`), true, 'large blocks must flow through the normal diary scroll area');
+        await checkDiaryEnd(window);
+        await checkDiaryModeSwitch(window);
+        assert.equal(memoryDatabase.readMemory(characterId, result.entry.id).content.body, body, 'reading must not alter stored content');
+      }
+      memoryDatabase.saveMemory(characterId, { id: null, revision: null, content: {
+        kind: 'diary', day: '2026-10-16', title: '很长的一天', body: Array.from({ length: 24 }, (_, index) => `第${index + 1}段。今天我们沿着河边慢慢走，聊了最近在读的书，也聊到下个周末的小计划。风经过水面的时候，她停了一会儿，我也陪着她安静下来。`).join('\n\n') + '\n\n\x60\x60\x60text\n' + Array.from({ length: 60 }, (_, index) => `记录 ${index + 1}`).join('\n') + '\n\x60\x60\x60\n\n| 时刻 | 记下的小事 |\n| --- | --- |\n' + Array.from({ length: 24 }, (_, index) => `| ${index + 1} | 一点值得记住的事情 |`).join('\n') + '\n\n长文终点，今天就写到这里。',
+      } });
+      await waitForText(window, '.memory-list', '很长的一天');
+      await selectDiary('很长的一天');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').scrollHeight > document.querySelector('.memory-diary-scroll').clientHeight`), true);
+      await checkDiaryEnd(window);
+      await checkDiaryModeSwitch(window);
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-diary-scroll.png'), (await window.webContents.capturePage()).toPNG());
+      const compactDiary = createTestWindow({ width: 760, height: 520 });
+      try {
+        await compactDiary.loadFile(join(projectRoot, 'out', 'renderer', 'index.html'));
+        await waitForSelector(compactDiary, '[data-testid="memory-launcher"]');
+        await clickSelector(compactDiary, '[data-testid="memory-launcher"]');
+        await waitForText(compactDiary, '.memory-list', '很长的一天');
+        await compactDiary.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes('很长的一天')).click()`);
+        await waitForText(compactDiary, '[data-testid="memory-detail"]', '长文终点');
+        assert.equal(await compactDiary.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').clientHeight > 60`), true);
+        assert.equal(await compactDiary.webContents.executeJavaScript('document.documentElement.scrollWidth <= window.innerWidth'), true);
+        await checkDiaryEnd(compactDiary);
+        await checkDiaryModeSwitch(compactDiary);
+        writeFileSync(join(projectRoot, '.test-dist', 'memory-diary-compact.png'), (await compactDiary.webContents.capturePage()).toPNG());
+      } finally { compactDiary.destroy(); }
+      await selectDiary('一起挑选生日礼物');
+      const formattedDiary = memoryDatabase.saveMemory(characterId, { id: null, revision: null, content: { kind: 'diary', day: '2026-10-14', title: '有排版的日记', body: '**粗体**和*强调*，还有~~划掉的字~~与`行内代码`。\n\n- 一段列表\n- 另一段列表\n\n- [x] 已做的小事\n- [ ] 还没做的事\n\n> 一句想记住的话。\n\n| 时间 | 内容 |\n| --- | --- |\n| 傍晚 | 散步 |\n\n```text\n一段代码\n```\n\n[一个链接](https://example.invalid)\n\n日记末尾。' } });
+      assert.equal(formattedDiary.status, 'saved');
+      await waitForText(window, '.memory-list', '有排版的日记');
+      await selectDiary('有排版的日记');
+      await checkDiaryModeSwitch(window);
+      const formattedBeforeRead = memoryDatabase.readMemory(characterId, formattedDiary.entry.id);
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const checkbox = document.querySelector('.memory-body ul[data-type="taskList"] input[type="checkbox"]');
+        const checked = checkbox.checked;
+        checkbox.click();
+        return checkbox.checked === checked;
+      })()`), true, 'reading a diary must not toggle task checkboxes');
+      assert.deepEqual(memoryDatabase.readMemory(characterId, formattedDiary.entry.id), formattedBeforeRead);
+      await clickSelector(window, '[data-testid="memory-edit"]');
+      await waitForSelector(window, '[data-testid="memory-body-input"] strong');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="memory-body-input"] table td')?.textContent`), '傍晚');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="memory-body-input"] ul[data-type="taskList"] input[type="checkbox"]').length`), 2);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="memory-body-input"]').focus()`);
+      await key('End', ['control']);
+      await window.webContents.insertText('补记。');
+      await key('Enter');
+      await key('Enter');
+      await window.webContents.insertText('留一行空白，接着写下今天的小事。');
+      await waitUntil('editing caret remains in the visible diary scroll area', () => window.webContents.executeJavaScript(`(() => {
+        const selection = document.getSelection();
+        const viewport = document.querySelector('.memory-diary-scroll').getBoundingClientRect();
+        if (!selection?.rangeCount) return false;
+        const caret = selection.getRangeAt(0).getBoundingClientRect();
+        return caret.height > 0 && caret.left >= viewport.left - 1 && caret.right <= viewport.right + 1 && caret.top >= viewport.top - 1 && caret.bottom <= viewport.bottom + 1;
+      })()`));
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-inline-edit.png'), (await window.webContents.capturePage()).toPNG());
+      await fill('[data-testid="memory-title-input"]', '有排版的日记：今天想记下的事情有很多，标题也会自然换到下一行，阅读和编辑都应该保持同样的纸面空间');
+      assert.equal(await window.webContents.executeJavaScript(`(() => { const title = document.querySelector('.memory-title-input'); return title.clientHeight > Number.parseFloat(getComputedStyle(title).lineHeight) * 1.5; })()`), true, 'long titles must wrap naturally');
+      await window.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').scrollTop = 0`);
+      const editedLayout = await diaryLayout(window);
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '补记');
+      assert.deepEqual(await diaryLayout(window), editedLayout, 'saving edited content must keep the same line wrapping and scroll position');
+      const written = memoryDatabase.readMemory(characterId, formattedDiary.entry.id).content.body;
+      for (const expected of ['**粗体**', '*强调*', '~~划掉的字~~', '`行内代码`', '[x]', '[ ]', '> 一句想记住的话', '| 傍晚', '```text', '[一个链接](https://example.invalid)', '补记。']) assert.ok(written.includes(expected), `rich editing must preserve ${expected}`);
+      await selectDiary('书店里的午后');
+      await selectDiary('有排版的日记');
+      assert.deepEqual(await diaryLayout(window), editedLayout, 'reopening saved content must preserve blank paragraphs and title wrapping');
+      await clickSelector(window, '[data-testid="memory-edit"]');
+      await waitForSelector(window, '[data-testid="memory-body-input"]');
+      await fill('[data-testid="memory-body-input"]', '这个修改会取消。', true);
+      await clickSelector(window, '[data-testid="memory-cancel"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '粗体');
+      assert.equal(memoryDatabase.readMemory(characterId, formattedDiary.entry.id).content.body, written);
+      memoryDatabase.setMemoryDiaryEnabled(characterId, true);
+      memoryDatabase.queueMemoryDiaryMessage(characterId, 'memory-ui-message', Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const diaryWorker = createDiaryService({ database: memoryDatabase, aiRuntime: { resolveLanguageModel: () => { throw new Error('Fixture model unavailable'); } }, now: () => new Date(Date.now() + 2 * 86_400_000) });
+      await diaryWorker.runOnce(); diaryWorker.dispose();
+      await waitForSelector(window, '[data-testid="memory-diary-retry"]');
+      assert.equal(memoryDatabase.getMemoryDiaryState(characterId).failed, 1);
+      await clickSelector(window, '[data-testid="memory-diary-retry"]');
+      await waitUntil('manual diary retry queued', () => memoryDatabase.getMemoryDiaryState(characterId).failed === 0 && memoryDatabase.getMemoryDiaryState(characterId).pending === 1);
+      await clickSelector(window, '[data-testid="memory-back"]');
+      await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
     });
 
     await runStep('offline dictation records, fills draft and cancels without changing it', async () => {
@@ -1048,7 +1303,7 @@ async function run() {
       assert.deepEqual(listRefresh, { flashes: 0, originalRowRetained: true });
     });
 
-    await runStep("render private Memory Wiki tool status", async () => {
+    await runStep("render private memory tool status", async () => {
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
@@ -1071,10 +1326,13 @@ async function run() {
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
-        "已更新记忆",
+        "已保存记忆",
       );
-      await waitForText(window, '[data-testid="memory-wiki-tool-status"] [role="alert"]', 'query: expected string');
-      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-wiki-tool-status"]')).some(item => item.textContent.includes('记忆搜索失败') && item.textContent.includes('query: expected string'))`), true);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '已遗忘记忆');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '记忆已变化，正在等待重新读取');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '已有相关记忆，正在等待整理原条目');
+      await waitForText(window, '[data-testid="memory-tool-status"] [role="alert"]', 'query: expected string');
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-tool-status"]')).some(item => item.textContent.includes('记忆搜索失败') && item.textContent.includes('query: expected string'))`), true);
       assert.equal(
         await window.webContents.executeJavaScript(`(() => {
           const text = document.querySelector('[data-slot="aui_thread-viewport"]')?.textContent ?? '';
@@ -1082,13 +1340,13 @@ async function run() {
             '不应显示的搜索词',
             '不应显示的记忆正文',
             '不应显示的读取正文',
-            '不应显示的补丁',
+            '不应显示的保存正文',
           ].some((secret) => text.includes(secret));
         })()`),
         false,
       );
       await waitUntil(
-        "Memory Wiki response stream completion",
+        "memory response stream completion",
         () => activeChatStreamCount === 0,
       );
       await waitForSelector(window, 'button[aria-label="发送消息"]');
@@ -1698,5 +1956,6 @@ void app.whenReady()
     console.error(error);
   })
   .finally(() => {
+    memoryDatabase?.close();
     app.exit(exitCode);
   });
