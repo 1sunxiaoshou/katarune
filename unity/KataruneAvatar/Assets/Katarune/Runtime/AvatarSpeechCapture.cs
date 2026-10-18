@@ -28,6 +28,7 @@ namespace Katarune.Avatar
         [Serializable] private sealed class Frame {
             public string file, playbackId, subtitle; public double time; public float position, duration;
             public float aa, ih, ou, ee, oh;
+            public float happy, relaxed, sad, angry, surprised;
             public string actionId, modelPath; public Quaternion headRotation;
             public Quaternion hipsRotation, legRotation, armRotation;
             public Quaternion leftForearmRotation, rightForearmRotation, rightHandRotation;
@@ -99,6 +100,7 @@ namespace Katarune.Avatar
                 var frame = new Frame { file = $"frame-{index++:D5}.jpg", time = time,
                     playbackId = _player.PlaybackId, position = _player.PositionSeconds, duration = _player.DurationSeconds,
                     aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh,
+                    happy = pose.Happy, relaxed = pose.Relaxed, sad = pose.Sad, angry = pose.Angry, surprised = pose.Surprised,
                     actionId = _runtime.Snapshot.Motion.CurrentActionId ?? "", modelPath = _runtime.Snapshot.Model?.Path ?? "",
                     headRotation = _head != null ? _head.localRotation : Quaternion.identity,
                     hipsRotation = BoneRotation(HumanBodyBones.Hips), legRotation = BoneRotation(HumanBodyBones.LeftUpperLeg), armRotation = BoneRotation(HumanBodyBones.RightUpperArm),

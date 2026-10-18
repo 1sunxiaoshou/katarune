@@ -15,9 +15,9 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarControlConnection : MonoBehaviour
     {
-        [Serializable] private sealed class Request { public string type; public StreamEvent @event; public string id; public string operation; public string value; public bool allowSpeech = true; public string toolCallId; public string runId; public string dialogueId; public bool speechEnabled; public bool failed; public bool streaming; public bool enabled; public string phase; public string error; public float level; public string text; public AvatarSpeechSegment[] segments; public string profilePath; public int epoch; }
+        [Serializable] private sealed class Request { public string type; public StreamEvent @event; public string id; public string operation; public string value; public bool allowSpeech = true; public string toolCallId; public string instanceId; public string runId; public string dialogueId; public bool speechEnabled; public bool failed; public bool streaming; public bool enabled; public string phase; public string error; public float level; public string text; public AvatarSpeechSegment[] segments; public string profilePath; public int epoch; }
         [Serializable] private sealed class StreamEvent { public string type; public string id; public string delta; public string toolCallId; public string toolName; }
-        private sealed class SubtitleBlock { public string Text = ""; public bool Complete; public string RunId; public string Id; public bool SpeechEnabled; public Request Audio; }
+        private sealed class SubtitleBlock { public string Text = ""; public bool Complete; public string RunId; public string Id; public bool SpeechEnabled; public Request Audio; public string SpokenText; }
         private readonly Dictionary<string, SubtitleBlock> _dialogues = new Dictionary<string, SubtitleBlock>();
         [Serializable] private sealed class DialogueCompleted { public string type = "dialogue-completed"; public string runId; public string dialogueId; }
         private sealed class TimelineItem
@@ -41,6 +41,8 @@ namespace Katarune.Avatar
 
         private readonly BlockingCollection<string> _incoming = new BlockingCollection<string>(256);
         private readonly BlockingCollection<string> _outgoing = new BlockingCollection<string>(64);
+        [Serializable] private sealed class PerformanceEvent { public string type = "performance"; public AvatarPerformanceStatus performance; }
+        private readonly Dictionary<string, AvatarPerformance> _performances = new();
         private readonly Queue<TimelineItem> _timeline = new Queue<TimelineItem>();
         private readonly Dictionary<string, TimelineItem> _toolNodes = new Dictionary<string, TimelineItem>();
         private readonly Dictionary<string, Request> _commands = new Dictionary<string, Request>();
@@ -62,6 +64,7 @@ namespace Katarune.Avatar
         private readonly Dictionary<string, CancellationTokenSource> _validations = new();
         private bool _timelineRunning;
         private readonly Dictionary<string, string> _blockingActions = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Request> _runningActions = new(StringComparer.Ordinal);
         private readonly HashSet<string> _pendingActions = new(StringComparer.Ordinal);
         private string _lastCapabilities;
         private bool _startupErrorSent;
@@ -136,15 +139,17 @@ namespace Katarune.Avatar
         private void Update()
         {
             if (_runtime == null) return;
+            foreach (var performance in _performances.Values.ToArray()) performance.Tick();
             if (!_connected)
             {
                 if (_lastCapabilities != null)
                 {
+                    ClearPerformances();
                     StopAllCoroutines(); _runtime.CancelAction(); _speech?.Stop();
                     _mutedRuns.Clear(); _playingRunId = null;
                     ClearSubtitle();
                     _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear(); _lastCapabilities = null;
-                    _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
+                    _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear(); _runningActions.Clear();
                 }
                 return;
             }
@@ -190,6 +195,11 @@ namespace Katarune.Avatar
                         continue;
                     }
                     if (request?.type == "event") { ConsumeEvent(request.@event, request.runId, request.speechEnabled); continue; }
+                    if (request?.type == "dialogue-text")
+                    {
+                        if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var text)) text.SpokenText = request.text ?? "";
+                        continue;
+                    }
                     if (request?.type == "dialogue-audio")
                     {
                         if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var dialogue)) dialogue.Audio = request;
@@ -202,6 +212,7 @@ namespace Katarune.Avatar
                     if (request?.operation == "session-reset")
                     {
                         _packageCancellation?.Cancel();
+                        ClearPerformances();
                         StopAllCoroutines();
                         if (int.TryParse(request.value, out var epoch)) _epoch = epoch;
                         _speech?.Stop();
@@ -209,26 +220,14 @@ namespace Katarune.Avatar
                         _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(AvatarAffectPreset.Neutral, 0f));
                         _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear();
                         _mutedRuns.Clear(); _activeRunId = null; _playingRunId = null;
-                        _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
+                        _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear(); _runningActions.Clear();
                         _userSubtitleActive = false;
                         ClearSubtitle();
                         Reply(request); continue;
                     }
                     if (request?.operation == "run-cancel")
                     {
-                        if (request.value == _activeRunId)
-                        {
-                            var drains = _timeline.Where(item => item.Kind == "drain").Select(item => item.Command).ToArray();
-                            _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear();
-                            StopAllCoroutines(); _speech?.Stop(); _runtime.CancelAction();
-                            if (_playingRunId != null) Send(JsonUtility.ToJson(new PlaybackEvent { runId = _playingRunId, active = false, state = "interrupted" }));
-                            _playingRunId = null;
-                            _mutedRuns.Remove(request.value);
-                            _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear();
-                            if (!_userSubtitleActive) ClearSubtitle();
-                            _activeRunId = null;
-                            foreach (var drain in drains) Reply(drain);
-                        }
+                        CancelRun(request.value);
                         Reply(request); continue;
                     }
                     if (request?.operation == "voice-pause" || request?.operation == "voice-resume")
@@ -242,7 +241,7 @@ namespace Katarune.Avatar
                     }
                     if (request?.operation == "voice-interrupt")
                     {
-                        _mutedRuns.Add(request.value);
+                        CancelRun(request.value);
                         foreach (var dialogue in _dialogues.Values)
                             if (dialogue.RunId == request.value) dialogue.SpeechEnabled = false;
                         if (_playingRunId == request.value) _speech?.Stop();
@@ -289,6 +288,10 @@ namespace Katarune.Avatar
                             _timeline.Enqueue(new TimelineItem { Kind = "drain", Command = request });
                             EnsureTimeline();
                             break;
+                        case "performance":
+                        case "performance-finish":
+                        case "performance-cancel":
+                            AcceptCommand(request); break;
                         case "action":
                         case "action-finish":
                         case "action-cancel":
@@ -444,13 +447,13 @@ namespace Katarune.Avatar
                     { ended.Complete = true; _textBlocks.Remove(chunk.id); }
                     break;
                 case "tool-input-available":
-                    if ((chunk.toolName != "avatar_action" && chunk.toolName != "set_expression")
+                    if ((chunk.toolName != "avatar_action" && chunk.toolName != "set_expression" && chunk.toolName != "avatar_perform" && chunk.toolName != "avatar_control")
                         || string.IsNullOrWhiteSpace(chunk.toolCallId) || _toolNodes.ContainsKey(chunk.toolCallId)) return;
                     var item = new TimelineItem { Kind = "tool", ToolCallId = chunk.toolCallId, ToolName = chunk.toolName, RunId = runId };
                     if (_commands.TryGetValue(chunk.toolCallId, out var command))
                     {
                         _commands.Remove(chunk.toolCallId);
-                        if (MatchesTool(item, command)) item.Command = command;
+                        if (MatchesTool(item, command)) { PrepareCommand(item, command); item.Command = command; }
                         else
                         {
                             item.Kind = "skip";
@@ -460,6 +463,18 @@ namespace Katarune.Avatar
                     else _toolNodes.Add(chunk.toolCallId, item);
                     _timeline.Enqueue(item);
                     EnsureTimeline();
+                    break;
+                case "tool-input-error": case "tool-output-error": case "tool-output-denied":
+                    // Main may reject a tool before sending any execution request.
+                    // Release only that run's unmatched placeholder so its next
+                    // dialogue can play while the Agent continues generating.
+                    if (chunk.toolCallId != null && _toolNodes.TryGetValue(chunk.toolCallId, out var failedTool)
+                        && failedTool.RunId == runId)
+                    {
+                        failedTool.Kind = "skip";
+                        _toolNodes.Remove(chunk.toolCallId);
+                        EnsureTimeline();
+                    }
                     break;
                 case "finish-step": case "finish": case "error": case "abort": CompleteText(); break;
             }
@@ -480,21 +495,93 @@ namespace Katarune.Avatar
                     EnsureTimeline();
                     throw new ArgumentException("工具事件与执行请求不匹配。");
                 }
+                PrepareCommand(item, request);
                 item.Command = request;
                 _toolNodes.Remove(request.toolCallId);
             }
-            else _commands.Add(request.toolCallId, request);
+            else
+            {
+                // Validate and retain the request before acknowledging it, even when the native
+                // stream event arrives later. Binding to the run still requires that event.
+                if (request.operation == "performance") PrepareCommand(new TimelineItem(), request);
+                if ((request.operation == "performance-finish" || request.operation == "performance-cancel") && !_performances.ContainsKey(request.value))
+                    throw new ArgumentException("表演已经释放。");
+                _commands.Add(request.toolCallId, request);
+            }
             Reply(request);
             EnsureTimeline();
         }
 
         private static bool MatchesTool(TimelineItem item, Request request) =>
             (item.ToolName == "avatar_action" && (request.operation == "action" || request.operation == "action-finish" || request.operation == "action-cancel"))
-            || (item.ToolName == "set_expression" && request.operation == "expression");
+            || (item.ToolName == "set_expression" && request.operation == "expression")
+            || (item.ToolName == "avatar_perform" && request.operation == "performance")
+            || (item.ToolName == "avatar_control" && (request.operation == "performance-finish" || request.operation == "performance-cancel"));
+
+        private void PrepareCommand(TimelineItem item, Request request)
+        {
+            if (request.operation == "performance")
+            {
+                if (_performances.TryGetValue(request.id, out var accepted))
+                {
+                    if (accepted.RunId != null) throw new ArgumentException("重复表演请求。");
+                    accepted.RunId = item.RunId; return;
+                }
+                if (_performances.Count >= 64)
+                {
+                    var terminal = _performances.FirstOrDefault(p => p.Value.Terminal);
+                    if (terminal.Key == null) throw new InvalidOperationException("角色表演队列已满。");
+                    _performances.Remove(terminal.Key);
+                }
+                _performances.Add(request.id, new AvatarPerformance(request.id, request.toolCallId, item.RunId,
+                    JsonUtility.FromJson<AvatarPerformanceRequest>(request.value), _runtime,
+                    state => Send(JsonUtility.ToJson(new PerformanceEvent { performance = state }))));
+            }
+            else if (request.operation == "performance-finish" || request.operation == "performance-cancel")
+            {
+                if (!_performances.TryGetValue(request.value, out var performance)) throw new ArgumentException("表演已经释放。");
+                performance.Control(request.operation == "performance-cancel");
+                item.Kind = "skip";
+            }
+        }
+        private void CancelRun(string runId)
+        {
+            _mutedRuns.Add(runId);
+            foreach (var performance in _performances.Values.Where(p => p.RunId == runId).ToArray()) performance.Control(true);
+            foreach (var pair in _toolNodes.Where(p => p.Value.RunId == runId).ToArray())
+            { pair.Value.Kind = "skip"; _toolNodes.Remove(pair.Key); }
+            if (_activeRunId == runId)
+            {
+                foreach (var command in _commands.Values.ToArray()) ReportInstructionFailure(command, "回复已取消。");
+                _commands.Clear();
+            }
+            if (_runtime is IAvatarActionControl control)
+                foreach (var action in _runningActions.Values.Where(r => r.runId == runId).ToArray())
+                    if (action.instanceId != null && control.GetActionInstanceId(action.value) == action.instanceId) control.CancelAction(action.value);
+            if (_playingRunId == runId) _speech?.Stop();
+            EnsureTimeline();
+        }
+        private void ClearPerformances()
+        {
+            foreach (var performance in _performances.Values.ToArray()) performance.Control(true);
+            _performances.Clear();
+        }
+        private void BindPerformances(SubtitleBlock block)
+        {
+            foreach (var performance in _performances.Values.Where(p => p.RunId == block.RunId)) performance.Bind(block.Id);
+        }
+        private void ProgressPerformances(SubtitleBlock block, int sentence, bool ended = false)
+        {
+            foreach (var performance in _performances.Values.Where(p => p.RunId == block.RunId)) performance.Progress(block.Id, sentence, ended);
+        }
 
         private void ReportInstructionFailure(Request request, string error)
         {
-            if (request.operation.StartsWith("action", StringComparison.Ordinal)) ReportAction(request, "failed", error);
+            if (request.operation == "performance" || request.operation.StartsWith("performance-", StringComparison.Ordinal))
+            {
+                if (_performances.TryGetValue(request.id, out var performance)) performance.Reject(error);
+            }
+            else if (request.operation.StartsWith("action", StringComparison.Ordinal)) ReportAction(request, "failed", error);
             else ReportExpression(request, "failed", error);
         }
 
@@ -522,19 +609,26 @@ namespace Katarune.Avatar
         private IEnumerator Speak(SubtitleBlock block)
         {
             var consumed = 0;
+            var spoken = block.SpokenText ?? block.Text;
             while (!_mutedRuns.Contains(block.RunId))
             {
-                var page = AvatarSpeechSubtitles.ReadPage(block.Text.Substring(consumed), block.Complete, out var length, out var ready);
+                spoken = block.SpokenText ?? block.Text;
+                consumed = Math.Min(consumed, spoken.Length);
+                var page = AvatarSpeechSubtitles.ReadPage(spoken.Substring(consumed), block.Complete, out var length, out var ready);
                 if (page.Length == 0)
                 {
                     if (block.Complete) break;
                     yield return null; continue;
                 }
+                ProgressPerformances(block, AvatarDialogueAnchors.SentenceStarts(spoken).Count(start => start <= consumed));
                 ShowSubtitle(page);
                 if (!ready) { yield return null; continue; }
                 var remaining = Mathf.Clamp(new StringInfo(page).LengthInTextElements / 9f + 0.5f, 1.4f, 7f);
+                var readingSeconds = remaining;
                 while (remaining > 0f && !_mutedRuns.Contains(block.RunId))
                 {
+                    var offset = consumed + (int)(length * (1f - remaining / readingSeconds));
+                    ProgressPerformances(block, AvatarDialogueAnchors.SentenceStarts(spoken).Count(start => start <= offset));
                     yield return null;
                     remaining -= Time.unscaledDeltaTime;
                 }
@@ -554,6 +648,11 @@ namespace Katarune.Avatar
                     if (item.Kind == "dialogue")
                     {
                         var block = item.Subtitle;
+                        BindPerformances(block);
+                        // The normalized spoken text is sent at text-end. Wait only for bound performances;
+                        // ordinary silent subtitles retain their incremental display.
+                        if (_performances.Values.Any(p => !p.Terminal && p.RunId == block.RunId && p.DialogueId == block.Id))
+                            while (_connected && block.SpokenText == null && !_mutedRuns.Contains(block.RunId)) yield return null;
                         if (block.SpeechEnabled && !_mutedRuns.Contains(block.RunId))
                         {
                             while (_connected && block.Audio == null && block.SpeechEnabled && !_mutedRuns.Contains(block.RunId)) yield return null;
@@ -569,12 +668,14 @@ namespace Katarune.Avatar
                             try {
                                 _speech.Play(Guid.NewGuid().ToString(), block.Audio.value, (id, status, error) => {
                                     Send(JsonUtility.ToJson(new SpeechEvent { id = id, runId = block.RunId, status = status, error = error }));
-                                    if (status == "started") { started = true; _playingRunId = block.RunId; Send(JsonUtility.ToJson(new PlaybackEvent { runId = block.RunId, active = true, state = "playing" })); }
+                                    if (status == "started") { started = true; ProgressPerformances(block, 1); _playingRunId = block.RunId; Send(JsonUtility.ToJson(new PlaybackEvent { runId = block.RunId, active = true, state = "playing" })); }
                                     if (status != "started") { finished = true; failed = status == "failed"; }
                                 }, block.Audio.profilePath, block.Audio.streaming);
                             } catch { finished = true; failed = true; }
                             while (_connected && !finished)
                             {
+                                if (started) ProgressPerformances(block, AvatarDialogueAnchors.SentenceAt(block.Audio.text, _speech.PositionSeconds,
+                                    block.Audio.streaming ? _speech.StreamSegments : block.Audio.segments, _speech.DurationSeconds, block.Audio.streaming));
                                 if (_speech.IsStreaming) {
                                     if (started) ShowSubtitle(liveSubtitles.TextAt(_speech.PositionSeconds, _speech.StreamSegments, _speech.DurationSeconds));
                                 }
@@ -589,6 +690,7 @@ namespace Katarune.Avatar
                             if (failed && !started) yield return Speak(block);
                         }
                         else if (!_mutedRuns.Contains(block.RunId)) yield return Speak(block);
+                        ProgressPerformances(block, 0, true);
                         _dialogues.Remove(block.RunId + ":" + block.Id);
                         if (!string.IsNullOrEmpty(block.RunId)) Send(JsonUtility.ToJson(new DialogueCompleted {
                             runId = block.RunId, dialogueId = block.Id,
@@ -597,17 +699,20 @@ namespace Katarune.Avatar
                     else if (item.Kind == "tool")
                     {
                         if (_mutedRuns.Contains(item.RunId)) { _timeline.Dequeue(); continue; }
-                        while (_connected && item.Kind == "tool" && item.Command == null) yield return null;
+                        while (_connected && item.Kind == "tool" && item.Command == null && !_mutedRuns.Contains(item.RunId)) yield return null;
                         if (!_connected) yield break;
-                        if (item.Kind == "skip") { _timeline.Dequeue(); continue; }
-                        if (item.Command.operation == "expression") ApplyExpression(item.Command);
+                        if (item.Kind == "skip" || _mutedRuns.Contains(item.RunId)) { _timeline.Dequeue(); continue; }
+                        if (item.Command.operation == "performance") _performances[item.Command.id].Armed = true;
+                        else if (item.Command.operation == "expression") ApplyExpression(item.Command);
                         else
                         {
                             var action = _runtime.AvailableActions.FirstOrDefault(a => a.Id == item.Command.value);
                             var layer = action.Layer ?? "body";
                             var barrier = item.Command.operation == "action" && action.Kind != "loop";
-                            while (_connected && barrier && _blockingActions.ContainsKey(layer)) yield return null;
+                            while (_connected && barrier && _blockingActions.ContainsKey(layer) && !_mutedRuns.Contains(item.RunId)) yield return null;
                             if (!_connected) yield break;
+                            if (_mutedRuns.Contains(item.RunId)) { _timeline.Dequeue(); continue; }
+                            item.Command.runId = item.RunId;
                             _pendingActions.Add(item.Command.id);
                             if (barrier) _blockingActions[layer] = item.Command.id;
                             StartCoroutine(Act(item.Command));
@@ -618,6 +723,8 @@ namespace Katarune.Avatar
                     }
                     else if (item.Kind == "drain")
                     {
+                        foreach (var performance in _performances.Values.Where(p => p.RunId == item.Command.value)) performance.NoDialogue();
+                        while (_connected && _performances.Values.Any(p => p.RunId == item.Command.value && !p.Terminal)) yield return null;
                         while (_connected && _blockingActions.Count > 0) yield return null;
                         if (_connected) Reply(item.Command);
                         _mutedRuns.Remove(item.Command.value);
@@ -650,6 +757,7 @@ namespace Katarune.Avatar
             var control = _runtime as IAvatarActionControl;
             var loop = _runtime.AvailableActions.Any(action => action.Id == request.value && action.Kind == "loop");
             string instanceId = null;
+            _runningActions[request.id] = request;
             try
             {
                 if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready)
@@ -681,6 +789,7 @@ namespace Katarune.Avatar
                     var terminal = control.GetActionState(instanceId);
                     ReportAction(request, terminal == PerformanceInstanceState.Completed ? "completed" : terminal == PerformanceInstanceState.Failed ? "failed" : "cancelled", instanceId: instanceId, loop: loop); yield break;
                 }
+                request.instanceId = instanceId;
                 ReportAction(request, "started", instanceId: instanceId, loop: loop);
                 _pendingActions.Remove(request.id);
                 // Holding a pose is not a dialogue barrier. Its coroutine only observes
@@ -706,6 +815,7 @@ namespace Katarune.Avatar
             finally
             {
                 _pendingActions.Remove(request.id);
+                _runningActions.Remove(request.id);
                 foreach (var layer in _blockingActions.Where(pair => pair.Value == request.id).Select(pair => pair.Key).ToArray()) _blockingActions.Remove(layer);
             }
         }
@@ -722,6 +832,7 @@ namespace Katarune.Avatar
         {
             if (_subtitleFont != null) Destroy(_subtitleFont);
             if (_window != null) _window.StateChanged -= Send;
+            ClearPerformances();
             _stopping = true; _connected = false;
             _lifetime.Cancel(); _outgoing.CompleteAdding(); _pipe?.Dispose();
         }

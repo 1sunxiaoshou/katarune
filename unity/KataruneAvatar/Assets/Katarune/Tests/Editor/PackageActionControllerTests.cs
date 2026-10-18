@@ -83,6 +83,23 @@ namespace Katarune.Avatar.Tests
             Assert.That(c.GetState(held), Is.EqualTo(PerformanceInstanceState.Cancelled)); Assert.That(c.GetState(shot), Is.EqualTo(PerformanceInstanceState.Cancelled));
             Assert.That(c.Request("system.talk"), Is.True);
         }
+        [Test] public void FinishAfterCycleSurvivesGestureSuspensionAndQueuedLoopStart()
+        {
+            var c = Create(); c.Request("system.think"); c.Tick(.7f);
+            var held = c.CurrentInstanceId; c.Request("gesture");
+            Assert.That(c.Finish("system.think", completeCycle: true), Is.True);
+            c.Tick(.3f); c.Tick(.5f); c.Tick(1.9f);
+            Assert.That(c.GetState(held), Is.EqualTo(PerformanceInstanceState.Running));
+            c.Tick(.11f); Assert.That(c.GetState(held), Is.EqualTo(PerformanceInstanceState.Exiting));
+            c.Tick(.4f); Assert.That(c.GetState(held), Is.EqualTo(PerformanceInstanceState.Completed));
+
+            c.Request("system.think"); c.Tick(.7f); c.Request("system.talk");
+            var next = c.InstanceFor("system.talk");
+            Assert.That(c.Finish("system.talk", completeCycle: true), Is.True);
+            c.Tick(.4f); Assert.That(c.CurrentInstanceId, Is.EqualTo(next));
+            c.Tick(.9f); Assert.That(c.GetState(next), Is.EqualTo(PerformanceInstanceState.Running));
+            c.Tick(.11f); Assert.That(c.GetState(next), Is.EqualTo(PerformanceInstanceState.Completed));
+        }
         [Test] public void RequestingSavedLoopResumesItAndCancelsOnlyTheGesture()
         {
             var c = Create(); c.Request("system.think"); c.Tick(.7f); var held = c.CurrentInstanceId;

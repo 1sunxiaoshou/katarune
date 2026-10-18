@@ -1,5 +1,6 @@
 import { avatarPresentationSchema, avatarWindowReportSchema } from "./avatarDesktop";
 import * as z from "zod/mini";
+import { avatarPerformanceStateSchema } from "./avatarPerformance";
 
 export const avatarBindingSchema = z.object({
   characterId: z.uuid(),
@@ -7,6 +8,7 @@ export const avatarBindingSchema = z.object({
 });
 export type AvatarBinding = z.infer<typeof avatarBindingSchema>;
 export const avatarStatusSchema = z.object({
+  performances: z.optional(z.array(avatarPerformanceStateSchema).check(z.maxLength(64))),
   busy: z.optional(z.boolean()),
   phase: z.enum(["stopped", "starting", "switching", "ready", "error"]),
   binding: z.nullable(avatarBindingSchema),
@@ -62,6 +64,7 @@ export const avatarCapabilitiesSchema = z.object({
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("performance"), performance: avatarPerformanceStateSchema }),
   avatarPresentationSchema, avatarWindowReportSchema,
   z.object({ type: z.literal("startup-error"), error: z.string().check(z.minLength(1), z.maxLength(4000)) }),
   z.object({ type: z.literal("playback"), runId: z.string(), active: z.boolean(),

@@ -40,7 +40,7 @@ namespace Katarune.Avatar
     }
     public interface IAvatarActionControl
     {
-        bool FinishAction(string actionId);
+        bool FinishAction(string actionId, bool completeCycle = false);
         string CurrentInstanceId { get; }
         PerformanceInstanceState? GetActionState(string instanceId);
         string GetActionInstanceId(string actionId);

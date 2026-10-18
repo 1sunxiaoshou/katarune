@@ -1,4 +1,5 @@
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import { makeAssistantToolUI, type ToolCallMessagePartProps } from "@assistant-ui/react";
+import { toolErrorMessage } from "./toolErrorMessage";
 import {
   BookOpenText,
   CheckCircle2,
@@ -14,9 +15,8 @@ interface ToolStatusProps {
   readonly failed: string;
   readonly icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   readonly result: unknown;
-  readonly status: {
-    readonly type: "running" | "complete" | "incomplete" | "requires-action";
-  };
+  readonly status: ToolCallMessagePartProps["status"];
+  readonly isError?: boolean;
   readonly isSuccessfulResult: (result: unknown) => boolean;
   readonly conflict?: boolean;
 }
@@ -37,9 +37,17 @@ function ToolStatus({
   icon: Icon,
   result,
   status,
+  isError,
   isSuccessfulResult,
   conflict = false,
 }: ToolStatusProps): React.JSX.Element {
+  const error = toolErrorMessage(result, status);
+  if (isError || error || status.type === "incomplete") return (
+    <div className="text-destructive py-1 text-sm" data-testid="memory-wiki-tool-status">
+      <div className="flex items-center gap-2"><TriangleAlert className="size-4" aria-hidden /><span>{failed}</span></div>
+      {error ? <p role="alert" className="pt-1">{error}</p> : null}
+    </div>
+  );
   if (status.type === "running") {
     return (
       <div
@@ -75,19 +83,6 @@ function ToolStatus({
       </div>
     );
   }
-
-  if (status.type === "incomplete") {
-    return (
-      <div
-        className="text-destructive flex items-center gap-2 py-1 text-sm"
-        data-testid="memory-wiki-tool-status"
-      >
-        <TriangleAlert className="size-4" aria-hidden />
-        <span>{failed}</span>
-      </div>
-    );
-  }
-
   return (
     <div
       className="text-muted-foreground flex items-center gap-2 py-1 text-sm"
@@ -102,7 +97,7 @@ function ToolStatus({
 const WikiSearchToolUI = makeAssistantToolUI({
   toolName: "wiki_search",
   display: "standalone",
-  render: ({ result, status }) => (
+  render: ({ result, status, isError }) => (
     <ToolStatus
       activity="正在搜索记忆…"
       complete="已搜索记忆"
@@ -110,6 +105,7 @@ const WikiSearchToolUI = makeAssistantToolUI({
       icon={Search}
       result={result}
       status={status}
+      isError={isError ?? false}
       isSuccessfulResult={(value) => hasResultStatus(value, "ok")}
     />
   ),
@@ -118,7 +114,7 @@ const WikiSearchToolUI = makeAssistantToolUI({
 const WikiGetToolUI = makeAssistantToolUI({
   toolName: "wiki_get",
   display: "standalone",
-  render: ({ result, status }) => (
+  render: ({ result, status, isError }) => (
     <ToolStatus
       activity="正在读取记忆…"
       complete={hasResultStatus(result, "not_found") ? "未找到相关记忆" : "已读取记忆"}
@@ -126,6 +122,7 @@ const WikiGetToolUI = makeAssistantToolUI({
       icon={BookOpenText}
       result={result}
       status={status}
+      isError={isError ?? false}
       isSuccessfulResult={(value) =>
         hasResultStatus(value, "found") || hasResultStatus(value, "not_found")
       }
@@ -136,7 +133,7 @@ const WikiGetToolUI = makeAssistantToolUI({
 const WikiApplyPatchToolUI = makeAssistantToolUI({
   toolName: "wiki_apply_patch",
   display: "standalone",
-  render: ({ result, status }) => (
+  render: ({ result, status, isError }) => (
     <ToolStatus
       activity="正在更新记忆…"
       complete={hasResultStatus(result, "not_found") ? "未找到待更新记忆" : "已更新记忆"}
@@ -144,6 +141,7 @@ const WikiApplyPatchToolUI = makeAssistantToolUI({
       icon={FilePenLine}
       result={result}
       status={status}
+      isError={isError ?? false}
       isSuccessfulResult={(value) =>
         hasResultStatus(value, "applied") || hasResultStatus(value, "not_found")
       }

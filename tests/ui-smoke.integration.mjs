@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import {
@@ -76,7 +76,7 @@ const releasedAttachmentIds = [];
 const appendedMessageRequests = [];
 let character = {
   id: characterId,
-  name: "星澜",
+  name: "测试角色 A",
   packageId: "builtin:default",
   packagePortraitAssetId: "00000000-0000-4000-8000-000000000002",
   packageThumbnailAssetId: "00000000-0000-4000-8000-000000000004",
@@ -85,13 +85,13 @@ let character = {
   speechModelConfigId: null,
   speechVoice: null,
   useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
-  systemPrompt: "你是星澜，一位温柔、沉静的数字角色。",
+  systemPrompt: "你是用于界面验证的测试角色 A。",
   createdAt: now,
   updatedAt: now,
 };
 const secondCharacter = {
   id: "00000000-0000-4000-8000-000000000003",
-  name: "月影",
+  name: "测试角色 B",
   packageId: "builtin:default",
   packagePortraitAssetId: "00000000-0000-4000-8000-000000000002",
   packageThumbnailAssetId: "00000000-0000-4000-8000-000000000004",
@@ -100,7 +100,7 @@ const secondCharacter = {
   speechModelConfigId: null,
   speechVoice: null,
   useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
-  systemPrompt: "你是月影。",
+  systemPrompt: "你是用于界面验证的测试角色 B。",
   createdAt: now,
   updatedAt: now,
 };
@@ -108,14 +108,14 @@ let characters = [character, secondCharacter];
 let activeCharacterId = characterId;
 let threads = [
   ...Array.from({ length: 18 }, (_, index) => ({
-    remoteId: `starline-thread-${index + 1}`,
+    remoteId: `test-thread-${index + 1}`,
     status: "regular",
-    title: index === 0 ? "雨停后的第一封信" : `星轨会话 ${index + 1}`,
+    title: index === 0 ? "用于验证会话标题显示的测试会话" : `测试会话 ${index + 1}`,
     lastMessageAt: new Date(now.getTime() - index * 3_600_000),
     characterId,
   })),
   {
-    remoteId: "archived-starline-thread",
+    remoteId: "archived-test-thread",
     status: "archived",
     title: "不应出现的归档会话",
     lastMessageAt: now,
@@ -124,12 +124,13 @@ let threads = [
   {
     remoteId: "second-character-visible-thread",
     status: "regular",
-    title: "只属于月影的会话",
+    title: "只属于测试角色 B的会话",
     lastMessageAt: now,
     characterId: secondCharacter.id,
   },
 ];
 const storedMessages = new Map();
+let toolOnlyRequests = 0;
 let activeChatStreamCount = 0;
 let maximumConcurrentChatStreams = 0;
 let maximumConcurrentChatCharacters = 0;
@@ -279,7 +280,7 @@ function registerMockHandlers() {
   ipcMain.handle("threads:generate-title", (_event, request) => {
     titleRequests.push(request);
     generatedThreadTitleRequest = request;
-    const title = `星光下的${request.messages[0]?.text.slice(0, 12) ?? "新对话"}`;
+    const title = `测试会话：${request.messages[0]?.text.slice(0, 12) ?? "新对话"}`;
     threads = threads.map((thread) =>
       thread.remoteId === request.threadId &&
       thread.characterId === request.characterId
@@ -404,8 +405,37 @@ function registerMockHandlers() {
           return;
         }
         const serializedMessages = JSON.stringify(request.messages);
+        if (serializedMessages.includes("测试工具终态")) {
+          toolOnlyRequests += 1;
+          if (request.messages.at(-1)?.role === "user" && JSON.stringify(request.messages.at(-1)).includes("测试工具终态")) {
+            writer.write({ type: "start-step" });
+            writer.write({ type: "tool-input-available", toolCallId: "terminal-memory", toolName: "wiki_search", input: { query: "终态测试" } });
+            writer.write({ type: "tool-output-available", toolCallId: "terminal-memory", output: { status: "ok", results: [] } });
+            writer.write({ type: "finish-step" });
+            return;
+          }
+        }
         const isSecondCharacter = request.characterId === secondCharacter.id;
         const isCrossCharacterRun = serializedMessages.includes("跨角色");
+        const shouldRenderPerformance = serializedMessages.includes("测试表演编排") && !serializedMessages.includes("avatar_perform");
+        if (shouldRenderPerformance) {
+          writer.write({ type: "start-step" });
+          writer.write({ type: "tool-input-available", toolCallId: "performance-ui", toolName: "avatar_perform", input: { steps: [
+            { at: "start", action: "system:greet", expression: "happy" },
+            { at: "sentence", sentence: 2, expression: "surprised" },
+            { at: "after_action", action: "system:clap" },
+          ] } });
+          writer.write({ type: "tool-output-available", toolCallId: "performance-ui", output: { status: "accepted", performanceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", steps: [
+            { action: "问候", expression: "happy" }, { expression: "surprised" }, { action: "鼓掌" },
+          ] } });
+          writer.write({ type: "tool-input-available", toolCallId: "performance-ui-error", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
+          writer.write({ type: "tool-output-error", toolCallId: "performance-ui-error", errorText: "角色编排队列已满。" });
+          writer.write({ type: "tool-input-available", toolCallId: "performance-ui-ack", toolName: "avatar_perform", input: { steps: [{ at: "start", action: "system:greet", expression: "happy" }] } });
+          writer.write({ type: "tool-output-available", toolCallId: "performance-ui-ack", output: { status: "accepted", performanceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } });
+          writer.write({ type: "tool-input-available", toolCallId: "performance-ui-state-only", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
+          writer.write({ type: "tool-output-available", toolCallId: "performance-ui-state-only", output: {} });
+          writer.write({ type: "finish-step" }); writer.write({ type: "start-step" });
+        }
         const shouldRenderMemoryTool =
           serializedMessages.includes("测试记忆工具") &&
           !serializedMessages.includes("wiki_search");
@@ -480,6 +510,8 @@ function registerMockHandlers() {
               output: toolCall.output,
             });
           }
+          writer.write({ type: "tool-input-error", toolCallId: "memory-invalid-input", toolName: "wiki_search", input: { query: 42 }, errorText: "Invalid input for tool wiki_search: query: expected string" });
+          writer.write({ type: "tool-output-error", toolCallId: "memory-invalid-input", errorText: "Invalid input for tool wiki_search: query: expected string" });
           writer.write({ type: "finish-step" });
           writer.write({ type: "start-step" });
         }
@@ -487,15 +519,15 @@ function registerMockHandlers() {
         writer.write({
           type: "text-delta",
           id: "mock-text",
-          delta: isSecondCharacter ? "月光已经" : "星光已经",
+          delta: isSecondCharacter ? "角色 B 已" : "角色 A 已",
         });
         writer.write({
           type: "text-delta",
           id: "mock-text",
-          delta: `${isCrossCharacterRun ? "跨角色" : ""}抵达：${request.threadId}。`,
+          delta: `${isCrossCharacterRun ? "跨角色" : ""}收到：${request.threadId}。`,
         });
         writer.write({ type: "text-end", id: "mock-text" });
-        if (shouldRenderMemoryTool) writer.write({ type: "finish-step" });
+        if (shouldRenderMemoryTool || shouldRenderPerformance) writer.write({ type: "finish-step" });
       },
     });
     const response = createUIMessageStreamResponse({ stream });
@@ -997,7 +1029,7 @@ async function run() {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
           input,
-          '请确认星光是否抵达',
+          '请返回测试回复',
         );
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
@@ -1005,7 +1037,7 @@ async function run() {
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
-        "抵达：",
+        "收到：",
       );
       await waitUntil("message persistence and thread metadata refresh", () => activeChatStreamCount === 0 && pendingThreadListLoads === 0 && completedThreadListLoads > listLoadsBeforeSend);
       const listRefresh = await window.webContents.executeJavaScript(`(() => {
@@ -1041,6 +1073,8 @@ async function run() {
         '[data-slot="aui_thread-viewport"]',
         "已更新记忆",
       );
+      await waitForText(window, '[data-testid="memory-wiki-tool-status"] [role="alert"]', 'query: expected string');
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-wiki-tool-status"]')).some(item => item.textContent.includes('记忆搜索失败') && item.textContent.includes('query: expected string'))`), true);
       assert.equal(
         await window.webContents.executeJavaScript(`(() => {
           const text = document.querySelector('[data-slot="aui_thread-viewport"]')?.textContent ?? '';
@@ -1057,6 +1091,54 @@ async function run() {
         "Memory Wiki response stream completion",
         () => activeChatStreamCount === 0,
       );
+      await waitForSelector(window, 'button[aria-label="发送消息"]');
+    });
+
+    await runStep("backend tool-only completion does not restart the Agent in the renderer", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试工具终态');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitUntil("tool-only stream completion", () => toolOnlyRequests > 0 && activeChatStreamCount === 0);
+      await waitForSelector(window, 'button[aria-label="发送消息"]');
+      await window.webContents.executeJavaScript('new Promise(resolve => setTimeout(resolve, 200))');
+      assert.equal(toolOnlyRequests, 1, "Backend tools must be continued only by Main's native Agent loop");
+    });
+
+    await runStep("render performance summary and authoritative playback state", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试表演编排');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitForText(window, '[data-testid="avatar-performance"]', '已安排');
+      await waitForText(window, '[data-tool-call-id="performance-ui-error"] [role="alert"]', '角色编排队列已满');
+      await waitForText(window, '[data-tool-call-id="performance-ui-ack"]', '已安排');
+      await clickSelector(window, '[data-tool-call-id="performance-ui-ack"] button');
+      await waitForText(window, '[data-tool-call-id="performance-ui-ack"]', '开心');
+      await waitForText(window, '[data-tool-call-id="performance-ui-state-only"]', '播放状态未同步');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="avatar-performance"]').textContent.includes('表演完成')`), false);
+      await clickSelector(window, '[data-testid="avatar-performance"] button');
+      await waitForText(window, '[data-testid="avatar-performance"]', '问候');
+      await waitForText(window, '[data-testid="avatar-performance"]', '第 2 句');
+      await waitForText(window, '[data-testid="avatar-performance"]', '鼓掌');
+      const performance = { performanceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', toolCallId: 'performance-ui', state: 'running', cues: [
+        { id: 'step-1', state: 'running' }, { id: 'step-2', state: 'pending' }, { id: 'step-3', state: 'pending' },
+      ] };
+      window.webContents.send('avatar:changed', { ...avatarStatus, performances: [performance,
+        { performanceId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', toolCallId: 'performance-ui-state-only', state: 'running', cues: [{ id: 'step-1', state: 'running' }] },
+      ] });
+      await waitForText(window, '[data-testid="avatar-performance"]', '正在表演');
+      await waitForText(window, '[data-tool-call-id="performance-ui-state-only"]', '正在表演');
+      await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      writeFileSync(join(projectRoot, '.test-dist', 'avatar-performance-ui.png'), (await window.webContents.capturePage()).toPNG());
+      window.webContents.send('avatar:changed', { ...avatarStatus, performances: [{ ...performance, state: 'failed', error: '测试播放失败' }] });
+      await waitForText(window, '[data-testid="avatar-performance"] [role="alert"]', '测试播放失败');
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitUntil('performance response stream completion', () => activeChatStreamCount === 0);
       await waitForSelector(window, 'button[aria-label="发送消息"]');
     });
 
@@ -1179,7 +1261,7 @@ async function run() {
       assert.equal(avatarChatRequests.length, 3);
       await waitUntil("avatar thread gets a native title after its first reply", () => titleRequests.some(r => r.threadId === avatarChatRequests[0].threadId));
       assert.equal(titleRequests.filter(r => r.threadId === avatarChatRequests[0].threadId).length, 1);
-      await waitForText(window, "body", "星光下的桌宠第一句");
+      await waitForText(window, "body", "测试会话：桌宠第一句");
       assert.equal(canceledAvatarStreams, 0);
       assert.equal(avatarChatRequests[1].messages.at(-1).parts[0].text, "桌宠第二句");
       assert.equal(avatarChatRequests[2].messages.at(-1).parts[0].text, "桌宠第三句");
@@ -1192,7 +1274,7 @@ async function run() {
       await waitForSelector(window, ".aui-thread-welcome-root");
       await sendText("普通新会话标题");
       await waitUntil("ordinary thread title generated", () => titleRequests.some(r => r.messages[0]?.text === "普通新会话标题"));
-      await waitForText(window, "body", "星光下的普通新会话标题");
+      await waitForText(window, "body", "测试会话：普通新会话标题");
       await waitUntil("ordinary chat completed", () => activeChatStreamCount === 0);
       assert.equal(titleRequests.filter(r => r.messages[0]?.text === "普通新会话标题").length, 1);
     });
@@ -1252,7 +1334,7 @@ async function run() {
       includeGoogleSpeechFixture = true;
       await clickSelector(window, '[data-testid="character-launcher"]');
       await waitForSelector(window, '[data-testid="character-page"]');
-      await waitForText(window, '[data-testid="character-page"]', "星澜");
+      await waitForText(window, '[data-testid="character-page"]', "测试角色 A");
       await window.webContents.executeJavaScript(`(() => {
         const button = document.querySelector('[data-testid="character-portrait-import"]');
         if (!button) throw new Error('Missing package button'); button.click();

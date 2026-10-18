@@ -150,7 +150,7 @@ namespace Katarune.Avatar
         }
 
         public void CancelAction() => _active?.CancelAction();
-        public bool FinishAction(string actionId) => (_active as IAvatarActionControl)?.FinishAction(actionId) ?? false;
+        public bool FinishAction(string actionId, bool completeCycle = false) => (_active as IAvatarActionControl)?.FinishAction(actionId, completeCycle) ?? false;
         public string CurrentInstanceId => (_active as IAvatarActionControl)?.CurrentInstanceId;
         public string GetActionInstanceId(string actionId) => (_active as IAvatarActionControl)?.GetActionInstanceId(actionId);
         public bool CancelAction(string actionId)

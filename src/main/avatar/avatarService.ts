@@ -14,6 +14,8 @@ import { AvatarDialogueSpeech } from "./avatarDialogueSpeech";
 import { dirname, join } from "node:path";
 import { tool, type ToolSet, type UIMessageChunk } from "ai";
 import { z } from "zod";
+import { avatarControlSchema, avatarStepSchema, avatarPerformSchema, type AvatarPerformResult, type AvatarPerformanceState } from "../../shared/avatarPerformance";
+import { extractSpokenText } from "../speech/spokenText";
 import {
   avatarReplySchema,
   type AvatarBinding,
@@ -101,8 +103,8 @@ export class AvatarService {
   private bindingEpoch = 0;
   private switching: Promise<AvatarStatus> | undefined;
   private releaseBarrier: Promise<unknown> = Promise.resolve();
-  private activeInstructions = new Set<string>();
-  private heldInstructions = new Set<string>();
+  // A null value reserves ownership until Unity reports its actual state.
+  private performances = new Map<string, AvatarPerformanceState | null>();
   private starting: Promise<AvatarStatus> | undefined;
   private rejectStartup: ((error: Error) => void) | undefined;
   private listeners = new Set<(status: AvatarStatus) => void>();
@@ -129,7 +131,7 @@ export class AvatarService {
     private readonly logsDirectory: string,
   ) {}
   get status(): AvatarStatus {
-    return { ...this.state, busy: this.activeRuns.size > 0 || this.pending.size > 0 || this.activeInstructions.size > 0,
+    return { ...this.state, performances: [...this.performances.values()].flatMap(state => state ? [state] : []), busy: this.activeRuns.size > 0 || this.pending.size > 0,
       voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
   }
 
@@ -240,6 +242,10 @@ export class AvatarService {
                   socket.write(`${JSON.stringify({ type: "binding", epoch: this.bindingEpoch })}\n`);
                                 finish();
                 }
+              } else if (reply.type === "performance") {
+                if (!this.performances.has(reply.performance.performanceId)) continue;
+                this.performances.set(reply.performance.performanceId, reply.performance);
+                if (reply.performance.state === "failed") this.state = { ...this.state, error: reply.performance.error || "角色表演失败。" };
               } else if (reply.type === "playback") {
                 if (!this.activeRuns.has(reply.runId) || this.state.phase !== "ready") continue;
                 this.playingRunId = reply.active ? reply.runId : this.playingRunId === reply.runId ? null : this.playingRunId;
@@ -257,24 +263,8 @@ export class AvatarService {
                 request.cleanup();
                 if (reply.status === "completed") request.resolve();
                 else request.reject(new Error(reply.error || "语音播放已停止。"));
-              } else if (
-                reply.type === "action" ||
-                reply.type === "expression"
-              ) {
-                if (!this.activeInstructions.has(reply.id) && !this.heldInstructions.has(reply.id)) continue;
-                if (reply.type === "action" && reply.loop && reply.status === "started") this.heldInstructions.add(reply.id);
-                else this.heldInstructions.delete(reply.id);
-                if (reply.type === "expression" || reply.status !== "started" || reply.loop)
-                  this.activeInstructions.delete(reply.id);
-                if (
-                  reply.status === "failed"
-                )
-                  this.state = {
-                    ...this.state,
-                    error: reply.error || "动作未完成。",
-                  };
-              } else {
-                if (!reply.ok) this.activeInstructions.delete(reply.id);
+              } else if (reply.type === "result") {
+                if (!reply.ok) this.performances.delete(reply.id);
                 const request = this.pending.get(reply.id);
                 if (!request) continue;
                 this.pending.delete(reply.id);
@@ -351,8 +341,7 @@ export class AvatarService {
     this.pending.clear();
     this.dialogueRuns.clear();
     this.activeRuns.clear();
-    this.activeInstructions.clear();
-    this.heldInstructions.clear();
+    this.performances.clear();
     this.mutedRuns.clear();
     this.playingRunId = null;
     this.playbackState = undefined;
@@ -412,8 +401,7 @@ export class AvatarService {
       request.reject(error);
     }
     this.pending.clear();
-    this.activeInstructions.clear();
-    this.heldInstructions.clear();
+    this.performances.clear();
     const socket = this.socket;
     this.socket = undefined;
     socket?.destroy();
@@ -457,58 +445,57 @@ export class AvatarService {
       this.state.phase !== "ready"
     )
       return {};
-    const execute = async (
-      operation: string,
-      value: string,
-      toolCallId: string,
-      allowSpeech = true,
-    ) => {
+    const current = () => {
       if (this.socket !== socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready")
         throw new Error("角色连接已改变。");
-      await this.request(
-        operation,
-        value,
-        signal,
-        allowSpeech,
-        toolCallId,
-      );
-      return { ok: true as const };
     };
-    const tools: ToolSet = {};
-    if (capabilities.expressions.length)
-      tools.set_expression = tool({
-        description:
-          "用你的表情表达情绪。选择最符合当前感受和语境的表情。",
-        inputSchema: z.object({
-          expression: z
-            .enum(capabilities.expressions)
-            .describe("你要呈现的表情"),
-        }),
-        execute: ({ expression }, { toolCallId }) =>
-          execute("expression", expression, toolCallId),
+    if (!capabilities.actions.length && !capabilities.expressions.length) return {};
+    const inputSchema = avatarPerformSchema.safeExtend({ steps: z.array(avatarStepSchema.extend({
+      action: (capabilities.actions.length ? z.enum(capabilities.actions.map(actionSelector)).nullish() : z.null().optional())
+        .describe("身体动作，只能选择本字段枚举中的动作名称；动作名称不代表同名面部表情。不需要动作时省略或填 null。"),
+      expression: (capabilities.expressions.length ? z.enum(capabilities.expressions).nullish() : z.null().optional())
+        .describe("面部表情，只能选择本字段枚举中的表情名称，不能照搬 action 的名称。动作不要求搭配表情；没有合适表情时省略或填 null，保持现有表情。"),
+    })).min(1).max(32) }).superRefine(({ steps }, ctx) => {
+      let previousAction: AvatarCapabilities["actions"][number] | undefined;
+      steps.forEach((step, index) => {
+        if (step.at === "after_action" && previousAction?.kind === "loop")
+          ctx.addIssue({ code: "custom", path: ["steps", index, "at"], message: "不能等待持续姿态，请使用 sentence 或 end 触发。" });
+        if (step.action) previousAction = capabilities.actions.find(action => actionSelector(action) === step.action);
       });
-    if (capabilities.actions.length)
-      tools.avatar_action = tool({
-        description: `选择动作或持续姿态。play 开始或切换；finish 自然退出持续姿态；cancel 立即停止该动作。头部、上半身和身体可并行；同一通道的一次性动作结束恢复原姿态，持续姿态保持到切换或结束。可用动作：${capabilities.actions.map(describeAction).join("；")}。`,
-        inputSchema: z.object({
-          action: z
-            .enum(capabilities.actions.map(actionSelector))
-            .describe("你要做的动作"),
-          allowSpeech: z
-            .boolean()
-            .default(true)
-            .describe("做动作时是否同时说话"),
-          command: z.enum(["play", "finish", "cancel"]).default("play"),
-        }),
-        execute: ({ action, allowSpeech = true, command = "play" }, { toolCallId }) => {
-          const available = capabilities.actions.find(item => actionSelector(item) === action);
-          if (!available) throw new Error("当前角色包没有该动作。");
-          if (available.kind === "loop" && !allowSpeech) throw new Error("持续姿态需要允许同时说话。");
-          if (command === "finish" && available.kind !== "loop") throw new Error("只有持续姿态可以自然退出。");
-          return execute(command === "play" ? "action" : `action-${command}`, available.id, toolCallId, allowSpeech);
+    });
+    const exampleAction = capabilities.actions.find(action => action.kind !== "loop") ?? capabilities.actions[0];
+    const exampleExpression = capabilities.expressions.includes("happy") ? "happy" : capabilities.expressions[0];
+    const example = { steps: [{ at: "start", ...(exampleAction ? { action: actionSelector(exampleAction) } : {}),
+      ...(exampleExpression ? { expression: exampleExpression } : {}) }] };
+    return {
+      avatar_perform: tool({
+        description: `为接下来一段正文安排动作和表情，调用后正常输出对白。steps 是步骤列表，每步直接填 action 和/或 expression 名称，不填写 id、when 或内部节点引用。身体动作与面部表情是独立能力，动作存在不代表有同名表情；没有合适表情时省略 expression 或填 null，不必为每个动作搭配表情。调用示例：${JSON.stringify(example)}。at：start=对白开始；sentence=第 sentence 句开始（从1编号，按句末标点或换行分句）；after_action=列表中最近一个带动作的步骤正常完成后；end=对白结束。after_action 只能接在一次性动作后。相同触发条件并行，同身体通道的一次性动作排队。表情统一使用100%强度，不填写权重；表情保持到下次改变。无关字段可省略或填null。持续姿态在对白结束时播完当前循环再退出，一次性动作完整播完。未出现的句子和失败动作的后继步骤跳过。返回接收确认，实际播放由身体执行。可用动作：${capabilities.actions.map(describeAction).join("；")}。可用表情：${capabilities.expressions.join("、")}。`,
+        inputSchema,
+        execute: async (input, { toolCallId }): Promise<AvatarPerformResult> => {
+          current();
+          const resolved = { steps: input.steps.map(step => ({ ...step,
+            sentence: step.sentence ?? undefined,
+            action: step.action ? capabilities.actions.find(action => actionSelector(action) === step.action)!.id : null,
+          })) };
+          const performanceId = await this.request("performance", JSON.stringify(resolved), signal, toolCallId);
+          current();
+          return { status: "accepted", performanceId, steps: resolved.steps.map(step => ({
+            action: step.action ? capabilities.actions.find(action => action.id === step.action)!.label : undefined,
+            expression: step.expression ?? undefined,
+          })) };
         },
-      });
-    return tools;
+      }),
+      avatar_control: tool({
+        description: "控制本会话先前已接收的表演。finish 取消尚未开始的提示点并让当前动作自然收尾；cancel 立即取消该表演。使用 avatar_perform 返回的 performanceId。",
+        inputSchema: avatarControlSchema,
+        execute: async ({ performanceId, command }, { toolCallId }) => {
+          current();
+          if (!this.performances.has(performanceId)) throw new Error("该表演不属于当前角色会话或已经释放。");
+          await this.request(`performance-${command}`, performanceId, signal, toolCallId);
+          return { status: "accepted" as const, performanceId, command };
+        },
+      }),
+    };
   }
 
   relay(
@@ -532,6 +519,13 @@ export class AvatarService {
         if (current()) this.state = { ...this.state, error: "桌宠语音合成失败，请检查模型和音色后重试。" };
       }) : undefined;
     if (speech) this.dialogueRuns.set(runId, speech);
+    const textBlocks = new Map<string, string>();
+    const sealText = (id: string) => {
+      const text = textBlocks.get(id);
+      if (text === undefined) return;
+      textBlocks.delete(id);
+      if (current()) socket.write(`${JSON.stringify({ type: "dialogue-text", runId, dialogueId: id, text: extractSpokenText(text) })}\n`);
+    };
     let released = false;
     let cancellation: Promise<unknown> | undefined;
     const abort = () => {
@@ -558,6 +552,7 @@ export class AvatarService {
         try {
           const chunk = await reader.read();
           if (chunk.done) {
+            for (const id of textBlocks.keys()) sealText(id);
             if (current()) speech?.seal();
             // Unity owns playback; acknowledgement only releases borrowed audio files.
             // A completed generation's signal must not cancel its ongoing playback.
@@ -582,7 +577,12 @@ export class AvatarService {
               );
             });
           }
-          if (current() && !this.mutedRuns.has(runId)) speech?.observe(chunk.value);
+          const event = chunk.value;
+          if (event.type === "text-start") textBlocks.set(event.id, "");
+          if (event.type === "text-delta" && textBlocks.has(event.id)) textBlocks.set(event.id, textBlocks.get(event.id)! + event.delta);
+          if (event.type === "text-end") sealText(event.id);
+          if (["finish-step", "finish", "error", "abort"].includes(event.type)) for (const id of textBlocks.keys()) sealText(id);
+          if (current() && !this.mutedRuns.has(runId)) speech?.observe(event);
           controller.enqueue(chunk.value);
         } catch (error) {
           abort();
@@ -650,7 +650,6 @@ export class AvatarService {
     operation: string,
     value: string,
     signal: AbortSignal,
-    allowSpeech = true,
     toolCallId = "",
   ): Promise<string> {
     signal.throwIfAborted();
@@ -661,7 +660,7 @@ export class AvatarService {
     return new Promise<string>((resolve, reject) => {
       const abort = () => {
         this.pending.delete(id);
-        this.activeInstructions.delete(id);
+        if (operation === "performance") this.performances.delete(id);
         this.changed();
         cleanup();
         reject(signal.reason ?? new Error("角色请求已取消。"));
@@ -673,13 +672,19 @@ export class AvatarService {
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
       };
+      if (operation === "performance") {
+        if (this.performances.size >= 64) {
+          const released = [...this.performances].find(([, state]) => state && ["completed", "cancelled", "failed"].includes(state.state))?.[0];
+          if (!released) { cleanup(); reject(new Error("角色表演队列已满。")); return; }
+          this.performances.delete(released);
+        }
+        this.performances.set(id, null);
+      }
       this.pending.set(id, { resolve: () => resolve(id), reject, cleanup });
-      if (operation === "action" || operation === "action-finish" || operation === "action-cancel" || operation === "expression")
-        this.activeInstructions.add(id);
       this.changed();
       signal.addEventListener("abort", abort, { once: true });
       socket.write(
-        `${JSON.stringify({ id, operation, value, allowSpeech, toolCallId })}\n`,
+        `${JSON.stringify({ id, operation, value, toolCallId })}\n`,
       );
     });
   }

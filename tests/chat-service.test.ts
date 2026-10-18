@@ -1,6 +1,6 @@
 import { emptyAppSettings } from "./defaultSettings";
 import { MockLanguageModelV4 } from "ai/test";
-import { tool } from "ai";
+import { APICallError, UnsupportedFunctionalityError, tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
@@ -8,12 +8,18 @@ import type { MemoryWikiService } from "../src/main/memory/memoryWikiService";
 import {
   createChatService,
   createChatAttachmentDownload,
-  sanitizeChatError,
+  chatErrorMessage,
   type ChatServiceAiRuntime,
   type ChatServiceDatabase,
 } from "../src/main/ai/chatService";
 
 const characterId = "00000000-0000-4000-8000-000000000001";
+it("preserves native error messages and strings without serializing error metadata", () => {
+  expect(chatErrorMessage(new Error("角色编排队列已满。"))).toBe("角色编排队列已满。");
+  expect(chatErrorMessage("query: expected string")).toBe("query: expected string");
+  const error = new APICallError({ message: "Service unavailable", url: "https://example.invalid", requestBodyValues: { input: "fixture input" }, responseBody: "fixture response", statusCode: 503 });
+  expect(chatErrorMessage(error)).toBe("Service unavailable");
+});
 const modelConfigId = "00000000-0000-4000-8000-000000000002";
 const request: ChatStreamRequest = {
   requestId: "00000000-0000-4000-8000-000000000003",
@@ -47,7 +53,7 @@ function createDatabase(
     })),
     fetchCharacter: vi.fn(() => ({
       id: characterId,
-      name: "星澜",
+      name: "测试角色",
       portraitAssetId: null,
       useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: modelId,
@@ -140,6 +146,28 @@ function createMemoryWiki(
 }
 
 describe("chat service", () => {
+  it.each([
+    ["avatar_perform", '{"steps":[{"at":"start","expression":"happy"}]}', "unavailable tool 'avatar_perform'"],
+    ["wiki_search", '{"query":42}', "expected string"],
+  ])("keeps the SDK %s failure reason in the native UI stream", async (toolName, input, reason) => {
+    let step = 0;
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: new ReadableStream({ start(controller) {
+      if (++step === 1) controller.enqueue({ type: "tool-call", toolCallId: "failed-tool", toolName, input });
+      controller.enqueue({ type: "finish", finishReason: { unified: step === 1 ? "tool-calls" : "stop", raw: undefined },
+        usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
+      controller.close();
+    } }) }) });
+    const memoryWiki = createMemoryWiki();
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, memoryWiki });
+    const output = await (await service.createResponse(request, new AbortController().signal)).text();
+    const chunks = output.split("\n").filter(line => line.startsWith("data: {")).map(line => JSON.parse(line.slice(6)));
+    const inputError = chunks.find(chunk => chunk.type === "tool-input-error");
+    const outputError = chunks.find(chunk => chunk.type === "tool-output-error");
+    expect(inputError?.errorText).toContain(reason);
+    expect(outputError?.errorText).toContain(inputError?.errorText);
+    expect(output).not.toContain("模型回复失败，请稍后重试或检查模型设置。");
+    expect(memoryWiki.search).not.toHaveBeenCalled();
+  });
   it.each([false, true])("injects the confirmed body prompt only with active avatar tools (%s)", async (connected) => {
     let prompt: unknown;
     const model = createModel(value => { prompt = value; });
@@ -148,7 +176,7 @@ describe("chat service", () => {
       aiRuntime: { resolveLanguageModel: () => model },
       avatar: {
         captureBinding: () => connected ? 0 : null,
-        createTools: () => connected ? { avatar_action: tool({ inputSchema: z.object({}), execute: async () => ({ completed: true }) }) } : {},
+        createTools: () => connected ? { avatar_perform: tool({ inputSchema: z.object({}), execute: async () => ({ completed: true }) }) } : {},
         relay: (_binding, stream) => stream,
       },
     });
@@ -178,9 +206,9 @@ describe("chat service", () => {
             controller.enqueue({ type: "text-start", id: "progress" });
             controller.enqueue({ type: "text-delta", id: "progress", delta: "让我做个动作。" });
             controller.enqueue({ type: "text-end", id: "progress" });
-            for (const toolName of ["avatar_action", "set_expression"]) controller.enqueue({ type: "tool-call", toolCallId: toolName, toolName, input: "{}" });
+            for (const toolName of ["avatar_perform", "avatar_control"]) controller.enqueue({ type: "tool-call", toolCallId: toolName, toolName, input: "{}" });
           } else if (current === 2) {
-            controller.enqueue({ type: "tool-call", toolCallId: "expression", toolName: "avatar_action", input: "{}" });
+            controller.enqueue({ type: "tool-call", toolCallId: "expression", toolName: "avatar_perform", input: "{}" });
           }
           controller.enqueue({ type: "finish", finishReason: { unified: current < 3 ? "tool-calls" : "stop", raw: undefined },
             usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
@@ -189,8 +217,8 @@ describe("chat service", () => {
       },
     });
     const createTools = vi.fn(() => ({
-      avatar_action: tool({ inputSchema: z.object({}), execute: action }),
-      set_expression: tool({ inputSchema: z.object({}), execute: speech }),
+      avatar_perform: tool({ inputSchema: z.object({}), execute: action }),
+      avatar_control: tool({ inputSchema: z.object({}), execute: speech }),
     }));
     const signal = new AbortController().signal;
     const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: { captureBinding: () => 0, createTools, relay: (_binding, stream) => stream } });
@@ -302,16 +330,10 @@ describe("chat service", () => {
     ).rejects.toThrow("不受Katarune托管");
   });
 
-  it("reports unsupported attachment formats with the original filename", () => {
-    expect(
-      sanitizeChatError(
-        { name: "AI_UnsupportedFunctionalityError" },
-        ["说明.pdf"],
-      ),
-    ).toContain("说明.pdf");
-    expect(
-      sanitizeChatError({ name: "AI_UnsupportedFunctionalityError" }),
-    ).toContain("历史图片");
+  it("preserves unsupported functionality errors without reclassifying them as image errors", () => {
+    const error = new UnsupportedFunctionalityError({ functionality: "tool calls" });
+    expect(chatErrorMessage(error)).toBe(error.message);
+    expect(chatErrorMessage(error)).toContain("tool calls");
   });
 
   it("exposes the historical image tool for every resolved language model", async () => {
@@ -687,7 +709,7 @@ describe("chat service", () => {
   it("generates and persists a role-styled title with the bound model", async () => {
     const model = new MockLanguageModelV4({
       doGenerate: async () => ({
-        content: [{ type: "text", text: "《星光下的初次问候》" }],
+        content: [{ type: "text", text: "《初次问候》" }],
         finishReason: { unified: "stop", raw: undefined },
         usage: {
           inputTokens: {
@@ -720,11 +742,11 @@ describe("chat service", () => {
       ],
     });
 
-    expect(result).toEqual({ title: "星光下的初次问候" });
+    expect(result).toEqual({ title: "初次问候" });
     expect(database.renameThread).toHaveBeenCalledWith(
       request.threadId,
       characterId,
-      "星光下的初次问候",
+      "初次问候",
     );
     expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
       "只回答确定性测试内容。",
@@ -780,16 +802,13 @@ describe("chat service", () => {
       database: createDatabase(),
       aiRuntime: {
         resolveLanguageModel: () => {
-          throw new Error("secret provider response");
+          throw new Error("测试模型配置不可用");
         },
       },
     });
     await expect(
       unavailableModelService.createResponse(request, new AbortController().signal),
-    ).rejects.toThrow("模型暂不可用");
-    expect(sanitizeChatError(new Error("secret provider response"))).not.toContain(
-      "secret provider response",
-    );
+    ).rejects.toThrow("测试模型配置不可用");
   });
 
   it("inherits the application default model without overriding an explicit role model", async () => {

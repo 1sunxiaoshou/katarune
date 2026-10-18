@@ -252,7 +252,7 @@ namespace Katarune.Avatar
             _controller.Request(actionId);
             return new AvatarActionRequestResult(AvatarActionRequestOutcome.Started);
         }
-        public bool FinishAction(string actionId) => !_disposed && _controller.Finish(actionId);
+        public bool FinishAction(string actionId, bool completeCycle = false) => !_disposed && _controller.Finish(actionId, completeCycle);
         public string GetActionInstanceId(string actionId) => _controller.InstanceFor(actionId);
         public bool CancelAction(string actionId) => !_disposed && _controller.CancelAction(actionId);
         public PerformanceInstanceState? GetActionState(string instanceId) => _controller.GetState(instanceId);

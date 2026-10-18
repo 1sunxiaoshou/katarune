@@ -129,7 +129,7 @@ namespace Katarune.Avatar
             ThrowIfDisposed();
             _motions.CancelAction();
         }
-        public bool FinishAction(string actionId) { ThrowIfDisposed(); return _session.State == AvatarRuntimeState.Ready && _motions.FinishAction(actionId); }
+        public bool FinishAction(string actionId, bool completeCycle = false) { ThrowIfDisposed(); return _session.State == AvatarRuntimeState.Ready && _motions.FinishAction(actionId, completeCycle); }
         public string CurrentInstanceId => _motions.CurrentInstanceId;
         public string GetActionInstanceId(string actionId) => _motions.GetActionInstanceId(actionId);
         public bool CancelAction(string actionId) => _motions.CancelAction(actionId);

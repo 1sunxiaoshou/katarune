@@ -32,6 +32,7 @@ namespace Katarune.Avatar
             public PerformanceInstance Instance;
             public PackageActionPhase Phase;
             public float Time;
+            public bool FinishAfterCycle;
         }
         private readonly Dictionary<string, PackageActionDefinition> _definitions = new(StringComparer.Ordinal);
         private readonly PerformanceScheduler _scheduler;
@@ -105,10 +106,16 @@ namespace Katarune.Avatar
             return new Playback { Definition = definition, Instance = result.Instance,
                 Phase = definition.IsLoop ? (definition.EnterDuration > 0f ? PackageActionPhase.Enter : PackageActionPhase.Loop) : PackageActionPhase.OneShot };
         }
-        public bool Finish(string id)
+        public bool Finish(string id, bool completeCycle = false)
         {
-            if (_next?.Definition.Id == id) return CancelAction(id);
+            if (_next?.Definition.Id == id)
+            {
+                if (completeCycle) { _next.FinishAfterCycle = true; return true; }
+                return CancelAction(id);
+            }
+            if (completeCycle && _parent?.Definition.Id == id) { _parent.FinishAfterCycle = true; return true; }
             if (_current?.Definition.Id != id || !_current.Definition.IsLoop) return false;
+            if (completeCycle) { _current.FinishAfterCycle = true; return true; }
             BeginExit(); return true;
         }
         private void BeginExit()
@@ -145,7 +152,16 @@ namespace Katarune.Avatar
             while (_current != null)
             {
                 if (_current.Phase == PackageActionPhase.Loop)
-                { _current.Time = (_current.Time + remaining) % _current.Definition.Duration; return; }
+                {
+                    if (!_current.FinishAfterCycle)
+                    { _current.Time = (_current.Time + remaining) % _current.Definition.Duration; return; }
+                    var untilBoundary = _current.Definition.Duration - _current.Time;
+                    if (remaining < untilBoundary) { _current.Time += remaining; return; }
+                    remaining -= untilBoundary;
+                    BeginExit();
+                    if (remaining <= 0f) return;
+                    continue;
+                }
                 var duration = _current.Phase == PackageActionPhase.Enter ? _current.Definition.EnterDuration
                     : _current.Phase == PackageActionPhase.Exit ? _current.Definition.ExitDuration : _current.Definition.Duration;
                 var step = Math.Min(remaining, Math.Max(0f, duration - _current.Time));
@@ -212,7 +228,7 @@ namespace Katarune.Avatar
         public string Diagnostics => $"body[{_lanes[0].Diagnostics}]; upperBody[{_lanes[1].Diagnostics}]; head[{_lanes[2].Diagnostics}]";
         public void Add(PackageActionDefinition definition) { _layers.Add(definition.Id, definition.Layer); Lane(definition.Layer).Add(definition); }
         public bool Request(string id) => _layers.TryGetValue(id, out var layer) && Lane(layer).Request(id);
-        public bool Finish(string id) => _layers.TryGetValue(id, out var layer) && Lane(layer).Finish(id);
+        public bool Finish(string id, bool completeCycle = false) => _layers.TryGetValue(id, out var layer) && Lane(layer).Finish(id, completeCycle);
         public bool CancelAction(string id) => _layers.TryGetValue(id, out var layer) && Lane(layer).CancelAction(id);
         public string InstanceFor(string id) => _layers.TryGetValue(id, out var layer) ? Lane(layer).InstanceFor(id) : null;
         public string ActionFor(string instanceId) { foreach (var id in _layers.Keys) if (InstanceFor(id) == instanceId) return id; return null; }

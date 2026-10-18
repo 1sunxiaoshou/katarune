@@ -12,10 +12,7 @@ import { interruptForVoice } from "./chat/voiceInterruption";
 import { useAvatarState } from "./chat/avatarState";
 import { AvatarSessionBinding } from "./chat/AvatarControl";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
-import {
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-  lastAssistantMessageIsCompleteWithToolCalls,
-} from "ai";
+import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import {
   createContext,
   useContext,
@@ -115,20 +112,8 @@ function ThreadRuntimeHook() {
   const chat = useChat({
     id: threadId,
     transport,
-    sendAutomaticallyWhen: (options) => {
-      if (lastAssistantMessageIsCompleteWithApprovalResponses(options))
-        return true;
-      const parts = options.messages.at(-1)?.parts ?? [];
-      if (
-        parts.some(
-          (p) =>
-            p.type === "tool-avatar_action" ||
-            p.type === "tool-set_expression",
-        )
-      )
-        return false;
-      return lastAssistantMessageIsCompleteWithToolCalls(options);
-    },
+    // Main owns the Agent loop; completed backend tools must not start another request.
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
   const chatRef = useRef(chat);
   chatRef.current = chat;

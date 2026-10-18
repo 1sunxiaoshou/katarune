@@ -4,7 +4,7 @@ import {
   type ChatStreamRequest,
 } from "../../shared/ipc";
 import type { ChatService } from "./chatService";
-import { sanitizeChatError } from "./chatService";
+import { chatErrorMessage } from "./chatService";
 
 export interface ChatStreamPort {
   on(event: "message", listener: (event: { data: unknown }) => void): void;
@@ -127,7 +127,7 @@ export function startChatStream({
       }
     } catch (error) {
       if (!closed) {
-        post({ type: "error", message: sanitizeChatError(error) });
+        post({ type: "error", message: chatErrorMessage(error) });
         close();
       }
     } finally {
@@ -154,7 +154,7 @@ export function startChatStream({
   port.start();
   void responsePromise.catch((error: unknown) => {
     if (!closed) {
-      post({ type: "error", message: sanitizeChatError(error) });
+      post({ type: "error", message: chatErrorMessage(error) });
       close();
     }
   });
