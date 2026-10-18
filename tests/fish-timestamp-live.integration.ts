@@ -23,18 +23,24 @@ let exit: ((code: number) => void) | undefined;
 if (process.argv.includes("--saved-config")) {
   stage = "electron";
   const { app, safeStorage } = await import("electron");
-  app.setPath("userData", join(app.getPath("appData"), "katarune-development"));
+  const profileArgument = process.argv.indexOf("--user-data");
+  const directory = profileArgument >= 0 ? process.argv[profileArgument + 1] : join(app.getPath("appData"), "katarune-development");
+  if (!directory) throw new Error("Missing user data path.");
+  app.setPath("userData", directory);
   await app.whenReady();
   exit = code => app.exit(code);
   const { default: Database } = await import("better-sqlite3");
   stage = "saved-configuration";
-  const directory = join(app.getPath("appData"), "katarune-development");
   const db = new Database(join(directory, "katarune.sqlite"), { readonly: true });
-  const row = db.prepare(`SELECT c.speech_voice voice, p.credential_ref credential, p.base_url baseURL, p.id providerId, m.model_id modelId
-    FROM characters c JOIN model_configs m ON m.id = c.speech_model_config_id
+  const row = db.prepare(`SELECT CASE WHEN c.use_default_speech_voice = 1 THEN
+      CASE WHEN m.id = s.default_speech_model_config_id THEN s.default_speech_voice ELSE json_extract(m.settings, '$.defaultVoiceId') END
+      ELSE CASE WHEN c.speech_model_config_id = m.id THEN c.speech_voice END END voice,
+      p.credential_ref credential, p.base_url baseURL, p.id providerId, m.model_id modelId
+    FROM characters c JOIN app_state a ON a.active_character_id = c.id CROSS JOIN app_settings s
+    JOIN model_configs m ON m.id = CASE WHEN c.use_default_speech_model = 1 THEN s.default_speech_model_config_id ELSE c.speech_model_config_id END
     JOIN provider_configs p ON p.id = m.provider_config_id
     WHERE p.provider_type = 'fish-audio' AND p.enabled = 1 AND m.enabled = 1
-    AND c.speech_voice IS NOT NULL ORDER BY c.created_at DESC LIMIT 1`).get() as
+    AND voice IS NOT NULL LIMIT 1`).get() as
     { voice: string; credential: string; baseURL: string | null; providerId: string; modelId: string } | undefined;
   db.close();
   if (!row || !/^safe-storage\/[0-9a-f-]{36}$/.test(row.credential)) throw new Error("No saved Fish voice configuration.");
@@ -50,9 +56,14 @@ const model = createFishAudio({ apiKey: key, ...(baseURL ? { baseURL } : {}) }).
 if (!hasTimestampedSpeech(model)) throw new Error("Timestamp capability missing.");
 if (process.argv.includes("--streaming")) {
   if (!hasStreamingSpeech(model)) throw new Error("Streaming capability missing.");
-  const directory = resolve(".test-dist/fish-streaming-live");
+  const sampleIndex = Number(process.argv.find(arg => arg.startsWith("--sample="))?.split("=")[1] ?? 0);
+  const samples = ["你好，今天很高兴见到你。我们一起来测试流式语音。",
+    "我们来观察语音播放是否连续。第一段介绍今天的安排，第二段说明测试过程，最后一起确认声音有没有被打断。即使网络偶尔慢一点，也希望动作和字幕能够跟随实际播放。",
+    "先慢慢说一句话。接着换一个话题，聊聊窗外的天气。然后继续介绍这个小实验：声音会分成许多片段陆续到达，播放器需要把它们连贯地读出来。我们既要照顾开始说话的速度，也要尽量减少中间的停顿。最后这句话用于检查尾音是否完整。"];
+  const text = samples[sampleIndex];
+  if (!text) throw new Error("Invalid speech sample.");
+  const directory = resolve(sampleIndex === 0 ? ".test-dist/fish-streaming-live" : `.test-dist/fish-streaming-live/sample-${sampleIndex}`);
   await mkdir(directory, { recursive: true });
-  const text = "你好，今天很高兴见到你。我们一起来测试流式语音。";
   const started = performance.now();
   const events: object[] = [];
   const audio: Uint8Array[] = [];

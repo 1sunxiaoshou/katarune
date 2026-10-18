@@ -191,6 +191,8 @@ namespace Katarune.Avatar
         {
             _paused = false;
             _consumeStream = false;
+            if (_stream?.Buffer is AvatarPcmBuffer buffer)
+                Debug.Log($"KATARUNE_PCM_PLAYBACK status={status} rate={_stream.SampleRate} received={buffer.Received} consumed={buffer.Consumed} played={_streamPosition} underruns={buffer.Underruns} callback={buffer.MaxReadSamples}");
             _stream?.Dispose(); _stream = null;
             _loading?.Abort(); _loading?.Dispose(); _loading = null;
             if (_source != null) { _source.Stop(); _source.clip = null; _source.loop = false; }

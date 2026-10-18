@@ -53,10 +53,10 @@ try {
   send({ type: "dialogue-audio", runId, dialogueId: "stream", streaming: true, value: stream.name, text: fixture.text });
   const begin = performance.now();
   await stream.write({ type: "format", sampleRate, channels: 1, encoding: "pcm-s16le" });
-  const firstBytes = sampleRate * 2; // one second, followed by a deliberate underrun
+  const firstBytes = sampleRate * 3; // 1.5 seconds, followed by a deliberate underrun
   await stream.write({ type: "audio", audio: pcm.subarray(0, firstBytes) });
   const started = await wait(m => m.type === "speech" && m.status === "started");
-  await delay(1800);
+  await delay(2300);
   const finalAlignment = fixture.events.filter((e: { type: string }) => e.type === "alignment").at(-1);
   await stream.write({ type: "alignment", segments: alignOriginalSubtitles(fixture.text, finalAlignment?.segments) ?? [] });
   for (let offset = firstBytes; offset < pcm.length; offset += 12000) {
@@ -83,7 +83,8 @@ try {
   const frames = (await readFile(join(output, "frames.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
   const voiced = frames.filter(f => f.playbackId === started.id);
   const firstPage = fixture.text.slice(0, fixture.text.indexOf("。") + 1);
-  const stalled = voiced.filter(f => Math.abs(f.position - 1) < .001);
+  const stalled = voiced.filter((f, index) => index > 0 && f.position > 1 && f.position <= 1.5
+    && Math.abs(f.position - voiced[index - 1].position) < .001);
   assert.ok(stalled.length >= 5, "underrun must freeze audio clock");
   assert.ok(stalled.every(f => f.subtitle === firstPage), "late alignment must not advance the subtitle during an underrun");
   const aligned = alignOriginalSubtitles(fixture.text, finalAlignment?.segments) ?? [];

@@ -11,21 +11,30 @@ namespace Katarune.Avatar
     {
         private readonly object _gate = new object();
         private readonly float[] _samples;
-        private readonly int _prebuffer, _rebuffer;
+        private readonly int _sampleRate, _prebuffer, _rebuffer;
         private int _head, _count;
+        private int _underruns, _maxRead;
         private long _consumed, _received;
         private bool _ended, _disposed, _buffering = true, _recovering;
         public AvatarPcmBuffer(int sampleRate)
         {
-            _samples = new float[sampleRate * 4];
-            _prebuffer = sampleRate * 3 / 4;
+            _sampleRate = sampleRate;
+            _samples = new float[sampleRate * 12];
+            _prebuffer = sampleRate * 5 / 4;
             _rebuffer = sampleRate * 3 / 2;
         }
+        // Repeated starvation needs a larger safety margin, bounded to avoid an
+        // ever-growing restart delay. End-of-stream always releases a short tail.
+        private int RecoveryTarget => Math.Min(_sampleRate * 3,
+            _rebuffer + Math.Max(0, _underruns - 1) * (_sampleRate / 2));
+        public int CapacitySamples => _samples.Length;
+        public int Underruns { get { lock (_gate) return _underruns; } }
+        public int MaxReadSamples { get { lock (_gate) return _maxRead; } }
         public long Consumed { get { lock (_gate) return _consumed; } }
         public long Received { get { lock (_gate) return _received; } }
         public bool Ended { get { lock (_gate) return _ended; } }
         public bool Drained { get { lock (_gate) return _ended && _count == 0; } }
-        public bool Ready { get { lock (_gate) return _count >= _prebuffer || (_ended && _count > 0); } }
+        public bool Ready { get { lock (_gate) return _count >= (_recovering ? RecoveryTarget : _prebuffer) || (_ended && _count > 0); } }
 
         public void Write(byte[] bytes)
         {
@@ -47,9 +56,11 @@ namespace Katarune.Avatar
             lock (_gate)
             {
                 if (_disposed) return;
-                if (_buffering && !_ended && _count < (_recovering ? _rebuffer : _prebuffer)) return;
+                _maxRead = Math.Max(_maxRead, output.Length);
+                if (_buffering && !_ended && _count < Math.Max(output.Length, _recovering ? RecoveryTarget : _prebuffer)) return;
                 if (!_ended && _count < output.Length)
                 {
+                    if (!_buffering) _underruns++;
                     _buffering = _recovering = true;
                     return;
                 }
@@ -58,7 +69,6 @@ namespace Katarune.Avatar
                 for (var i = 0; i < amount; i++) output[i] = _samples[(_head + i) % _samples.Length];
                 _head = (_head + amount) % _samples.Length;
                 _count -= amount; _consumed += amount;
-                if (_count == 0 && !_ended) _buffering = _recovering = true;
                 Monitor.PulseAll(_gate);
             }
         }
