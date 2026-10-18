@@ -120,6 +120,41 @@ try {
   assert.match(result.imageSource, /^katarune-asset:\/\/asset\/[0-9a-f-]+$/);
   assert.ok(result.imageWidth > 0);
   console.log("Packaged default portrait loaded through katarune-asset.");
+  const playback = await evaluate(page.webSocketDebuggerUrl, `(async () => {
+    const state = await window.katarune.getAppState();
+    const toggle = document.querySelector('[data-testid="avatar-toggle"]');
+    if (!toggle) throw new Error("Packaged avatar control is missing");
+    const waitForPhase = async phase => {
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        const status = await window.katarune.getAvatarStatus();
+        if (status.phase === phase) return status;
+        if (status.phase === "error") throw new Error(status.error);
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw new Error("Packaged avatar did not reach " + phase);
+    };
+    let started, settled, stopped;
+    try {
+      toggle.click();
+      started = await waitForPhase("ready");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      settled = await window.katarune.getAvatarStatus();
+      toggle.click();
+      stopped = await waitForPhase("stopped");
+    } finally {
+      await window.katarune.stopAvatar();
+    }
+    return { characterId: state.activeCharacter.id, started, settled, stopped };
+  })()`);
+  for (const status of [playback.started, playback.settled]) {
+    assert.equal(status.phase, "ready", status.error ?? "Packaged Player must become ready");
+    assert.equal(status.error, null);
+    assert.equal(status.binding.characterId, playback.characterId);
+    assert.ok(status.binding.threadId.length > 0);
+  }
+  assert.equal(playback.stopped.phase, "stopped");
+  console.log("Packaged default Player starts, passes main-process validation, and stops.");
 } finally {
   child.kill();
   await new Promise((resolveExit) => {

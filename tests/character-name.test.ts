@@ -10,9 +10,9 @@ describe("character name reading", () => {
   });
 
   it("transliterates Han characters while preserving Latin text", () => {
-    expect(getCharacterNameReading("星澜 Alice")).toEqual({
+    expect(getCharacterNameReading("中文 Alice")).toEqual({
       kind: "pinyin",
-      text: "Xing Lan Alice",
+      text: "Zhong Wen Alice",
     });
   });
 });

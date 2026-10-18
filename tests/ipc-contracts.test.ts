@@ -68,13 +68,13 @@ describe("shared IPC contracts", () => {
 
     const activeCharacter = {
       id: characterId,
-      name: "星澜",
+      name: "测试角色",
       portraitAssetId: "00000000-0000-4000-8000-000000000002",
       useDefaultSpeechModel: false, useDefaultSpeechVoice: false,
       modelConfigId: null,
       speechModelConfigId: null,
       speechVoice: null,
-      systemPrompt: "你是星澜。",
+      systemPrompt: "你是测试角色。",
       createdAt: new Date("2026-07-23T00:00:00.000Z"),
       updatedAt: new Date("2026-07-23T00:00:00.000Z"),
     };
@@ -562,7 +562,7 @@ describe("shared IPC contracts", () => {
     ["unsupported model type", createModelConfigRequestSchema, { providerConfigId: "d3867f4b-e85f-4ff4-ac2b-974dc39ad832", modelType: "audioModel", modelId: "model", displayName: null, settings: null, enabled: true }],
     ["blank character name", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "" }],
     ["blank created character name", createCharacterRequestSchema, { name: "", modelConfigId: null, systemPrompt: "" }],
-    ["unknown character field", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "星澜", providerId: "secret" }],
+    ["unknown character field", updateCharacterRequestSchema, { id: "00000000-0000-4000-8000-000000000001", name: "测试角色", providerId: "secret" }],
     ["invalid deleted thread count", deleteCharacterResultSchema, {
       deletedCharacterId: "00000000-0000-4000-8000-000000000001",
       deletedThreadCount: -1,

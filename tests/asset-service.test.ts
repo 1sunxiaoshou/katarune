@@ -107,7 +107,7 @@ describe("generic asset service and protocol", () => {
       version: 1,
       character: {
         id: "00000000-0000-4000-8000-000000000001",
-        name: "星澜",
+        name: "测试角色",
         modelConfigId: null,
         systemPrompt: "",
         portrait: null,

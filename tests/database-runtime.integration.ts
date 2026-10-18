@@ -499,13 +499,13 @@ try {
   assert.equal(defaultCharacter.speechVoice, null);
   let updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
-    name: "数据库中的星澜",
+    name: "已更新的测试角色",
     modelConfigId: modelConfig.id,
     speechModelConfigId: speechModelConfig.id,
     speechVoice: "alloy",
     systemPrompt: "数据库配置优先于默认配置。",
   });
-  assert.equal(updatedCharacter.name, "数据库中的星澜");
+  assert.equal(updatedCharacter.name, "已更新的测试角色");
   updatedCharacter = runtime.updateCharacter({
     id: defaultCharacter.id,
     speechModelConfigId: speechModelConfig.id,
@@ -532,7 +532,7 @@ try {
           id, name, portrait_asset_id, model_config_id, system_prompt, created_at, updated_at
         ) VALUES (?, ?, NULL, NULL, ?, ?, ?)
       `)
-      .run(secondCharacterId, "月影", "你是月影。", Date.now(), Date.now());
+      .run(secondCharacterId, "第二测试角色", "你是第二测试角色。", Date.now(), Date.now());
   } finally {
     setupSqlite.close();
   }
@@ -583,7 +583,7 @@ try {
     runtime
       .listCharacters()
       .characters.find((candidate) => candidate.id === updatedCharacter.id)?.name,
-    "数据库中的星澜",
+    "已更新的测试角色",
   );
   assert.equal(runtime.getAppState().activeCharacter.id, restoredCharacterId);
   const initialLastMessageAt = runtime.fetchThread(
