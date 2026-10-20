@@ -1,4 +1,5 @@
 import { emptyAppSettings } from "./defaultSettings";
+import { runMemoryIntegration } from "./memory.integration";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1020,6 +1021,7 @@ try {
     rejectedHistory.close();
   }
 
+  await runMemoryIntegration();
   console.log(
     "SQLite thread, message, Provider/model/character config, and legacy migration recovery passed.",
   );

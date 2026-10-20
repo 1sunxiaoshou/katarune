@@ -134,6 +134,27 @@
       "when": 1791995710170,
       "tag": "0018_early_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792338078187,
+      "tag": "0019_structured_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792344632804,
+      "tag": "0020_simplify_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1792345361632,
+      "tag": "0021_remove_memory_sources",
+      "breakpoints": true
     }
   ]
 }

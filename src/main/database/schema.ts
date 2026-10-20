@@ -224,3 +224,39 @@ export const messageAssets = sqliteTable(
     index("message_assets_asset_id_idx").on(table.assetId),
   ],
 );
+
+export const memoryEntries = sqliteTable("memory_entries", {
+  id: text("id").primaryKey(),
+  characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["diary", "person", "event"] }).notNull(),
+  title: text("title").notNull(), body: text("body").notNull(),
+  day: text("day"), isUser: integer("is_user", { mode: "boolean" }).notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  forgottenAt: integer("forgotten_at", { mode: "timestamp_ms" }),
+}, table => [
+  uniqueIndex("memory_diary_day_unique").on(table.characterId, table.day),
+  uniqueIndex("memory_user_profile_unique").on(table.characterId).where(sql`${table.isUser} = 1 and ${table.forgottenAt} is null`),
+  index("memory_entries_character_kind_updated_idx").on(table.characterId, table.kind, table.updatedAt),
+  check("memory_entry_kind_check", sql`(${table.kind} = 'diary' and ${table.day} is not null and ${table.isUser} = 0) or (${table.kind} = 'person' and ${table.day} is null) or (${table.kind} = 'event' and ${table.day} is null and ${table.isUser} = 0)`),
+  check("memory_revision_positive", sql`${table.revision} > 0`),
+]);
+
+export const memoryPreferences = sqliteTable("memory_preferences", {
+  characterId: text("character_id").primaryKey().references(() => characters.id, { onDelete: "cascade" }),
+  diaryEnabled: integer("diary_enabled", { mode: "boolean" }).notNull().default(true),
+});
+
+export const memoryDiaryJobs = sqliteTable("memory_diary_jobs", {
+  id: text("id").primaryKey(),
+  characterId: text("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  day: text("day").notNull(), timeZone: text("time_zone").notNull(),
+  status: text("status", { enum: ["pending", "running", "done", "skipped", "failed", "forgotten"] }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  retryAt: integer("retry_at", { mode: "timestamp_ms" }).notNull(),
+}, table => [uniqueIndex("memory_diary_job_day_unique").on(table.characterId, table.day)]);
+
+export const memoryDiaryMessages = sqliteTable("memory_diary_messages", {
+  jobId: text("job_id").notNull().references(() => memoryDiaryJobs.id, { onDelete: "cascade" }),
+  messageId: text("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+}, table => [primaryKey({ columns: [table.jobId, table.messageId] })]);

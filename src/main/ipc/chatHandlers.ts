@@ -22,20 +22,18 @@ import type { AiRuntime } from "../ai/runtime";
 import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
 import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
-import type { MemoryWikiService } from "../memory/memoryWikiService";
 
 export function registerChatHandlers(
   database: DatabaseRuntime,
   aiRuntime: AiRuntime,
   chatStreams: ChatStreamRegistry,
   assetService: AssetService,
-  memoryWiki: MemoryWikiService,
   avatar?: AvatarService,
 ): void {
   const chatService = createChatService({
     database,
     aiRuntime,
-    memoryWiki,
+    memory: database,
     ...(avatar ? { avatar } : {}),
     attachmentSupport: {
       assetService,
@@ -97,6 +95,7 @@ export function registerChatHandlers(
   ipcMain.handle(IPC_CHANNELS.appendThreadMessage, (_event, value: unknown) => {
     const request = appendThreadMessageRequestSchema.parse(value);
     database.appendThreadMessage(request);
+    database.queueMemoryDiaryMessage(request.characterId, request.message.id, Intl.DateTimeFormat().resolvedOptions().timeZone);
     return operationSuccessSchema.parse({ success: true });
   });
   ipcMain.handle(IPC_CHANNELS.deleteThreadMessages, (_event, value: unknown) => {

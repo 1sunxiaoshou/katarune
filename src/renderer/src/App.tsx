@@ -14,9 +14,14 @@ const CharacterPage = lazy(async () => {
   return { default: characterModule.CharacterPage };
 });
 
+const MemoryPage = lazy(async () => {
+  const module = await import("./memory/MemoryPage");
+  return { default: module.MemoryPage };
+});
+
 export function App(): React.JSX.Element {
   useEffect(() => realtimeVoice.mount(), []);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "characters">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "characters" | "memory">("chat");
 
   const [packageRequest, setPackageRequest] = useState<{ characterId: string | null } | null>(null);
   useEffect(() => window.katarune.onOpenCharacterPackages(characterId => {
@@ -32,6 +37,7 @@ export function App(): React.JSX.Element {
           <ChatPage
             onOpenCharacters={() => setActiveView("characters")}
             onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
+            onOpenMemory={() => setActiveView("memory")}
           />
         ) : null}
       </KataruneAssistantRuntimePool>
@@ -65,6 +71,10 @@ export function App(): React.JSX.Element {
             onClose={() => setActiveView("chat")}
             onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
           />
+        </Suspense>
+      ) : activeView === "memory" ? (
+        <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开记忆……</main>}>
+          <MemoryPage onClose={() => setActiveView("chat")} />
         </Suspense>
       ) : null}
     </div>

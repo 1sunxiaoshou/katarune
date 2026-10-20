@@ -19,10 +19,7 @@ import { createAssetService } from "./assets/assetService";
 import { loadDefaultCharacterConfig } from "./characters/defaultCharacter";
 import { openDatabase, type DatabaseRuntime } from "./database/database";
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
-import {
-  createMemoryWikiService,
-  type MemoryWikiService,
-} from "./memory/memoryWikiService";
+import { createDiaryService } from "./memory/diaryService";
 import { createCredentialStore } from "./security/credentialStore";
 import { SpeechRequestRegistry } from "./speech/speechRequestRegistry";
 import { createTtsCache } from "./speech/ttsCache";
@@ -96,7 +93,7 @@ function createMainWindow(): BrowserWindow {
 let databaseRuntime: DatabaseRuntime | undefined;
 let aiRuntime: AiRuntime | undefined;
 let speechRequests: SpeechRequestRegistry | undefined;
-let memoryWiki: MemoryWikiService | undefined;
+let diaryService: ReturnType<typeof createDiaryService> | undefined;
 
 void app.whenReady().then(async () => {
   const characterResourcesPath = app.isPackaged
@@ -119,10 +116,6 @@ void app.whenReady().then(async () => {
   });
   assetService.reconcile(databaseRuntime, defaultCharacterConfig);
   assetService.cleanupUnreferencedChatAttachments(databaseRuntime);
-  memoryWiki = createMemoryWikiService({ userDataPath: app.getPath("userData") });
-  await memoryWiki.initialize(
-    databaseRuntime.listCharacters().characters.map((character) => character.id),
-  );
   return Promise.all([
     createCredentialStore({
       userDataPath: app.getPath("userData"),
@@ -135,8 +128,8 @@ void app.whenReady().then(async () => {
     Promise.resolve(assetService),
   ]);
 }).then(async ([credentialStore, assetService]) => {
-  if (databaseRuntime === undefined || memoryWiki === undefined) {
-    throw new Error("Database or Memory Wiki runtime was not initialized.");
+  if (databaseRuntime === undefined) {
+    throw new Error("Database runtime was not initialized.");
   }
   Menu.setApplicationMenu(null);
   aiRuntime = await createAiRuntime({ database: databaseRuntime, credentialStore });
@@ -176,17 +169,19 @@ void app.whenReady().then(async () => {
   registerCharacterPackageHandlers(characterPackageService, databaseRuntime, avatarService);
   avatarService.configureSpeech(speechService,
     await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
+  diaryService = createDiaryService({ database: databaseRuntime, aiRuntime });
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
     credentialStore,
     assetService,
     speechService,
-    memoryWiki,
     avatarService,
+    () => { void diaryService?.runPending(); },
   );
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
+  diaryService.start();
   desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"));
 
   app.on("activate", () => {
@@ -200,6 +195,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  diaryService?.dispose();
   desktopWindows?.dispose();
   desktopWindows = undefined;
   asrService?.dispose();

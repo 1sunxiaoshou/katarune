@@ -7,22 +7,24 @@ import type {
   KataruneDatabase,
 } from "./types";
 
+export const assetColumns = {
+  id: assets.id,
+  kind: assets.kind,
+  status: assets.status,
+  mimeType: assets.mimeType,
+  byteSize: assets.byteSize,
+  sha256: assets.sha256,
+  originalName: assets.originalName,
+  createdAt: assets.createdAt,
+  updatedAt: assets.updatedAt,
+};
+
 export function createAssetRepository(
   database: KataruneDatabase,
 ): AssetRepository {
   const fetchAsset = (id: string): Asset => {
     const asset = database
-      .select({
-        id: assets.id,
-        kind: assets.kind,
-        status: assets.status,
-        mimeType: assets.mimeType,
-        byteSize: assets.byteSize,
-        sha256: assets.sha256,
-        originalName: assets.originalName,
-        createdAt: assets.createdAt,
-        updatedAt: assets.updatedAt,
-      })
+      .select(assetColumns)
       .from(assets)
       .where(eq(assets.id, id))
       .get();
@@ -36,11 +38,11 @@ export function createAssetRepository(
     fetchAsset,
     listAssets: () =>
       database
-        .select({ id: assets.id })
+        .select(assetColumns)
         .from(assets)
         .orderBy(asc(assets.createdAt))
         .all()
-        .map(({ id }) => fetchAsset(id)),
+        .map(asset => assetSchema.parse(asset)),
     markAssetReady: (id, metadata: AssetMetadata) => {
       const result = database
         .update(assets)

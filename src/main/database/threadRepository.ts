@@ -11,6 +11,7 @@ import {
   type ThreadMetadata,
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
+import { assetColumns } from "./assetRepository";
 import { assets, messageAssets, messages, threads } from "./schema";
 import type {
   KataruneDatabase,
@@ -294,17 +295,7 @@ export function createThreadRepository(
     fetchThreadChatAttachment: (threadId, characterId, assetId) => {
       fetchThread(threadId, characterId);
       const asset = database
-        .select({
-          id: assets.id,
-          kind: assets.kind,
-          status: assets.status,
-          mimeType: assets.mimeType,
-          byteSize: assets.byteSize,
-          sha256: assets.sha256,
-          originalName: assets.originalName,
-          createdAt: assets.createdAt,
-          updatedAt: assets.updatedAt,
-        })
+        .select(assetColumns)
         .from(assets)
         .innerJoin(messageAssets, eq(messageAssets.assetId, assets.id))
         .innerJoin(messages, eq(messages.id, messageAssets.messageId))
