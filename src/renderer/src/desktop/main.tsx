@@ -393,16 +393,18 @@ function Desktop() {
               </TabsList>
             </Tabs>
           </div>
-          <div className="control-row">
-            <span>角色屏幕</span>
-            <Choice
-              label="角色屏幕"
-              active={state.panelPhase === "open"}
-              value={state.selectedDisplay}
-              options={state.displays}
-              onChange={(v) => command("display", v)}
-            />
-          </div>
+          {state.displays.length > 1 && (
+            <div className="control-row">
+              <span>角色屏幕</span>
+              <Choice
+                label="角色屏幕"
+                active={state.panelPhase === "open"}
+                value={state.selectedDisplay}
+                options={state.displays}
+                onChange={(v) => command("display", v)}
+              />
+            </div>
+          )}
           <div className="control-row">
             <span>布局</span>
             <Button

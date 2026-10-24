@@ -5,6 +5,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, join } from "node:path";
 import { createAvatarSpeechStream } from "../src/main/avatar/avatarSpeechStream";
+import { alignOriginalSubtitles } from "../src/main/speech/subtitleAlignment";
+import type { SpeechSegment } from "../src/shared/speechTiming";
 
 // Replay captured provider arrival times against the actual Unity AudioSource.
 // Only local, fixed test speech is used; no provider call or credential is needed here.
@@ -53,46 +55,84 @@ try {
   assert.equal(wav.toString("ascii", 36, 40), "data");
   const pcm = wav.subarray(44), sampleRate = wav.readUInt32LE(24);
   const fixture = JSON.parse(await readFile(join(fixtureRoot, "events.json"), "utf8")) as {
-    text: string; events: { type: string; elapsedMs: number; bytes?: number }[];
+    text: string; events: { type: string; elapsedMs: number; bytes?: number; segments?: SpeechSegment[] }[];
   };
   const runId = randomUUID();
   for (const event of [{ type: "text-start", id: "speech" }, { type: "text-delta", id: "speech", delta: fixture.text },
     { type: "text-end", id: "speech" }, { type: "finish" }]) send({ type: "event", runId, speechEnabled: true, event });
-  send({ type: "dialogue-audio", runId, dialogueId: "speech", streaming: true, value: transfer.name, text: fixture.text });
-  await transfer.write({ type: "format", sampleRate, channels: 1, encoding: "pcm-s16le" });
+  const filePlayback = process.argv.includes("--file");
+  send({ type: "dialogue-audio", runId, dialogueId: "speech", streaming: !filePlayback,
+    value: filePlayback ? join(fixtureRoot, "speech.wav") : transfer.name, text: fixture.text,
+    segments: filePlayback ? alignOriginalSubtitles(fixture.text, fixture.events.filter(event => event.type === "alignment").at(-1)?.segments) ?? [] : [] });
+  if (!filePlayback) await transfer.write({ type: "format", sampleRate, channels: 1, encoding: "pcm-s16le" });
   const begin = performance.now(); let offset = 0;
   const firstAudio = fixture.events.find(event => event.type === "audio")!.elapsedMs;
-  for (const event of fixture.events.filter(event => event.type === "audio" || event.type === "end")) {
+  let discardedAlignments = 0;
+  for (const event of filePlayback ? [] : fixture.events.filter(event => ["audio", "alignment", "end"].includes(event.type))) {
     await delay(event.elapsedMs - firstAudio - (performance.now() - begin));
     if (event.type === "audio") {
       await transfer.write({ type: "audio", audio: pcm.subarray(offset, offset + event.bytes!) });
       offset += event.bytes!;
-    } else await transfer.write({ type: "end" });
+    } else if (event.type === "alignment") {
+      const segments = alignOriginalSubtitles(fixture.text, event.segments, true) ?? [];
+      if (!segments.length) discardedAlignments++;
+      await transfer.write({ type: "alignment", segments });
+    } else {
+      const finalSegments = fixture.events.filter(item => item.type === "alignment").at(-1)?.segments;
+      if (finalSegments?.some(segment => segment.endSeconds > pcm.length / (sampleRate * 2) + .05)) {
+        discardedAlignments++;
+        await transfer.write({ type: "alignment", segments: [] });
+      }
+      await transfer.write({ type: "end" });
+    }
   }
-  assert.equal(offset, pcm.length);
+  if (!filePlayback) assert.equal(offset, pcm.length);
   const started = await wait(m => m.type === "speech" && m.status === "started");
   const completed = await wait(m => m.id === started.id && m.status === "completed");
   await delay(200);
   await new Promise<void>(done => { child!.once("exit", () => done()); child!.kill(); });
   const frames = (await readFile(join(output, "frames.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line)) as {
-    playbackId: string; position: number; time: number;
+    playbackId: string; position: number; time: number; subtitle: string;
   }[];
-  const voiced = frames.filter(frame => frame.playbackId === started.id && frame.position > .05 && frame.position < pcm.length / (sampleRate * 2) - .05);
+  const activeFrames = frames.filter(frame => frame.playbackId === started.id);
+  const voiced = activeFrames.filter(frame => frame.position > .05 && frame.position < pcm.length / (sampleRate * 2) - .05);
   const freezes: number[] = []; let frozenAt: number | undefined;
   for (let i = 1; i < voiced.length; i++) {
     if (voiced[i]!.position - voiced[i - 1]!.position < .001) frozenAt ??= voiced[i - 1]!.time;
     else if (frozenAt != null) { freezes.push((voiced[i - 1]!.time - frozenAt) * 1000); frozenAt = undefined; }
   }
   assert.ok(voiced.length > 10, "actual Player clock must be captured");
+  const normalize = (text: string) => text.replace(/\s/g, "");
+  const text = normalize(fixture.text);
+  let lastSubtitleOffset = -1, subtitleRegressions = 0, subtitleChanges = 0, lastSubtitle = "", subtitleBlanks = 0;
+  for (const frame of activeFrames) {
+    if (!frame.subtitle) { if (lastSubtitle) subtitleBlanks++; continue; }
+    if (frame.subtitle === lastSubtitle) continue;
+    const offset = text.indexOf(normalize(frame.subtitle));
+    assert.ok(offset >= 0, "subtitle must preserve the original text");
+    if (offset < lastSubtitleOffset) subtitleRegressions++;
+    lastSubtitleOffset = offset; lastSubtitle = frame.subtitle; subtitleChanges++;
+  }
+  const finalEnd = fixture.events.filter(event => event.type === "alignment").at(-1)?.segments?.at(-1)?.endSeconds;
+  const afterSegmentEnd = finalEnd == null ? [] : activeFrames.filter(frame => frame.position >= finalEnd + .02);
+  const finalPageClearedAtEnd = afterSegmentEnd.length ? afterSegmentEnd.every(frame => frame.subtitle === "") : null;
+  const subtitlesCleared = frames.at(-1)?.subtitle === "" && !frames.at(-1)?.playbackId;
   const summary = { output, durationMs: pcm.length / (sampleRate * 2) * 1000,
     startupAfterFirstAudioMs: started.receivedAt - begin, playbackElapsedMs: completed.receivedAt - started.receivedAt,
-    clockFreezesMs: freezes.filter(ms => ms >= 40) };
+    clockFreezesMs: freezes.filter(ms => ms >= 40), discardedAlignments, subtitleChanges, subtitleRegressions,
+    subtitleBlanks, finalPageClearedAtEnd, subtitlesCleared };
+  await writeFile(join(output, "summary.json"), JSON.stringify(summary, null, 2));
+  if (process.argv.includes("--expect-subtitles")) {
+    assert.ok(subtitleChanges > 1, "fixture must exercise subtitle page transitions");
+    assert.equal(subtitleRegressions, 0, "subtitle pages must not rewind during playback");
+    assert.notEqual(finalPageClearedAtEnd, false, "the final subtitle must clear at its segment end");
+    assert.ok(subtitlesCleared, "playback completion must clear subtitles");
+  }
   if (process.argv.includes("--expect-continuous")) {
     assert.deepEqual(summary.clockFreezesMs, [], "provider trace must play continuously");
     const log = await readFile(join(output, "player.log"), "utf8");
-    assert.match(log, /KATARUNE_PCM_PLAYBACK status=completed .* underruns=0 /);
+    if (!filePlayback) assert.match(log, /KATARUNE_PCM_PLAYBACK status=completed .* underruns=0 /);
   }
-  await writeFile(join(output, "summary.json"), JSON.stringify(summary, null, 2));
   console.log(JSON.stringify(summary));
 } finally {
   clearTimeout(timeout); lifetime.abort(); transfer.dispose(); socket?.destroy(); server.close(); child?.kill();

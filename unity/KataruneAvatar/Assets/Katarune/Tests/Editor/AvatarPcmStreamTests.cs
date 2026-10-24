@@ -46,7 +46,7 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void LateAlignmentControlsPageBoundaryAndCanCorrectAnEarlierEstimate()
+        public void LateAlignmentControlsFutureBoundariesWithoutRewindingDisplayedPages()
         {
             var timeline = new AvatarSpeechSubtitles.StreamingTimeline("你好。再见。");
             Assert.That(timeline.TextAt(0, null, 0), Is.EqualTo("你好。"));
@@ -59,7 +59,7 @@ namespace Katarune.Avatar.Tests
                 new AvatarSpeechSegment { text = "你好。", startSeconds = 0, endSeconds = 2 },
                 new AvatarSpeechSegment { text = "再见。", startSeconds = 2, endSeconds = 3 },
             };
-            Assert.That(timeline.TextAt(1.5f, corrected, 0), Is.EqualTo("你好。"));
+            Assert.That(timeline.TextAt(1.5f, corrected, 0), Is.EqualTo("再见。"));
             Assert.That(timeline.TextAt(2.1f, corrected, 0), Is.EqualTo("再见。"));
         }
         [Test]

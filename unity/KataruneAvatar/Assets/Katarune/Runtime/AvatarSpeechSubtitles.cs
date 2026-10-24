@@ -83,6 +83,8 @@ namespace Katarune.Avatar
             private readonly List<(int start, int end, string text)> _pages = new();
             private AvatarSpeechSegment[] _segments;
             private int _covered;
+            private int _page = -1;
+            private bool _pageEnded;
             public StreamingTimeline(string text)
             {
                 _text = text ?? "";
@@ -93,7 +95,9 @@ namespace Katarune.Avatar
                     if (consumed <= 0) break;
                     var start = offset;
                     while (start < offset + consumed && char.IsWhiteSpace(_text[start])) start++;
-                    if (page.Length > 0) _pages.Add((start, offset + consumed, page));
+                    var end = offset + consumed;
+                    while (end > start && char.IsWhiteSpace(_text[end - 1])) end--;
+                    if (page.Length > 0) _pages.Add((start, end, page));
                     offset += consumed;
                 }
             }
@@ -109,51 +113,33 @@ namespace Katarune.Avatar
                     ? Timeline.TimeAt(_pages[index].start, false, _segments)
                     : duration > 0 ? duration * _pages[index].start / _text.Length
                     : float.PositiveInfinity;
-                if (_covered > 0 && position < Timeline.TimeAt(_pages[0].start, false, _segments)) return "";
-                var page = 0;
+                float End(int index) => _covered >= _pages[index].end
+                    ? Timeline.TimeAt(_pages[index].end, true, _segments)
+                    : duration > 0 ? duration * _pages[index].end / _text.Length
+                    : float.PositiveInfinity;
+                if (_page < 0 && _covered > 0 && position < Start(0)) return "";
+                // Advance at the next page's start and clear at this page's end.
+                // An ended page never makes an earlier page current again.
+                var page = Math.Max(0, _page);
                 while (page + 1 < _pages.Count && position >= Start(page + 1)) page++;
-                if (duration > 0 && position >= duration) return "";
-                if (page + 1 < _pages.Count && _covered >= _pages[page].end)
-                {
-                    var end = Timeline.TimeAt(_pages[page].end, true, _segments);
-                    if (_covered > _pages[page + 1].start && Start(page + 1) - end > .8f && position >= end) return "";
-                }
-                return _pages[page].text;
+                if (page != _page) { _page = page; _pageEnded = false; }
+                if (position >= End(page)) _pageEnded = true;
+                return _pageEnded ? "" : _pages[page].text;
             }
         }
 
         public sealed class Timeline
         {
-            private readonly List<(float start, float end, string text)> _pages = new();
+            private readonly StreamingTimeline _timeline;
+            private readonly AvatarSpeechSegment[] _segments;
+            private readonly float _duration;
 
             public Timeline(string text, AvatarSpeechSegment[] segments, float duration)
             {
-                text ??= "";
                 if (duration <= 0 || !float.IsFinite(duration)) return;
-                var aligned = text.Length > 0 && AlignedLength(text, segments) == text.Length;
-                var offset = 0;
-                while (offset < text.Length)
-                {
-                    var page = ReadPage(text.Substring(offset), true, out var consumed, out _);
-                    if (consumed <= 0) break;
-                    var start = offset;
-                    var end = offset + consumed;
-                    while (start < end && char.IsWhiteSpace(text[start])) start++;
-                    while (end > start && char.IsWhiteSpace(text[end - 1])) end--;
-                    if (page.Length > 0)
-                    {
-                        var begin = aligned ? TimeAt(start, false, segments) : duration * start / text.Length;
-                        var finish = aligned ? TimeAt(end, true, segments) : duration * end / text.Length;
-                        _pages.Add((begin, finish, page));
-                    }
-                    offset += consumed;
-                }
-                for (var i = 0; i + 1 < _pages.Count; i++)
-                {
-                    var page = _pages[i];
-                    var next = _pages[i + 1].start;
-                    if (next - page.end <= .8f) _pages[i] = (page.start, next, page.text);
-                }
+                _timeline = new StreamingTimeline(text);
+                _segments = segments;
+                _duration = duration;
             }
 
             internal static int AlignedLength(string text, AvatarSpeechSegment[] segments)
@@ -188,15 +174,7 @@ namespace Katarune.Avatar
                 return segments[segments.Length - 1].endSeconds;
             }
 
-            public string TextAt(float position)
-            {
-                foreach (var page in _pages)
-                {
-                    if (position < page.start) return "";
-                    if (position < page.end) return page.text;
-                }
-                return "";
-            }
+            public string TextAt(float position) => _timeline?.TextAt(position, _segments, _duration) ?? "";
         }
     }
 }
