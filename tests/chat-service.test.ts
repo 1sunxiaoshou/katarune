@@ -4,6 +4,7 @@ import { APICallError, UnsupportedFunctionalityError, tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
+import type { AvatarDanceState } from "../src/shared/avatar";
 import type { MemoryToolDatabase } from "../src/main/memory/memoryTools";
 import {
   createChatService,
@@ -124,6 +125,30 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("feeds the latest real dance result into subsequent model calls without scheduling another Agent", async () => {
+    const prompts: unknown[] = [];
+    const model = createModel(prompt => prompts.push(prompt));
+    let feedback: AvatarDanceState = {
+      performanceId: "00000000-0000-4000-8000-000000000099", toolCallId: "dance-call", actionId: "dance-one", action: "月光舞", state: "started",
+    };
+    const getDanceFeedback = vi.fn(() => feedback);
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: {
+      captureBinding: () => null, createTools: () => ({}), relay: (_binding, stream) => stream, getDanceFeedback,
+    } });
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    expect(JSON.stringify(prompts[0])).toContain('"state":"started"'.replaceAll('"', '\\"'));
+    feedback = { ...feedback, state: "completed" };
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    const complete = JSON.stringify(prompts[1]);
+    expect(complete).toContain('"state":"completed"'.replaceAll('"', '\\"'));
+    expect(complete).toContain("月光舞");
+    expect(complete).toContain("不要因看到状态快照而重复启动舞蹈");
+    feedback = { ...feedback, state: "failed", error: "Unity 已断开。" };
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    expect(JSON.stringify(prompts[2])).toContain("Unity 已断开。");
+    expect(getDanceFeedback).toHaveBeenCalledTimes(3);
+    expect(prompts).toHaveLength(3);
+  });
   it.each([
     ["avatar_perform", '{"steps":[{"at":"start","expression":"happy"}]}', "unavailable tool 'avatar_perform'"],
     ["memory_search", '{"query":42}', "expected string"],

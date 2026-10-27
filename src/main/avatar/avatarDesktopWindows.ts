@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   desktopCommandSchema,
+  avatarDisplayModeSchema,
+  avatarCameraViewSchema,
   type DesktopCommand,
   type DesktopSnapshot,
   type DesktopSurface,
@@ -46,6 +48,8 @@ export class AvatarDesktopWindows {
   private file: string;
   private initialized = false;
   private adjusting = false;
+  private mode: DesktopSnapshot["mode"] = "desktop";
+  private cameraView: DesktopSnapshot["cameraView"] = "overhead";
   private compact = false;
   private hidden = false;
   private panelView: DesktopSnapshot["panel"] = "more";
@@ -371,6 +375,8 @@ export class AvatarDesktopWindows {
     if (phase === "error") {
       this.initialized = false;
       this.adjusting = false;
+      this.mode = "desktop";
+      this.updateEscapeShortcut();
       this.lastInputZones = "";
       this.cancelLayout();
     }
@@ -399,6 +405,8 @@ export class AvatarDesktopWindows {
       selectedDisplay: this.prefs.role.display,
       adjusting: this.adjusting,
       compact: this.compact,
+      mode: this.mode,
+      cameraView: this.cameraView,
       voiceLevel: this.avatar.inputLevel,
       panel: this.panelView,
       panelRevision: this.panelRevision,
@@ -466,6 +474,8 @@ export class AvatarDesktopWindows {
           }
         : {}),
       adjusting: this.adjusting,
+      mode: this.mode,
+      cameraView: this.cameraView,
     });
     this.syncInputZones();
   }
@@ -477,8 +487,10 @@ export class AvatarDesktopWindows {
       this.restack();
     } else if (this.pendingLayout) return;
     if (state.restored) this.restack();
+    if (state.mode) this.mode = state.mode;
+    if (state.cameraView) this.cameraView = state.cameraView;
     // Only explicit user edits change the saved in-Unity composition.
-    if (state.userChanged && !state.requestId) {
+    if (this.mode === "desktop" && state.userChanged && !state.requestId) {
       this.prefs.yaw = state.yaw;
       this.prefs.pitch = state.pitch;
       this.prefs.role.x = state.x;
@@ -551,6 +563,7 @@ export class AvatarDesktopWindows {
       readonly DesktopCommand["operation"][]
     > = {
       capsule: [
+        "mode",
         "chat",
         "voice",
         "retry",
@@ -562,6 +575,8 @@ export class AvatarDesktopWindows {
         "capsule-size",
       ],
       panel: [
+        "mode",
+        "camera-view",
         "panel",
         "panel-ready",
         "close-panel",
@@ -571,6 +586,7 @@ export class AvatarDesktopWindows {
         "reload-model",
         "affect",
         "action",
+        "action-stop",
         "gaze",
         "outline",
       ],
@@ -579,6 +595,19 @@ export class AvatarDesktopWindows {
       throw new Error("此窗口不支持该操作。");
     const value = c.value ?? "";
     switch (c.operation) {
+      case "mode":
+        if (!this.initialized) throw new Error("请等待角色加载完成。");
+        this.mode = avatarDisplayModeSchema.parse(value);
+        this.adjusting = false;
+        this.updateEscapeShortcut();
+        this.sendLayout(false);
+        break;
+      case "camera-view":
+        if (!this.initialized || this.mode !== "immersive")
+          throw new Error("请先进入沉浸模式。");
+        this.cameraView = avatarCameraViewSchema.parse(value);
+        this.sendLayout(false);
+        break;
       case "chat":
         this.avatar.onOpenChat?.();
         break;
@@ -605,6 +634,7 @@ export class AvatarDesktopWindows {
         this.closePanel();
         break;
       case "adjust":
+        if (this.mode === "immersive") break;
         this.hidePanel();
         this.setAdjusting(!this.adjusting);
         break;
@@ -671,6 +701,7 @@ export class AvatarDesktopWindows {
       case "reload-model": { await this.avatar.reloadPackage(); break; }
       case "affect":
       case "action":
+      case "action-stop":
         await this.avatar.desktopCommand(`desktop-${c.operation}`, value);
         break;
       case "gaze":
@@ -707,6 +738,7 @@ export class AvatarDesktopWindows {
     this.layoutId = "";
     this.lastInputZones = "";
     this.adjusting = false;
+    this.mode = "desktop";
     this.hidden = false;
     this.panelPhase = "closed";
     globalShortcut.unregister("F1");

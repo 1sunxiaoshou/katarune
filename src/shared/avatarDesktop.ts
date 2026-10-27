@@ -2,6 +2,10 @@ import * as z from "zod/mini";
 import type { AvatarStatus, AvatarCapabilities } from "./avatar";
 
 const number = z.number();
+export const avatarDisplayModeSchema = z.enum(["desktop", "immersive"]);
+export const avatarCameraViewSchema = z.enum(["overhead", "center", "closeup"]);
+export type AvatarDisplayMode = z.infer<typeof avatarDisplayModeSchema>;
+export type AvatarCameraView = z.infer<typeof avatarCameraViewSchema>;
 export const desktopRectSchema = z.object({
   x: number,
   y: number,
@@ -16,6 +20,7 @@ export const avatarPresentationSchema = z.object({
   loading: z.boolean(),
   affect: z.string(),
   action: z.string(),
+  playingActions: z.optional(z.array(z.string().check(z.minLength(1), z.maxLength(256))).check(z.maxLength(3))),
   gaze: z.boolean(),
   outline: z.boolean(),
   error: z.string(),
@@ -36,6 +41,8 @@ export const avatarWindowReportSchema = z.object({
   adjusting: z.boolean(),
   moving: z.boolean(),
   restored: z.optional(z.boolean()),
+  mode: avatarDisplayModeSchema,
+  cameraView: avatarCameraViewSchema,
 });
 export type AvatarPresentation = z.infer<typeof avatarPresentationSchema>;
 export type AvatarWindowReport = z.infer<typeof avatarWindowReportSchema>;
@@ -55,10 +62,13 @@ export const desktopCommandSchema = z.object({
     "reload-model",
     "affect",
     "action",
+    "action-stop",
     "gaze",
     "outline",
     "compact",
     "capsule-size",
+    "mode",
+    "camera-view",
   ]),
   value: z.optional(z.string().check(z.maxLength(256))),
   width: z.optional(z.number().check(z.gte(100), z.lte(220))),
@@ -73,6 +83,8 @@ export type DesktopSnapshot = {
   selectedDisplay: string;
   adjusting: boolean;
   compact: boolean;
+  mode: AvatarDisplayMode;
+  cameraView: AvatarCameraView;
   voiceLevel: number;
   panel: "more" | "help";
   panelPhase: "closed" | "preparing" | "open";

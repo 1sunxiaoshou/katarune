@@ -13,6 +13,7 @@ import type { ModelMetadata, ModelSettings } from "../../shared/ipc";
 import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
 import { ASSET_KINDS } from "../../shared/assets";
+import type { DiaryFailureCode } from "../../shared/memory";
 
 export const assets = sqliteTable(
   "assets",
@@ -33,7 +34,7 @@ export const assets = sqliteTable(
     check("assets_status_check", sql`${table.status} in ('ready', 'missing')`),
     check(
       "assets_kind_check",
-      sql`${table.kind} in ('character_portrait', 'character_vrm', 'character_animation', 'chat_attachment')`,
+      sql`${table.kind} in ('character_portrait', 'character_vrm', 'character_animation', 'character_audio', 'character_subtitle', 'character_camera', 'chat_attachment')`,
     ),
     check(
       "assets_ready_metadata_check",
@@ -253,6 +254,7 @@ export const memoryDiaryJobs = sqliteTable("memory_diary_jobs", {
   day: text("day").notNull(), timeZone: text("time_zone").notNull(),
   status: text("status", { enum: ["pending", "running", "done", "skipped", "failed", "forgotten"] }).notNull().default("pending"),
   attempts: integer("attempts").notNull().default(0),
+  failureCode: text("failure_code").$type<DiaryFailureCode>(),
   retryAt: integer("retry_at", { mode: "timestamp_ms" }).notNull(),
 }, table => [uniqueIndex("memory_diary_job_day_unique").on(table.characterId, table.day)]);
 

@@ -53,17 +53,8 @@ export function CharacterPackageDialog({
     };
   }, []);
   const selected = packages.find((p) => p.id === selectedId);
-  const systemActions = selected?.manifest.systemActions;
-  const defaultSystemActions = packages.find((p) => p.builtin)?.manifest
-    .systemActions;
-  const idleCount =
-    Number(Boolean(systemActions?.idle ?? defaultSystemActions?.idle)) +
-    (
-      systemActions?.idle_variations ??
-      defaultSystemActions?.idle_variations ??
-      []
-    ).length;
-  const systemCount = idleCount + Object.keys(systemActions ?? {}).filter(key => key !== "idle" && key !== "idle_variations").length;
+  const idleCount = Number(Boolean(selected?.manifest.idle?.base)) + (selected?.manifest.idle?.variations?.length ?? 0);
+  const performanceCount = selected?.actions.filter(a => a.playback.kind === "performance").length ?? 0;
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -159,14 +150,16 @@ export function CharacterPackageDialog({
                   <dd>{selected.manifest.author ?? "未提供"}</dd>
                   <dt>版本</dt>
                   <dd>{selected.manifest.version}</dd>
-                  <dt>系统动作</dt>
-                  <dd>{systemCount}</dd>
-                  <dt>自定义动作</dt>
-                  <dd>{selected.customActions.length}</dd>
+                  <dt>动作总数</dt>
+                  <dd>{selected.actions.length}</dd>
+                  <dt>自动待机</dt>
+                  <dd>{idleCount}</dd>
+                  <dt>舞蹈演出</dt>
+                  <dd>{performanceCount}</dd>
                 </dl>
-                {selected.customActions.length > 0 && (
+                {selected.actions.length > 0 && (
                   <ul>
-                    {selected.customActions.map((action) => (
+                    {selected.actions.map((action) => (
                       <li key={action.id}>
                         <strong>{action.name}</strong>
                         <span>{action.description}</span>

@@ -1,0 +1,1 @@
+ALTER TABLE `memory_diary_jobs` ADD `failure_code` text;

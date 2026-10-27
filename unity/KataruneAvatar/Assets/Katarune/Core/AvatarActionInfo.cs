@@ -4,7 +4,7 @@ namespace Katarune.Avatar
 {
     public readonly struct AvatarActionInfo
     {
-        public AvatarActionInfo(string id, string displayName, float durationSeconds = 0f, string description = "", string kind = "oneShot", string key = null, string semantic = null, string layer = "body")
+        public AvatarActionInfo(string id, string displayName, float durationSeconds = 0f, string description = "", string kind = "oneShot", string key = null, string semantic = null, string layer = "body", bool idle = false)
         {
             Id = id;
             DisplayName = displayName;
@@ -14,6 +14,7 @@ namespace Katarune.Avatar
             Key = key;
             Semantic = semantic;
             Layer = layer;
+            IsIdle = idle;
         }
         public string Description { get; }
         public string Id { get; }
@@ -23,6 +24,8 @@ namespace Katarune.Avatar
         public string Key { get; }
         public string Semantic { get; }
         public string Layer { get; }
+        public bool IsDance => Kind == "performance";
+        public bool IsIdle { get; }
     }
 
     public static class AvatarActionIds

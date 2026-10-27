@@ -43,6 +43,7 @@ namespace Katarune.Avatar
         private bool _finishing;
         private int _sentence;
         internal bool Terminal => Status.state == "completed" || Status.state == "cancelled" || Status.state == "failed";
+        internal bool ContainsActions => _nodes.Any(node => !string.IsNullOrEmpty(node.Step.action));
 
         internal AvatarPerformance(string id, string toolCallId, string runId, AvatarPerformanceRequest request,
             IAvatarRuntimeFacade runtime, Action<AvatarPerformanceStatus> changed)
@@ -66,7 +67,7 @@ namespace Katarune.Avatar
                         break;
                     default: throw new ArgumentException("未知表演触发条件。");
                 }
-                if (!string.IsNullOrEmpty(step.action) && !runtime.AvailableActions.Any(a => a.Id == step.action)) throw new ArgumentException("动作不可用。");
+                if (!string.IsNullOrEmpty(step.action) && !runtime.AvailableActions.Any(a => a.Id == step.action && !a.IsDance)) throw new ArgumentException("动作不可用。");
                 if (!string.IsNullOrEmpty(step.expression) && (!Enum.TryParse<AvatarAffectPreset>(step.expression, true, out var preset)
                     || !runtime.Snapshot.Capabilities.SupportsAffect(preset))) throw new ArgumentException("表情不可用。");
                 var node = new Node { Step = step, After = step.at == "after_action" ? previousAction : null,

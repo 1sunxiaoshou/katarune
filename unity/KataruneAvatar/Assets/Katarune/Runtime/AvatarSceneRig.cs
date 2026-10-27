@@ -59,6 +59,85 @@ namespace Katarune.Avatar
         private float _baseVerticalFieldOfViewDegrees;
         private Vector2 _desktopCenter = new Vector2(0.78f, 0.5f);
         private float _desktopHeight = 0.65f;
+        private bool _immersive, _cameraTransition;
+        private string _cameraView = "overhead";
+        private string _danceCameraView;
+        private AvatarDanceCameraTrack _danceCameraTrack;
+        private float _danceCameraTime;
+        private float _transitionElapsed, _desktopFieldOfView;
+        private Vector3 _transitionPosition;
+        private Quaternion _transitionRotation;
+        private Vector2 _transitionLensShift;
+        private float _transitionFieldOfView;
+        private AvatarImmersiveBackdrop _immersiveBackdrop;
+        internal bool Immersive => _immersive;
+        internal string CameraView => _cameraView;
+        internal string EffectiveCameraView => _danceCameraTrack != null ? "track" : _danceCameraView ?? _cameraView;
+        internal bool DancePresentationActive { get; set; }
+        private bool _danceCameraRestoring;
+        private AvatarFramingState _danceRestoreTarget;
+        internal bool DanceCameraRestoring => _danceCameraRestoring;
+
+        internal void SetPresentationMode(bool immersive, string cameraView)
+        {
+            if (cameraView != "overhead" && cameraView != "center" && cameraView != "closeup")
+                throw new ArgumentException("Unknown camera view.", nameof(cameraView));
+            if (_immersive == immersive && _cameraView == cameraView) return;
+            _immersive = immersive;
+            _cameraView = cameraView;
+            if (_camera == null || !_hasFramedBounds) return;
+            _transitionPosition = _camera.transform.position;
+            _transitionRotation = _camera.transform.rotation;
+            _transitionLensShift = _camera.lensShift;
+            _transitionFieldOfView = _camera.fieldOfView;
+            _transitionElapsed = 0f;
+            _cameraTransition = true;
+            if (Application.isPlaying && immersive && _immersiveBackdrop == null)
+                _immersiveBackdrop = gameObject.AddComponent<AvatarImmersiveBackdrop>();
+        }
+        internal void SetDanceCamera(string view)
+        {
+            if (view != null && view != "overhead" && view != "center" && view != "closeup") throw new ArgumentException("舞蹈镜头无效。");
+            if (_danceCameraView == view) return;
+            _danceCameraView = view;
+            if (_camera == null || !_hasFramedBounds) return;
+            _transitionPosition = _camera.transform.position; _transitionRotation = _camera.transform.rotation;
+            _transitionLensShift = _camera.lensShift; _transitionFieldOfView = _camera.fieldOfView;
+            _transitionElapsed = 0f; _cameraTransition = true;
+        }
+        internal void RestoreDanceCamera(AvatarFramingState framing)
+        {
+            _danceCameraTrack = null; _danceCameraView = null; _cameraTransition = false; _danceCameraRestoring = false; RestoreFraming(framing);
+        }
+        internal void SetDanceCameraTrack(AvatarDanceCameraTrack track, float seconds)
+        {
+            _danceCameraTrack = track; _danceCameraTime = seconds; _cameraTransition = false;
+            ApplyDanceCameraTrack();
+        }
+        private void ApplyDanceCameraTrack()
+        {
+            if (_danceCameraTrack == null || _camera == null || !_hasFramedBounds) return;
+            var sample = _danceCameraTrack.SampleAt(_danceCameraTime);
+            var scale = _danceCameraTrack.ReferenceHeight > 0 ? _framedBounds.size.y / _danceCameraTrack.ReferenceHeight : 1f;
+            var origin = new Vector3(_showcaseBasePosition.x, _framedBounds.min.y, _showcaseBasePosition.z);
+            var yaw = Quaternion.AngleAxis(_showcaseYaw, Vector3.up);
+            _camera.transform.SetPositionAndRotation(origin + yaw * (sample.Position * scale), yaw * sample.Rotation);
+            _camera.lensShift = Vector2.zero; _camera.fieldOfView = sample.FieldOfView;
+            _camera.orthographic = sample.Orthographic; _camera.orthographicSize = sample.OrthographicSize * scale;
+            _camera.nearClipPlane = sample.NearClip * scale; _camera.farClipPlane = sample.FarClip * scale;
+        }
+        internal void BeginDanceCameraRestore(AvatarFramingState framing)
+        {
+            _danceCameraTrack = null;
+            if (_camera == null || !_hasFramedBounds) { RestoreDanceCamera(framing); return; }
+            var position = _camera.transform.position; var rotation = _camera.transform.rotation;
+            var lensShift = _camera.lensShift; var fieldOfView = _camera.fieldOfView;
+            RestoreFraming(framing); SetCharacterShowcaseControlEnabled(false);
+            _camera.transform.SetPositionAndRotation(position, rotation); _camera.lensShift = lensShift; _camera.fieldOfView = fieldOfView;
+            _transitionPosition = position; _transitionRotation = rotation; _transitionLensShift = lensShift; _transitionFieldOfView = fieldOfView;
+            _transitionElapsed = 0f; _cameraTransition = false; _danceCameraView = null;
+            _danceRestoreTarget = framing; _danceCameraRestoring = true;
+        }
 
         private AvatarWindow _desktopWindow;
         public Vector2 ReferenceWindowSize { get; private set; } = new Vector2(0.3f, 0.8f);
@@ -68,6 +147,7 @@ namespace Katarune.Avatar
         internal float DesktopHeight => _desktopHeight;
         internal void SetDesktopPlacement(float x, float y, float height)
         {
+            if (DancePresentationActive) return;
             if (float.IsNaN(x) || float.IsInfinity(x) || float.IsNaN(y) || float.IsInfinity(y) ||
                 float.IsNaN(height) || float.IsInfinity(height)) return;
             _desktopCenter = new Vector2(x, y);
@@ -97,6 +177,7 @@ namespace Katarune.Avatar
         }
         internal void SetDesktopPose(float yaw, float pitch)
         {
+            if (DancePresentationActive) return;
             EndShowcaseDrag(preserveInertia: false);
             _showcaseYaw = _targetShowcaseYaw = yaw;
             _showcasePitch = _targetShowcasePitch = Mathf.Clamp(pitch, -45f, 45f);
@@ -136,6 +217,7 @@ namespace Katarune.Avatar
 
         public void SetCharacterShowcaseControlEnabled(bool enabled)
         {
+            if (enabled && DancePresentationActive) return;
             CharacterShowcaseControlEnabled = enabled;
             if (!enabled)
             {
@@ -186,11 +268,16 @@ namespace Katarune.Avatar
                 _showcasePitch,
                 _targetShowcasePitch,
                 _showcasePitchVelocity,
+                _desktopFieldOfView,
                 _camera != null ? _camera.fieldOfView : _baseVerticalFieldOfViewDegrees,
                 ReferenceWindowSize,
                 _floor != null && _floor.activeSelf,
                 _floor != null ? _floor.transform.position : Vector3.zero,
-                _floor != null ? _floor.transform.localScale : Vector3.one);
+                _floor != null ? _floor.transform.localScale : Vector3.one,
+                _camera != null && _camera.orthographic,
+                _camera != null ? _camera.orthographicSize : 5f,
+                _camera != null ? _camera.nearClipPlane : .1f,
+                _camera != null ? _camera.farClipPlane : 1000f);
         }
 
         internal void RestoreFraming(AvatarFramingState state)
@@ -214,6 +301,7 @@ namespace Katarune.Avatar
             _showcasePitch = state.ShowcasePitch;
             _targetShowcasePitch = state.TargetShowcasePitch;
             _showcasePitchVelocity = state.ShowcasePitchVelocity;
+            _desktopFieldOfView = state.DesktopFieldOfView;
             if (_showcaseAvatar != null)
             {
                 _showcaseAvatar.SetPositionAndRotation(state.ShowcasePosition, state.ShowcaseRotation);
@@ -223,6 +311,8 @@ namespace Katarune.Avatar
                 _camera.transform.SetPositionAndRotation(state.CameraPosition, state.CameraRotation);
                 _camera.lensShift = state.CameraLensShift;
                 _camera.fieldOfView = state.CameraFieldOfView;
+                _camera.orthographic = state.CameraOrthographic; _camera.orthographicSize = state.CameraOrthographicSize;
+                _camera.nearClipPlane = state.CameraNearClip; _camera.farClipPlane = state.CameraFarClip;
             }
             if (_floor != null)
             {
@@ -245,6 +335,7 @@ namespace Katarune.Avatar
             _framedBounds = bounds;
             _hasFramedBounds = true;
             ApplyFraming(bounds, resetAvatar: true);
+            if (_immersive) SetPresentationModeAfterFraming();
             if (_floor != null)
             {
                 _floor.SetActive(true);
@@ -305,6 +396,67 @@ namespace Katarune.Avatar
                 else ApplyFixedCompositionAndCameraPose();
                 _lastScreenSize = screenSize;
             }
+            AdvancePresentation(Time.unscaledDeltaTime);
+        }
+
+        private void SetPresentationModeAfterFraming()
+        {
+            // A replacement model owns new bounds; keep the selected view.
+            _cameraTransition = false;
+            AdvancePresentation(0f);
+        }
+
+        internal void AdvancePresentation(float deltaTime)
+        {
+            if (_camera == null || !_hasFramedBounds) return;
+            if (_danceCameraTrack != null)
+            {
+                ApplyDanceCameraTrack(); _immersiveBackdrop?.SetVisibility(_immersive, deltaTime); return;
+            }
+            if (_danceCameraRestoring)
+            {
+                _transitionElapsed += Mathf.Max(0f, deltaTime);
+                var restoring = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_transitionElapsed / .9f));
+                _camera.transform.SetPositionAndRotation(Vector3.Lerp(_transitionPosition, _danceRestoreTarget.CameraPosition, restoring),
+                    Quaternion.Slerp(_transitionRotation, _danceRestoreTarget.CameraRotation, restoring));
+                _camera.lensShift = Vector2.Lerp(_transitionLensShift, _danceRestoreTarget.CameraLensShift, restoring);
+                _camera.fieldOfView = Mathf.Lerp(_transitionFieldOfView, _danceRestoreTarget.CameraFieldOfView, restoring);
+                if (_transitionElapsed >= .9f) _danceCameraRestoring = false;
+                return;
+            }
+            if (!_immersive && _danceCameraView == null && !_cameraTransition) return;
+            var offset = Quaternion.AngleAxis(-_showcasePitch, Vector3.right) * (_fixedCameraPosition - _framingTarget);
+            var position = _framingTarget + offset;
+            var rotation = Quaternion.LookRotation(-offset, Vector3.up);
+            var lensShift = _fixedLensShift;
+            var fieldOfView = _desktopFieldOfView;
+            if (_immersive || _danceCameraView != null)
+            {
+                var height = Mathf.Max(0.1f, _framedBounds.size.y);
+                var view = _danceCameraView ?? _cameraView;
+                var closeup = view == "closeup";
+                var target = _framedBounds.center;
+                target.y = _framedBounds.min.y + height * (closeup ? .68f : .52f);
+                var pitch = view == "overhead" ? 28f : closeup ? 7f : 10f;
+                fieldOfView = 30f;
+                var visibleHeight = height * (closeup ? .56f : 1.13f);
+                var distance = visibleHeight * .5f / Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad);
+                // Fit the horizontal extent on portrait/narrow displays as well.
+                distance = Mathf.Max(distance, _framedBounds.size.x * .6f /
+                    (Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad) * _camera.aspect));
+                var front = Quaternion.AngleAxis(_showcaseYaw, Vector3.up) * Vector3.forward;
+                position = target + (front * Mathf.Cos(pitch * Mathf.Deg2Rad) + Vector3.up * Mathf.Sin(pitch * Mathf.Deg2Rad)) * distance;
+                rotation = Quaternion.LookRotation(target - position, Vector3.up);
+                lensShift = Vector2.zero;
+            }
+            _transitionElapsed += Mathf.Max(0f, deltaTime);
+            var t = _cameraTransition ? Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_transitionElapsed / .9f)) : 1f;
+            _camera.transform.SetPositionAndRotation(Vector3.Lerp(_transitionPosition, position, t),
+                Quaternion.Slerp(_transitionRotation, rotation, t));
+            _camera.lensShift = Vector2.Lerp(_transitionLensShift, lensShift, t);
+            _camera.fieldOfView = Mathf.Lerp(_transitionFieldOfView, fieldOfView, t);
+            _immersiveBackdrop?.SetVisibility(_immersive, deltaTime);
+            if (_transitionElapsed >= .9f) _cameraTransition = false;
         }
 
         private void ReadShowcaseInput()
@@ -363,10 +515,15 @@ namespace Katarune.Avatar
                 ApplyShowcaseCameraPose();
                 return;
             }
+            var preserveView = _immersive || _cameraTransition;
+            var position = _camera.transform.position;
+            var rotation = _camera.transform.rotation;
+            var lensShift = _camera.lensShift;
+            var fov = _camera.fieldOfView;
             var screenHeight = Mathf.Max(1f, Screen.height);
             var aspect = Mathf.Max(0.1f, Screen.width / screenHeight);
             ConfigurePhysicalProjection(_camera, aspect);
-            ApplyShowcaseCameraPose();
+            ApplyShowcaseCameraPose(force: true);
             _camera.fieldOfView = GetFieldOfViewForMagnification(
                 _baseVerticalFieldOfViewDegrees,
                 InitialZoomMagnification);
@@ -374,14 +531,26 @@ namespace Katarune.Avatar
             var viewportDelta = new Vector2(1f - RightViewportMargin - projectedBounds.xMax, BottomViewportMargin - projectedBounds.yMin);
             _camera.lensShift = -viewportDelta;
             _fixedLensShift = _camera.lensShift;
+            _desktopFieldOfView = _camera.fieldOfView;
+            if (preserveView)
+            {
+                _camera.transform.SetPositionAndRotation(position, rotation);
+                _camera.lensShift = lensShift;
+                _camera.fieldOfView = fov;
+            }
         }
 
         private void ApplyDesktopProjection()
         {
+            var preserveView = _immersive || _cameraTransition;
+            var position = _camera.transform.position;
+            var rotation = _camera.transform.rotation;
+            var lensShift = _camera.lensShift;
+            var fov = _camera.fieldOfView;
             // The HWND covers one display. Only the camera composition changes during pan/zoom.
             ConfigurePhysicalProjection(_camera, Screen.width / Mathf.Max(1f, Screen.height));
             _camera.fieldOfView = _baseVerticalFieldOfViewDegrees;
-            ApplyShowcaseCameraPose();
+            ApplyShowcaseCameraPose(force: true);
             var baseBounds = GetViewportBounds(_camera, _framedBounds);
             // Stop only at the camera's valid 1-degree FOV, not at a full-body
             // or screen-width fit. This also keeps a reverse scroll responsive.
@@ -398,6 +567,13 @@ namespace Katarune.Avatar
             _camera.lensShift = -(new Vector2(_desktopCenter.x - projected.center.x,
                 _desktopCenter.y - projected.center.y));
             _fixedLensShift = _camera.lensShift;
+            _desktopFieldOfView = _camera.fieldOfView;
+            if (preserveView)
+            {
+                _camera.transform.SetPositionAndRotation(position, rotation);
+                _camera.lensShift = lensShift;
+                _camera.fieldOfView = fov;
+            }
         }
 
         internal static Vector2 ClampDesktopCenter(Vector2 center, Rect projected, Vector2 screenSize)
@@ -534,9 +710,11 @@ namespace Katarune.Avatar
                 rotation * _showcaseBaseRotation);
         }
 
-        private void ApplyShowcaseCameraPose()
+        private void ApplyShowcaseCameraPose(bool force = false)
         {
             if (_camera == null) return;
+            if (_danceCameraTrack != null || _danceCameraRestoring) return;
+            if (!force && (_immersive || _cameraTransition)) return;
             var baseOffset = _fixedCameraPosition - _framingTarget;
             var pitchedOffset = Quaternion.AngleAxis(-_showcasePitch, Vector3.right) * baseOffset;
             var cameraPosition = _framingTarget + pitchedOffset;
@@ -627,11 +805,16 @@ namespace Katarune.Avatar
                 float showcasePitch,
                 float targetShowcasePitch,
                 float showcasePitchVelocity,
+                float desktopFieldOfView,
                 float cameraFieldOfView,
                 Vector2 referenceWindowSize,
                 bool floorActive,
                 Vector3 floorPosition,
-                Vector3 floorScale)
+                Vector3 floorScale,
+                bool cameraOrthographic = false,
+                float cameraOrthographicSize = 5f,
+                float cameraNearClip = .1f,
+                float cameraFarClip = 1000f)
             {
                 HasBounds = hasBounds;
                 Bounds = bounds;
@@ -655,11 +838,14 @@ namespace Katarune.Avatar
                 ShowcasePitch = showcasePitch;
                 TargetShowcasePitch = targetShowcasePitch;
                 ShowcasePitchVelocity = showcasePitchVelocity;
+                DesktopFieldOfView = desktopFieldOfView;
                 CameraFieldOfView = cameraFieldOfView;
                 ReferenceWindowSize = referenceWindowSize;
                 FloorActive = floorActive;
                 FloorPosition = floorPosition;
                 FloorScale = floorScale;
+                CameraOrthographic = cameraOrthographic; CameraOrthographicSize = cameraOrthographicSize;
+                CameraNearClip = cameraNearClip; CameraFarClip = cameraFarClip;
             }
 
             public bool HasBounds { get; }
@@ -685,10 +871,15 @@ namespace Katarune.Avatar
             public float TargetShowcasePitch { get; }
             public float ShowcasePitchVelocity { get; }
             public float CameraFieldOfView { get; }
+            public float DesktopFieldOfView { get; }
             public Vector2 ReferenceWindowSize { get; }
             public bool FloorActive { get; }
             public Vector3 FloorPosition { get; }
             public Vector3 FloorScale { get; }
+            public bool CameraOrthographic { get; }
+            public float CameraOrthographicSize { get; }
+            public float CameraNearClip { get; }
+            public float CameraFarClip { get; }
         }
     }
 }

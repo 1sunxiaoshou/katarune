@@ -21,20 +21,16 @@ export async function verifyWindowsResources(root, packaged = false) {
   const runtime = packaged ? join(avatar, "KataruneAvatar_Data", "KataruneLocal")
     : join(root, "unity", "KataruneAvatar", "Assets", "KataruneLocal");
   const manifest = JSON.parse(await readFile(join(builtin, "manifest.json"), "utf8"));
-  if (manifest.formatVersion !== 2) throw new Error("Default character package must use formatVersion 2.");
+  if (manifest.formatVersion !== 3) throw new Error("Default character package must use formatVersion 3.");
   for (const image of [manifest.portrait, manifest.thumbnail].filter(Boolean)) await requireFile(resourcePath(builtin, image));
-  const actions = manifest.systemActions ?? {};
-  const playbackFiles = playback => !playback ? [] : [...(playback.kind === "oneShot" ? [playback.file] : [playback.enter, playback.loop, playback.exit]), playback.reference].filter(Boolean);
-  const runtimeFiles = [manifest.model, actions.idle?.file,
-    ...(actions.idle_variations ?? []).map(action => action.file),
-    ...Object.entries(actions).filter(([key]) => key !== "idle" && key !== "idle_variations").flatMap(([, action]) => playbackFiles(action)),
-    ...(manifest.customActions ?? []).flatMap(action => playbackFiles(action.playback))].filter(Boolean);
+  const playbackFiles = p => [p.motion, p.enter, p.exit, p.reference, p.audio, p.subtitles, p.camera?.kind === "track" ? p.camera.file : null].filter(Boolean);
+  const runtimeFiles = [manifest.model, ...(manifest.actions ?? []).flatMap(action => playbackFiles(action.playback))];
   if (!manifest.model) throw new Error("Default character manifest must reference a VRM model.");
   for (const file of runtimeFiles) {
     const local = resourcePath(runtime, file);
     // AvatarBuilder also copies animations/assets supplied in the builtin package.
     const source = !packaged && (await stat(resourcePath(builtin, file)).catch(() => null))?.isFile()
-      ? resourcePath(builtin, file) : local;
+      ? resourcePath(builtin, file) : !packaged && file === "avatar/model.vrm" ? join(runtime, "Models", "default-avatar.vrm") : local;
     await requireFile(source);
   }
   for (const file of ["asr/sensevoice-int8/model.int8.onnx", "asr/sensevoice-int8/tokens.txt",

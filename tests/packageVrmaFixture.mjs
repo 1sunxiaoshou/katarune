@@ -65,7 +65,6 @@ export async function writePackageVrmaFixture(
       VRMC_vrm_animation: {
         specVersion: "1.0",
         humanoid: { humanBones: bones },
-        ...(unsupported ? { expressions: { preset: {} } } : {}),
       },
     },
     nodes,
@@ -95,7 +94,9 @@ export async function writePackageVrmaFixture(
       {
         name: "Head tilt acceptance fixture",
         samplers: tracks.map((_, index) => ({ input: 0, output: index + 1, interpolation: "LINEAR" })),
-        channels: tracks.map((track, index) => ({ sampler: index, target: { node: bones[track.bone].node, path: "rotation" } })),
+        // Humanoid scale channels remain invalid in VRMA, while standard
+        // expression and gaze channels are now accepted by the player.
+        channels: tracks.map((track, index) => ({ sampler: index, target: { node: bones[track.bone].node, path: unsupported && index === 0 ? "scale" : "rotation" } })),
       },
     ],
   };

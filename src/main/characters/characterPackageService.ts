@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { readFileSync, copyFileSync } from "node:fs";
@@ -9,9 +10,10 @@ import {
   type CharacterPackage,
   type RuntimeCharacterPackage,
   type PackageProgress,
-  SYSTEM_ACTION_KEYS,
   packageAnimationFiles,
-  primaryPlaybackFile,
+  packageAudioFiles,
+  packageSubtitleFiles,
+  packageCameraFiles,
   type ActionPlayback,
 } from "../../shared/characterPackages";
 import type { AssetService } from "../assets/assetService";
@@ -24,7 +26,9 @@ import {
   extractPackage,
   hashFile,
   parsePackageManifest,
+  validateCameraGlb,
   readImageHeader,
+  validatePackageSrt,
 } from "./packageArchive";
 
 export class CharacterPackageService {
@@ -58,13 +62,10 @@ export class CharacterPackageService {
         readFileSync(join(this.builtinResources, "manifest.json"), "utf8"),
       ),
     );
-    const ids = JSON.parse(
+    const ids = z.record(z.string(), z.uuid()).parse(JSON.parse(
       readFileSync(join(this.builtinResources, "action-ids.json"), "utf8"),
-    ) as string[];
-    if (
-      ids.length !== manifest.customActions.length ||
-      new Set(ids).size !== ids.length
-    )
+    ));
+    if (Object.keys(ids).length !== manifest.actions.length || manifest.actions.some(a => !ids[a.key]) || new Set(Object.values(ids)).size !== manifest.actions.length)
       throw new Error("默认包动作 ID 清单无效。");
     const newAssets: ReadyAssetRegistration[] = [];
     const resources: { path: string; assetId: string }[] = [];
@@ -98,12 +99,7 @@ export class CharacterPackageService {
       thumbnailAssetId: resources[1]?.assetId ?? null,
       resources,
       newAssets,
-      customActions: manifest.customActions.map((a, i) => ({
-        ...a,
-        file: primaryPlaybackFile(a.playback),
-        key: a.key ?? a.name,
-        id: ids[i]!,
-      })),
+      actions: manifest.actions.map(a => ({ ...a, id: ids[a.key]! })),
     });
     await mkdir(join(this.userData, "package-staging"), { recursive: true });
   }
@@ -146,48 +142,52 @@ export class CharacterPackageService {
     );
   }
   private descriptor(
-    pack: Pick<StoredCharacterPackage, "id" | "manifest" | "customActions">,
+    pack: Pick<StoredCharacterPackage, "id" | "manifest" | "actions">,
     resolve: (path: string) => string,
     fallback: (path: string) => string,
   ): RuntimeCharacterPackage {
-    const defaults =
-      this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID).manifest.systemActions;
-    const resolvePlayback = (playback: ActionPlayback): ActionPlayback => {
-      const layer: NonNullable<ActionPlayback["layer"]> = playback.layer ?? "body";
-      const blending: NonNullable<ActionPlayback["blending"]> = playback.blending ?? (layer === "head" ? "additive" : "override");
-      const common = {
-        layer, blending, blendSeconds: playback.blendSeconds ?? .2,
-        ...(playback.reference ? { reference: resolve(playback.reference) } : {}),
+    const defaults = this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID);
+    const resolvePlayback = (playback: ActionPlayback, resolvePath: (path: string) => string): ActionPlayback => {
+      const layer = playback.layer ?? "body";
+      const common = { motion: resolvePath(playback.motion), layer, blending: playback.blending ?? (layer === "head" ? "additive" : "override"), blendSeconds: playback.blendSeconds ?? .2 };
+      if (playback.kind === "performance") return {
+        ...playback, ...common, layer: "body", blending: "override",
+        ...(playback.audio ? { audio: resolvePath(playback.audio) } : {}),
+        ...(playback.subtitles ? { subtitles: resolvePath(playback.subtitles) } : {}),
+        ...(playback.camera?.kind === "track" ? { camera: { ...playback.camera, file: resolvePath(playback.camera.file) } } : {}),
       };
-      return playback.kind === "oneShot"
-        ? { ...playback, ...common, file: resolve(playback.file) }
-        : { ...playback, ...common, loop: resolve(playback.loop), ...(playback.enter ? { enter: resolve(playback.enter) } : {}), ...(playback.exit ? { exit: resolve(playback.exit) } : {}) };
+      return {
+        ...playback, ...common,
+        ...(playback.reference ? { reference: resolvePath(playback.reference) } : {}),
+        ...(playback.kind === "loop" && playback.enter ? { enter: resolvePath(playback.enter) } : {}),
+        ...(playback.kind === "loop" && playback.exit ? { exit: resolvePath(playback.exit) } : {}),
+      };
     };
-    const systemBehaviors: NonNullable<RuntimeCharacterPackage["systemBehaviors"]> = [];
-    for (const key of SYSTEM_ACTION_KEYS) {
-      const playback = pack.manifest.systemActions[key];
-      if (playback) systemBehaviors.push({ id: `system.${key.toLowerCase()}`, name: key, description: "", playback: resolvePlayback(playback) });
+    const actions = pack.actions.map(a => ({ ...a, playback: resolvePlayback(a.playback, resolve) }));
+    const actionId = (key: string) => {
+      const action = actions.find(a => a.key === key);
+      if (!action) throw new Error("角色包动作引用已损坏。");
+      return action.id;
+    };
+    let variations: string[];
+    if (pack.manifest.idle?.variations !== undefined) variations = pack.manifest.idle.variations.map(actionId);
+    else {
+      variations = (defaults.manifest.idle?.variations ?? []).map(key => {
+        const action = defaults.actions.find(a => a.key === key);
+        if (!action) throw new Error("默认包待机引用已损坏。");
+        if (!actions.some(a => a.id === action.id)) {
+          let key = action.key;
+          while (actions.some(a => a.key === key)) key = `fallback-${key}`;
+          actions.push({ ...action, key, playback: resolvePlayback(action.playback, fallback) });
+        }
+        return action.id;
+      });
     }
     return {
-      formatVersion: pack.manifest.formatVersion,
-      id: pack.id,
-      version: pack.manifest.version,
-      model: resolve(pack.manifest.model),
-      idle: pack.manifest.systemActions.idle
-        ? resolve(pack.manifest.systemActions.idle.file)
-        : "",
-      idleVariations:
-        pack.manifest.systemActions.idle_variations?.map((a) =>
-          resolve(a.file),
-        ) ??
-        defaults.idle_variations?.map((a) => fallback(a.file)) ??
-        [],
-      customActions: pack.customActions.map((a) => ({
-        ...a,
-        file: resolve(a.file),
-        playback: resolvePlayback(a.playback),
-      })),
-      systemBehaviors,
+      formatVersion: 3, id: pack.id, version: pack.manifest.version,
+      model: resolve(pack.manifest.model), actions,
+      idle: { ...(pack.manifest.idle?.base ? { base: actionId(pack.manifest.idle.base) } : {}), variations },
+      bindings: Object.entries(pack.manifest.bindings ?? {}).flatMap(([role, key]) => key === undefined ? [] : [{ role, actionId: actionId(key) }]),
     };
   }
   async import(
@@ -222,11 +222,11 @@ export class CharacterPackageService {
       );
       const references = new Map<
         string,
-        "character_portrait" | "character_vrm" | "character_animation"
+        "character_portrait" | "character_vrm" | "character_animation" | "character_audio" | "character_subtitle" | "character_camera"
       >();
       const add = (
         path: string,
-        kind: "character_portrait" | "character_vrm" | "character_animation",
+        kind: "character_portrait" | "character_vrm" | "character_animation" | "character_audio" | "character_subtitle" | "character_camera",
       ) => {
         if (references.has(path) && references.get(path) !== kind)
           throw new Error("同一文件不能用作不同资源类型。");
@@ -236,6 +236,9 @@ export class CharacterPackageService {
       if (manifest.thumbnail) add(manifest.thumbnail, "character_portrait");
       add(manifest.model, "character_vrm");
       for (const file of packageAnimationFiles(manifest)) add(file, "character_animation");
+      for (const file of packageAudioFiles(manifest)) add(file, "character_audio");
+      for (const file of packageSubtitleFiles(manifest)) add(file, "character_subtitle");
+      for (const file of packageCameraFiles(manifest)) add(file, "character_camera");
       const allowed = new Set([
         "manifest.json",
         "LICENSE.txt",
@@ -264,9 +267,13 @@ export class CharacterPackageService {
           size >
             (kind === "character_portrait"
               ? 25
-              : kind === "character_vrm"
-                ? 512
-                : 128) *
+              : kind === "character_subtitle"
+                ? 1
+                : kind === "character_camera"
+                  ? 16
+                : kind === "character_vrm"
+                  ? 512
+                  : 128) *
               1024 ** 2
         )
           throw new Error(`资源大小不符合限制：${file}`);
@@ -312,6 +319,18 @@ export class CharacterPackageService {
           )
             throw new Error("图片无法解码或宽高超过 4096。");
           mimeType = header.mime;
+        } else if (kind === "character_camera") {
+          if (extension !== ".glb") throw new Error("舞蹈镜头仅支持 glTF 2.0 GLB 文件。");
+          validateCameraGlb(await readFile(source));
+        } else if (kind === "character_audio") {
+          // Format and duration are checked by the same Unity decoder used for playback.
+          mimeType = ({ ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".flac": "audio/flac",
+            ".aif": "audio/aiff", ".aiff": "audio/aiff", ".aac": "audio/aac", ".m4a": "audio/mp4" } as Record<string, string>)[extension]
+            ?? "application/octet-stream";
+        } else if (kind === "character_subtitle") {
+          if (extension !== ".srt") throw new Error("舞蹈字幕仅支持 SRT 文件。");
+          validatePackageSrt(await readFile(source));
+          mimeType = "application/x-subrip";
         } else if (extension !== (kind === "character_vrm" ? ".vrm" : ".vrma"))
           throw new Error("模型或动画扩展名不支持。");
         const sha256 = await hashFile(source, signal);
@@ -348,16 +367,11 @@ export class CharacterPackageService {
         resourceRows.push({ path: file, assetId: id });
       }
       const id = randomUUID();
-      const customActions = manifest.customActions.map((a) => ({
-        ...a,
-        file: primaryPlaybackFile(a.playback),
-        key: a.key ?? a.name,
-        id: randomUUID(),
-      }));
+      const actions = manifest.actions.map(a => ({ ...a, id: randomUUID() }));
       progress({ requestId, phase: "validating", files: files.length });
       await this.validate(
         this.descriptor(
-          { id, manifest, customActions },
+          { id, manifest, actions },
           (file) => join(stage!, file),
           (file) => join(this.runtimeResources, file),
         ),
@@ -381,7 +395,7 @@ export class CharacterPackageService {
         manifest,
         resources: resourceRows,
         newAssets,
-        customActions,
+        actions,
         portraitAssetId: resourceRows.find((r) => r.path === manifest.portrait)!
           .assetId,
         thumbnailAssetId: manifest.thumbnail

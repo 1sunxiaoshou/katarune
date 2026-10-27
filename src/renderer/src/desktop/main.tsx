@@ -40,6 +40,7 @@ import { initializeDevicePreferences } from "../settings/devicePreferences";
 import "@fontsource-variable/noto-sans-sc";
 import "../styles.css";
 import "./style.css";
+import { ActionMenu } from "./ActionMenu";
 declare global {
   interface Window {
     avatarDesktop: AvatarDesktopApi;
@@ -126,6 +127,16 @@ function Desktop() {
   const [state, setState] = useState<DesktopSnapshot>();
   const capsuleRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const exit = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && state?.mode === "immersive") {
+        event.preventDefault();
+        command("mode", "desktop");
+      }
+    };
+    window.addEventListener("keydown", exit, true);
+    return () => window.removeEventListener("keydown", exit, true);
+  }, [state?.mode]);
   useEffect(() => {
     let receivedUpdate = false;
     const off = window.avatarDesktop.subscribe((snapshot) => {
@@ -255,7 +266,7 @@ function Desktop() {
                     : "调整位置"
                   : "正在连接"
               }
-              disabled={!ready}
+              disabled={!ready || state.mode === "immersive"}
               active={state.adjusting}
               onClick={() => command("adjust")}
             >
@@ -327,6 +338,24 @@ function Desktop() {
       )}
       {state.panel === "more" ? (
         <>
+          <div className="control-row">
+            <span>显示模式</span>
+            <Tabs className="desktop-segmented" value={state.mode}
+              onValueChange={(value) => command("mode", String(value))}>
+              <TabsList className="desktop-tabs-list" aria-label="显示模式">
+                <TabsIndicator className="desktop-tabs-indicator" />
+                <TabsTrigger value="desktop" disabled={!ready}>桌宠</TabsTrigger>
+                <TabsTrigger value="immersive" disabled={!ready}>沉浸</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+          {state.mode === "immersive" && <div className="control-row">
+            <span>视角</span>
+            <Choice label="视角" active={state.panelPhase === "open"}
+              value={state.cameraView}
+              options={[{ id: "overhead", name: "俯视" }, { id: "center", name: "居中" }, { id: "closeup", name: "近景" }]}
+              onChange={(value) => command("camera-view", value)} />
+          </div>}
           <Tabs
             className="expressions"
             value={p?.affect ?? null}
@@ -349,18 +378,13 @@ function Desktop() {
           </Tabs>
           <div className="control-row">
             <span>动作</span>
-            <Choice
-              label="动作"
+            <ActionMenu
               active={state.panelPhase === "open"}
               value={p?.action || "none"}
-              options={[
-                { id: "none", name: "无" },
-                ...(state.capabilities?.actions ?? []).map((a) => ({
-                  id: a.id,
-                  name: a.label,
-                })),
-              ]}
+              playingIds={p?.playingActions}
+              actions={state.capabilities?.actions ?? []}
               onChange={(v) => command("action", v)}
+              onStop={(v) => command("action-stop", v)}
             />
           </div>
           <div className="control-row">
@@ -423,6 +447,7 @@ function Desktop() {
           {([
             ["显示／隐藏控制器", "F1"],
             ["关闭面板／退出调整", "Esc"],
+            ["退出沉浸模式", "Esc"],
             ["旋转角色", <><span className="mouse-icon mouse-left-click" aria-hidden="true" /><Move /></>, "鼠标左键拖动"],
             ["移动角色", <><span className="mouse-icon mouse-middle-click" aria-hidden="true" /><Move /></>, "鼠标中键拖动"],
             ["缩放角色", <span className="mouse-icon mouse-scroll" aria-hidden="true" />, "鼠标滚轮"],

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { ArrowLeftIcon, BookOpenIcon, NotebookPenIcon, UsersIcon, BookTextIcon, PlusIcon, CircleAlertIcon } from "lucide-react";
 import type { MemoryDiaryState, MemoryEntry, MemoryKind, MemoryList } from "../../../shared/memory";
+import { diaryFailureMessage } from "../../../shared/memory";
 import { assetUrl } from "../../../shared/ipc";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
@@ -96,7 +97,7 @@ function MemoryWorkspace({ characterId, characterName, portraitAssetId, onClose 
             </TabsPrimitive.List>
             {kind === "diary" && <div className="memory-diary-policy"><Label htmlFor="memory-diary-enabled">每日生成日记<Switch size="sm" id="memory-diary-enabled" aria-label="每日生成日记" checked={diary?.enabled ?? false} disabled={changingDiary || !diary} data-testid="memory-diary-toggle" onCheckedChange={enabled => {
               setChangingDiary(true); void window.katarune.setMemoryDiaryEnabled({ characterId, enabled }).then(setDiary).catch(cause => setError(errorText(cause))).finally(() => setChangingDiary(false));
-            }} /></Label>{diary?.failed ? <div role="status"><p>{diary.failed} 天生成失败</p><Button variant="link" size="sm" className="h-auto px-0 py-1 text-xs" disabled={changingDiary || !diary.enabled} data-testid="memory-diary-retry" onClick={() => { setChangingDiary(true); void window.katarune.retryMemoryDiaries({ id: characterId }).then(setDiary).catch(cause => setError(errorText(cause))).finally(() => setChangingDiary(false)); }}>重试</Button></div> : null}</div>}
+            }} /></Label>{diary?.failed ? <div role="status"><div className="min-w-0 flex-1"><p>{diary.failed} 天生成失败</p><p className="mt-1 break-words" data-testid="memory-diary-failure">{diary.lastFailure?.day}：{diaryFailureMessage(diary.lastFailure?.code ?? null)}</p></div><Button variant="link" size="sm" className="h-auto shrink-0 px-0 py-1 text-xs" disabled={changingDiary || !diary.enabled} data-testid="memory-diary-retry" onClick={() => { setChangingDiary(true); void window.katarune.retryMemoryDiaries({ id: characterId }).then(setDiary).catch(cause => setError(errorText(cause))).finally(() => setChangingDiary(false)); }}>重试</Button></div> : null}</div>}
           </aside>
           <TabsContent value={selectedId ?? "new"} className="memory-reading" aria-label="记忆正文">{editor || entry ?
             <Suspense fallback={<div className="memory-empty" role="status">正在打开记忆…</div>}><MemoryDocument key={editor && !editor.entry ? editor.newKind : displayedEntry?.id} characterId={characterId} characterName={characterName} entry={editor ? editor.entry : entry} newKind={editor?.newKind ?? "event"} editing={editor !== null} onEdit={() => { if (entry) setEditor({ entry, newKind: entry.content.kind === "person" ? "person" : "event" }); }} onForget={() => setForgetTarget(entry)} onClose={() => setEditor(null)} onSaved={onSaved} /></Suspense>

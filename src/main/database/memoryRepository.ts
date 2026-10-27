@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, ne, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  memoryContentSchema, memoryDay, memoryEntrySchema, memoryListSchema,
+  memoryContentSchema, memoryDay, memoryEntrySchema, memoryListSchema, diaryFailureCodeSchema, memoryDiaryStateSchema,
   memorySaveInputSchema, memorySearchInputSchema, memorySummarySchema,
   type DiaryDraft, type ListMemoryRequest, type MemoryEntry, type MemorySaveInput, type MemoryWriteResult,
 } from "../../shared/memory";
@@ -101,10 +101,12 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
   };
   const diaryState = (characterId: string) => {
     assertCharacter(characterId);
-    database.update(memoryDiaryJobs).set({ status: "failed" }).where(and(eq(memoryDiaryJobs.characterId, characterId), eq(memoryDiaryJobs.status, "running"), lte(memoryDiaryJobs.retryAt, new Date()))).run();
+    database.update(memoryDiaryJobs).set({ status: "failed", failureCode: "interrupted" }).where(and(eq(memoryDiaryJobs.characterId, characterId), eq(memoryDiaryJobs.status, "running"), lte(memoryDiaryJobs.retryAt, new Date()))).run();
     const enabled = database.select().from(memoryPreferences).where(eq(memoryPreferences.characterId, characterId)).get()?.diaryEnabled ?? true;
     const jobs = database.select({ status: memoryDiaryJobs.status, value: count() }).from(memoryDiaryJobs).where(eq(memoryDiaryJobs.characterId, characterId)).groupBy(memoryDiaryJobs.status).all();
-    return { enabled, pending: jobs.filter(j => ["pending", "running"].includes(j.status)).reduce((n, j) => n + j.value, 0), failed: jobs.find(j => j.status === "failed")?.value ?? 0 };
+    const lastFailure = database.select({ day: memoryDiaryJobs.day, code: memoryDiaryJobs.failureCode }).from(memoryDiaryJobs)
+      .where(and(eq(memoryDiaryJobs.characterId, characterId), eq(memoryDiaryJobs.status, "failed"))).orderBy(desc(memoryDiaryJobs.day)).get() ?? null;
+    return memoryDiaryStateSchema.parse({ enabled, pending: jobs.filter(j => ["pending", "running"].includes(j.status)).reduce((n, j) => n + j.value, 0), failed: jobs.find(j => j.status === "failed")?.value ?? 0, lastFailure });
   };
   return {
     subscribeMemoryChanges: (listener: (characterId: string) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
@@ -173,13 +175,13 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
     },
     retryMemoryDiaryJobs: (characterId: string) => {
       assertCharacter(characterId);
-      database.update(memoryDiaryJobs).set({ status: "pending", retryAt: new Date(0) }).where(and(eq(memoryDiaryJobs.characterId, characterId),
+      database.update(memoryDiaryJobs).set({ status: "pending", failureCode: null, retryAt: new Date(0) }).where(and(eq(memoryDiaryJobs.characterId, characterId),
         or(eq(memoryDiaryJobs.status, "failed"), and(eq(memoryDiaryJobs.status, "running"), lte(memoryDiaryJobs.retryAt, new Date()))))).run();
       notify(characterId);
       return diaryState(characterId);
     },
     claimMemoryDiaryJob: (now: Date): DiaryJob | null => database.transaction(() => {
-      database.update(memoryDiaryJobs).set({ status: "failed" }).where(and(eq(memoryDiaryJobs.status, "running"), lte(memoryDiaryJobs.retryAt, now))).run();
+      database.update(memoryDiaryJobs).set({ status: "failed", failureCode: "interrupted" }).where(and(eq(memoryDiaryJobs.status, "running"), lte(memoryDiaryJobs.retryAt, now))).run();
       const candidates = database.select().from(memoryDiaryJobs).where(and(lte(memoryDiaryJobs.retryAt, now),
         eq(memoryDiaryJobs.status, "pending")))
         .orderBy(asc(memoryDiaryJobs.day)).all();
@@ -213,8 +215,8 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
       database.update(memoryDiaryJobs).set({ status: draft.worthKeeping ? "done" : "skipped" }).where(eq(memoryDiaryJobs.id, job.id)).run();
       notify(job.characterId);
     }),
-    failMemoryDiaryJob: (job: DiaryJob, now: Date) => {
-      database.update(memoryDiaryJobs).set({ status: "failed", retryAt: now })
+    failMemoryDiaryJob: (job: DiaryJob, now: Date, code: z.input<typeof diaryFailureCodeSchema> = "unknown") => {
+      database.update(memoryDiaryJobs).set({ status: "failed", failureCode: diaryFailureCodeSchema.parse(code), retryAt: now })
         .where(and(eq(memoryDiaryJobs.id, job.id), eq(memoryDiaryJobs.status, "running"), eq(memoryDiaryJobs.attempts, job.attempts))).run();
       notify(job.characterId);
     },

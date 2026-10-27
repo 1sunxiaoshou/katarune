@@ -7,6 +7,9 @@ export const ASSET_KINDS = [
   "character_portrait",
   "character_vrm",
   "character_animation",
+  "character_audio",
+  "character_subtitle",
+  "character_camera",
   "chat_attachment",
 ] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];

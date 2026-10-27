@@ -67,12 +67,33 @@ export const memoryToolSaveSchema = z.strictObject({
   isUser: z.boolean().nullable().describe("人物填是否为与你交谈的用户；纪事填 null。"),
 }).refine(value => (value.id === null) === (value.revision === null), "新增时 id/revision 均为 null，更新时两者都需要。")
   .refine(value => value.kind === "person" ? value.isUser !== null : value.isUser === null, "人物需要 isUser 布尔值，纪事的 isUser 应为 null。");
-export const memoryDiaryStateSchema = z.strictObject({ enabled: z.boolean(), pending: z.int().nonnegative(), failed: z.int().nonnegative() });
+export const diaryFailureCodeSchema = z.enum(["configuration", "invalid_output", "context_changed", "timeout", "interrupted", "authentication", "rate_limit", "provider", "request_rejected", "network", "unknown"]);
+export type DiaryFailureCode = z.infer<typeof diaryFailureCodeSchema>;
+export function diaryFailureMessage(code: DiaryFailureCode | null): string {
+  if (code === null) return "此前未记录失败原因，请重试。";
+  return {
+    configuration: "语言模型配置不可用，请检查设置后重试。",
+    invalid_output: "模型未提交完整的日记草稿，请重试。",
+    context_changed: "生成期间对话发生变化，请重试。",
+    timeout: "生成超时，请稍后重试。",
+    interrupted: "上次生成中断，请重试。",
+    authentication: "供应商认证失败，请检查密钥和权限。",
+    rate_limit: "供应商限制了请求，请检查额度或稍后重试。",
+    provider: "供应商服务暂时不可用，请稍后重试。",
+    request_rejected: "供应商拒绝了请求，请检查模型和请求设置。",
+    network: "无法连接供应商，请检查网络后重试。",
+    unknown: "生成未完成，请重试；若持续失败，请检查模型设置。",
+  }[code];
+}
+export const memoryDiaryStateSchema = z.strictObject({
+  enabled: z.boolean(), pending: z.int().nonnegative(), failed: z.int().nonnegative(),
+  lastFailure: z.strictObject({ day: z.iso.date(), code: diaryFailureCodeSchema.nullable() }).nullable(),
+});
 export const memoryDiarySettingsSchema = z.strictObject({ characterId: z.uuid(), enabled: z.boolean() });
 export const memoryChangedSchema = z.strictObject({ characterId: z.uuid() });
 export const diaryDraftSchema = z.strictObject({
-  worthKeeping: z.boolean(), title: z.string().max(120), body: z.string().max(32_000),
-});
+  worthKeeping: z.boolean(), title: z.string().trim().max(120), body: z.string().trim().max(32_000),
+}).refine(value => !value.worthKeeping || (value.title.length > 0 && value.body.length > 0), "需要保留的日记必须包含标题和正文。");
 
 export type MemoryKind = z.infer<typeof memoryKindSchema>;
 export type MemoryContent = z.infer<typeof memoryContentSchema>;

@@ -90,10 +90,142 @@ async function launch(capabilities: AvatarCapabilities = {
 }
 
 describe("Unity local control bridge", () => {
+  it("validates independent dance messages and distinguishes their real terminal states", () => {
+    const event = { type: "dance", id: "00000000-0000-4000-8000-000000000055", actionId: "dance-one", status: "completed" };
+    expect(avatarReplySchema.safeParse(event).success).toBe(true);
+    for (const invalid of [{ ...event, status: "paused" }, { ...event, id: "not-a-uuid" }, { ...event, actionId: "" }, { ...event, status: 1 }])
+      expect(avatarReplySchema.safeParse(invalid).success).toBe(false);
+  });
+  it("starts a dance only after the Player acknowledges it and keeps it independent of chat completion", async () => {
+    const { service, socket, requests, tools, invoke } = await launch({ actions: [
+      { id: "dance-one", key: "dance-one", label: "月光舞", kind: "performance", durationSeconds: 45 },
+      { id: "wave", label: "挥手", kind: "oneShot" },
+    ], expressions: ["neutral"] });
+    expect(tools.avatar_play?.description).toContain("月光舞");
+    expect(tools.avatar_perform?.description).not.toContain("月光舞");
+    await expect(invoke("avatar_perform", { steps: [{ at: "start", action: "action:dance-one" }] })).rejects.toThrow();
+    const started = vi.fn();
+    const run = invoke("avatar_play", { action: "action:dance-one" }).then(result => { started(); return result; });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toMatchObject({ operation: "dance", value: "dance-one", toolCallId: "avatar_play" });
+    expect(started).not.toHaveBeenCalled();
+    expect(service.status.dance).toBeUndefined();
+    const id = requests[0]!.id;
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    await expect(run).resolves.toEqual({ status: "started", performanceId: id, action: "月光舞" });
+    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "started", action: "月光舞", actionId: "dance-one" });
+    const abort = new AbortController();
+    const reader = service.relay(binding, new ReadableStream<UIMessageChunk>({ start(controller) {
+      controller.enqueue({ type: "start", messageId: "dance-chat" }); controller.close();
+    } }), abort.signal).getReader();
+    while (!(await reader.read()).done) { /* finish an unrelated chat generation */ }
+    abort.abort();
+    await vi.waitFor(() => expect(requests.some(request => request.operation === "drain")).toBe(true));
+    expect(service.status.dance?.state).toBe("started");
+    expect(requests.filter(request => request.operation === "dance")).toHaveLength(1);
+    const drain = requests.find(request => request.operation === "drain")!;
+    socket.write(JSON.stringify({ type: "result", id: drain.id, ok: true }) + "\n");
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
+    await vi.waitFor(() => expect(service.status.dance?.state).toBe("completed"));
+    expect(service.getDanceFeedback({ ...binding, threadId: "other" })).toBeNull();
+    await expect(invoke("avatar_control", { performanceId: id, command: "finish" })).rejects.toThrow("不属于");
+  });
+  it("preserves an immediate dance terminal event that arrives before the startup response", async () => {
+    const { service, socket, requests, invoke } = await launch({ actions: [{ id: "dance-one", key: "one", label: "短舞", kind: "performance" }], expressions: [] });
+    const run = invoke("avatar_play", { action: "action:one" });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const id = requests[0]!.id;
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    await expect(run).resolves.toMatchObject({ status: "started", action: "短舞" });
+    expect(service.status.dance?.state).toBe("completed");
+  });
+  it("keeps a dispatched dance independent of chat abortion, but rejects an already-aborted call", async () => {
+    const { service, socket, requests } = await launch({ actions: [{ id: "dance-one", key: "one", label: "短舞", kind: "performance" }], expressions: [] });
+    const cancelled = new AbortController(); cancelled.abort(new Error("聊天已取消。"));
+    const executeCancelled = service.createTools(binding, cancelled.signal).avatar_play!.execute!;
+    await expect(executeCancelled({ action: "action:one" }, { toolCallId: "cancelled-dance", messages: [], context: undefined })).rejects.toThrow("聊天已取消");
+    expect(requests).toHaveLength(0);
+    const controller = new AbortController();
+    const execute = service.createTools(binding, controller.signal).avatar_play!.execute!;
+    const run = execute({ action: "action:one" }, { toolCallId: "independent-dance", messages: [], context: undefined });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const id = requests[0]!.id;
+    controller.abort(new Error("聊天已取消。"));
+    expect(service.status.dance).toBeUndefined();
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    await expect(run).resolves.toMatchObject({ status: "started", action: "短舞" });
+    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "started", performanceId: id });
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
+    await vi.waitFor(() => expect(service.getDanceFeedback(binding)?.state).toBe("completed"));
+    expect(requests).toHaveLength(1);
+  });
+  it("reports a refused dance and a later playback failure without inventing completion", async () => {
+    const { service, socket, requests, invoke } = await launch({ actions: [{ id: "dance-one", key: "one", label: "测试舞蹈", kind: "performance" }], expressions: [] });
+    const refused = invoke("avatar_play", { action: "action:one" });
+    const rejection = expect(refused).rejects.toThrow("伴奏读取失败");
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    socket.write(JSON.stringify({ type: "result", id: requests[0]!.id, ok: false, error: "伴奏读取失败" }) + "\n");
+    await rejection;
+    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "failed", error: "伴奏读取失败" });
+    const run = invoke("avatar_play", { action: "action:one" });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    const id = requests[1]!.id;
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    await run;
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "unrelated", status: "completed" }) + "\n");
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(service.status.dance?.state).toBe("started");
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "failed", error: "动作播放失败" }) + "\n");
+    await vi.waitFor(() => expect(service.getDanceFeedback(binding)).toMatchObject({ state: "failed", error: "动作播放失败" }));
+  });
+  it("turns an interrupted dance into failure and prevents old session events from leaking", async () => {
+    const { service, socket, requests, invoke } = await launch({ actions: [{ id: "dance-one", key: "one", label: "测试舞蹈", kind: "performance" }], expressions: [] });
+    const run = invoke("avatar_play", { action: "action:one" });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const id = requests[0]!.id;
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    await run;
+    const next = { ...binding, threadId: "next-thread" };
+    const switched = service.start(next);
+    await vi.waitFor(() => expect(requests.some(request => request.operation === "session-reset")).toBe(true));
+    const reset = requests.find(request => request.operation === "session-reset")!;
+    socket.write(JSON.stringify({ type: "result", id: reset.id, ok: true }) + "\n");
+    await switched;
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(service.getDanceFeedback(next)).toBeNull();
+    const tools = service.createTools(next, new AbortController().signal);
+    const execute = tools.avatar_play!.execute!;
+    const again = execute({ action: "action:one" }, { toolCallId: "next-dance", messages: [], context: undefined });
+    await vi.waitFor(() => expect(requests.filter(request => request.operation === "dance")).toHaveLength(2));
+    const last = requests.filter(request => request.operation === "dance").at(-1)!;
+    socket.write(JSON.stringify({ type: "result", id: last.id, ok: true }) + "\n");
+    await again;
+    const listener = vi.fn(); service.subscribe(listener);
+    socket.end();
+    await vi.waitFor(() => expect(service.status.phase).toBe("error"));
+    expect(service.getDanceFeedback(next)).toMatchObject({ state: "failed", error: "Unity 已断开。" });
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ dance: expect.objectContaining({ state: "failed" }) }));
+  });
+  it("shares Chinese system labels with desktop controls and AI while retaining stable selectors", async () => {
+    const { service, tools } = await launch({ actions: [
+      { id: "system.greet", key: "greet", semantic: "greet", label: "问候", layer: "upperBody" },
+      { id: "system.shakehead", key: "shakehead", semantic: "shakeHead", label: "摇头", layer: "head" },
+      { id: "custom-wave", key: "wave", label: "自定义招手" },
+    ], expressions: ["neutral"] });
+    expect(service.desktopCapabilities?.actions.map(({ id, label }) => ({ id, label }))).toEqual([
+      { id: "system.greet", label: "问候" }, { id: "system.shakehead", label: "摇头" },
+      { id: "custom-wave", label: "自定义招手" },
+    ]);
+    expect(tools.avatar_perform?.description).toContain("action:greet（问候，上半身");
+    expect(tools.avatar_perform?.description).toContain("action:shakehead（摇头，头部");
+    expect(tools.avatar_perform?.description).toContain("action:wave（自定义招手");
+  });
   it("lets the native Agent correct an action name misused as an expression without executing the invalid performance", async () => {
     const { tools, requests, socket } = await launch({
       actions: [
-        { id: "system.confused", label: "困惑", semantic: "confused", kind: "loop" },
+        { id: "system.confused", label: "疑惑", key: "confused", semantic: "confused", kind: "loop" },
         { id: "shake-head-02", label: "摇头 2", key: "ShakeHead02", kind: "oneShot", layer: "head" },
       ], expressions: ["neutral", "happy", "relaxed", "sad", "angry", "surprised"],
     });
@@ -101,8 +233,8 @@ describe("Unity local control bridge", () => {
     const model = new MockLanguageModelV4({ doStream: async () => ({ stream: new ReadableStream({ start(controller) {
       step += 1;
       if (step <= 2) controller.enqueue({ type: "tool-call", toolCallId: `performance-${step}`, toolName: "avatar_perform", input: JSON.stringify({ steps: [
-        { at: "start", action: "system:confused", expression: step === 1 ? "confused" : "neutral" },
-        { at: "sentence", sentence: 2, action: "custom:ShakeHead02", expression: "neutral" },
+        { at: "start", action: "action:confused", expression: step === 1 ? "confused" : "neutral" },
+        { at: "sentence", sentence: 2, action: "action:ShakeHead02", expression: "neutral" },
       ] }) });
       else {
         controller.enqueue({ type: "text-start", id: "reply" });
@@ -138,13 +270,13 @@ describe("Unity local control bridge", () => {
     const customId = "22222222-2222-4222-8222-222222222222";
     const { service, invoke, socket, requests } = await launch({
       actions: [
-        { id: "system.nod", label: "nod", kind: "oneShot", layer: "head", key: "", semantic: "nod" },
+        { id: "system.nod", label: "点头", kind: "oneShot", layer: "head", key: "nod", semantic: "nod" },
         { id: customId, label: "点头 2", kind: "oneShot", layer: "head", key: "Nod02", semantic: "" },
       ], expressions: ["neutral"],
     });
     expect(service.status.phase).toBe("ready");
-    expect(service.desktopCapabilities?.actions.map(a => [a.key, a.semantic])).toEqual([[null, "nod"], ["Nod02", null]]);
-    for (const [selector, id] of [["system:nod", "system.nod"], ["custom:Nod02", customId]]) {
+    expect(service.desktopCapabilities?.actions.map(a => [a.key, a.semantic])).toEqual([["nod", "nod"], ["Nod02", null]]);
+    for (const [selector, id] of [["action:nod", "system.nod"], ["action:Nod02", customId]]) {
       const action = invoke("avatar_perform", { steps: [{ at: "start", action: selector }] });
       await vi.waitFor(() => expect(requests.some(r => r.operation === "performance" && JSON.parse(r.value).steps[0].action === id)).toBe(true));
       const request = requests.find(r => r.operation === "performance" && JSON.parse(r.value).steps[0].action === id)!;
@@ -156,7 +288,7 @@ describe("Unity local control bridge", () => {
     }
   });
   it("still rejects malformed required identifiers and non-string optional identifiers", () => {
-    const action = { id: "system.nod", label: "nod", kind: "oneShot", layer: "head", key: "", semantic: "nod" };
+    const action = { id: "system.nod", label: "点头", kind: "oneShot", layer: "head", key: "nod", semantic: "nod" };
     for (const invalid of [{ id: "" }, { label: "" }, { key: 123 }, { semantic: "x".repeat(257) }, { layer: "unknown" }])
       expect(avatarReplySchema.safeParse({ type: "ready", capabilities: { actions: [{ ...action, ...invalid }], expressions: [] } }).success).toBe(false);
   });
@@ -164,7 +296,7 @@ describe("Unity local control bridge", () => {
     const { service, requests } = await launch();
     const active = fixture.child!;
     const controller = new AbortController();
-    const preparing = service.validatePackage({ formatVersion: 2, id: "import", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] }, controller.signal);
+    const preparing = service.validatePackage({ formatVersion: 3, id: "import", version: "1.0.0", model: "candidate.vrm", idle: { variations: [] }, actions: [], bindings: [] }, controller.signal);
     const rejected = expect(preparing).rejects.toThrow("cancelled import");
     await vi.waitFor(() => expect(fixture.child).not.toBe(active));
     const worker = fixture.child!;
@@ -179,7 +311,7 @@ describe("Unity local control bridge", () => {
   });
   it("replaces the action catalog on package switch and rejects tools captured from the old package", async () => {
     const { service, socket, requests, invoke } = await launch();
-    const pack = { formatVersion: 2 as const, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "candidate.vrm", idle: "", idleVariations: [], customActions: [] };
+    const pack = { formatVersion: 3 as const, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "candidate.vrm", idle: { variations: [] }, actions: [], bindings: [] };
     const switching = service.switchPackage(binding.characterId, pack);
     await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
     const reset = requests.find(r => r.operation === "session-reset")!;
@@ -196,7 +328,7 @@ describe("Unity local control bridge", () => {
   });
   it("keeps the Player and old catalog ready when a package candidate fails", async () => {
     const { service, socket, requests } = await launch();
-    const switching = service.switchPackage(binding.characterId, { formatVersion: 2, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "bad.vrm", idle: "", idleVariations: [], customActions: [] });
+    const switching = service.switchPackage(binding.characterId, { formatVersion: 3, id: "11111111-1111-4111-8111-111111111111", version: "1.0.0", model: "bad.vrm", idle: { variations: [] }, actions: [], bindings: [] });
     const rejected = expect(switching).rejects.toThrow("broken candidate");
     await vi.waitFor(() => expect(requests.some(r => r.operation === "session-reset")).toBe(true));
     socket.write(JSON.stringify({ type: "result", id: requests.find(r => r.operation === "session-reset")!.id, ok: true }) + "\n");

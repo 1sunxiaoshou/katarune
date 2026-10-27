@@ -113,8 +113,8 @@ export async function runMemoryIntegration(): Promise<void> {
       calls++;
       return {
         content: calls <= 2 ? [{ type: "tool-call", toolCallId: `diary-read-${calls}`, toolName: calls === 1 ? "memory_search" : "memory_read", input: JSON.stringify(calls === 1 ? { query: "林同学", kind: null } : { id: person.id }) }]
-          : [{ type: "text", text: JSON.stringify({ worthKeeping: true, title: "一起挑选礼物", body: "今天我和用户聊了朋友的生日，我们一起想了想礼物。" }) }],
-        finishReason: { unified: calls <= 2 ? "tool-calls" : "stop", raw: undefined }, warnings: [],
+          : [{ type: "tool-call", toolCallId: "diary-finish", toolName: "finish_diary", input: JSON.stringify({ worthKeeping: true, title: "一起挑选礼物", body: "今天我和用户聊了朋友的生日，我们一起想了想礼物。" }) }],
+        finishReason: { unified: "tool-calls", raw: undefined }, warnings: [],
         usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
       };
     } });
@@ -125,7 +125,7 @@ export async function runMemoryIntegration(): Promise<void> {
     await service.runOnce();
     assert.equal(calls, 3, "one daily agent run may use several model/tool steps but must not run twice");
     assert.ok(JSON.stringify(model.doGenerateCalls[0]?.prompt).includes(database.fetchCharacter(characterId).systemPrompt));
-    assert.deepEqual(model.doGenerateCalls[0]?.tools?.map(item => item.name).sort(), ["memory_read", "memory_search"]);
+    assert.deepEqual(model.doGenerateCalls[0]?.tools?.map(item => item.name).sort(), ["finish_diary", "memory_read", "memory_search"]);
     const diary = database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries[0];
     assert.ok(diary);
     assert.equal(diary.day, day);
@@ -175,13 +175,17 @@ export async function runMemoryIntegration(): Promise<void> {
       } });
     await retry.runOnce();
     assert.equal(database.getMemoryDiaryState(characterId).failed, 1);
+    assert.deepEqual(database.getMemoryDiaryState(characterId).lastFailure, { day: retryDay, code: "unknown" });
+    assert.deepEqual(sql.prepare("SELECT failure_code FROM memory_diary_jobs WHERE day = ?").get(retryDay), { failure_code: "unknown" }, "only a controlled failure category is persisted");
     await retry.runOnce();
     assert.equal(retryCalls, 1, "failure must not cause an automatic second agent run");
     clock = new Date(clock.getTime() + 7 * 60 * 60_000);
     editDuringGeneration = true;
     database.retryMemoryDiaryJobs(characterId);
+    assert.equal(database.getMemoryDiaryState(characterId).lastFailure, null);
     await retry.runOnce();
     assert.equal(retryCalls, 2, "an explicit retry may run the agent again");
+    assert.deepEqual(database.getMemoryDiaryState(characterId).lastFailure, { day: retryDay, code: "context_changed" });
     assert.equal(database.searchMemory(characterId, { query: "不应保存", kind: null }).results.length, 0);
     retry.dispose();
 
@@ -192,6 +196,7 @@ export async function runMemoryIntegration(): Promise<void> {
     assert.equal(database.claimMemoryDiaryJob(nextDay), null, "an active lease must not be claimed twice");
     const reclaimed = database.claimMemoryDiaryJob(new Date(nextDay.getTime() + 11 * 60_000));
     assert.equal(reclaimed, null, "interrupted jobs must require a manual retry");
+    assert.deepEqual(database.getMemoryDiaryState(characterId).lastFailure, { day: retryDay, code: "interrupted" });
     assert.equal(database.getMemoryDiaryState(characterId).failed, 1);
     append("nothing-worth-keeping", "早上好。");
     database.queueMemoryDiaryMessage(characterId, "nothing-worth-keeping", zone);
@@ -248,6 +253,7 @@ function runMemorySimplificationMigration(): void {
     })();
     const stamp = Date.now();
     sqlite.prepare('INSERT INTO characters (id, name, system_prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(characterId, "迁移示例", "", stamp, stamp);
+    sqlite.prepare('INSERT INTO memory_diary_jobs (id, character_id, day, time_zone, status, attempts, retry_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run("legacy-failure", characterId, "2026-10-17", "Asia/Shanghai", "failed", 1, stamp);
     const insert = sqlite.prepare('INSERT INTO memory_entries (id, character_id, kind, title, body, day, is_user, status, revision, created_at, updated_at, forgotten_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     insert.run(personId, characterId, "person", "朋友", "喜欢读书。", null, 0, null, 3, stamp, stamp, null);
     insert.run(eventId, characterId, "event", "礼物", "已经挑好了书。", null, 0, "completed", 4, stamp, stamp, null);
@@ -256,6 +262,7 @@ function runMemorySimplificationMigration(): void {
     sqlite.prepare('INSERT INTO memory_links (character_id, from_id, to_id) VALUES (?, ?, ?)').run(characterId, personId, eventId);
     sqlite.prepare('INSERT INTO memory_sources (id, entry_id, label, created_at) VALUES (?, ?, ?, ?)').run("fixture-source", eventId, "示例来源", stamp);
     database = openDatabase({ userDataPath: directory, appPath: process.cwd(), configValidator: { validateModelMetadata, validateModelSettings, validateProviderSettings } });
+    assert.deepEqual(database.getMemoryDiaryState(characterId).lastFailure, { day: "2026-10-17", code: null }, "legacy failures retain their state without inventing a cause");
     assert.equal(database.readMemory(characterId, longEventId).content.body, longBody);
     assert.equal(database.readMemory(characterId, personId).content.body, "喜欢读书。");
     assert.equal(database.readMemory(characterId, eventId).content.body, "进展：已完成\n\n已经挑好了书。");
