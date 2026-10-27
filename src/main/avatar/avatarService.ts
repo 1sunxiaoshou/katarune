@@ -20,6 +20,7 @@ import {
   avatarReplySchema,
   type AvatarBinding,
   type AvatarCapabilities,
+  type AvatarDanceState,
   type AvatarStatus,
 } from "../../shared/avatar";
 
@@ -29,6 +30,7 @@ type Pending = {
   reject: (error: Error) => void;
   cleanup: () => void;
 };
+type DancePlayback = { actionId: string; action: string; toolCallId: string; state: AvatarDanceState | null };
 
 function describeAction(action: AvatarCapabilities["actions"][number]): string {
   const duration = action.durationSeconds;
@@ -40,7 +42,7 @@ function describeAction(action: AvatarCapabilities["actions"][number]): string {
   return `${actionSelector(action)}（${action.label}${layer}${action.kind === "loop" ? "，持续姿态" : timing}）${action.description ? `：${action.description}` : ""}`;
 }
 function actionSelector(action: AvatarCapabilities["actions"][number]): string {
-  return action.semantic ? `system:${action.semantic}` : action.key ? `custom:${action.key}` : action.id;
+  return action.key ? `action:${action.key}` : action.id;
 }
 
 export class AvatarService {
@@ -105,6 +107,8 @@ export class AvatarService {
   private releaseBarrier: Promise<unknown> = Promise.resolve();
   // A null value reserves ownership until Unity reports its actual state.
   private performances = new Map<string, AvatarPerformanceState | null>();
+  private dances = new Map<string, DancePlayback>();
+  private latestDanceId: string | undefined;
   private starting: Promise<AvatarStatus> | undefined;
   private rejectStartup: ((error: Error) => void) | undefined;
   private listeners = new Set<(status: AvatarStatus) => void>();
@@ -132,7 +136,20 @@ export class AvatarService {
   ) {}
   get status(): AvatarStatus {
     return { ...this.state, performances: [...this.performances.values()].flatMap(state => state ? [state] : []), busy: this.activeRuns.size > 0 || this.pending.size > 0,
+      ...(this.latestDance ? { dance: this.latestDance } : {}),
       voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
+  }
+  private get latestDance(): AvatarDanceState | null { return this.latestDanceId ? this.dances.get(this.latestDanceId)?.state ?? null : null; }
+  getDanceFeedback(binding: AvatarBinding, epoch = this.bindingEpoch): AvatarDanceState | null {
+    return epoch === this.bindingEpoch && this.matches(binding) && this.latestDance ? { ...this.latestDance } : null;
+  }
+  private updateDance(id: string, state: AvatarDanceState["state"], error?: string): void {
+    const dance = this.dances.get(id);
+    if (!dance || (dance.state && dance.state.state !== "started")) return;
+    dance.state = { performanceId: id, toolCallId: dance.toolCallId, actionId: dance.actionId, action: dance.action, state,
+      ...(error ? { error: error.slice(0, 4000) } : {}) };
+    this.latestDanceId = id;
+    this.changed();
   }
 
   setVoiceState(binding: AvatarBinding, phase: NonNullable<AvatarStatus["voice"]>["phase"], error: string | null, level?: number): void {
@@ -246,6 +263,9 @@ export class AvatarService {
                 if (!this.performances.has(reply.performance.performanceId)) continue;
                 this.performances.set(reply.performance.performanceId, reply.performance);
                 if (reply.performance.state === "failed") this.state = { ...this.state, error: reply.performance.error || "角色表演失败。" };
+              } else if (reply.type === "dance") {
+                const dance = this.dances.get(reply.id);
+                if (dance?.actionId === reply.actionId) this.updateDance(reply.id, reply.status, reply.status === "failed" ? reply.error || "舞蹈播放失败。" : undefined);
               } else if (reply.type === "playback") {
                 if (!this.activeRuns.has(reply.runId) || this.state.phase !== "ready") continue;
                 this.playingRunId = reply.active ? reply.runId : this.playingRunId === reply.runId ? null : this.playingRunId;
@@ -342,6 +362,7 @@ export class AvatarService {
     this.dialogueRuns.clear();
     this.activeRuns.clear();
     this.performances.clear();
+    this.dances.clear(); this.latestDanceId = undefined;
     this.mutedRuns.clear();
     this.playingRunId = null;
     this.playbackState = undefined;
@@ -402,6 +423,7 @@ export class AvatarService {
     }
     this.pending.clear();
     this.performances.clear();
+    this.dances.clear(); this.latestDanceId = undefined;
     const socket = this.socket;
     this.socket = undefined;
     socket?.destroy();
@@ -419,7 +441,13 @@ export class AvatarService {
 
   private fail(message: string): void {
     const binding = this.state.binding;
+    for (const [id, dance] of this.dances) if (!dance.state || dance.state.state === "started") this.updateDance(id, "failed", message);
+    const dance = this.latestDance;
     this.stop(new Error(message));
+    if (dance) {
+      this.dances.set(dance.performanceId, { actionId: dance.actionId, action: dance.action, toolCallId: dance.toolCallId, state: dance });
+      this.latestDanceId = dance.performanceId;
+    }
     this.state = { phase: "error", binding, error: message };
   }
 
@@ -450,8 +478,10 @@ export class AvatarService {
         throw new Error("角色连接已改变。");
     };
     if (!capabilities.actions.length && !capabilities.expressions.length) return {};
+    const actions = capabilities.actions.filter(action => action.kind !== "performance" && !action.idle);
+    const dances = capabilities.actions.filter(action => action.kind === "performance");
     const inputSchema = avatarPerformSchema.safeExtend({ steps: z.array(avatarStepSchema.extend({
-      action: (capabilities.actions.length ? z.enum(capabilities.actions.map(actionSelector)).nullish() : z.null().optional())
+      action: (actions.length ? z.enum(actions.map(actionSelector)).nullish() : z.null().optional())
         .describe("身体动作，只能选择本字段枚举中的动作名称；动作名称不代表同名面部表情。不需要动作时省略或填 null。"),
       expression: (capabilities.expressions.length ? z.enum(capabilities.expressions).nullish() : z.null().optional())
         .describe("面部表情，只能选择本字段枚举中的表情名称，不能照搬 action 的名称。动作不要求搭配表情；没有合适表情时省略或填 null，保持现有表情。"),
@@ -460,22 +490,23 @@ export class AvatarService {
       steps.forEach((step, index) => {
         if (step.at === "after_action" && previousAction?.kind === "loop")
           ctx.addIssue({ code: "custom", path: ["steps", index, "at"], message: "不能等待持续姿态，请使用 sentence 或 end 触发。" });
-        if (step.action) previousAction = capabilities.actions.find(action => actionSelector(action) === step.action);
+        if (step.action) previousAction = actions.find(action => actionSelector(action) === step.action);
       });
     });
-    const exampleAction = capabilities.actions.find(action => action.kind !== "loop") ?? capabilities.actions[0];
+    const exampleAction = actions.find(action => action.kind !== "loop") ?? actions[0];
     const exampleExpression = capabilities.expressions.includes("happy") ? "happy" : capabilities.expressions[0];
     const example = { steps: [{ at: "start", ...(exampleAction ? { action: actionSelector(exampleAction) } : {}),
       ...(exampleExpression ? { expression: exampleExpression } : {}) }] };
     return {
+      ...(actions.length || capabilities.expressions.length ? {
       avatar_perform: tool({
-        description: `为接下来一段正文安排动作和表情，调用后正常输出对白。steps 是步骤列表，每步直接填 action 和/或 expression 名称，不填写 id、when 或内部节点引用。身体动作与面部表情是独立能力，动作存在不代表有同名表情；没有合适表情时省略 expression 或填 null，不必为每个动作搭配表情。调用示例：${JSON.stringify(example)}。at：start=对白开始；sentence=第 sentence 句开始（从1编号，按句末标点或换行分句）；after_action=列表中最近一个带动作的步骤正常完成后；end=对白结束。after_action 只能接在一次性动作后。相同触发条件并行，同身体通道的一次性动作排队。表情统一使用100%强度，不填写权重；表情保持到下次改变。无关字段可省略或填null。持续姿态在对白结束时播完当前循环再退出，一次性动作完整播完。未出现的句子和失败动作的后继步骤跳过。返回接收确认，实际播放由身体执行。可用动作：${capabilities.actions.map(describeAction).join("；")}。可用表情：${capabilities.expressions.join("、")}。`,
+        description: `为接下来一段正文安排动作和表情，调用后正常输出对白。steps 是步骤列表，每步直接填 action 和/或 expression 名称，不填写 id、when 或内部节点引用。身体动作与面部表情是独立能力，动作存在不代表有同名表情；没有合适表情时省略 expression 或填 null，不必为每个动作搭配表情。调用示例：${JSON.stringify(example)}。at：start=对白开始；sentence=第 sentence 句开始（从1编号，按句末标点或换行分句）；after_action=列表中最近一个带动作的步骤正常完成后；end=对白结束。after_action 只能接在一次性动作后。相同触发条件并行，同身体通道的一次性动作排队。表情统一使用100%强度，不填写权重；表情保持到下次改变。无关字段可省略或填null。持续姿态在对白结束时播完当前循环再退出，一次性动作完整播完。未出现的句子和失败动作的后继步骤跳过。返回接收确认，实际播放由身体执行。可用动作：${actions.map(describeAction).join("；")}。可用表情：${capabilities.expressions.join("、")}。`,
         inputSchema,
         execute: async (input, { toolCallId }): Promise<AvatarPerformResult> => {
           current();
           const resolved = { steps: input.steps.map(step => ({ ...step,
             sentence: step.sentence ?? undefined,
-            action: step.action ? capabilities.actions.find(action => actionSelector(action) === step.action)!.id : null,
+            action: step.action ? actions.find(action => actionSelector(action) === step.action)!.id : null,
           })) };
           const performanceId = await this.request("performance", JSON.stringify(resolved), signal, toolCallId);
           current();
@@ -495,6 +526,19 @@ export class AvatarService {
           return { status: "accepted" as const, performanceId, command };
         },
       }),
+      } : {}),
+      ...(dances.length ? { avatar_play: tool({
+        description: `选择并播放一支独立舞蹈，只填写 action。伴奏和镜头由动作自身配置决定。成功返回 started 表示播放器已实际启动，不表示演完；对白结束不会结束舞蹈。最终完成或失败会由播放器回报，在后续对话中提供真实状态。可用舞蹈：${dances.map(describeAction).join("；")}。`,
+        inputSchema: z.object({ action: z.enum(dances.map(actionSelector)) }),
+        execute: async ({ action }, { toolCallId }) => {
+          current();
+          signal.throwIfAborted();
+          const dance = dances.find(dance => actionSelector(dance) === action)!;
+          const performanceId = await this.request("dance", dance.id, new AbortController().signal, toolCallId, { actionId: dance.id, action: dance.label });
+          current();
+          return { status: "started" as const, performanceId, action: dance.label };
+        },
+      }) } : {}),
     };
   }
 
@@ -651,23 +695,33 @@ export class AvatarService {
     value: string,
     signal: AbortSignal,
     toolCallId = "",
+    danceAction?: { actionId: string; action: string },
   ): Promise<string> {
     signal.throwIfAborted();
     const socket = this.socket;
     if (!socket || (this.state.phase !== "ready" && !((operation === "session-reset" || operation === "load-package") && this.state.phase === "switching")))
       return Promise.reject(new Error("Unity 尚未连接。"));
     const id = randomUUID();
+    if (danceAction) {
+      if (this.dances.size >= 8) {
+        const retired = [...this.dances].find(([, dance]) => dance.state && dance.state.state !== "started")?.[0];
+        if (!retired) return Promise.reject(new Error("舞蹈请求过多，请等待当前播放结束。"));
+        this.dances.delete(retired);
+      }
+      this.dances.set(id, { ...danceAction, toolCallId, state: null });
+    }
     return new Promise<string>((resolve, reject) => {
       const abort = () => {
         this.pending.delete(id);
         if (operation === "performance") this.performances.delete(id);
         this.changed();
         cleanup();
+        if (danceAction) this.updateDance(id, "failed", "舞蹈启动已取消。");
         reject(signal.reason ?? new Error("角色请求已取消。"));
       };
       const timer = setTimeout(() => {
         this.fail(operation === "session-reset" ? "桌宠会话切换超时。" : "角色执行超时。");
-      }, operation === "session-reset" ? 5_000 : operation === "load-package" ? 120_000 : 600_000);
+      }, operation === "session-reset" ? 5_000 : operation === "load-package" || operation === "dance" ? 120_000 : 600_000);
       const cleanup = () => {
         clearTimeout(timer);
         signal.removeEventListener("abort", abort);
@@ -680,7 +734,8 @@ export class AvatarService {
         }
         this.performances.set(id, null);
       }
-      this.pending.set(id, { resolve: () => resolve(id), reject, cleanup });
+      this.pending.set(id, { resolve: () => { if (danceAction) this.updateDance(id, "started"); resolve(id); },
+        reject: error => { if (danceAction) this.updateDance(id, "failed", error.message); reject(error); }, cleanup });
       this.changed();
       signal.addEventListener("abort", abort, { once: true });
       socket.write(

@@ -2,6 +2,7 @@ import { count, eq, and, notExists } from "drizzle-orm";
 import {
   characterPackageSchema,
   DEFAULT_PACKAGE_ID,
+  primaryPlaybackFile,
   type CharacterPackage,
   type CharacterPackageManifest,
 } from "../../shared/characterPackages";
@@ -27,7 +28,7 @@ export interface PackageRegistration {
   portraitAssetId: string;
   thumbnailAssetId: string | null;
   resources: { path: string; assetId: string }[];
-  customActions: CharacterPackage["customActions"];
+  actions: CharacterPackage["actions"];
   newAssets: ReadyAssetRegistration[];
 }
 export function createCharacterPackageRepository(db: KataruneDatabase) {
@@ -39,8 +40,8 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
       .get();
     if (!row || !row.portraitAssetId)
       throw new Error("角色包不存在或尚未准备完成。");
-    if (row.manifest?.formatVersion !== 2)
-      throw new Error("角色包格式已更新，请按 v2 清单重新导入。");
+    if (row.manifest?.formatVersion !== 3)
+      throw new Error("角色包格式已更新，请按 v3 清单重新导入。");
     const actions = db
       .select()
       .from(packageActions)
@@ -53,7 +54,7 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
         manifest: row.manifest,
         portraitAssetId: row.portraitAssetId,
         thumbnailAssetId: row.thumbnailAssetId,
-        customActions: actions.map(({ packageId: _p, key, playback, ...a }) => ({ ...a, ...(key !== null ? { key } : {}), ...(playback !== null ? { playback } : {}) })),
+        actions: actions.map(({ packageId: _p, file: _file, key, playback, ...a }) => ({ ...a, ...(key !== null ? { key } : {}), ...(playback !== null ? { playback } : {}) })),
         referenceCount:
           db
             .select({ n: count() })
@@ -80,7 +81,7 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
         .from(characterPackages)
         .all()
         .filter(
-          (row) => row.manifest?.formatVersion === 2 &&
+          (row) => row.manifest?.formatVersion === 3 &&
             db
               .select({ portrait: characterPackages.portraitAssetId })
               .from(characterPackages)
@@ -99,11 +100,11 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
       hash: string,
     ): StoredCharacterPackage | null => {
       const row = db
-        .select({ id: characterPackages.id })
+        .select({ id: characterPackages.id, manifest: characterPackages.manifest })
         .from(characterPackages)
         .where(eq(characterPackages.sourceHash, hash))
         .get();
-      return row ? fetchCharacterPackage(row.id) : null;
+      return row?.manifest?.formatVersion === 3 ? fetchCharacterPackage(row.id) : null;
     },
     registerCharacterPackage: (
       registration: PackageRegistration,
@@ -125,7 +126,7 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
             .run();
         const {
           resources,
-          customActions,
+          actions,
           newAssets: _a,
           ...row
         } = registration;
@@ -143,9 +144,9 @@ export function createCharacterPackageRepository(db: KataruneDatabase) {
           tx.insert(packageResources)
             .values({ ...resource, packageId: row.id })
             .run();
-        for (const action of customActions)
+        for (const action of actions)
           tx.insert(packageActions)
-            .values({ ...action, packageId: row.id })
+            .values({ ...action, file: primaryPlaybackFile(action.playback), packageId: row.id })
             .run();
       });
       return fetchCharacterPackage(registration.id);

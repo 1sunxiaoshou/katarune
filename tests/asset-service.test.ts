@@ -58,7 +58,7 @@ describe("generic asset service and protocol", () => {
     } as unknown as DatabaseRuntime;
     service.reconcile(database, config);
     expect(mimeType).toBe("image/png");
-    expect(readFileSync(service.resolveManagedPath(assetId))).toEqual(readFileSync(join(resourcesPath, "default-package/portrait.png")));
+    expect(readFileSync(service.resolveManagedPath(assetId))).toEqual(readFileSync(join(resourcesPath, "default-package/avatar/portrait.png")));
     service.removeExact(assetId);
     const unsafe = { ...config, character: { ...config.character, portrait: { assetId, file: "../outside.png" } } };
     expect(() => service.reconcile(database, unsafe)).toThrow("Invalid bundled portrait path");
@@ -71,7 +71,7 @@ describe("generic asset service and protocol", () => {
     const legacyDirectory = join(userDataPath, "character-assets");
     mkdirSync(legacyDirectory);
     copyFileSync(
-      join(resourcesPath, "default-package/portrait.png"),
+      join(resourcesPath, "default-package/avatar/portrait.png"),
       join(legacyDirectory, `${assetId}.png`),
     );
     const missingId = "00000000-0000-4000-8000-000000000004";
@@ -126,8 +126,8 @@ describe("generic asset service and protocol", () => {
       userDataPath,
       characterResourcesPath: join(process.cwd(), "resources", "characters"),
     });
-    const imported = { id: "00000000-0000-4000-8000-000000000099", byteSize: readFileSync(join(process.cwd(), "resources/characters/default-package/portrait.png")).length };
-    copyFileSync(join(process.cwd(), "resources/characters/default-package/portrait.png"), service.resolveManagedPath(imported.id));
+    const imported = { id: "00000000-0000-4000-8000-000000000099", byteSize: readFileSync(join(process.cwd(), "resources/characters/default-package/avatar/portrait.png")).length };
+    copyFileSync(join(process.cwd(), "resources/characters/default-package/avatar/portrait.png"), service.resolveManagedPath(imported.id));
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
       fetchAsset: (id: string) => {

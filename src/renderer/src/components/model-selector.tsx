@@ -548,17 +548,20 @@ export type ModelSelectorItemProps = Omit<
   "value"
 > & {
   model: ModelOption;
+  /** Override the marker when several items are actually playing at once. */
+  selected?: boolean;
 };
 
 function ModelSelectorItem({
   model,
+  selected,
   className,
   children,
   onSelect,
   ...props
 }: ModelSelectorItemProps) {
   const { value, setValue, setOpen } = useModelSelectorContext();
-  const isSelected = value === model.id;
+  const isSelected = selected ?? value === model.id;
 
   return (
     <CommandItem

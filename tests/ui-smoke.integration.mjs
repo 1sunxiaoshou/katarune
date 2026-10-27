@@ -441,6 +441,10 @@ function registerMockHandlers() {
           writer.write({ type: "tool-output-available", toolCallId: "performance-ui-ack", output: { status: "accepted", performanceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } });
           writer.write({ type: "tool-input-available", toolCallId: "performance-ui-state-only", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
           writer.write({ type: "tool-output-available", toolCallId: "performance-ui-state-only", output: {} });
+          writer.write({ type: "tool-input-available", toolCallId: "dance-ui", toolName: "avatar_play", input: { action: "action:test-dance" } });
+          writer.write({ type: "tool-output-available", toolCallId: "dance-ui", output: { status: "started", performanceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", action: "测试舞蹈" } });
+          writer.write({ type: "tool-input-available", toolCallId: "dance-ui-error", toolName: "avatar_play", input: { action: "action:test-dance" } });
+          writer.write({ type: "tool-output-error", toolCallId: "dance-ui-error", errorText: "舞蹈伴奏无法加载。" });
           writer.write({ type: "finish-step" }); writer.write({ type: "start-step" });
         }
         const shouldRenderMemoryTool =
@@ -824,8 +828,8 @@ function registerMockHandlers() {
     return updated;
   });
   const builtin = { id: "builtin:default", builtin: true,
-    manifest: { formatVersion: 2, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", systemActions: {}, customActions: [] },
-    portraitAssetId: "00000000-0000-4000-8000-000000000002", thumbnailAssetId: "00000000-0000-4000-8000-000000000004", customActions: [], referenceCount: characters.length };
+    manifest: { formatVersion: 3, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", actions: [] },
+    portraitAssetId: "00000000-0000-4000-8000-000000000002", thumbnailAssetId: "00000000-0000-4000-8000-000000000004", actions: [], referenceCount: characters.length };
   let packages = [builtin, { ...builtin,
     id: "00000000-0000-4000-8000-000000000031", builtin: false,
     manifest: { ...builtin.manifest, name: "测试角色包", author: "测试作者" }, referenceCount: 0 }];
@@ -1396,6 +1400,15 @@ async function run() {
       writeFileSync(join(projectRoot, '.test-dist', 'avatar-performance-ui.png'), (await window.webContents.capturePage()).toPNG());
       window.webContents.send('avatar:changed', { ...avatarStatus, performances: [{ ...performance, state: 'failed', error: '测试播放失败' }] });
       await waitForText(window, '[data-testid="avatar-performance"] [role="alert"]', '测试播放失败');
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已启动');
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '测试舞蹈');
+      await waitForText(window, '[data-tool-call-id="dance-ui-error"] [role="alert"]', '舞蹈伴奏无法加载');
+      const dance = { performanceId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', toolCallId: 'dance-ui', actionId: '11111111-1111-4111-8111-111111111111', action: '测试舞蹈', state: 'started' };
+      window.webContents.send('avatar:changed', { ...avatarStatus, dance });
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '正在表演');
+      window.webContents.send('avatar:changed', { ...avatarStatus, dance: { ...dance, state: 'completed' } });
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已完成');
       window.webContents.send('avatar:changed', avatarStatus);
       await waitUntil('performance response stream completion', () => activeChatStreamCount === 0);
       await waitForSelector(window, 'button[aria-label="发送消息"]');

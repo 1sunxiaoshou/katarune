@@ -9,7 +9,7 @@ using UnityEngine.Playables;
 namespace Katarune.Avatar
 {
     [DefaultExecutionOrder(9000)]
-    public sealed class AvatarMotionController : MonoBehaviour, IAvatarMotionPoseSource, IAvatarActionControl
+    public sealed class AvatarMotionController : MonoBehaviour, IAvatarMotionPoseSource, IAvatarActionControl, IAvatarDanceRuntime
     {
         private AvatarMotionLibrary _library;
         private BehaviorDefinitionCatalog _behaviorCatalog;
@@ -160,6 +160,12 @@ namespace Katarune.Avatar
             _active.CancelAction(); return true;
         }
         public PerformanceInstanceState? GetActionState(string instanceId) => (_active as IAvatarActionControl)?.GetActionState(instanceId);
+        public bool DanceActive => (_active as IAvatarDanceRuntime)?.DanceActive ?? false;
+        public string DanceError => (_active as IAvatarDanceRuntime)?.DanceError;
+        public AvatarPackagePlayback GetDancePlayback(string actionId) => (_active as IAvatarDanceRuntime)?.GetDancePlayback(actionId);
+        public void BeginDance(string actionId) => (_active as IAvatarDanceRuntime ?? throw new InvalidOperationException("当前动作运行时不支持舞蹈。")).BeginDance(actionId);
+        public void SampleDance(string actionId, float seconds) => (_active as IAvatarDanceRuntime)?.SampleDance(actionId, seconds);
+        public void EndDance(bool immediate = false) => (_active as IAvatarDanceRuntime)?.EndDance(immediate);
 
         public void CancelAllBehaviors() => _active?.CancelAllBehaviors();
 

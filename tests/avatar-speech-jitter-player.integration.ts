@@ -17,9 +17,11 @@ const executable = resolve("unity/KataruneAvatar/Builds/Windows/KataruneAvatar.e
 const assets = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
 const manifest = JSON.parse(await readFile(join(assets, "manifest.json"), "utf8"));
 const packageFile = join(output, "package.json");
-await writeFile(packageFile, JSON.stringify({ formatVersion: 2, id: "builtin:default", version: manifest.version,
-  model: join(assets, "Models/default-avatar.vrm"), idle: join(assets, manifest.systemActions.idle.file),
-  idleVariations: [], customActions: [], systemBehaviors: [] }));
+const ids = JSON.parse(await readFile(join(assets, "action-ids.json"), "utf8"));
+const idleAction = manifest.actions.find((a: { key: string }) => a.key === manifest.idle.base);
+await writeFile(packageFile, JSON.stringify({ formatVersion: 3, id: "builtin:default", version: manifest.version,
+  model: join(assets, manifest.model), idle: { base: ids[idleAction.key], variations: [] }, bindings: [],
+  actions: [{ ...idleAction, id: ids[idleAction.key], playback: { ...idleAction.playback, motion: join(assets, idleAction.playback.motion) } }] }));
 type Message = { type?: string; id?: string; status?: string; receivedAt: number };
 const messages: Message[] = [];
 let socket: Socket | undefined, child: ChildProcess | undefined;

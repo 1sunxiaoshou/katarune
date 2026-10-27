@@ -6,18 +6,19 @@ import {
   extractPackage,
   parsePackageManifest,
   readImageHeader,
+  validatePackageSrt,
+  validateCameraGlb,
 } from "../src/main/characters/packageArchive";
-import { isPackagePath, packageAnimationFiles } from "../src/shared/characterPackages";
+import { isPackagePath, packageAnimationFiles, packageAudioFiles, packageSubtitleFiles, packageCameraFiles, primaryPlaybackFile } from "../src/shared/characterPackages";
 import { packageZip } from "./packageZip";
 
 const manifest = {
-  formatVersion: 2,
+  formatVersion: 3,
   name: "测试包",
   version: "1.0.0",
   portrait: "portrait.png",
   model: "avatar.vrm",
-  systemActions: {},
-  customActions: [],
+  actions: [],
 };
 const directories: string[] = [];
 afterEach(async () => {
@@ -40,41 +41,66 @@ async function extract(
   return extractPackage(archive, target, signal, progress);
 }
 describe("character package import boundary", () => {
-  const v2 = { ...manifest, formatVersion: 2, systemActions: { think: { kind: "loop", enter: "enter.vrma", loop: "loop.vrma", exit: "exit.vrma" } }, customActions: [{ key: "001", name: "问候", description: "打招呼", playback: { kind: "oneShot", file: "greet.vrma" } }] };
-  it("accepts system semantics, numbered custom actions and every phase reference", () => {
-    const parsed = parsePackageManifest(JSON.stringify(v2));
-    expect(packageAnimationFiles(parsed)).toEqual(["enter.vrma", "loop.vrma", "exit.vrma", "greet.vrma"]);
-    expect(parsed.customActions[0]).toHaveProperty("key", "001");
+  const action = (key: string, kind = "oneShot", extra = {}) => ({ key, name: key, description: "测试动作", playback: { kind, motion: `${key}.vrma`, ...extra } });
+  it("uses one catalog for idle, bindings and actions, with stable keys independent of labels", () => {
+    const pack = parsePackageManifest(JSON.stringify({ ...manifest,
+      actions: [action("idle", "loop"), action("shift"), action("wave"), action("think", "loop", { enter: "enter.vrma", exit: "exit.vrma" })],
+      idle: { base: "idle", variations: ["shift"] }, bindings: { greet: "wave", think: "think", nod: "wave" },
+    }));
+    expect(pack.bindings?.greet).toBe("wave");
+    expect(packageAnimationFiles(pack)).toEqual(["idle.vrma", "shift.vrma", "wave.vrma", "think.vrma", "enter.vrma", "exit.vrma"]);
+    expect(() => parsePackageManifest(JSON.stringify({ ...pack, actions: pack.actions.map(a => ({ ...a, name: "同名显示名称" })) }))).not.toThrow();
   });
-  it("collects and validates masked additive reference assets", () => {
-    const parsed = parsePackageManifest(JSON.stringify({ ...manifest, systemActions: { nod: { kind: "oneShot", file: "nod.vrma", layer: "head", reference: "neutral.vrma" }, greet: { kind: "oneShot", file: "greet.vrma", layer: "upperBody" } } }));
-    expect(packageAnimationFiles(parsed)).toEqual(["greet.vrma", "nod.vrma", "neutral.vrma"]);
-    for (const invalid of [{ layer: "body", blending: "additive" }, { layer: "upperBody", reference: "neutral.vrma" }, { layer: "head", reference: "../outside.vrma" }, { layer: "hands" }])
-      expect(() => parsePackageManifest(JSON.stringify({ ...manifest, systemActions: { nod: { kind: "oneShot", file: "nod.vrma", ...invalid } } }))).toThrow();
+  it("rejects dangling, duplicate and incompatible references", () => {
+    const actions = [action("idle", "loop"), action("wave"), action("show", "performance")];
+    for (const extra of [
+      { idle: { base: "missing" } }, { idle: { base: "wave" } }, { idle: { variations: ["idle"] } },
+      { idle: { variations: ["wave", "wave"] } }, { bindings: { greet: "missing" } },
+      { bindings: { greet: "show" } }, { bindings: { unknown: "wave" } }, { actions: [actions[0], actions[0]] },
+      { actions: [action("UpperCase")] }, { actions: [action("wave"), { ...action("wave"), key: undefined }] },
+      { actions: [action("wave", "loop", { enter: "../enter.vrma" })] },
+      { actions: [action("wave", "oneShot", { exit: "exit.vrma" })] },
+      { actions: [action("idle", "loop", { enter: "enter.vrma" })], idle: { base: "idle" } },
+      { actions: [action("wave", "oneShot", { layer: "head" })], idle: { variations: ["wave"] } },
+    ]) expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions, ...extra }))).toThrow();
   });
-  it("uses unique names when keys are omitted, but rejects ambiguous custom identifiers", () => {
-    const action = { name: "招手", description: "问候", playback: { kind: "oneShot", file: "greet.vrma" } };
-    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [action] }))).not.toThrow();
-    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [action, action] }))).toThrow();
-    expect(() => parsePackageManifest(JSON.stringify({ ...v2, customActions: [{ ...action, key: "招手" }, action] }))).toThrow();
+  it("collects motion, audio, subtitles and tagged camera resources", () => {
+    const show = action("show", "performance", { audio: "music.wav", subtitles: "lyrics.srt", camera: { kind: "track", file: "camera.glb" } });
+    const pack = parsePackageManifest(JSON.stringify({ ...manifest, actions: [show] }));
+    expect(packageAnimationFiles(pack)).toEqual(["show.vrma"]);
+    expect(packageAudioFiles(pack)).toEqual(["music.wav"]);
+    expect(packageSubtitleFiles(pack)).toEqual(["lyrics.srt"]);
+    expect(packageCameraFiles(pack)).toEqual(["camera.glb"]);
+    expect(primaryPlaybackFile(pack.actions[0]!.playback)).toBe("show.vrma");
+    for (const extra of [{ layer: "head" }, { blending: "additive" }, { reference: "ref.vrma" }, { audio: "../music.wav" },
+      { cameraTrack: "camera.glb" }, { camera: { kind: "track", file: "camera.glb", keys: [] } },
+      { camera: { kind: "presets", keys: [] } }, { camera: { kind: "presets", keys: [{ at: 1, view: "center" }, { at: 0, view: "closeup" }] } },
+    ]) expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [{ ...show, playback: { ...show.playback, ...extra } }] }))).toThrow();
+    expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("show", "performance", { camera: { kind: "presets", keys: [{ at: 0, view: "center" }] } })] }))).not.toThrow();
   });
-  it.each([
-    { systemActions: { think: { kind: "loop", enter: "enter.vrma" } } },
-    { systemActions: { think: { kind: "loop", loop: "../outside.vrma" } } },
-    { systemActions: { think: { kind: "oneShot", file: "clip.vrma", loop: "clip.vrma" } } },
-    { systemActions: { think: { kind: "loop", loop: "clip.vrma", blendSeconds: -1 } } },
-    { systemActions: { "greet-wave": { kind: "oneShot", file: "clip.vrma" } } },
-    { customActions: [{ ...v2.customActions[0], key: 1 }] },
-  ])("rejects invalid v2 playback and obsolete preset declarations %j", invalid => {
-    expect(() => parsePackageManifest(JSON.stringify({ ...v2, ...invalid }))).toThrow();
+  it("validates additive references and rejects incompatible layers", () => {
+    const pack = parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("nod", "oneShot", { layer: "head", reference: "neutral.vrma" })] }));
+    expect(packageAnimationFiles(pack)).toEqual(["nod.vrma", "neutral.vrma"]);
+    for (const extra of [{ layer: "body", blending: "additive" }, { layer: "upperBody", reference: "neutral.vrma" }, { layer: "head", reference: "../outside.vrma" }, { layer: "hands" }])
+      expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("nod", "oneShot", extra)] }))).toThrow();
   });
-  it("rejects the unpublished v1 contract rather than guessing missing playback metadata", () => {
-    expect(() => parsePackageManifest(JSON.stringify({ ...manifest, formatVersion: 1 }))).toThrow();
+  it("validates GLB framing and rejects external resources and damaged containers", async () => {
+    const { cameraGlb } = await import("./cameraGlbFixture.mjs");
+    expect(() => validateCameraGlb(cameraGlb())).not.toThrow();
+    for (const bytes of [Buffer.from("{}"), cameraGlb().subarray(0, 80),
+      cameraGlb({ mutate: document => { document.buffers[0]!.uri = "outside.bin"; } }),
+      cameraGlb({ mutate: document => { document.cameras = []; } }),
+    ]) expect(() => validateCameraGlb(bytes)).toThrow();
+    const camera = { kind: "track", file: "camera.glb", referenceHeight: 1.6, animation: "Camera", shots: [{ at: 0, node: "MainCamera" }, { at: 2, node: "OrthoCamera" }] };
+    expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("show", "performance", { camera })] }))).not.toThrow();
+    for (const extra of [{ referenceHeight: 0 }, { shots: [] }, { shots: [{ at: 1, node: "Camera" }] }, { shots: [{ at: 0, node: "Camera" }, { at: 0, node: "Other" }] }])
+      expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("show", "performance", { camera: { ...camera, ...extra } })] }))).toThrow();
   });
-  it("accepts an empty animation list and Unicode names", () => {
-    expect(
-      parsePackageManifest(JSON.stringify(manifest)).systemActions,
-    ).toEqual({});
+  it.each([1, 2])("rejects obsolete manifest version %s without rewriting data", version => {
+    expect(() => parsePackageManifest(JSON.stringify({ ...manifest, formatVersion: version }))).toThrow();
+  });
+  it("accepts an empty catalog and Unicode resource paths", () => {
+    expect(parsePackageManifest(JSON.stringify(manifest)).actions).toEqual([]);
     expect(isPackagePath("动作/招手.vrma")).toBe(true);
   });
   it("rejects duplicated escaped keys, unknown fields and author supplied IDs", () => {
@@ -190,5 +216,28 @@ describe("character package import boundary", () => {
     png.writeUInt32BE(512, 20);
     expect(readImageHeader(png).width).toBe(100000);
     expect(() => readImageHeader(Buffer.from("not an image"))).toThrow();
+  });
+  it("accepts UTF-8 SRT with explicit intervals, gaps, multiline text and skipped cue numbers", () => {
+    const source = "\uFEFF1\r\n00:00:00,100 --> 00:00:00,900\r\n第一行\r\n第二行\r\n\r\n3\r\n00:00:01,100 --> 00:00:02,500\r\n下一句\r\n";
+    expect(validatePackageSrt(Buffer.from(source))).toBe(2.5);
+    const unicode = `1\n00:00:00,000 --> 00:00:01,000\n${"🎵".repeat(1000)}`;
+    expect(validatePackageSrt(Buffer.from(unicode))).toBe(1);
+  });
+  it("rejects malformed, overlapping, unbounded or ambiguous SRT cues", () => {
+    const cue = "1\n00:00:00,100 --> 00:00:00,900\n测试";
+    for (const source of [
+      "", cue.replace("1\n", "2\n"), cue.replace("1\n", "2147483648\n"),
+      cue.replace("00:00:00,900", "00:00:00,100"),
+      cue.replace("00:00:00,900", "00:00:60,000"),
+      cue.replace("00:00:00,900", "01:00:00,001"),
+      cue.replace("00:00:00,100", "00:00:00.100"),
+      cue.replace("测试", ""), cue.replace("测试", "测试\t文本"),
+      cue.replace("测试", "\u0000"), cue.replace("测试", "字".repeat(1001)),
+      `${cue}\n\n1\n00:00:01,000 --> 00:00:02,000\n重复编号`,
+      `${cue}\n\n2\n00:00:00,800 --> 00:00:02,000\n重叠`,
+    ]) expect(() => validatePackageSrt(Buffer.from(source))).toThrow(/字幕/);
+    expect(() => validatePackageSrt(new Uint8Array([255]))).toThrow(/UTF-8/);
+    expect(() => validatePackageSrt(Buffer.alloc(1024 ** 2 + 1))).toThrow(/1 MiB/);
+    expect(() => validatePackageSrt(Buffer.from(Array.from({ length: 4097 }, () => cue).join("\n\n")))).toThrow(/4096/);
   });
 });

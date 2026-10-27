@@ -29,12 +29,13 @@ namespace Katarune.Avatar
             public string RunId;
             public Request Command;
         }
-        [Serializable] private sealed class ActionInfo { public string id; public string label; public string description; public float durationSeconds; public string kind; public string key; public string semantic; public string layer; }
+        [Serializable] private sealed class ActionInfo { public string id; public string label; public string description; public float durationSeconds; public string kind; public string key; public string semantic; public string layer; public bool idle; }
         [Serializable] private sealed class Capabilities { public ActionInfo[] actions; public string[] expressions; }
         [Serializable] private sealed class Ready { public string type = "ready"; public Capabilities capabilities; }
         [Serializable] private sealed class StartupError { public string type = "startup-error"; public string error; }
         [Serializable] private sealed class Result { public string type = "result"; public string id; public bool ok; public string error; }
         [Serializable] private sealed class PlaybackEvent { public string type = "playback"; public string runId; public bool active; public string state; }
+        [Serializable] private sealed class DanceEvent { public string type = "dance"; public string id; public string actionId; public string status; public string error; }
 
         [Serializable] private sealed class ActionEvent { public string type = "action"; public string id; public string status; public string error; public string instanceId; public bool loop; }
         [Serializable] private sealed class ExpressionEvent { public string type = "expression"; public string id; public string status; public string error; }
@@ -52,7 +53,10 @@ namespace Katarune.Avatar
         private IAvatarRuntimeFacade _runtime;
         private int _epoch;
         private string _subtitleText = "";
-        internal string CurrentSubtitle => _subtitleText;
+        internal string CurrentSubtitle => !string.IsNullOrEmpty(_subtitleText) ? _subtitleText : _dance?.SubtitleText ?? "";
+        internal bool ShowingDanceSubtitle => string.IsNullOrEmpty(_subtitleText) && !string.IsNullOrEmpty(_dance?.SubtitleText);
+        internal Color CurrentSubtitleColor => ShowingDanceSubtitle ? new Color(1f, 143f / 255f, 179f / 255f)
+            : _userSubtitleActive ? new Color(.12f, .18f, .25f) : Color.white;
         private AvatarSceneRig _rig;
         private long _presentationRevision = -1;
         private Vector2 _presentationReference;
@@ -72,21 +76,25 @@ namespace Katarune.Avatar
         private string _playingRunId;
         private readonly HashSet<string> _mutedRuns = new HashSet<string>();
         private AvatarSpeechPlayer _speech;
+        private AvatarDancePlayer _dance;
         private bool _userSubtitleActive;
         private GUIStyle _subtitleStyle;
         private Font _subtitleFont;
+        private float _subtitleScale;
 
         [Serializable] private sealed class SpeechEvent { public string type = "speech"; public string runId; public string id; public string status; public string error; }
 
         [Serializable] private sealed class Presentation {
             public string type = "presentation"; public string modelName; public string modelPath; public bool loading;
-            public string affect; public string action; public bool gaze; public bool outline; public string error;
+            public string affect; public string action; public string[] playingActions; public bool gaze; public bool outline; public string error;
             public float referenceWidth; public float referenceHeight;
         }
         public void Configure(IAvatarRuntimeFacade runtime, string pipeName, AvatarSpeechPlayer speech = null)
         {
             _speech = speech; _runtime = runtime;
             _rig = FindFirstObjectByType<AvatarSceneRig>();
+            _dance = gameObject.AddComponent<AvatarDancePlayer>();
+            _dance.Configure(runtime, _rig);
             _window = FindFirstObjectByType<AvatarWindow>();
             if (_window != null) _window.StateChanged += Send;
             _ = Task.Run(() => Connect(pipeName));
@@ -144,6 +152,7 @@ namespace Katarune.Avatar
             {
                 if (_lastCapabilities != null)
                 {
+                    _dance?.Cancel("连接已断开。");
                     ClearPerformances();
                     StopAllCoroutines(); _runtime.CancelAction(); _speech?.Stop();
                     _mutedRuns.Clear(); _playingRunId = null;
@@ -174,6 +183,7 @@ namespace Katarune.Avatar
                 modelName = snapshot.Model?.Name ?? "", modelPath = snapshot.Model?.Path ?? "",
                 loading = snapshot.RuntimeState == AvatarRuntimeState.Loading,
                 affect = snapshot.Behavior.Affect.ToString().ToLowerInvariant(), action = snapshot.Motion.CurrentActionId ?? "",
+                playingActions = PlayingActions(snapshot.Motion.CurrentActionId),
                 gaze = snapshot.Behavior.PointerGazeTrackingEnabled, outline = snapshot.Presentation.SoftOutlineEnabled,
                 error = snapshot.LastError ?? "", referenceWidth = reference.x, referenceHeight = reference.y,
             });
@@ -211,6 +221,7 @@ namespace Katarune.Avatar
                     }
                     if (request?.operation == "session-reset")
                     {
+                        _dance?.Cancel("会话已切换。");
                         _packageCancellation?.Cancel();
                         ClearPerformances();
                         StopAllCoroutines();
@@ -255,10 +266,23 @@ namespace Katarune.Avatar
                     if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) throw new InvalidOperationException("角色尚未就绪。");
                     switch (request.operation)
                     {
+                        case "dance": StartDance(request); break;
                         case "desktop-affect":
                             if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var affect) || !_runtime.Snapshot.Capabilities.SupportsAffect(affect)) throw new ArgumentException("表情不可用。");
                             _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, 1f)); Reply(request); break;
+                        case "desktop-action-stop":
+                            if (!_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
+                            if (_dance?.ActionId == request.value) _dance.Cancel("舞蹈已停止。");
+                            else if (_runtime is IAvatarActionControl stopControl) {
+                                var action = _runtime.AvailableActions.First(a => a.Id == request.value);
+                                if (action.Kind == "loop") stopControl.FinishAction(request.value);
+                                else stopControl.CancelAction(request.value);
+                            }
+                            Reply(request); break;
                         case "desktop-action":
+                            if (request.value != "none" && !_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
+                            _dance?.Cancel(request.value == "none" ? "舞蹈已停止。" : "已切换动作，舞蹈已中止。");
+                            if (request.value != "none" && _runtime.AvailableActions.Any(a => a.Id == request.value && a.IsDance)) { StartDance(request); break; }
                             if (request.value == "none") {
                                 if (_runtime is IAvatarActionControl control) {
                                     // Release temporary gestures first, then naturally exit the
@@ -269,6 +293,7 @@ namespace Katarune.Avatar
                                         if (control.GetActionInstanceId(action.Id) != null) control.FinishAction(action.Id);
                                 } else _runtime.CancelAction();
                             } else {
+                                RequireNoDance();
                                 var result = _runtime.RequestAction(request.value);
                                 if (result.Outcome != AvatarActionRequestOutcome.Started) throw new InvalidOperationException(result.Error ?? "动作不可用。");
                             }
@@ -289,13 +314,18 @@ namespace Katarune.Avatar
                             EnsureTimeline();
                             break;
                         case "performance":
+                            if ((JsonUtility.FromJson<AvatarPerformanceRequest>(request.value)?.steps ?? Array.Empty<AvatarPerformanceStep>()).Any(step => !string.IsNullOrEmpty(step?.action))) RequireNoDance();
+                            AcceptCommand(request); break;
                         case "performance-finish":
                         case "performance-cancel":
+                            if (_performances.TryGetValue(request.value, out var performance) && performance.ContainsActions) RequireNoDance();
                             AcceptCommand(request); break;
                         case "action":
                         case "action-finish":
                         case "action-cancel":
+                            RequireNoDance();
                             if (!_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
+                            if (_runtime.AvailableActions.Any(a => a.Id == request.value && a.IsDance)) throw new ArgumentException("舞蹈需要独立播放。");
                             if (request.operation == "action" && !request.allowSpeech && _runtime.AvailableActions.Any(a => a.Id == request.value && a.Kind == "loop")) throw new ArgumentException("持续姿态需要允许同时说话。");
                             AcceptCommand(request); break;
                         case "expression":
@@ -319,13 +349,44 @@ namespace Katarune.Avatar
         {
                 var caps = new Ready { capabilities = new Capabilities {
                     actions = _runtime.AvailableActions.Select(a => new ActionInfo {
-                        id = a.Id, label = a.DisplayName, description = a.Description, durationSeconds = a.DurationSeconds, kind = a.Kind, key = a.Key, semantic = a.Semantic, layer = a.Layer
+                        id = a.Id, label = a.DisplayName, description = a.Description, durationSeconds = a.DurationSeconds, kind = a.Kind, key = a.Key, semantic = a.Semantic, layer = a.Layer, idle = a.IsIdle
                     }).ToArray(),
                     expressions = Enum.GetValues(typeof(AvatarAffectPreset)).Cast<AvatarAffectPreset>()
                         .Where(p => _runtime.Snapshot.Capabilities.SupportsAffect(p)).Select(p => p.ToString().ToLowerInvariant()).ToArray(),
                 } };
                 var json = JsonUtility.ToJson(caps);
                 if (force || json != _lastCapabilities) { Send(json); _lastCapabilities = json; }
+        }
+
+        private string[] PlayingActions(string primaryAction)
+        {
+            if (_runtime.AvailableActions.Any(action => action.Id == primaryAction && action.IsDance)) return new[] { primaryAction };
+            if (_runtime is not IAvatarActionControl control) return string.IsNullOrEmpty(primaryAction) ? Array.Empty<string>() : new[] { primaryAction };
+            var playing = _runtime.AvailableActions.Where(action => {
+                var state = control.GetActionState(control.GetActionInstanceId(action.Id));
+                return state == PerformanceInstanceState.Running || state == PerformanceInstanceState.Exiting;
+            }).Select(action => action.Id).ToArray();
+            return playing.Length == 0 && !string.IsNullOrEmpty(primaryAction) ? new[] { primaryAction } : playing;
+        }
+
+        private void RequireNoDance()
+        {
+            if (_dance != null && _dance.Active) throw new InvalidOperationException("舞蹈正在播放，请等待表演结束。");
+        }
+
+        private void StartDance(Request request)
+        {
+            RequireNoDance();
+            if (_performances.Values.Any(value => !value.Terminal && value.ContainsActions) || _runningActions.Count > 0 || _pendingActions.Count > 0
+                || _commands.Values.Any(value => value.operation == "action")
+                || _timeline.Any(value => value.Command?.operation == "action"))
+                throw new InvalidOperationException("日常表演正在播放，请等待表演结束。");
+            var started = false;
+            _dance.Play(request.value, (status, error) => {
+                if (status == "started") { started = true; Reply(request); return; }
+                if (!started) Reply(request, error ?? "舞蹈未能启动。");
+                Send(JsonUtility.ToJson(new DanceEvent { id = request.id, actionId = request.value, status = status, error = error ?? "" }));
+            });
         }
 
         // Native UIMessageChunk events remain unchanged on the wire. Only public text is dialogue.
@@ -350,6 +411,7 @@ namespace Katarune.Avatar
 
         private async void LoadModel(Request request)
         {
+            _dance?.Cancel("角色模型已切换。");
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
             cancellation.CancelAfter(TimeSpan.FromSeconds(110));
             _packageCancellation?.Cancel(); _packageCancellation = cancellation;
@@ -397,9 +459,11 @@ namespace Katarune.Avatar
         }
         private void OnGUI()
         {
-            if (string.IsNullOrEmpty(_subtitleText)) return;
-            var fontSize = Mathf.Clamp(Mathf.RoundToInt(17f * Mathf.Max(1f, Screen.dpi / 96f)), 17, 24);
-            if (_subtitleStyle == null || _subtitleStyle.fontSize != fontSize)
+            var text = CurrentSubtitle;
+            if (string.IsNullOrEmpty(text)) return;
+            var scale = _window != null ? _window.UiScale : Mathf.Max(1f, Screen.dpi / 96f);
+            var fontSize = Mathf.RoundToInt(18f * scale);
+            if (_subtitleStyle == null || _subtitleScale != scale)
             {
                 if (_subtitleFont == null)
                     _subtitleFont = Font.CreateDynamicFontFromOSFont(
@@ -407,22 +471,26 @@ namespace Katarune.Avatar
                 _subtitleStyle = new GUIStyle(GUI.skin.label) {
                     font = _subtitleFont, fontSize = fontSize, wordWrap = true,
                     richText = false, alignment = TextAnchor.MiddleCenter,
-                    padding = new RectOffset(12, 12, 8, 8),
+                    padding = new RectOffset(Mathf.RoundToInt(16f * scale), Mathf.RoundToInt(16f * scale),
+                        Mathf.RoundToInt(10f * scale), Mathf.RoundToInt(10f * scale)),
                 };
+                _subtitleScale = scale;
             }
-            _subtitleStyle.normal.textColor = _userSubtitleActive
-                ? new Color(.12f, .18f, .25f) : Color.white;
-            var width = Mathf.Max(60f, Mathf.Min(440f, Screen.width - 12f));
-            var height = Mathf.Min(
-                _subtitleStyle.CalcHeight(new GUIContent(_subtitleText), width),
-                Screen.height * .55f);
-            var bottomMargin = Mathf.Max(24f, Screen.height * .045f);
+            _subtitleStyle.normal.textColor = CurrentSubtitleColor;
+            var wide = (_rig != null && _rig.Immersive) || (_dance != null && _dance.Active);
+            var maxWidth = Mathf.Max(1f, Mathf.Min((wide ? 960f : 480f) * scale, Screen.width * (wide ? .8f : .6f)));
+            var content = new GUIContent(text);
+            var width = Mathf.Min(maxWidth, Mathf.Ceil(_subtitleStyle.CalcSize(content).x));
+            var bottomMargin = Mathf.Max(24f * scale, Screen.height * .045f);
+            var edgeMargin = 6f * scale;
+            var height = Mathf.Min(Mathf.Ceil(_subtitleStyle.CalcHeight(content, width)),
+                Mathf.Max(1f, Screen.height - bottomMargin - edgeMargin));
             var bounds = new Rect((Screen.width - width) * .5f,
-                Mathf.Max(6f, Screen.height - height - bottomMargin), width, height);
+                Mathf.Max(edgeMargin, Screen.height - height - bottomMargin), width, height);
             GUI.DrawTexture(bounds, Texture2D.whiteTexture, ScaleMode.StretchToFill, true,
                 0f, _userSubtitleActive ? new Color(.92f, .96f, 1f, .94f)
-                    : new Color(.11f, .10f, .14f, .92f), 0f, 14f);
-            GUI.Label(bounds, _subtitleText, _subtitleStyle);
+                    : new Color(.11f, .10f, .14f, .92f), 0f, 14f * scale);
+            GUI.Label(bounds, content, _subtitleStyle);
         }
 
         private void ConsumeEvent(StreamEvent chunk, string runId = null, bool speechEnabled = false)
@@ -830,6 +898,7 @@ namespace Katarune.Avatar
         private void Send(string json) { if (!_stopping && !_outgoing.IsAddingCompleted) _outgoing.TryAdd(json); }
         private void OnDestroy()
         {
+            _dance?.Cancel("桌宠已停止。");
             if (_subtitleFont != null) Destroy(_subtitleFont);
             if (_window != null) _window.StateChanged -= Send;
             ClearPerformances();

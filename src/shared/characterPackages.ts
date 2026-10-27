@@ -36,45 +36,86 @@ export function isPackagePath(value: string): boolean {
   );
 }
 const path = z.string().refine(isPackagePath, "必须使用安全的包内相对路径。");
-const systemAction = z.strictObject({ file: path });
 const playbackLayer = {
   layer: z.enum(["body", "upperBody", "head"]).optional(),
   blending: z.enum(["override", "additive"]).optional(),
   reference: path.optional(),
 };
-export const actionPlaybackSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ ...playbackLayer, kind: z.literal("oneShot"), file: path, blendSeconds: z.number().min(0).max(2).optional() }),
-  z.strictObject({ ...playbackLayer, kind: z.literal("loop"), enter: path.optional(), loop: path, exit: path.optional(), blendSeconds: z.number().min(0).max(2).optional() }),
-]).superRefine((value, context) => {
+const oneShotPlaybackSchema = z.strictObject({ ...playbackLayer, kind: z.literal("oneShot"), motion: path, blendSeconds: z.number().min(0).max(2).optional() });
+const loopPlaybackSchema = z.strictObject({ ...playbackLayer, kind: z.literal("loop"), enter: path.optional(), motion: path, exit: path.optional(), blendSeconds: z.number().min(0).max(2).optional() });
+export const danceCameraKeySchema = z.strictObject({
+  at: z.number().min(0).max(3600), view: z.enum(["overhead", "center", "closeup"]),
+});
+export type DanceCameraKey = z.infer<typeof danceCameraKeySchema>;
+const cameraSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("track"), file: path,
+    referenceHeight: z.number().positive().max(10).optional(),
+    animation: text(200).optional(),
+    shots: z.array(z.strictObject({ at: z.number().min(0).max(3600), node: text(200) })).min(1).max(256).superRefine((shots, context) => {
+      shots.forEach((shot, index) => {
+        if (index === 0 ? shot.at !== 0 : shot.at <= shots[index - 1]!.at)
+          context.addIssue({ code: "custom", path: [index, "at"], message: "镜头段须从零开始并严格递增。" });
+      });
+    }).optional(),
+  }),
+  z.strictObject({ kind: z.literal("presets"), keys: z.array(danceCameraKeySchema).min(1).max(64).superRefine((keys, context) => {
+    keys.forEach((key, index) => {
+      if (index > 0 && key.at <= keys[index - 1]!.at)
+        context.addIssue({ code: "custom", path: [index, "at"], message: "镜头时间必须严格递增。" });
+    });
+  }) }),
+]);
+export const performancePlaybackSchema = z.strictObject({
+  kind: z.literal("performance"), motion: path, audio: path.optional(), subtitles: path.optional(),
+  camera: cameraSchema.optional(),
+  layer: z.literal("body").optional(), blending: z.literal("override").optional(),
+  blendSeconds: z.number().min(0).max(2).optional(),
+});
+export type PerformancePlayback = z.infer<typeof performancePlaybackSchema>;
+function validateActionBlending(value: z.infer<typeof oneShotPlaybackSchema> | z.infer<typeof loopPlaybackSchema>, context: z.RefinementCtx) {
   const blending = value.blending ?? (value.layer === "head" ? "additive" : "override");
   if ((value.layer ?? "body") === "body" && blending === "additive") context.addIssue({ code: "custom", path: ["blending"], message: "全身动作使用 override。" });
   if (value.reference && blending !== "additive") context.addIssue({ code: "custom", path: ["reference"], message: "reference 仅用于 additive。" });
+}
+export const actionPlaybackSchema = z.discriminatedUnion("kind", [oneShotPlaybackSchema, loopPlaybackSchema, performancePlaybackSchema]).superRefine((value, context) => {
+  if (value.kind !== "performance") validateActionBlending(value, context);
 });
 export type ActionPlayback = z.infer<typeof actionPlaybackSchema>;
-const systemBehaviorsSchema = z.strictObject({
-    greet: actionPlaybackSchema.optional(),
-    nod: actionPlaybackSchema.optional(),
-    shakeHead: actionPlaybackSchema.optional(),
-    talk: actionPlaybackSchema.optional(),
-    talkGesture: actionPlaybackSchema.optional(),
-    think: actionPlaybackSchema.optional(),
-    thinkGesture: actionPlaybackSchema.optional(),
-    clap: actionPlaybackSchema.optional(),
-    cheer: actionPlaybackSchema.optional(),
-    encourage: actionPlaybackSchema.optional(),
-    confused: actionPlaybackSchema.optional(),
-    shrug: actionPlaybackSchema.optional(),
-    point: actionPlaybackSchema.optional(),
-    akimbo: actionPlaybackSchema.optional(),
-    holdArms: actionPlaybackSchema.optional(),
-    afraid: actionPlaybackSchema.optional(),
-    downcast: actionPlaybackSchema.optional(),
-    alert: actionPlaybackSchema.optional(),
-    read: actionPlaybackSchema.optional(),
-    whisper: actionPlaybackSchema.optional(),
+const actionKey = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80);
+const actionBindingsSchema = z.strictObject({
+    greet: actionKey.optional(),
+    nod: actionKey.optional(),
+    shakeHead: actionKey.optional(),
+    talk: actionKey.optional(),
+    talkGesture: actionKey.optional(),
+    think: actionKey.optional(),
+    thinkGesture: actionKey.optional(),
+    clap: actionKey.optional(),
+    cheer: actionKey.optional(),
+    encourage: actionKey.optional(),
+    confused: actionKey.optional(),
+    shrug: actionKey.optional(),
+    point: actionKey.optional(),
+    akimbo: actionKey.optional(),
+    holdArms: actionKey.optional(),
+    afraid: actionKey.optional(),
+    downcast: actionKey.optional(),
+    alert: actionKey.optional(),
+    read: actionKey.optional(),
+    whisper: actionKey.optional(),
 });
-export const SYSTEM_ACTION_KEYS = systemBehaviorsSchema.keyof().options;
-const actionKey = text(80).refine(value => value === value.trim(), "动作标识不能有首尾空格。");
+export const ACTION_BINDING_KEYS = actionBindingsSchema.keyof().options;
+const actionBindingLabels: Record<(typeof ACTION_BINDING_KEYS)[number], string> = {
+  greet: "问候", nod: "点头", shakeHead: "摇头", talk: "交谈", talkGesture: "说话手势",
+  think: "思考", thinkGesture: "思考手势", clap: "鼓掌", cheer: "欢呼", encourage: "鼓励",
+  confused: "疑惑", shrug: "耸肩", point: "向前指", akimbo: "叉腰", holdArms: "抱臂",
+  afraid: "害怕", downcast: "低落", alert: "警觉", read: "阅读", whisper: "低语",
+};
+export function actionBindingLabel(semantic: string): string | undefined {
+  const key = ACTION_BINDING_KEYS.find(key => key === semantic);
+  return key === undefined ? undefined : actionBindingLabels[key];
+}
 const manifestFields = {
   name: text(80),
   version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/),
@@ -84,28 +125,34 @@ const manifestFields = {
   thumbnail: path.optional(),
   model: path,
 };
-const baseSystemActions = {
-    idle: systemAction.optional(),
-    idle_variations: z.array(systemAction).max(32).optional(),
-};
-const customAction = z.strictObject({
-  key: actionKey.optional(), name: text(80), description: text(1000, true), playback: actionPlaybackSchema,
+const packageActionSchema = z.strictObject({
+  key: actionKey, name: text(80), description: text(1000, true), playback: actionPlaybackSchema,
 });
 export const characterPackageManifestSchema = z.strictObject({
   ...manifestFields,
-  formatVersion: z.literal(2),
-  systemActions: z.strictObject({
-    ...baseSystemActions,
-    ...systemBehaviorsSchema.shape,
-  }),
-  customActions: z.array(customAction).max(256),
+  formatVersion: z.literal(3),
+  actions: z.array(packageActionSchema).max(256),
+  idle: z.strictObject({ base: actionKey.optional(), variations: z.array(actionKey).max(32).optional() }).optional(),
+  bindings: actionBindingsSchema.optional(),
 }).superRefine((manifest, context) => {
-  const keys = new Set<string>();
-  manifest.customActions.forEach((action, index) => {
-    const key = action.key ?? action.name;
-    if (key !== key.trim() || keys.has(key)) context.addIssue({ code: "custom", path: ["customActions", index, "key"], message: "自定义动作标识必须唯一且无首尾空格；重名动作请填写不同 key。" });
-    keys.add(key);
+  const actions = new Map<string, typeof manifest.actions[number]>();
+  manifest.actions.forEach((action, index) => {
+    if (actions.has(action.key)) context.addIssue({ code: "custom", path: ["actions", index, "key"], message: "包内动作标识必须唯一。" });
+    actions.set(action.key, action);
   });
+  const check = (key: string, path: (string | number)[], kind?: "oneShot" | "loop") => {
+    const action = actions.get(key);
+    if (!action) context.addIssue({ code: "custom", path, message: "引用的动作不存在。" });
+    else if (kind ? action.playback.kind !== kind : action.playback.kind === "performance")
+      context.addIssue({ code: "custom", path, message: kind === "loop" ? "基础待机必须引用循环动作。" : kind === "oneShot" ? "待机变化必须引用单次动作。" : "固定用途必须引用普通动作。" });
+    if (kind && action && ((action.playback.layer ?? "body") !== "body" || (action.playback.blending ?? "override") !== "override" || (action.playback.kind === "loop" && (action.playback.enter || action.playback.exit))))
+      context.addIssue({ code: "custom", path, message: "自动待机使用全身覆盖，基础循环不包含进入或退出段。" });
+  };
+  if (manifest.idle?.base) check(manifest.idle.base, ["idle", "base"], "loop");
+  const variations = manifest.idle?.variations ?? [];
+  if (new Set(variations).size !== variations.length) context.addIssue({ code: "custom", path: ["idle", "variations"], message: "待机变化不能重复引用。" });
+  variations.forEach((key, i) => check(key, ["idle", "variations", i], "oneShot"));
+  for (const [role, key] of Object.entries(manifest.bindings ?? {})) if (key !== undefined) check(key, ["bindings", role]);
 });
 export type CharacterPackageManifest = z.infer<
   typeof characterPackageManifestSchema
@@ -116,12 +163,11 @@ export const characterPackageSchema = z.strictObject({
   manifest: characterPackageManifestSchema,
   portraitAssetId: z.uuid(),
   thumbnailAssetId: z.uuid().nullable(),
-  customActions: z.array(
+  actions: z.array(
     z.strictObject({
       id: z.uuid(),
       name: z.string(),
       description: z.string(),
-      file: z.string(),
       key: actionKey,
       playback: actionPlaybackSchema,
     }),
@@ -160,32 +206,28 @@ export const PACKAGE_CHANNELS = {
 
 // Main -> Unity only. Paths are never passed to renderer.
 export interface RuntimeCharacterPackage {
-  formatVersion: 2;
+  formatVersion: 3;
   id: string;
   version: string;
   model: string;
-  idle: string;
-  idleVariations: string[];
-  customActions: {
-    id: string;
-    name: string;
-    description: string;
-    file: string;
-    key: string;
-    playback: ActionPlayback;
-  }[];
-  systemBehaviors?: { id: string; name: string; description: string; playback: ActionPlayback }[];
+  idle: { base?: string; variations: string[] };
+  actions: CharacterPackage["actions"];
+  bindings: { role: string; actionId: string }[];
 }
 
 export function playbackFiles(playback: ActionPlayback): string[] {
-  return [...(playback.kind === "oneShot" ? [playback.file] : [playback.enter, playback.loop, playback.exit]), playback.reference].filter((file): file is string => file !== undefined);
+  return [playback.motion, ...(playback.kind === "loop" ? [playback.enter, playback.exit] : []), ...(playback.kind !== "performance" ? [playback.reference] : [])].filter((file): file is string => file !== undefined);
 }
-export function primaryPlaybackFile(playback: ActionPlayback): string {
-  return playback.kind === "oneShot" ? playback.file : playback.loop;
-}
+export function primaryPlaybackFile(playback: ActionPlayback): string { return playback.motion; }
 export function packageAnimationFiles(manifest: CharacterPackageManifest): string[] {
-  const files = [manifest.systemActions.idle?.file, ...(manifest.systemActions.idle_variations ?? []).map(action => action.file)].filter((file): file is string => file !== undefined);
-  for (const key of SYSTEM_ACTION_KEYS) { const playback = manifest.systemActions[key]; if (playback) files.push(...playbackFiles(playback)); }
-  for (const action of manifest.customActions) files.push(...playbackFiles(action.playback));
-  return [...new Set(files)];
+  return [...new Set(manifest.actions.flatMap(action => playbackFiles(action.playback)))];
+}
+export function packageAudioFiles(manifest: CharacterPackageManifest): string[] {
+  return [...new Set(manifest.actions.flatMap(action => action.playback.kind === "performance" && action.playback.audio ? [action.playback.audio] : []))];
+}
+export function packageSubtitleFiles(manifest: CharacterPackageManifest): string[] {
+  return [...new Set(manifest.actions.flatMap(action => action.playback.kind === "performance" && action.playback.subtitles ? [action.playback.subtitles] : []))];
+}
+export function packageCameraFiles(manifest: CharacterPackageManifest): string[] {
+  return [...new Set(manifest.actions.flatMap(action => action.playback.kind === "performance" && action.playback.camera?.kind === "track" ? [action.playback.camera.file] : []))];
 }

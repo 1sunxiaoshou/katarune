@@ -74,6 +74,7 @@ namespace Katarune.Avatar
                 motion = package == null && _motions.HasInstalledLibrary
                     ? _motions.Prepare(rigBinding)
                     : await VrmaMotionInstance.PrepareAsync(loaded, package ?? new AvatarCharacterPackage { id = "builtin:default" }, bytes, cancellationToken);
+                ((UniVrmAvatarDriver)driver).AttachMotion(motion as VrmaMotionInstance);
                 visual = _visuals.Prepare(loaded.gameObject, presentation);
                 var bounds = MeasureBounds(loaded.gameObject);
                 var capabilities = ReadCapabilities(driver, motion);

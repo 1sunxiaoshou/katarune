@@ -241,6 +241,14 @@ html[data-reduce-motion] .desktop-panel {
   width: max-content;
   min-width: var(--anchor-width);
   max-width: min(260px, var(--available-width));
+  max-height: var(--available-height);
+}
+.desktop-choice-content [data-slot="command"],
+.desktop-choice-content [cmdk-list] {
+  min-height: 0;
+}
+.desktop-choice-content [cmdk-list] {
+  max-height: min(18rem, calc(var(--available-height) - 8px));
 }
 .shortcuts > div {
   display: flex;
@@ -301,4 +309,14 @@ kbd {
   border-radius: 50%;
   transform: scale(calc(0.75 + var(--level) * 0.5));
   opacity: calc(0.3 + var(--level) * 0.7);
+}
+
+.desktop-action-content .desktop-action-filters {
+  flex: 0 0 auto;
+  padding: 4px 4px 0;
+}
+.desktop-action-filter-list { width: 100%; }
+.desktop-action-filter-list [data-slot="tabs-trigger"] { font-size: 12px; }
+.desktop-action-content [cmdk-list] {
+  max-height: min(18rem, calc(var(--available-height) - 48px));
 }

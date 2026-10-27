@@ -16,6 +16,10 @@ namespace Katarune.Avatar
         private readonly Dictionary<AvatarAffectPreset, CustomExpressionBinding[]> _affectFallbacks;
         private readonly Dictionary<ExpressionKey, float> _customAffectWeights = new Dictionary<ExpressionKey, float>(ExpressionKey.Comparer);
         private readonly Dictionary<HumanBodyBones, BoneBaseline> _bones = new Dictionary<HumanBodyBones, BoneBaseline>();
+        private readonly HashSet<ExpressionKey> _animatedExpressions = new(ExpressionKey.Comparer);
+        private VrmaMotionInstance _motion;
+
+        internal void AttachMotion(VrmaMotionInstance motion) => _motion = motion;
 
         public UniVrmAvatarDriver(Vrm10Instance instance)
         {
@@ -77,11 +81,23 @@ namespace Katarune.Avatar
         public void Apply(AvatarPoseFrame frame)
         {
             if (frame == null) throw new ArgumentNullException(nameof(frame));
+            // Clear only keys previously owned by a clip, before current dialogue/affect baselines are applied.
+            foreach (var key in _animatedExpressions) SetWeight(key, 0f);
+            _animatedExpressions.Clear();
             _runtime.SpringBone.SetModelLevel(
                 _instance.transform,
                 new BlittableModelLevel(
                     stopSpringBoneWriteback: _instance.GetComponent<AdaptiveIdlePlayback>()?.IsBakedActive ?? false,
                     supportsScalingAtRuntime: true));
+            if (_motion?.DanceActive == true)
+            {
+                // The dance is the sole pose/face/gaze author. Keep spring physics, suppress all
+                // procedural breathing, pointer gaze, blinking, emotion and speech/manual visemes.
+                foreach (var key in _supportedExpressions) SetWeight(key, 0f);
+                _runtime.LookAt.SetYawPitchManually(0f, 0f);
+                ApplyAnimationTracks();
+                return;
+            }
             if (!frame.HasAuthoredBodyPose) RestoreBones();
             var authoredGazeCompensation = Vector2.zero;
             if (frame.HasAuthoredBodyPose && _bones.TryGetValue(HumanBodyBones.Head, out var head))
@@ -123,10 +139,25 @@ namespace Katarune.Avatar
             SetWeight(ExpressionKey.Ou, frame.Ou);
             SetWeight(ExpressionKey.Ee, frame.Ee);
             SetWeight(ExpressionKey.Oh, frame.Oh);
+            ApplyAnimationTracks();
+        }
+
+        private void ApplyAnimationTracks()
+        {
+            var tracks = _motion?.AnimationTracks;
+            if (tracks == null) return;
+            foreach (var pair in tracks.Expressions)
+            {
+                SetWeight(pair.Key, pair.Value); // A valid custom expression absent on this model is safely ignored.
+                _animatedExpressions.Add(pair.Key);
+            }
+            if (tracks.LookAt is Vector2 gaze) _runtime.LookAt.SetYawPitchManually(gaze.x, gaze.y);
         }
 
         public void ResetPose()
         {
+            foreach (var key in _animatedExpressions) SetWeight(key, 0f);
+            _animatedExpressions.Clear();
             RestoreBones();
             _runtime.SpringBone.SetModelLevel(
                 _instance.transform,

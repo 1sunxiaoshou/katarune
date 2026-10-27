@@ -1,3 +1,4 @@
+import { runtimePackage } from "./runtimePackage.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -14,7 +15,7 @@ const executable = resolve(
 const withAudio = process.argv.includes("--audio");
 const model = join(
   dirname(executable),
-  "KataruneAvatar_Data/KataruneLocal/Models/default-avatar.vrm",
+  "KataruneAvatar_Data/KataruneLocal/avatar/model.vrm",
 );
 const fixture = join(output, "fixture.vrma"),
   unsupported = join(output, "unsupported.vrma");
@@ -23,20 +24,12 @@ await writePackageVrmaFixture(model, unsupported, true);
 const actionId = randomUUID(),
   nextActionId = randomUUID();
 const base = {
-  formatVersion: 2,
-  id: "builtin:default",
-  version: "1.0.0",
-  model,
-  idle: "",
-  idleVariations: [],
-  customActions: [],
+  formatVersion: 3, id: "builtin:default", version: "1.0.0", model,
+  idle: { variations: [] }, actions: [], bindings: [],
 };
 const builtinRoot = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
 const builtinManifest = JSON.parse(await readFile(join(builtinRoot, "manifest.json"), "utf8"));
 const builtinIds = JSON.parse(await readFile(join(builtinRoot, "action-ids.json"), "utf8"));
-function resolvePlayback(playback) {
-  return Object.fromEntries(Object.entries({ ...playback, layer: playback.layer ?? "body", blending: playback.blending ?? (playback.layer === "head" ? "additive" : "override"), blendSeconds: playback.blendSeconds ?? .2 }).map(([key, value]) => [key, ["file", "enter", "loop", "exit", "reference"].includes(key) ? join(builtinRoot, value) : value]));
-}
 function phaseEndpoints(raw) {
   const size = raw.readUInt32LE(12), g = JSON.parse(raw.subarray(20, 20 + size).toString());
   return Object.fromEntries(g.animations[0].channels.map(channel => {
@@ -53,48 +46,28 @@ function phaseEndpoints(raw) {
     return [g.nodes[channel.target.node].name + ":" + channel.target.path, [frame(0), frame(accessor.count - 1)]];
   }));
 }
-const builtin = {
-  ...base,
-  version: builtinManifest.version,
-  idle: builtinManifest.systemActions.idle ? join(builtinRoot, builtinManifest.systemActions.idle.file) : "",
-  idleVariations: builtinManifest.systemActions.idle_variations.map((a) => join(builtinRoot, a.file)),
-  systemBehaviors: Object.entries(builtinManifest.systemActions).filter(([key]) => !["idle", "idle_variations"].includes(key)).map(([name, playback]) => ({ id: "system." + name.toLowerCase(), name, description: "", playback: resolvePlayback(playback) })),
-  customActions: builtinManifest.customActions.map((action, index) => ({ ...action, id: builtinIds[index], playback: resolvePlayback(action.playback) })),
-};
+const builtin = runtimePackage(builtinManifest, builtinIds, builtinRoot);
 const bodyFixture = join(output, "body-loop.vrma"), upperFixture = join(output, "upper-gesture.vrma");
 await writePackageVrmaFixture(model, bodyFixture, false, [{ bone: "head", axis: [0, 0, 1], amplitude: .15 }, { bone: "leftUpperLeg", axis: [1, 0, 0], amplitude: .3 }, { bone: "rightUpperArm", axis: [0, 0, 1], amplitude: .1 }]);
 await writePackageVrmaFixture(model, upperFixture, false, [{ bone: "rightUpperArm", axis: [0, 0, 1], amplitude: .7 }, { bone: "leftUpperLeg", axis: [1, 0, 0], amplitude: 1 }]);
-const layered = { ...base, id: randomUUID(), idle: bodyFixture, systemBehaviors: [
-  { id: "system.think", name: "think", playback: { kind: "loop", loop: bodyFixture, layer: "body", blending: "override", blendSeconds: .2 } },
-  { id: "system.nod", name: "nod", playback: { kind: "oneShot", file: fixture, layer: "head", blending: "additive", blendSeconds: .2 } },
-  { id: "system.greet", name: "greet", playback: { kind: "oneShot", file: upperFixture, layer: "upperBody", blending: "override", blendSeconds: .2 } },
-  { id: "system.holdarms", name: "holdArms", playback: { kind: "loop", loop: upperFixture, layer: "upperBody", blending: "override", blendSeconds: .2 } },
+const layered = { ...base, id: randomUUID(), idle: { base: builtinIds.think, variations: [] }, actions: [
+  { id: builtinIds.think, key: "think", name: "思考", playback: { kind: "loop", motion: bodyFixture, layer: "body", blending: "override", blendSeconds: .2 } },
+  { id: builtinIds.nod, key: "nod", name: "点头", playback: { kind: "oneShot", motion: fixture, layer: "head", blending: "additive", blendSeconds: .2 } },
+  { id: builtinIds.greet, key: "greet", name: "问候", playback: { kind: "oneShot", motion: upperFixture, layer: "upperBody", blending: "override", blendSeconds: .2 } },
+  { id: builtinIds["hold-arms"], key: "hold-arms", name: "抱臂", playback: { kind: "loop", motion: upperFixture, layer: "upperBody", blending: "override", blendSeconds: .2 } },
 ] };
-const pack = {
-  ...base,
-  id: randomUUID(),
-  idle: fixture,
-  customActions: [
-    {
-      id: actionId,
-      name: "测试倾头",
-      description: "仅验收测试使用",
-      file: fixture, key: "测试倾头", playback: { kind: "oneShot", file: fixture },
-    },
-  ],
-};
+const idleId = randomUUID();
+const idleAction = { id: idleId, key: "idle", name: "基础待机", playback: { kind: "loop", motion: fixture } };
+const pack = { ...base, id: randomUUID(), idle: { base: idleId, variations: [] }, actions: [
+  { id: actionId, name: "测试倾头", description: "仅验收测试使用", key: "test-tilt", playback: { kind: "oneShot", motion: fixture } }, idleAction,
+] };
 const numberedId = randomUUID(), heldId = randomUUID();
-const phasePack = {
-  ...pack, formatVersion: 2, id: randomUUID(),
-  customActions: [
-    { id: numberedId, key: "001", name: "问候", description: "一次性测试", file: fixture, playback: { kind: "oneShot", file: fixture } },
-    { id: heldId, key: "抱臂", name: "抱臂", description: "循环测试", file: fixture, playback: { kind: "loop", loop: fixture } },
-  ],
-  systemBehaviors: [
-    { id: "system.think", name: "think", description: "", playback: { kind: "loop", enter: fixture, loop: fixture, exit: fixture } },
-    { id: "system.talk", name: "talk", description: "", playback: { kind: "loop", loop: fixture } },
-  ],
-};
+const phasePack = { ...base, id: randomUUID(), bindings: [{ role: "think", actionId: builtinIds.think }, { role: "talk", actionId: builtinIds.talk }], actions: [
+  { id: numberedId, key: "001", name: "问候", playback: { kind: "oneShot", motion: fixture } },
+  { id: heldId, key: "hold", name: "抱臂", playback: { kind: "loop", motion: fixture } },
+  { id: builtinIds.think, key: "think", name: "思考", playback: { kind: "loop", enter: fixture, motion: fixture, exit: fixture } },
+  { id: builtinIds.talk, key: "talk", name: "交谈", playback: { kind: "loop", motion: fixture } },
+] };
 const env = {
   ...process.env,
   KATARUNE_AVATAR_PIPE: "",
@@ -139,8 +112,8 @@ await validate(pack, "runtime-vrma", true);
 await validate({ ...pack, formatVersion: 1 }, "obsolete-package-format", false);
 await validate(phasePack, "phased-loop-and-oneshot", true);
 await validate(layered, "independent-layers", true);
-await validate({ ...layered, systemBehaviors: [{ ...layered.systemBehaviors[0], playback: { kind: "loop", loop: bodyFixture, layer: "body", blending: "additive" } }] }, "body-additive-rejected", false);
-await validate({ ...phasePack, systemBehaviors: [{ ...phasePack.systemBehaviors[0], playback: { kind: "loop", loop: fixture, exit: unsupported } }] }, "unsupported-exit", false);
+await validate({ ...layered, actions: [{ ...layered.actions[0], playback: { kind: "loop", motion: bodyFixture, layer: "body", blending: "additive" } }] }, "body-additive-rejected", false);
+await validate({ ...phasePack, actions: [{ ...phasePack.actions[0], playback: { kind: "loop", motion: fixture, exit: unsupported } }] }, "unsupported-exit", false);
 assert.match(await readFile(join(output, "default-empty-actions.log"), "utf8"), /KATARUNE_ADAPTIVE_IDLE_PREBAKED/);
 assert.doesNotMatch(await readFile(join(output, "default-idle-and-variations.log"), "utf8"), /KATARUNE_ADAPTIVE_IDLE_(BAKED|CACHE|PREBAKED)/);
 assert.doesNotMatch(await readFile(join(output, "runtime-vrma.log"), "utf8"), /KATARUNE_ADAPTIVE_IDLE_(BAKED|CACHE|PREBAKED)/);
@@ -163,7 +136,7 @@ assert.match(await readFile(join(output, "import-baked.log"), "utf8"), /KATARUNE
 await validate({ ...base, model: importedModel }, "import-cached", true);
 assert.match(await readFile(join(output, "import-cached.log"), "utf8"), /KATARUNE_ADAPTIVE_IDLE_CACHE channels=128/);
 await validate(
-  { ...pack, customActions: [{ ...pack.customActions[0], playback: { kind: "oneShot", file: unsupported } }] },
+  { ...pack, actions: [{ ...pack.actions[0], playback: { kind: "oneShot", motion: unsupported } }] },
   "unsupported-tracks",
   false,
 );
@@ -261,7 +234,7 @@ try {
   const ready = await wait((m) => m.type === "ready");
   assert.deepEqual(
     ready.capabilities.actions.map((a) => a.id),
-    [actionId],
+    [actionId, idleId],
   );
   send({ type: "binding", epoch: 1 });
   await delay(1600);
@@ -295,13 +268,13 @@ try {
     nextPack = {
       ...pack,
       id: randomUUID(),
-      customActions: [{ ...pack.customActions[0], id: nextActionId }],
+      actions: [{ ...pack.actions[0], id: nextActionId }, idleAction],
     };
   await operation("load-package", JSON.stringify(nextPack));
   const next = await wait((m) => m.type === "ready", before);
   assert.deepEqual(
     next.capabilities.actions.map((a) => a.id),
-    [nextActionId],
+    [nextActionId, idleId],
   );
   await operation("action", actionId, false);
   const newAction = await operation("action", nextActionId);
@@ -345,41 +318,41 @@ try {
   const phaseReady = await wait(m => m.type === "ready", phaseBefore);
   assert.ok(phaseReady.capabilities.actions.some(a => a.semantic === "think" && a.kind === "loop"));
   assert.ok(phaseReady.capabilities.actions.some(a => a.key === "001" && a.kind === "oneShot"));
-  const thinking = await operation("action", "system.think");
+  const thinking = await operation("action", builtinIds["think"]);
   const thinkStarted = await wait(m => m.type === "action" && m.id === thinking && m.status === "started");
   assert.ok(thinkStarted.instanceId && thinkStarted.loop);
   await delay(6800); // Enter + more than one main clip duration must keep holding.
   assert.ok(!messages.some(m => m.type === "action" && m.id === thinking && m.status === "completed"));
   await operation("drain", "package-acceptance"); // A held pose cannot block drain or later gestures.
-  await operation("load-package", JSON.stringify({ ...phasePack, systemBehaviors: [{ ...phasePack.systemBehaviors[0], playback: { kind: "loop", loop: fixture, exit: unsupported } }] }), false);
-  const repeat = await operation("action", "system.think");
+  await operation("load-package", JSON.stringify({ ...phasePack, actions: [{ ...phasePack.actions[0], playback: { kind: "loop", motion: fixture, exit: unsupported } }] }), false);
+  const repeat = await operation("action", builtinIds["think"]);
   assert.equal((await wait(m => m.type === "action" && m.id === repeat && m.status === "started")).instanceId, thinkStarted.instanceId);
   const temporary = await operation("action", numberedId);
   await wait(m => m.type === "action" && m.id === temporary && m.status === "completed");
   await delay(3300); // The interrupted fixture loop must replay its 3 s enter before holding again.
-  const restored = await operation("action", "system.think");
+  const restored = await operation("action", builtinIds["think"]);
   assert.equal((await wait(m => m.type === "action" && m.id === restored && m.status === "started")).instanceId, thinkStarted.instanceId);
-  const finish = await operation("action-finish", "system.think");
+  const finish = await operation("action-finish", builtinIds["think"]);
   await wait(m => m.type === "action" && m.id === finish && m.status === "completed");
   await wait(m => m.type === "action" && m.id === thinking && m.status === "completed");
-  const talking = await operation("action", "system.talk");
+  const talking = await operation("action", builtinIds["talk"]);
   await wait(m => m.type === "action" && m.id === talking && m.status === "started");
   const holding = await operation("action", heldId);
   await wait(m => m.type === "action" && m.id === holding && m.status === "started");
   await wait(m => m.type === "action" && m.id === talking && m.status === "completed");
   const cancelledLoop = await operation("action-cancel", heldId);
   await wait(m => m.type === "action" && m.id === cancelledLoop && m.status === "completed");
-  const noExitLoop = await operation("action", "system.talk");
+  const noExitLoop = await operation("action", builtinIds["talk"]);
   const noExitStarted = await wait(m => m.type === "action" && m.id === noExitLoop && m.status === "started");
-  const noExitFinish = await operation("action-finish", "system.talk");
+  const noExitFinish = await operation("action-finish", builtinIds["talk"]);
   const noExitEnded = await wait(m => m.type === "action" && m.id === noExitFinish && m.status === "completed");
   assert.equal(noExitEnded.instanceId, noExitStarted.instanceId);
   const lastShot = await operation("action", numberedId);
   await wait(m => m.type === "action" && m.id === lastShot && m.status === "started");
-  const preempt = await operation("action", "system.talk");
+  const preempt = await operation("action", builtinIds["talk"]);
   await wait(m => m.type === "action" && m.id === preempt && m.status === "started");
   await wait(m => m.type === "action" && m.id === lastShot && m.status === "cancelled");
-  await operation("action-cancel", "system.talk");
+  await operation("action-cancel", builtinIds["talk"]);
   const cancelledShot = await operation("action", numberedId);
   await wait(m => m.type === "action" && m.id === cancelledShot && m.status === "started");
   const shotCancel = await operation("action-cancel", numberedId);
@@ -389,33 +362,33 @@ try {
   await wait(m => m.type === "action" && m.id === finalShot && m.status === "completed");
   console.log("[package-player] loops: hold, idempotence, drain, gesture restore, optional exit, switch, cancel and failed-load retention passed");
   await operation("load-package", JSON.stringify(layered));
-  const layeredBody = await operation("action", "system.think");
+  const layeredBody = await operation("action", builtinIds["think"]);
   const layeredBodyStarted = await wait(m => m.type === "action" && m.id === layeredBody && m.status === "started");
   await delay(3300); // A full baseline cycle for comparing the lower-body mask.
-  const upperLoop = await operation("action", "system.holdarms");
+  const upperLoop = await operation("action", builtinIds["hold-arms"]);
   const upperLoopStarted = await wait(m => m.type === "action" && m.id === upperLoop && m.status === "started");
-  const upperShot = await operation("action", "system.greet");
-  const headShot = await operation("action", "system.nod");
+  const upperShot = await operation("action", builtinIds["greet"]);
+  const headShot = await operation("action", builtinIds["nod"]);
   await wait(m => m.type === "action" && m.id === upperShot && m.status === "started");
   await wait(m => m.type === "action" && m.id === headShot && m.status === "started");
   await operation("drain", "package-acceptance");
   await wait(m => m.type === "action" && m.id === upperShot && m.status === "completed");
   await wait(m => m.type === "action" && m.id === headShot && m.status === "completed");
-  const resumedUpper = await operation("action", "system.holdarms");
+  const resumedUpper = await operation("action", builtinIds["hold-arms"]);
   assert.equal((await wait(m => m.type === "action" && m.id === resumedUpper && m.status === "started")).instanceId, upperLoopStarted.instanceId);
-  const continuousBody = await operation("action", "system.think");
+  const continuousBody = await operation("action", builtinIds["think"]);
   assert.equal((await wait(m => m.type === "action" && m.id === continuousBody && m.status === "started")).instanceId, layeredBodyStarted.instanceId);
-  await operation("action-cancel", "system.holdarms");
+  await operation("action-cancel", builtinIds["hold-arms"]);
   await delay(300);
-  const headOnly = await operation("action", "system.nod");
+  const headOnly = await operation("action", builtinIds["nod"]);
   const headOnlyStarted = await wait(m => m.type === "action" && m.id === headOnly && m.status === "started");
   await wait(m => m.type === "action" && m.id === headOnly && m.status === "completed");
-  const cancelHead = await operation("action", "system.nod");
+  const cancelHead = await operation("action", builtinIds["nod"]);
   await wait(m => m.type === "action" && m.id === cancelHead && m.status === "started");
-  await operation("action-cancel", "system.nod");
+  await operation("action-cancel", builtinIds["nod"]);
   await wait(m => m.type === "action" && m.id === cancelHead && m.status === "cancelled");
   await delay(300);
-  await operation("action-cancel", "system.think");
+  await operation("action-cancel", builtinIds["think"]);
   console.log("[package-player] independent head and upper body, same-instance restore and targeted cancel passed");
   const finalBefore = sequence - 1;
   await operation("load-package", JSON.stringify(base));
@@ -427,48 +400,53 @@ try {
   const builtinBefore = sequence - 1;
   await operation("load-package", JSON.stringify(builtin));
   const builtinReady = await wait(m => m.type === "ready", builtinBefore);
-  assert.equal(builtinReady.capabilities.actions.length, 29);
-  assert.ok(!builtinReady.capabilities.actions.some(a => a.id.startsWith("idle.")));
+  assert.equal(builtinReady.capabilities.actions.length, 26);
+  const builtinDance = builtinReady.capabilities.actions.find(action => action.kind === "performance");
+  assert.equal(builtinDance?.id, builtin.actions.find(action => action.key === "sad-water")?.id);
+  assert.equal(builtinDance?.label, "我的悲伤是水做的");
+  const angelDance = builtin.actions.find(action => action.key === "redreaming-angel");
+  assert.equal(builtinReady.capabilities.actions.find(action => action.id === angelDance?.id)?.label, "复梦天使");
+  assert.equal(builtinReady.capabilities.actions.filter(a => a.idle).length, 3);
   assert.equal(builtinReady.capabilities.actions.find(a => a.semantic === "nod").layer, "head");
   // Exercise the same desktop commands used by the manual picker, not only AI actions.
-  await operation("desktop-action", "system.think");
+  await operation("desktop-action", builtinIds["think"]);
   await delay(2400);
-  await operation("desktop-action", "system.nod");
+  await operation("desktop-action", builtinIds["nod"]);
   await delay(1800);
-  const encourage = builtin.systemBehaviors.find(a => a.id === "system.encourage").playback;
-  const encourageBytes = await readFile(encourage.file);
+  const encourage = builtin.actions.find(a => a.id === builtinIds["encourage"]).playback;
+  const encourageBytes = await readFile(encourage.motion);
   const encourageGltf = JSON.parse(encourageBytes.subarray(20, 20 + encourageBytes.readUInt32LE(12)).toString());
   const encourageDuration = encourageGltf.accessors[encourageGltf.animations[0].samplers[0].input].max[0];
-  await operation("desktop-action", "system.encourage");
+  await operation("desktop-action", builtinIds["encourage"]);
   await delay((encourageDuration + 2.2) * 1000); // Full-body one-shot, then Think enter and loop.
-  await operation("desktop-action", "system.talk");
+  await operation("desktop-action", builtinIds["talk"]);
   await delay(3300); // Think exit (1.47 s), Chat enter (1.33 s), then the loop.
   await operation("desktop-action", "none");
   await delay(1600);
-  const actualThink = await operation("action", "system.think");
+  const actualThink = await operation("action", builtinIds["think"]);
   const actualThinkStarted = await wait(m => m.type === "action" && m.id === actualThink && m.status === "started");
   await delay(2000);
-  const actualGreet = await operation("action", "system.greet"), actualNod = await operation("action", "system.nod");
+  const actualGreet = await operation("action", builtinIds["greet"]), actualNod = await operation("action", builtinIds["nod"]);
   await wait(m => m.type === "action" && m.id === actualNod && m.status === "completed");
   await wait(m => m.type === "action" && m.id === actualGreet && m.status === "completed");
-  const actualEncourage = await operation("action", "system.encourage");
+  const actualEncourage = await operation("action", builtinIds["encourage"]);
   await wait(m => m.type === "action" && m.id === actualEncourage && m.status === "completed");
   await delay(2200); // The same controller must reenter for a program-driven interruption too.
-  const actualThinkRepeat = await operation("action", "system.think");
+  const actualThinkRepeat = await operation("action", builtinIds["think"]);
   assert.equal((await wait(m => m.type === "action" && m.id === actualThinkRepeat && m.status === "started")).instanceId, actualThinkStarted.instanceId);
-  await operation("action-finish", "system.think");
+  await operation("action-finish", builtinIds["think"]);
   await wait(m => m.type === "action" && m.id === actualThink && m.status === "completed");
   const observedLoops = [];
-  for (const action of builtinReady.capabilities.actions) {
+  for (const action of builtinReady.capabilities.actions.filter(action => action.kind !== "performance" && !action.idle)) {
     const request = await operation("action", action.id);
     const started = await wait(m => m.type === "action" && m.id === request && m.status === "started");
     if (action.kind === "loop") {
-      const playback = [...builtin.systemBehaviors, ...builtin.customActions].find(a => a.id === action.id).playback;
+      const playback = builtin.actions.find(a => a.id === action.id).playback;
       // Authored phase boundaries must already meet; observe three complete wraps.
       const raw = await readFile(playback.enter);
       const gltf = JSON.parse(raw.subarray(20, 20 + raw.readUInt32LE(12)).toString());
       const duration = gltf.accessors[gltf.animations[0].samplers[0].input].max[0];
-      const loopRaw = await readFile(playback.loop);
+      const loopRaw = await readFile(playback.motion);
       const loopGltf = JSON.parse(loopRaw.subarray(20, 20 + loopRaw.readUInt32LE(12)).toString());
       const loopDuration = loopGltf.accessors[loopGltf.animations[0].samplers[0].input].max[0];
       const enterEnds = phaseEndpoints(raw), loopEnds = phaseEndpoints(loopRaw);
@@ -483,7 +461,15 @@ try {
     }
     await wait(m => m.type === "action" && m.id === request && m.status === "completed");
   }
-  console.log("[package-player] all 29 actions played; every loop observed for at least three wraps");
+  const builtinDanceRequest = await operation("dance", builtinDance.id);
+  await delay(600);
+  await operation("session-reset", "");
+  const builtinDanceStopped = await wait(message => message.type === "dance" && message.id === builtinDanceRequest);
+  assert.equal(builtinDanceStopped.status, "failed", "Reset interrupts the real builtin dance");
+  const angelRequest = await operation("dance", angelDance.id);
+  await delay(600); await operation("session-reset", "");
+  assert.equal((await wait(message => message.type === "dance" && message.id === angelRequest)).status, "failed");
+  console.log("[package-player] all 21 daily actions played; loops observed for three wraps; both builtin dances started and reset");
   await delay(2400); // Capture a complete cycle of the real builtin humanoid idle.
   await new Promise((done) => {
     child.once("exit", done);
@@ -503,10 +489,10 @@ try {
   });
   assert.ok(frames.some((f) => f.actionId === actionId));
   assert.ok(frames.some((f) => f.actionId === nextActionId));
-  const parallelFrames = frames.filter(f => /body\[action=system.think;/.test(f.performance) && /upperBody\[action=system.greet;/.test(f.performance) && /head\[action=system.nod;/.test(f.performance));
+  const parallelFrames = frames.filter(f => new RegExp(`body\\[action=${builtinIds["think"]};`).test(f.performance) && new RegExp(`upperBody\\[action=${builtinIds["greet"]};`).test(f.performance) && new RegExp(`head\\[action=${builtinIds["nod"]};`).test(f.performance));
   assert.ok(parallelFrames.length > 3, "All three layers must run in the same rendered frames");
   const angleBetween = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w))) * 180 / Math.PI;
-  const manualInstances = frames.filter(f => /body\[action=system.think;.*next=system.talk/.test(f.performance));
+  const manualInstances = frames.filter(f => new RegExp(`body\\[action=${builtinIds["think"]};.*next=${builtinIds["talk"]}`).test(f.performance));
   assert.ok(manualInstances.some(f => f.performance.includes("phase=Exit")), "Manual switching must render the old exit before the queued pose starts");
   const manualThinkInstance = manualInstances[0]?.performance.match(/body\[.*?instance=([^;]+)/)?.[1];
   const bodyInstance = f => f.performance.match(/^body\[.*?instance=([^;]*)/)?.[1];
@@ -515,8 +501,8 @@ try {
   assert.deepEqual(phaseOrder(manualThinkFrames), ["Enter", "Loop", "Enter", "Loop", "Exit"], "Manual full-body interruption must reenter; independent nod must not");
   const programThinkFrames = frames.filter(f => bodyInstance(f) === actualThinkStarted.instanceId);
   assert.deepEqual(phaseOrder(programThinkFrames), ["Enter", "Loop", "Enter", "Loop", "Exit"], "Program requests must use the same reentry rule as the manual picker");
-  assert.ok(manualThinkFrames.some(f => /head\[action=system.nod;/.test(f.performance)), "Manual head selection must preserve the held body instance");
-  const manualTalkInstance = frames.find(f => /body\[action=system.talk;/.test(f.performance) && f.time > manualThinkFrames[0].time)?.performance.match(/body\[.*?instance=([^;]+)/)?.[1];
+  assert.ok(manualThinkFrames.some(f => new RegExp(`head\\[action=${builtinIds["nod"]};`).test(f.performance)), "Manual head selection must preserve the held body instance");
+  const manualTalkInstance = frames.find(f => new RegExp(`body\\[action=${builtinIds["talk"]};`).test(f.performance) && f.time > manualThinkFrames[0].time)?.performance.match(/body\[.*?instance=([^;]+)/)?.[1];
   assert.ok(manualTalkInstance);
   const manualTalkFrames = frames.filter(f => bodyInstance(f) === manualTalkInstance);
   assert.deepEqual(phaseOrder(manualTalkFrames), ["Enter", "Loop", "Exit"], "Manual none must play the active pose's exit");
@@ -526,12 +512,12 @@ try {
   assert.ok(Math.max(...parallelFrames.map(f => angleBetween(f.headRotation, firstParallel.headRotation))) > 1, "Head layer must actually move the head");
   const fixtureBodyFrames = frames.filter(f => f.performance.includes(layeredBodyStarted.instanceId));
   const bodyTime = f => Number(f.performance.match(/^body\[.*?time=([\d.]+)/)?.[1]);
-  const firstUpperTime = fixtureBodyFrames.find(f => f.performance.includes("upperBody[action=system.holdarms;")).time;
+  const firstUpperTime = fixtureBodyFrames.find(f => f.performance.includes(`upperBody[action=${builtinIds["hold-arms"]};`)).time;
   // An inactive lane can still be fading out. Use the settled body-only cycle
   // recorded before either overlay, not frames during their return blend.
   const lowerBaseline = fixtureBodyFrames.filter(f => f.time >= fixtureBodyFrames[0].time + .25 && f.time < firstUpperTime
     && f.performance.includes("upperBody[action=idle;") && f.performance.includes("head[action=idle;"));
-  const maskedFrames = fixtureBodyFrames.filter(f => f.performance.includes("upperBody[action=system.greet;"));
+  const maskedFrames = fixtureBodyFrames.filter(f => f.performance.includes(`upperBody[action=${builtinIds["greet"]};`));
   assert.ok(lowerBaseline.length > 10 && maskedFrames.length > 10);
   const maskErrors = maskedFrames.map(f => {
     const closest = lowerBaseline.reduce((a, b) => Math.abs(bodyTime(a)-bodyTime(f)) < Math.abs(bodyTime(b)-bodyTime(f)) ? a : b);
@@ -584,11 +570,12 @@ try {
       manualLoopSwitchAndExit: true,
       interruptedPoseReentersForManualAndProgram: true,
       independentLayers: true,
-      actualDefaultActions: 29,
+      actualDefaultActions: 26,
+      builtinDanceStartedAndReset: true,
       loopCoverage,
       maximumLowerMaskErrorDegrees: Math.max(...maskErrors),
       maximumHeadAdditiveErrorDegrees: Math.max(...headErrors),
-      customActions: true,
+      actions: true,
       cancellation: true,
       failedLoadPreserved: true,
       crossPackageIds: true,

@@ -1,3 +1,4 @@
+import { runtimePackage } from "./runtimePackage.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -10,11 +11,8 @@ const output = resolve(".test-dist/avatar-performance", String(Date.now()));
 await mkdir(output, { recursive: true });
 const root = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
 const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
-const playback = source => Object.fromEntries(Object.entries(source).map(([key, value]) =>
-  [key, ["file", "enter", "loop", "exit", "reference"].includes(key) ? join(root, value) : value]));
-const pack = { formatVersion: 2, id: "builtin:default", version: manifest.version, model: join(root, "Models/default-avatar.vrm"),
-  idle: join(root, manifest.systemActions.idle.file), idleVariations: [], customActions: [],
-  systemBehaviors: ["greet", "nod", "clap", "talk"].map(name => ({ id: `system.${name}`, name, playback: playback(manifest.systemActions[name]) })) };
+const ids = JSON.parse(await readFile(join(root, "action-ids.json"), "utf8"));
+const pack = runtimePackage(manifest, ids, root);
 const packageFile = join(output, "package.json");
 await writeFile(packageFile, JSON.stringify(pack));
 // Six seconds of silence exercise the real AudioSource clock without producing a test tone.
@@ -90,9 +88,9 @@ try {
   }
   const run = randomUUID();
   const id = await submit(run, [
-    { at: "start", action: "system.greet", expression: "happy" },
-    { at: "after_action", action: "system.clap" },
-    { at: "sentence", sentence: 2, action: "system.nod", expression: "surprised" },
+    { at: "start", action: ids["greet"], expression: "happy" },
+    { at: "after_action", action: ids["clap"] },
+    { at: "sentence", sentence: 2, action: ids["nod"], expression: "surprised" },
     { at: "sentence", sentence: 3, expression: "relaxed" },
     { at: "sentence", sentence: 99, expression: "happy" },
   ]);
@@ -108,7 +106,7 @@ try {
   for (const affect of ["happy", "surprised", "relaxed"]) assert.ok(messages.some(m => m.type === "presentation" && m.affect === affect));
   const cancelledRun = randomUUID();
   const cancelled = await submit(cancelledRun, [
-    { at: "start", action: "system.talk" },
+    { at: "start", action: ids["talk"] },
     { at: "sentence", sentence: 3, expression: "happy" },
   ], true);
   dialogue(cancelledRun, "cancel-dialogue");
@@ -120,7 +118,7 @@ try {
   assert.equal((await wait(m => m.type === "result" && m.id === control)).ok, true);
   await drain(cancelledRun);
   const retainedRun = randomUUID();
-  const retained = await submit(retainedRun, [{ at: "start", action: "system.talk" }]);
+  const retained = await submit(retainedRun, [{ at: "start", action: ids["talk"] }]);
   dialogue(retainedRun, "retained-dialogue");
   await wait(state(retained, p => p.state === "running"));
   const queuedRun = randomUUID();

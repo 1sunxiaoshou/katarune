@@ -25,6 +25,10 @@ namespace Katarune.Avatar
         private double _frameInterval, _nextFrame;
         private bool _closeup;
         private AvatarControlConnection _connection;
+        private AvatarSceneRig _rig;
+        private AvatarDancePlayer _dance;
+        private SkinnedMeshRenderer[] _morphMeshes = Array.Empty<SkinnedMeshRenderer>();
+        [Serializable] private sealed class MorphWeight { public string mesh, name; public float weight; }
         [Serializable] private sealed class Frame {
             public string file, playbackId, subtitle; public double time; public float position, duration;
             public float aa, ih, ou, ee, oh;
@@ -34,6 +38,17 @@ namespace Katarune.Avatar
             public Quaternion leftForearmRotation, rightForearmRotation, rightHandRotation;
             public Vector3 hipsPosition;
             public string performance;
+            public bool dancing, immersive;
+            public float dancePosition, danceDuration;
+            public string cameraView;
+            public string subtitleKind;
+            public Color subtitleColor;
+            public Vector3 cameraPosition;
+            public Quaternion cameraRotation;
+            public float cameraFieldOfView;
+            public bool cameraOrthographic;
+            public float cameraOrthographicSize;
+            public MorphWeight[] morphs;
         }
         [Serializable] private sealed class Block { public double time; public int channels, samples; public long offset; }
 
@@ -96,7 +111,11 @@ namespace Katarune.Avatar
                 _nextFrame = time + _frameInterval;
                 var pose = _runtime.CurrentPose;
                 if (_head == null) foreach (var animator in FindObjectsByType<Animator>(FindObjectsSortMode.None))
-                    if (animator.isHuman && animator.GetComponentsInChildren<Renderer>().Any(r => r.enabled)) { _animator = animator; _head = animator.GetBoneTransform(HumanBodyBones.Head); break; }
+                    if (animator.isHuman && animator.GetComponentsInChildren<Renderer>().Any(r => r.enabled)) {
+                        _animator = animator; _head = animator.GetBoneTransform(HumanBodyBones.Head);
+                        _morphMeshes = animator.GetComponentsInChildren<SkinnedMeshRenderer>().Where(mesh => mesh.sharedMesh != null && mesh.sharedMesh.blendShapeCount > 0).ToArray();
+                        break;
+                    }
                 var frame = new Frame { file = $"frame-{index++:D5}.jpg", time = time,
                     playbackId = _player.PlaybackId, position = _player.PositionSeconds, duration = _player.DurationSeconds,
                     aa = pose.Aa, ih = pose.Ih, ou = pose.Ou, ee = pose.Ee, oh = pose.Oh,
@@ -108,7 +127,23 @@ namespace Katarune.Avatar
                     hipsPosition = _animator != null ? _animator.GetBoneTransform(HumanBodyBones.Hips).localPosition : Vector3.zero,
                     performance = _motions != null ? _motions.PerformanceDiagnostics : _runtime.Snapshot.Motion.PerformanceDiagnostics };
                 _connection ??= FindFirstObjectByType<AvatarControlConnection>();
+                _rig ??= FindFirstObjectByType<AvatarSceneRig>();
+                _dance ??= FindFirstObjectByType<AvatarDancePlayer>();
+                frame.dancing = _dance != null && _dance.Active;
+                frame.dancePosition = _dance != null ? _dance.PositionSeconds : 0f;
+                frame.danceDuration = _dance != null ? _dance.DurationSeconds : 0f;
+                frame.immersive = _rig != null && _rig.Immersive;
+                frame.cameraView = _rig != null ? _rig.EffectiveCameraView : "";
+                if (Camera.main != null) { frame.cameraPosition = Camera.main.transform.position; frame.cameraRotation = Camera.main.transform.rotation;
+                    frame.cameraFieldOfView = Camera.main.fieldOfView; frame.cameraOrthographic = Camera.main.orthographic; frame.cameraOrthographicSize = Camera.main.orthographicSize; }
                 frame.subtitle = _connection != null ? _connection.CurrentSubtitle : "";
+                frame.subtitleKind = _connection != null && _connection.ShowingDanceSubtitle ? "music" : "dialogue";
+                frame.subtitleColor = _connection != null ? _connection.CurrentSubtitleColor : Color.white;
+                // These are final mesh weights after the VRM runtime, rather than procedural intent.
+                frame.morphs = _morphMeshes.Where(mesh => mesh != null).SelectMany(mesh =>
+                    Enumerable.Range(0, mesh.sharedMesh.blendShapeCount).Select(index => new MorphWeight {
+                        mesh = mesh.name, name = mesh.sharedMesh.GetBlendShapeName(index), weight = mesh.GetBlendShapeWeight(index) / 100f
+                    })).ToArray();
                 var texture = ScreenCapture.CaptureScreenshotAsTexture();
                 File.WriteAllBytes(Path.Combine(_directory, frame.file), texture.EncodeToJPG(85));
                 Destroy(texture);

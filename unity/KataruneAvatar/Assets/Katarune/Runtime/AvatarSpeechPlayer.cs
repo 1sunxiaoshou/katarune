@@ -135,20 +135,15 @@ namespace Katarune.Avatar
 
         private IEnumerator PlayFile(string path)
         {
-            var type = Path.GetExtension(path).ToLowerInvariant() switch
-            {
-                ".wav" => AudioType.WAV,
-                ".mp3" => AudioType.MPEG,
-                ".ogg" => AudioType.OGGVORBIS,
-                _ => AudioType.UNKNOWN,
-            };
-            if (type == AudioType.UNKNOWN) { Finish("failed", "Unsupported speech audio format."); yield break; }
-            _loading = UnityWebRequestMultimedia.GetAudioClip(new Uri(path).AbsoluteUri, type);
-            _loading.timeout = 30;
-            yield return _loading.SendWebRequest();
-            if (_loading.result != UnityWebRequest.Result.Success)
-            { Finish("failed", "Unable to decode speech audio."); yield break; }
-            _clip = DownloadHandlerAudioClip.GetContent(_loading);
+            UnityWebRequestAsyncOperation loading = null;
+            string error = null;
+            try { _loading = AvatarAudioClipLoader.CreateRequest(path); loading = _loading.SendWebRequest(); }
+            catch (Exception) { error = "Unable to load speech audio."; }
+            if (error != null) { Finish("failed", error); yield break; }
+            yield return loading;
+            try { _clip = AvatarAudioClipLoader.GetDecodedClip(_loading); }
+            catch (Exception) { error = "Unable to decode speech audio."; }
+            if (error != null) { Finish("failed", error); yield break; }
             _loading.Dispose(); _loading = null;
             if (_clip == null || _clip.samples <= 0) { Finish("failed", "Speech audio is empty."); yield break; }
             _source.clip = _clip;

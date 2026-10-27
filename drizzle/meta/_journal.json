@@ -162,6 +162,27 @@
       "when": 1792866652583,
       "tag": "0022_diary_failure_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792991936254,
+      "tag": "0023_character_dance_audio",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1793001603984,
+      "tag": "0024_character_dance_subtitles",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1793070345513,
+      "tag": "0025_character_dance_camera",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import * as yauzl from "yauzl";
+import { z } from "zod";
 import {
   isPackagePath,
   characterPackageManifestSchema,
@@ -19,6 +20,41 @@ export async function hashFile(
   return hash.digest("hex");
 }
 export function parsePackageManifest(source: string) {
+  return characterPackageManifestSchema.parse(parseUniqueJson(source));
+}
+const cameraGlbHeaderSchema = z.object({
+  asset: z.object({ version: z.literal("2.0") }),
+  nodes: z.array(z.object({}).passthrough()).min(1).max(4096),
+  cameras: z.array(z.object({ type: z.enum(["perspective", "orthographic"]) }).passthrough()).min(1).max(256),
+  buffers: z.array(z.object({ byteLength: z.number().int().nonnegative(), uri: z.string().optional() })).max(1).optional(),
+  images: z.array(z.object({ uri: z.string().optional() }).passthrough()).max(256).optional(),
+});
+export function validateCameraGlb(bytes: Uint8Array): void {
+  const fail = () => new Error("镜头需要不超过 16 MiB 的自包含 glTF 2.0 GLB 文件。");
+  if (bytes.byteLength < 20 || bytes.byteLength > 16 * 1024 ** 2) throw fail();
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2 || view.getUint32(8, true) !== bytes.byteLength) throw fail();
+  let offset = 12, jsonSeen = false, binSeen = false;
+  while (offset < bytes.byteLength) {
+    if (offset + 8 > bytes.byteLength) throw fail();
+    const length = view.getUint32(offset, true), type = view.getUint32(offset + 4, true);
+    if (length % 4 || length > bytes.byteLength - offset - 8) throw fail();
+    if (!jsonSeen && (offset !== 12 || type !== 0x4e4f534a)) throw fail();
+    if (type === 0x4e4f534a) {
+      if (jsonSeen) throw fail();
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(offset + 8, offset + 8 + length));
+      const document = cameraGlbHeaderSchema.parse(parseUniqueJson(source));
+      if (document.buffers?.some(buffer => buffer.uri !== undefined) || document.images?.some(image => image.uri !== undefined)) throw fail();
+      jsonSeen = true;
+    } else if (type === 0x004e4942) {
+      if (binSeen) throw fail();
+      binSeen = true;
+    }
+    offset += 8 + length;
+  }
+  if (!jsonSeen) throw fail();
+}
+function parseUniqueJson(source: string): unknown {
   const value: unknown = JSON.parse(source);
   // JSON.parse accepts duplicate keys; authors must not depend on last-key-wins.
   const stack: (Set<string> | null)[] = [];
@@ -39,7 +75,40 @@ export function parsePackageManifest(source: string) {
       keys?.add(key);
     }
   }
-  return characterPackageManifestSchema.parse(value);
+  return value;
+}
+
+export function validatePackageSrt(bytes: Uint8Array): number {
+  if (bytes.byteLength === 0 || bytes.byteLength > 1024 ** 2)
+    throw new Error("舞蹈字幕必须为不超过 1 MiB 的 SRT 文件。");
+  let source: string;
+  try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("舞蹈字幕必须使用 UTF-8 编码。"); }
+  source = source.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  if (/[\u0000-\u0009\u000b-\u001f\u007f]/.test(source))
+    throw new Error("舞蹈字幕包含不支持的控制字符。");
+  const blocks = source.replace(/^ +$/gm, "").trim().split(/\n{2,}/);
+  if (blocks.length > 4096) throw new Error("舞蹈字幕最多包含 4096 条。");
+  let previousId = 0, previousEnd = 0;
+  const time = (hours: string, minutes: string, seconds: string, milliseconds: string) =>
+    Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + Number(milliseconds) / 1000;
+  for (const block of blocks) {
+    const [identifier, timeline, ...lines] = block.split("\n");
+    const id = Number(identifier?.trim());
+    const timing = timeline?.trim().match(/^(\d{2}):([0-5]\d):([0-5]\d),(\d{3}) *--> *(\d{2}):([0-5]\d):([0-5]\d),(\d{3})$/);
+    if (!identifier || !/^[1-9]\d*$/.test(identifier.trim()) || !Number.isInteger(id) || id > 2147483647
+        || (previousId === 0 ? id !== 1 : id <= previousId) || !timing)
+      throw new Error("舞蹈字幕的编号或 SRT 时间格式无效。");
+    const start = time(timing[1]!, timing[2]!, timing[3]!, timing[4]!);
+    const end = time(timing[5]!, timing[6]!, timing[7]!, timing[8]!);
+    const text = lines.join("\n").trim();
+    if (end <= start || start < previousEnd || end > 3600)
+      throw new Error("舞蹈字幕时间必须递增、不重叠且不超过一小时。");
+    if (!text || [...text].length > 1000)
+      throw new Error("每条舞蹈字幕必须包含 1–1000 个字符。");
+    previousId = id; previousEnd = end;
+  }
+  return previousEnd;
 }
 export async function extractPackage(
   path: string,

@@ -34,7 +34,7 @@ export const assets = sqliteTable(
     check("assets_status_check", sql`${table.status} in ('ready', 'missing')`),
     check(
       "assets_kind_check",
-      sql`${table.kind} in ('character_portrait', 'character_vrm', 'character_animation', 'chat_attachment')`,
+      sql`${table.kind} in ('character_portrait', 'character_vrm', 'character_animation', 'character_audio', 'character_subtitle', 'character_camera', 'chat_attachment')`,
     ),
     check(
       "assets_ready_metadata_check",

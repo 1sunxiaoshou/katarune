@@ -7,7 +7,18 @@ export const avatarBindingSchema = z.object({
   threadId: z.string().check(z.minLength(1)),
 });
 export type AvatarBinding = z.infer<typeof avatarBindingSchema>;
+export const avatarPlaySchema = z.object({ action: z.string().check(z.minLength(1), z.maxLength(256)) });
+export const avatarDanceStartedSchema = z.object({
+  status: z.literal("started"), performanceId: z.uuid(), action: z.string().check(z.minLength(1), z.maxLength(256)),
+});
+export const avatarDanceStateSchema = z.object({
+  performanceId: z.uuid(), toolCallId: z.string().check(z.minLength(1), z.maxLength(256)),
+  actionId: z.string().check(z.minLength(1), z.maxLength(256)), action: z.string().check(z.minLength(1), z.maxLength(256)),
+  state: z.enum(["started", "completed", "failed"]), error: z.optional(z.string().check(z.maxLength(4000))),
+});
+export type AvatarDanceState = z.infer<typeof avatarDanceStateSchema>;
 export const avatarStatusSchema = z.object({
+  dance: z.optional(avatarDanceStateSchema),
   performances: z.optional(z.array(avatarPerformanceStateSchema).check(z.maxLength(64))),
   busy: z.optional(z.boolean()),
   phase: z.enum(["stopped", "starting", "switching", "ready", "error"]),
@@ -50,7 +61,8 @@ export const avatarCapabilitiesSchema = z.object({
         id: identifier,
         label: identifier,
         description: z.optional(z.string().check(z.maxLength(2000))),
-        kind: z.optional(z.enum(["oneShot", "loop"])),
+        kind: z.optional(z.enum(["oneShot", "loop", "performance"])),
+        idle: z.optional(z.boolean()),
         layer: z.optional(z.enum(["body", "upperBody", "head"])),
         key: optionalIdentifier,
         semantic: optionalIdentifier,
@@ -59,11 +71,13 @@ export const avatarCapabilitiesSchema = z.object({
         ),
       }),
     )
-    .check(z.maxLength(276)),
+    .check(z.maxLength(288)),
   expressions: z.array(identifier).check(z.maxLength(32)),
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("dance"), id: z.uuid(), actionId: identifier,
+    status: z.enum(["completed", "failed"]), error: z.optional(z.nullable(z.string().check(z.maxLength(4000)))) }),
   z.object({ type: z.literal("performance"), performance: avatarPerformanceStateSchema }),
   avatarPresentationSchema, avatarWindowReportSchema,
   z.object({ type: z.literal("startup-error"), error: z.string().check(z.minLength(1), z.maxLength(4000)) }),
