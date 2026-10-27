@@ -1206,6 +1206,7 @@ async function run() {
       const diaryWorker = createDiaryService({ database: memoryDatabase, aiRuntime: { resolveLanguageModel: () => { throw new Error('Fixture model unavailable'); } }, now: () => new Date(Date.now() + 2 * 86_400_000) });
       await diaryWorker.runOnce(); diaryWorker.dispose();
       await waitForSelector(window, '[data-testid="memory-diary-retry"]');
+      await waitForText(window, '[data-testid="memory-diary-failure"]', '语言模型配置不可用');
       assert.equal(memoryDatabase.getMemoryDiaryState(characterId).failed, 1);
       await clickSelector(window, '[data-testid="memory-diary-retry"]');
       await waitUntil('manual diary retry queued', () => memoryDatabase.getMemoryDiaryState(characterId).failed === 0 && memoryDatabase.getMemoryDiaryState(characterId).pending === 1);
