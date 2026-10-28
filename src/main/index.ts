@@ -27,6 +27,8 @@ import { createSpeechService } from "./speech/ttsService";
 import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
 import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
 import { registerWindowThemeHandler } from "./windowTheme";
+import { initializeDiagnostics, diagnostic } from "./diagnostics/logger";
+import { registerDiagnosticsHandlers } from "./diagnostics/handlers";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
@@ -38,6 +40,19 @@ if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
 }
 
+const diagnostics = initializeDiagnostics(join(app.getPath("userData"), "logs", "diagnostics"), app.getVersion());
+registerDiagnosticsHandlers(diagnostics);
+let exiting = false;
+function fatal(event: string, error: unknown) {
+  if (exiting) { app.exit(1); return; }
+  exiting = true;
+  diagnostic("fatal", event, {}, error);
+  void diagnostics.close(false).finally(() => app.exit(1));
+  setTimeout(() => app.exit(1), 1800).unref();
+}
+process.on("uncaughtException", error => fatal("app.uncaught-exception", error));
+process.on("unhandledRejection", error => fatal("app.unhandled-rejection", error));
+app.on("child-process-gone", (_event, details) => diagnostic(details.reason === "clean-exit" || details.reason === "killed" ? "info" : "error", "app.child-process-gone", { exitCode: details.exitCode, reason: details.reason, processKind: details.type === "GPU" ? "gpu" : details.type === "Utility" ? "utility" : "other" }));
 registerAssetScheme();
 
 function createMainWindow(): BrowserWindow {
@@ -120,6 +135,7 @@ void app.whenReady().then(async () => {
       validateProviderSettings,
     },
   });
+  diagnostic("info", "database.opened");
   assetService.reconcile(databaseRuntime, defaultCharacterConfig);
   assetService.cleanupUnreferencedChatAttachments(databaseRuntime);
   return Promise.all([
@@ -145,7 +161,7 @@ void app.whenReady().then(async () => {
   try {
     await ttsCache.initialize();
   } catch (error) {
-    console.error("Failed to initialize the optional TTS cache.", error);
+    diagnostic("warn", "tts.cache-unavailable", { outcome: "degraded" }, error);
     ttsCache = {
       initialize: async () => undefined,
       get: async () => null,
@@ -164,7 +180,7 @@ void app.whenReady().then(async () => {
   avatarService = new AvatarService(
     app.isPackaged ? join(process.resourcesPath, "avatar", "KataruneAvatar.exe")
       : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
-    join(app.getPath("userData"), "logs"),
+    join(app.getPath("userData"), "avatar-runtime"),
   );
   const avatarData = join(app.isPackaged ? join(process.resourcesPath, "avatar") : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows"), "KataruneAvatar_Data", "KataruneLocal");
   characterPackageService = new CharacterPackageService(databaseRuntime, assetService, app.getPath("userData"),
@@ -189,7 +205,7 @@ void app.whenReady().then(async () => {
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
   diaryService.start();
-  desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"));
+  desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"), () => mainWindow);
 
   app.on("activate", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -197,8 +213,7 @@ void app.whenReady().then(async () => {
     }
   });
 }).catch((error: unknown) => {
-  console.error("Failed to initialize Katarune.", error);
-  app.quit();
+  fatal("app.initialization-failed", error);
 });
 
 app.on("before-quit", () => {
@@ -210,11 +225,18 @@ app.on("before-quit", () => {
   speechRequests?.cancelAll();
   speechRequests = undefined;
   void kataruneAiToolkit.close().catch((error: unknown) => {
-    console.error("Failed to close the AI toolkit.", error);
+    diagnostic("warn", "app.toolkit-close-failed", {}, error);
   });
   characterPackageService?.dispose();
   databaseRuntime?.close();
   databaseRuntime = undefined;
+});
+
+app.on("will-quit", event => {
+  if (exiting) return;
+  event.preventDefault(); exiting = true;
+  void diagnostics.close(true).finally(() => app.exit(0));
+  setTimeout(() => app.exit(0), 1800).unref();
 });
 
 app.on("window-all-closed", () => {

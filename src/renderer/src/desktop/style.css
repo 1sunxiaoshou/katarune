@@ -35,6 +35,57 @@ body {
 .capsule.compact {
   width: 100px;
 }
+.capsule.input-open {
+  width: 520px;
+  max-width: calc(100vw - 20px);
+  padding: 0 8px;
+}
+.capsule[data-input-anchor="right"] {
+  margin-left: auto;
+}
+.capsule-composer {
+  display: flex;
+  align-items: center;
+  flex: 0 1 0;
+  min-width: 0;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+  app-region: no-drag;
+  cursor: default;
+}
+.input-open .capsule-composer {
+  flex: 1 1 0;
+  width: auto;
+  opacity: 1;
+}
+.capsule-input-field {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+}
+.capsule-input-field input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 22px;
+  user-select: text;
+}
+.capsule-input-field input::placeholder { color: var(--muted-foreground); }
+.capsule-input-error {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--destructive);
+  font-size: 10px;
+  line-height: 12px;
+}
 .capsule button {
   app-region: no-drag;
   cursor: pointer;
@@ -59,7 +110,8 @@ body {
 .capsule-actions {
   width: 72px;
 }
-.compact .capsule-extra {
+.compact .capsule-extra,
+.input-open .capsule-extra {
   width: 0;
   opacity: 0;
   pointer-events: none;
@@ -100,6 +152,7 @@ body {
   }
 }
 html[data-reduce-motion] .capsule,
+html[data-reduce-motion] .capsule-composer,
 html[data-reduce-motion] .capsule-extra {
   transition: none;
 }

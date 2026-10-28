@@ -1,8 +1,9 @@
 import { expect, it, vi } from "vitest";
 import { AvatarDialogueSpeech } from "../src/main/avatar/avatarDialogueSpeech";
 import type { SpeechService } from "../src/main/speech/ttsService";
+import { SpeechServiceError } from "../src/main/speech/ttsService";
 
-it("starts only closed public text, limits prefetch, and resumes on Unity completion", async () => {
+it("starts only admitted closed public text, bounds resources, and resumes on Unity completion", async () => {
   const generate = vi.fn(async () => ({ audio: new Uint8Array([1]), format: "wav", mediaType: "audio/wav" as const, cacheHit: false }));
   const send = vi.fn();
   const run = new AvatarDialogueSpeech("run", "character", { generate }, send);
@@ -15,6 +16,8 @@ it("starts only closed public text, limits prefetch, and resumes on Unity comple
       if (id === "one") expect(generate).not.toHaveBeenCalled();
       run.observe({ type: "text-end", id });
     }
+    expect(generate).not.toHaveBeenCalled();
+    for (const id of ["one", "two", "three"]) run.admit(id, "spoken");
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls.flat()).not.toContain("private");
@@ -35,7 +38,35 @@ it("does not synthesize an aborted unfinished text block", async () => {
   await run.dispose();
 });
 
-it.skipIf(process.platform !== "win32")("cancels streaming admission while Unity has not reached the dialogue", async () => {
+it.each(["", " \n", "![图片](image.png)", "```js\nconst a = 1;\n```"])("releases non-spoken content without reporting a synthesis failure: %s", async text => {
+  const generate = vi.fn(), send = vi.fn(), onFailure = vi.fn();
+  const run = new AvatarDialogueSpeech("run", "character", { generate }, send, undefined, onFailure);
+  try {
+    run.observe({ type: "text-start", id: "empty" });
+    run.observe({ type: "text-delta", id: "empty", delta: text });
+    run.observe({ type: "text-end", id: "empty" });
+    run.admit("empty", "spoken");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ dialogueId: "empty", failed: true, text: "" })));
+    expect(generate).not.toHaveBeenCalled();
+    expect(onFailure).not.toHaveBeenCalled();
+  } finally { await run.dispose(); }
+});
+
+it("retains the cause of synthesis failure while releasing dialogue for silent fallback", async () => {
+  const failure = new SpeechServiceError("not-configured", "该角色尚未配置语音模型。");
+  const send = vi.fn(), onFailure = vi.fn();
+  const run = new AvatarDialogueSpeech("run", "character", { generate: vi.fn().mockRejectedValue(failure) }, send, undefined, onFailure);
+  try {
+    run.observe({ type: "text-start", id: "intro" });
+    run.observe({ type: "text-delta", id: "intro", delta: "准备开始。" });
+    run.observe({ type: "text-end", id: "intro" });
+    run.admit("intro", "spoken");
+    await vi.waitFor(() => expect(onFailure).toHaveBeenCalledWith(failure, undefined));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ dialogueId: "intro", failed: true }));
+  } finally { await run.dispose(); }
+});
+
+it.skipIf(process.platform !== "win32")("cancels an admitted streaming pipe before the audio consumer connects", async () => {
   const generate: SpeechService["generate"] = async (_character, text, _signal, _timing, sink) => {
     await sink!({ type: "format", sampleRate: 24000, channels: 1, encoding: "pcm-s16le" }, { text, profilePath: undefined });
     throw new Error("Cancelled admission must not continue synthesis.");
@@ -46,6 +77,7 @@ it.skipIf(process.platform !== "win32")("cancels streaming admission while Unity
     run.observe({ type: "text-start", id: "waiting" });
     run.observe({ type: "text-delta", id: "waiting", delta: "等待播放。" });
     run.observe({ type: "text-end", id: "waiting" });
+    run.admit("waiting", "spoken");
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "dialogue-audio", runId: "run", dialogueId: "waiting", streaming: true,
     })));

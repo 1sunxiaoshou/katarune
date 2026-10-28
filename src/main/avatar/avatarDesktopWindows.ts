@@ -12,15 +12,18 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   desktopCommandSchema,
+  desktopTextSchema,
   avatarDisplayModeSchema,
   avatarCameraViewSchema,
   type DesktopCommand,
   type DesktopSnapshot,
   type DesktopSurface,
+  type DesktopTextResult,
   type AvatarWindowReport,
 } from "../../shared/avatarDesktop";
 import type { AvatarService } from "./avatarService";
 import { nearestPanelBounds } from "./panelPlacement";
+import { AVATAR_CHANNELS, avatarTextResultSchema } from "../../shared/avatar";
 
 type Placement = { display: string; x: number; y: number; height: number };
 type Preferences = {
@@ -33,6 +36,7 @@ type Preferences = {
   outline: boolean;
 };
 const CAPSULE_WIDTH = 240;
+const CAPSULE_CANVAS_WIDTH = 540;
 const CAPSULE_HEIGHT = 64;
 const rounded = (r: Rectangle): Rectangle => ({
   x: Math.round(r.x),
@@ -51,6 +55,12 @@ export class AvatarDesktopWindows {
   private mode: DesktopSnapshot["mode"] = "desktop";
   private cameraView: DesktopSnapshot["cameraView"] = "overhead";
   private compact = false;
+  private inputOpen = false;
+  private textSessionId: string | null = null;
+  private textBindingKey = "";
+  private pendingText: { id: string; resolve: (result: DesktopTextResult) => void } | undefined;
+  private capsuleDragging = false;
+  private inputAnchorRight = false;
   private hidden = false;
   private panelView: DesktopSnapshot["panel"] = "more";
   private panelRevision = 0;
@@ -70,6 +80,7 @@ export class AvatarDesktopWindows {
   constructor(
     private avatar: AvatarService,
     directory: string,
+    private chatWindow: () => BrowserWindow | undefined,
   ) {
     this.file = join(directory, "avatar-desktop-layout.json");
     const display = screen.getPrimaryDisplay();
@@ -112,10 +123,39 @@ export class AvatarDesktopWindows {
       }
       this.publish();
     });
+    ipcMain.handle(DESKTOP_CHANNELS.submitText, async (event, value: unknown): Promise<DesktopTextResult> => {
+      if (this.surfaceFor(event.sender) !== "capsule") throw new Error("此窗口不支持文本输入。");
+      const request = desktopTextSchema.parse(value);
+      const status = this.avatar.status;
+      if (!request.text.trim()) return { error: "请输入消息。" };
+      if (status.phase !== "ready" || !status.binding || request.sessionId !== this.textSessionId)
+        return { error: "会话已切换，请重新输入。" };
+      const chat = this.chatWindow();
+      if (!chat || chat.isDestroyed() || chat.webContents.isLoadingMainFrame())
+        return { error: "会话正在准备，请稍后重试。" };
+      if (this.pendingText) return { error: "上一条消息正在提交。" };
+      return new Promise((resolve) => {
+        const id = randomUUID();
+        const timer = setTimeout(() => {
+          this.pendingText = undefined;
+          resolve({ error: "会话未响应，请稍后重试。" });
+        }, 5000);
+        this.pendingText = { id, resolve: result => { clearTimeout(timer); resolve(result); } };
+        chat.webContents.send(AVATAR_CHANNELS.textInput, { id, binding: status.binding, text: request.text.trim() });
+      });
+    });
+    ipcMain.on(AVATAR_CHANNELS.textResult, this.textResult);
     screen.on("display-added", this.displaysChanged);
     screen.on("display-removed", this.displaysChanged);
     screen.on("display-metrics-changed", this.displaysChanged);
   }
+  private textResult = (event: Electron.IpcMainEvent, value: unknown): void => {
+    if (event.sender !== this.chatWindow()?.webContents) return;
+    const result = avatarTextResultSchema.safeParse(value);
+    if (!result.success || result.data.id !== this.pendingText?.id) return;
+    this.pendingText.resolve({ error: result.data.error });
+    this.pendingText = undefined;
+  };
   private validPreferences(value: unknown): value is Preferences {
     if (!value || typeof value !== "object") return false;
     const p = value as Preferences;
@@ -187,7 +227,10 @@ export class AvatarDesktopWindows {
     this.reconcileDisplays();
     if (this.initialized) this.sendLayout();
     const capsule = this.windows.get("capsule");
-    if (capsule) capsule.setBounds(this.capsuleBounds());
+    if (capsule) {
+      capsule.setBounds(this.capsuleBounds());
+      this.updateCapsuleShape(capsule);
+    }
     this.positionPanel();
     this.saveSoon();
     this.publish();
@@ -208,26 +251,41 @@ export class AvatarDesktopWindows {
   }
   private capsuleBounds(): Rectangle {
     const a = this.display(this.prefs.capsule.display).workArea;
-    const width = CAPSULE_WIDTH,
+    // Reserve the animation canvas before the window is shown. Resizing a
+    // transparent HWND during a CSS transition clears its compositor surface.
+    this.inputAnchorRight = this.prefs.capsule.x >= 0.5;
+    const width = Math.min(CAPSULE_CANVAS_WIDTH, a.width),
       height = CAPSULE_HEIGHT;
     return rounded({
-      x: a.x + a.width * this.prefs.capsule.x - width / 2,
-      y: a.y + a.height * this.prefs.capsule.y - height / 2,
+      x: Math.max(a.x, Math.min(a.x + a.width - width,
+        a.x + a.width * this.prefs.capsule.x - CAPSULE_WIDTH / 2
+        + (this.inputAnchorRight ? CAPSULE_WIDTH - width : 0))),
+      y: Math.max(a.y, Math.min(a.y + a.height - height, a.y + a.height * this.prefs.capsule.y - height / 2)),
       width,
       height,
     });
   }
+  private capsuleSurfaceBounds(window: BrowserWindow): Rectangle {
+    const bounds = window.getBounds();
+    const width = Math.min(bounds.width, Math.round(this.capsuleWidth) + 20);
+    return {
+      ...bounds,
+      x: bounds.x + (this.inputAnchorRight ? bounds.width - width : 0),
+      width,
+    };
+  }
   private updateCapsuleShape(window: BrowserWindow): void {
     // setShape clips drawing AND input. Electron converts these DIP rectangles
     // to a physical HRGN. The renderer reports both size and committed DPR changes.
-    // Window movement and sizing remain owned by the OS.
+    // The native canvas stays fixed while only the visible region animates.
     if (process.platform !== "win32" && process.platform !== "linux") return;
+    const offset = this.capsuleSurfaceBounds(window).x - window.getBounds().x;
     window.setShape(
       Array.from({ length: CAPSULE_HEIGHT }, (_, y) => {
         const dy = Math.abs(y + 0.5 - 32);
         const inset = Math.ceil(32 - Math.sqrt(32 * 32 - dy * dy));
         return {
-          x: inset,
+          x: offset + inset,
           y,
           width: Math.round(this.capsuleWidth) + 20 - inset * 2,
           height: 1,
@@ -250,7 +308,7 @@ export class AvatarDesktopWindows {
   }
   private create(surface: DesktopSurface): BrowserWindow {
     const window = new BrowserWindow({
-      width: surface === "panel" ? 320 : CAPSULE_WIDTH,
+      width: surface === "panel" ? 320 : CAPSULE_CANVAS_WIDTH,
       height: surface === "panel" ? 410 : CAPSULE_HEIGHT,
       show: false,
       frame: false,
@@ -279,13 +337,17 @@ export class AvatarDesktopWindows {
     if (surface === "capsule") {
       this.updateCapsuleShape(window);
       window.on("will-move", () => {
+        this.capsuleDragging = true;
         this.hidePanel();
       });
       window.on("moved", () => {
+        if (!this.capsuleDragging) return;
+        this.capsuleDragging = false;
+        const bounds = window.getBounds();
         this.remember(
           this.prefs.capsule,
-          window.getBounds(),
-          screen.getDisplayMatching(window.getBounds()),
+          { ...bounds, x: bounds.x + (this.inputAnchorRight ? bounds.width - CAPSULE_WIDTH : 0), width: CAPSULE_WIDTH },
+          screen.getDisplayMatching(this.capsuleSurfaceBounds(window)),
         );
         this.hasSavedLayout = true;
         this.saveSoon();
@@ -330,12 +392,20 @@ export class AvatarDesktopWindows {
   private changed(): void {
     if (this.disposed) return;
     const phase = this.avatar.status.phase;
+    const binding = this.avatar.status.binding;
+    const key = phase === "ready" && binding ? JSON.stringify(binding) : "";
+    if (key !== this.textBindingKey) {
+      this.textBindingKey = key;
+      this.textSessionId = key ? randomUUID() : null;
+    }
     if (phase === "stopped") {
       this.closeWindows();
       return;
     }
     if (!this.windows.size) {
-      this.create("capsule").setBounds(this.capsuleBounds());
+      const capsule = this.create("capsule");
+      capsule.setBounds(this.capsuleBounds());
+      this.updateCapsuleShape(capsule);
       this.create("panel");
       if (
         !globalShortcut.register("F1", () => {
@@ -361,7 +431,11 @@ export class AvatarDesktopWindows {
       this.initialized = true;
       if (!this.hasSavedLayout) {
         this.prefs = this.defaults(this.display());
-        this.windows.get("capsule")?.setBounds(this.capsuleBounds());
+        const capsule = this.windows.get("capsule");
+        if (capsule) {
+          capsule.setBounds(this.capsuleBounds());
+          this.updateCapsuleShape(capsule);
+        }
         this.hasSavedLayout = true;
       }
       this.sendLayout();
@@ -405,6 +479,9 @@ export class AvatarDesktopWindows {
       selectedDisplay: this.prefs.role.display,
       adjusting: this.adjusting,
       compact: this.compact,
+      inputOpen: this.inputOpen,
+      inputAnchorRight: this.inputAnchorRight,
+      textSessionId: this.textSessionId,
       mode: this.mode,
       cameraView: this.cameraView,
       voiceLevel: this.avatar.inputLevel,
@@ -438,7 +515,8 @@ export class AvatarDesktopWindows {
     const rects = (["capsule", "panel"] as const)
       .map((surface) => this.windows.get(surface))
       .filter((window): window is BrowserWindow => !!window && window.isVisible())
-      .map((window) => screen.dipToScreenRect(null, window.getBounds()));
+      .map((window) => screen.dipToScreenRect(null,
+        window === this.windows.get("capsule") ? this.capsuleSurfaceBounds(window) : window.getBounds()));
     const value = JSON.stringify(rects);
     if (value === this.lastInputZones) return;
     this.lastInputZones = value;
@@ -515,8 +593,8 @@ export class AvatarDesktopWindows {
     const capsule = this.windows.get("capsule"),
       panel = this.windows.get("panel");
     if (!capsule || !panel) return;
-    const c = capsule.getBounds();
-    const visibleWidth = this.compact ? 100 : 220;
+    const c = this.capsuleSurfaceBounds(capsule);
+    const visibleWidth = this.capsuleWidth;
     const visibleCenter = {
       x: c.x + 10 + visibleWidth / 2,
       y: c.y + c.height / 2,
@@ -533,7 +611,7 @@ export class AvatarDesktopWindows {
   }
   private updateEscapeShortcut(): void {
     globalShortcut.unregister("Escape");
-    if (this.adjusting)
+    if (this.adjusting && !this.inputOpen)
       globalShortcut.register("Escape", () => this.closePanel());
   }
   private hidePanel(): void {
@@ -565,6 +643,7 @@ export class AvatarDesktopWindows {
       capsule: [
         "mode",
         "chat",
+        "input",
         "voice",
         "retry",
         "stop",
@@ -575,6 +654,7 @@ export class AvatarDesktopWindows {
         "capsule-size",
       ],
       panel: [
+        "chat",
         "mode",
         "camera-view",
         "panel",
@@ -611,6 +691,12 @@ export class AvatarDesktopWindows {
       case "chat":
         this.avatar.onOpenChat?.();
         break;
+      case "input": {
+        this.hidePanel();
+        this.inputOpen = value === "close" ? false : !this.inputOpen;
+        this.updateEscapeShortcut();
+        break;
+      }
       case "voice":
         this.avatar.setVoiceDesired(!this.avatar.status.voice?.desired);
         break;
@@ -629,6 +715,8 @@ export class AvatarDesktopWindows {
       case "capsule-size":
         this.capsuleWidth = c.width ?? (this.compact ? 100 : 220);
         this.updateCapsuleShape(this.windows.get("capsule")!);
+        this.syncInputZones();
+        if (this.panelPhase !== "closed") this.positionPanel();
         break;
       case "close-panel":
         this.closePanel();
@@ -683,7 +771,11 @@ export class AvatarDesktopWindows {
           yaw: 0,
           pitch: 4,
         });
-        this.windows.get("capsule")?.setBounds(this.capsuleBounds());
+        const capsule = this.windows.get("capsule");
+        if (capsule) {
+          capsule.setBounds(this.capsuleBounds());
+          this.updateCapsuleShape(capsule);
+        }
         this.sendLayout();
         this.positionPanel();
         this.saveSoon();
@@ -739,6 +831,11 @@ export class AvatarDesktopWindows {
     this.lastInputZones = "";
     this.adjusting = false;
     this.mode = "desktop";
+    this.inputOpen = false;
+    this.textSessionId = null;
+    this.textBindingKey = "";
+    this.pendingText?.resolve({ error: "桌宠已关闭。" });
+    this.pendingText = undefined;
     this.hidden = false;
     this.panelPhase = "closed";
     globalShortcut.unregister("F1");
@@ -757,6 +854,8 @@ export class AvatarDesktopWindows {
     this.avatar.onWindowState = undefined;
     ipcMain.removeHandler(DESKTOP_CHANNELS.get);
     ipcMain.removeHandler(DESKTOP_CHANNELS.command);
+    ipcMain.removeHandler(DESKTOP_CHANNELS.submitText);
+    ipcMain.removeListener(AVATAR_CHANNELS.textResult, this.textResult);
     screen.removeListener("display-added", this.displaysChanged);
     screen.removeListener("display-removed", this.displaysChanged);
     screen.removeListener("display-metrics-changed", this.displaysChanged);

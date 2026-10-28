@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { diagnostic, withDiagnosticContext } from "../diagnostics/logger";
 import {
   chatStreamControlFrameSchema,
   chatStreamResponseFrameSchema,
@@ -80,6 +82,7 @@ export function startChatStream({
   port,
   onClose,
 }: StartChatStreamOptions): () => void {
+  const operationId = randomUUID();
   const abortController = new AbortController();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let pendingPulls = 0;
@@ -100,8 +103,7 @@ export function startChatStream({
     port.postMessage(chatStreamResponseFrameSchema.parse(frame));
   };
 
-  const responsePromise = chatService
-    .createResponse(request, abortController.signal)
+  const responsePromise = withDiagnosticContext({ operationId }, () => chatService.createResponse(request, abortController.signal))
     .then((response) => {
       if (response.body === null) {
         throw new Error("AI SDK returned an empty chat stream.");
@@ -127,7 +129,8 @@ export function startChatStream({
       }
     } catch (error) {
       if (!closed) {
-        post({ type: "error", message: chatErrorMessage(error) });
+        const incidentId = diagnostic("error", "ai.stream-failed", { operationId }, error);
+        post({ type: "error", message: `${chatErrorMessage(error)}${incidentId ? `（故障编号：${incidentId}）` : ""}` });
         close();
       }
     } finally {
@@ -154,7 +157,8 @@ export function startChatStream({
   port.start();
   void responsePromise.catch((error: unknown) => {
     if (!closed) {
-      post({ type: "error", message: chatErrorMessage(error) });
+      const incidentId = diagnostic("error", "ai.stream-failed", { operationId }, error);
+      post({ type: "error", message: `${chatErrorMessage(error)}${incidentId ? `（故障编号：${incidentId}）` : ""}` });
       close();
     }
   });

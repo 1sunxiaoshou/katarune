@@ -53,6 +53,7 @@ export function notify(input: NotificationInput): string {
   }
 
   let toastId = id;
+  const incidentId = input.message.match(/故障编号：([0-9a-f-]{36})/)?.[1];
   const actionProps = input.action === undefined
     ? undefined
     : {
@@ -70,7 +71,9 @@ export function notify(input: NotificationInput): string {
     timeout: notificationDuration(input.level, input.durationMs),
     priority: input.level === "error" ? "high" : "low",
     data: { level: input.level },
-    ...(actionProps === undefined ? {} : { actionProps }),
+    ...(actionProps === undefined
+      ? incidentId ? { actionProps: { children: "复制故障编号", onClick: () => { void navigator.clipboard.writeText(incidentId).catch(() => {}); } } } : {}
+      : { actionProps }),
     onRemove: () => {
       notificationChannels.delete(toastId);
     },

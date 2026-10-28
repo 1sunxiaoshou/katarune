@@ -1,3 +1,4 @@
+import { diagnostic } from "../diagnostics/logger";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ export class AvatarDialogueSpeech {
   private blocks = new Map<string, string>();
   private queue: { id: string; text: string }[] = [];
   private occupied = new Set<string>();
+  private delivery = new Map<string, "spoken" | "chat-only">();
   private generating = false;
   private stopped = false;
   private task: Promise<void> = Promise.resolve();
@@ -19,7 +21,7 @@ export class AvatarDialogueSpeech {
 
   constructor(private readonly runId: string, private readonly characterId: string,
     private readonly service: SpeechService, private readonly send: (message: object) => void,
-    private readonly temporaryDirectory = tmpdir(), private readonly onFailure: () => void = () => {}) {}
+    private readonly temporaryDirectory = tmpdir(), private readonly onFailure: (error: unknown, incidentId?: string) => void = () => {}) {}
 
   observe(chunk: UIMessageChunk) {
     if (this.stopped) return;
@@ -41,7 +43,16 @@ export class AvatarDialogueSpeech {
     const text = this.blocks.get(id);
     if (text === undefined) return;
     this.blocks.delete(id);
+    if (this.delivery.get(id) === "chat-only") return;
     this.queue.push({ id, text });
+    this.pump();
+  }
+
+  admit(id: string, delivery: "spoken" | "chat-only") {
+    if (this.stopped || this.delivery.has(id)) return;
+    this.delivery.set(id, delivery);
+    diagnostic("info", "dialogue.admitted", { runId: this.runId, dialogueId: id, outcome: delivery });
+    if (delivery === "chat-only") this.queue = this.queue.filter(block => block.id !== id);
     this.pump();
   }
 
@@ -52,27 +63,38 @@ export class AvatarDialogueSpeech {
 
   private pump() {
     if (this.stopped || this.generating || this.occupied.size >= 2) return;
-    const block = this.queue.shift();
+    const index = this.queue.findIndex(block => this.delivery.get(block.id) === "spoken");
+    if (index < 0) return;
+    const [block] = this.queue.splice(index, 1);
     if (!block) return;
     this.occupied.add(block.id);
     this.generating = true;
     this.task = (async () => {
       let streamed = false;
+      const started = performance.now();
+      const context = { runId: this.runId, dialogueId: block.id };
       try {
+        if (!extractSpokenText(block.text)) {
+          this.send({ type: "dialogue-audio", runId: this.runId, dialogueId: block.id, failed: true, text: "" });
+          return;
+        }
         const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(120_000)]);
-        const result = await this.service.generate(this.characterId, block.text, signal, true, async (event, context) => {
+        diagnostic("info", "tts.started", context);
+        const result = await this.service.generate(this.characterId, block.text, signal, true, async (event, speechContext) => {
           if (event.type === "format") {
+            diagnostic("debug", "tts.first-audio", { ...context, durationMs: performance.now() - started });
             const transfer = await createAvatarSpeechStream(signal);
             streamed = true;
             this.transfers.set(block.id, transfer);
             this.send({ type: "dialogue-audio", runId: this.runId, dialogueId: block.id,
-              streaming: true, value: transfer.name, text: context.text, profilePath: context.profilePath ?? "" });
+              streaming: true, value: transfer.name, text: speechContext.text, profilePath: speechContext.profilePath ?? "" });
           }
           const transfer = this.transfers.get(block.id);
           if (!transfer) throw new Error("Missing speech transport.");
           await transfer.write(event);
         });
         signal.throwIfAborted();
+        diagnostic("info", "tts.succeeded", { ...context, durationMs: performance.now() - started });
         if (streamed) return;
         this.directory ??= await mkdtemp(join(this.temporaryDirectory, "katarune-dialogue-"));
         const path = join(this.directory, `${crypto.randomUUID()}.${result.format}`);
@@ -81,8 +103,12 @@ export class AvatarDialogueSpeech {
         this.send({ type: "dialogue-audio", runId: this.runId, dialogueId: block.id,
           value: path, text: result.spokenText ?? block.text, segments: result.segments ?? [],
           profilePath: result.profilePath ?? "", voiceKey: result.voiceKey ?? "", failed: false });
-      } catch {
-        if (!this.stopped) this.onFailure();
+      } catch (error) {
+        if (!this.stopped) {
+          const incidentId = diagnostic("error", "tts.failed", { ...context, durationMs: performance.now() - started }, error);
+          this.onFailure(error, incidentId);
+          diagnostic("info", "dialogue.fallback", { ...context, outcome: "degraded" });
+        } else diagnostic("info", "tts.cancelled", { ...context, outcome: "cancelled" });
         if (streamed) {
           await this.transfers.get(block.id)?.fail();
           return;
@@ -105,6 +131,7 @@ export class AvatarDialogueSpeech {
     for (const transfer of this.transfers.values()) transfer.dispose();
     this.transfers.clear();
     this.blocks.clear(); this.queue.length = 0;
+    this.delivery.clear();
   }
 
   silence() { this.cancel(); }

@@ -464,11 +464,11 @@ try {
   const builtinDanceRequest = await operation("dance", builtinDance.id);
   await delay(600);
   await operation("session-reset", "");
-  const builtinDanceStopped = await wait(message => message.type === "dance" && message.id === builtinDanceRequest);
-  assert.equal(builtinDanceStopped.status, "failed", "Reset interrupts the real builtin dance");
+  const builtinDanceStopped = await wait(message => message.type === "dance" && message.id === builtinDanceRequest && message.status === "cancelled");
+  assert.equal(builtinDanceStopped.status, "cancelled", "Reset interrupts the real builtin dance");
   const angelRequest = await operation("dance", angelDance.id);
   await delay(600); await operation("session-reset", "");
-  assert.equal((await wait(message => message.type === "dance" && message.id === angelRequest)).status, "failed");
+  assert.equal((await wait(message => message.type === "dance" && message.id === angelRequest && message.status === "cancelled")).status, "cancelled");
   console.log("[package-player] all 21 daily actions played; loops observed for three wraps; both builtin dances started and reset");
   await delay(2400); // Capture a complete cycle of the real builtin humanoid idle.
   await new Promise((done) => {

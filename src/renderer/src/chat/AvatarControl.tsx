@@ -1,10 +1,37 @@
-import { useAuiState } from "@assistant-ui/react";
+import { useAui, useAuiState } from "@assistant-ui/react";
 import { useEffect, useRef, useState } from "react";
 import { PawPrintIcon, CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { TooltipIconButton } from "../components/tooltip-icon-button";
 import { notify } from "../notifications/notificationCenter";
 import { useAvatarState } from "./avatarState";
+import { useApplicationSettings } from "../settings/ApplicationSettingsProvider";
+
+// Mounted once for the active character, including while settings or the
+// minimized chat window are shown. The capsule never owns a second runtime.
+export function AvatarTextInputBridge(): null {
+  const aui = useAui();
+  const { activeCharacter } = useCharacterSession();
+  const { appSettings } = useApplicationSettings();
+  useEffect(() => window.katarune.onAvatarTextInput(request => {
+    const avatar = useAvatarState.getState().status;
+    const item = aui.threadListItem().getState();
+    const thread = aui.thread();
+    if (avatar.phase !== "ready"
+      || avatar.binding?.characterId !== request.binding.characterId
+      || avatar.binding.threadId !== request.binding.threadId
+      || activeCharacter.id !== request.binding.characterId
+      || (item.remoteId ?? item.id) !== request.binding.threadId)
+      return "会话已切换，请重新输入。";
+    if (thread.getState().isDisabled || thread.getState().isLoading)
+      return "会话正在准备，请稍后重试。";
+    if (activeCharacter.modelConfigId === null && appSettings.defaultLanguageModelConfigId === null)
+      return "请先在设置中选择对话模型。";
+    thread.append({ role: "user", content: [{ type: "text", text: request.text }] });
+    return null;
+  }), [aui, activeCharacter, appSettings.defaultLanguageModelConfigId]);
+  return null;
+}
 
 export function AvatarSessionBinding(): null {
   const { activeCharacter } = useCharacterSession();

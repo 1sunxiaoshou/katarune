@@ -50,6 +50,13 @@ app.once("browser-window-created", async (_event, window) => {
         if (element && (!(element instanceof HTMLImageElement) || (element.complete && element.naturalWidth > 0))) return resolve();
         if (Date.now() > deadline) return reject(new Error('Missing or unloaded ' + ${JSON.stringify(selector)})); setTimeout(check, 20); }; check();
     })`);
+    await wait('[data-testid="settings-launcher"]');
+    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
+    await wait('[data-testid="open-diagnostics"]');
+    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="open-diagnostics"]').scrollIntoView({block: 'center'})`);
+    await new Promise(resolve => setTimeout(resolve, 600));
+    await writeFile(join(directory, "diagnostics-settings.png"), (await window.capturePage()).toPNG());
+    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-back"]').click()`);
     await wait('.chat-character-entry .character-list-portrait img');
     const verifyCard = async selector => {
       const image = await window.webContents.executeJavaScript(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); const rect = element.parentElement.getBoundingClientRect(); return { src: element.src, width: rect.width, height: rect.height }; })()`);
@@ -95,10 +102,10 @@ app.once("browser-window-created", async (_event, window) => {
     assert.equal(capsule.isFocused(), false);
     const capsuleBounds = capsule.getBounds();
     const more = await capsule.webContents.executeJavaScript(`(() => { const r = document.querySelector('button[aria-label="更多"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
-    const clickMore = async () => {
+    const clickMore = async (button = more) => {
       capsule.moveTop();
       const currentBounds = capsule.getBounds();
-      const point = screen.dipToScreenPoint({ x: currentBounds.x + more.x, y: currentBounds.y + more.y });
+      const point = screen.dipToScreenPoint({ x: currentBounds.x + button.x, y: currentBounds.y + button.y });
       const { stdout } = await promisify(execFile)("pwsh", ["-NoProfile", "-File", resolve("tests/native-desktop-click.ps1"),
         "-X", String(point.x), "-Y", String(point.y), "-WindowHandle", String(capsule.getNativeWindowHandle().readBigUInt64LE()),
         "-OwnerProcessId", String(process.pid)], { windowsHide: true, timeout: 10_000 });
@@ -117,6 +124,74 @@ app.once("browser-window-created", async (_event, window) => {
     assert.equal((await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).panelPhase, "open");
     await panel.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: "close-panel" })`);
     assert.equal(panel.isVisible(), false);
+    // The native canvas must stay put while its visible capsule animates.
+    const capsuleGeometryEvents = [];
+    const recordCapsuleGeometry = () => capsuleGeometryEvents.push(capsule.getBounds());
+    capsule.on("move", recordCapsuleGeometry);
+    capsule.on("resize", recordCapsuleGeometry);
+    const visibleCapsuleWidth = () => capsule.webContents.executeJavaScript(`document.querySelector('.capsule').getBoundingClientRect().width`);
+    // Real input focus, IME guard, rejected send and draft recovery.
+    window.hide();
+    const textButton = await capsule.webContents.executeJavaScript(`(() => { const r = document.querySelector('button[aria-label="文本输入"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+    await clickMore(textButton);
+    await until(async () => await visibleCapsuleWidth() > 220
+      && await capsule.webContents.executeJavaScript(`document.activeElement?.getAttribute('aria-label') === '桌宠消息'`), "Capsule must expand horizontally and focus its input");
+    await new Promise(resolve => setTimeout(resolve, 300));
+    await writeFile(join(directory, "desktop-input-empty.png"), (await capsule.capturePage()).toPNG());
+    assert.equal(window.isVisible(), false, "Text input must not show the chat window");
+    assert.deepEqual(capsule.getBounds(), capsuleBounds, "Opening input must preserve the native compositor surface");
+    const expandedBounds = capsule.getBounds();
+    const workArea = screen.getDisplayMatching(expandedBounds).workArea;
+    assert.ok(expandedBounds.x >= workArea.x && expandedBounds.x + expandedBounds.width <= workArea.x + workArea.width);
+    await capsule.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('input[aria-label="桌宠消息"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '胶囊输入测试');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await capsule.webContents.executeJavaScript(`document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))`);
+    assert.equal(await capsule.webContents.executeJavaScript(`document.querySelector('[role="alert"]') === null`), true);
+    await capsule.webContents.executeJavaScript(`document.querySelector('input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
+    await until(() => capsule.webContents.executeJavaScript(`!!document.querySelector('[role="alert"]')`), "Missing model must report a send error inside the capsule");
+    assert.equal(await capsule.webContents.executeJavaScript(`document.querySelector('input').value`), "胶囊输入测试");
+    await writeFile(join(directory, "desktop-input.png"), (await capsule.capturePage()).toPNG());
+    capsule.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    capsule.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await until(async () => !(await capsule.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).inputOpen
+      && Math.round(await visibleCapsuleWidth()) === 220, "Escape must restore the visible capsule width");
+    assert.deepEqual(capsule.getBounds(), capsuleBounds, "Expansion must not overwrite the saved capsule anchor");
+    await capsule.webContents.executeJavaScript(`document.querySelector('button[aria-label="文本输入"]').click()`);
+    await until(() => capsule.webContents.executeJavaScript(`document.activeElement?.getAttribute('aria-label') === '桌宠消息'`), "Input must focus when reopened");
+    assert.equal(await capsule.webContents.executeJavaScript(`document.querySelector('input').value`), "胶囊输入测试");
+    await capsule.webContents.executeJavaScript(`document.querySelector('button[aria-label="关闭输入"]').click()`);
+    await until(async () => Math.round(await visibleCapsuleWidth()) === 220, "Closing input must restore the visible capsule width");
+    // Reversing a transition must not move/resize the HWND or jump its anchor.
+    await capsule.webContents.executeJavaScript(`(() => {
+      window.capsuleSwitchFrames = [];
+      window.capsuleSwitchSampling = true;
+      const sample = () => {
+        const element = document.querySelector('.capsule'), r = element.getBoundingClientRect();
+        window.capsuleSwitchFrames.push({ width: r.width, anchor: element.dataset.inputAnchor === 'right' ? r.right : r.left });
+        if (window.capsuleSwitchSampling) requestAnimationFrame(sample);
+      };
+      sample();
+    })()`);
+    for (let index = 0; index < 6; index++) {
+      await capsule.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: 'input' })`);
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
+    await until(async () => Math.round(await visibleCapsuleWidth()) === 220, "Rapid toggles must settle at normal width");
+    await capsule.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: 'compact' })`);
+    await until(async () => Math.round(await visibleCapsuleWidth()) === 100, "Compact mode must settle at its visible width");
+    await capsule.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: 'compact' })`);
+    await until(async () => Math.round(await visibleCapsuleWidth()) === 220, "Expanded controls must restore their visible width");
+    const switchFrames = await capsule.webContents.executeJavaScript(`window.capsuleSwitchSampling = false; window.capsuleSwitchFrames`);
+    assert.ok(switchFrames.length >= 4);
+    assert.ok(switchFrames.every(frame => Math.abs(frame.anchor - switchFrames[0].anchor) < 1), "The visible capsule anchor must remain stable throughout transitions");
+    assert.deepEqual(capsuleGeometryEvents, [], "Input and compact transitions must never resize or move the transparent HWND");
+    capsule.removeListener("move", recordCapsuleGeometry);
+    capsule.removeListener("resize", recordCapsuleGeometry);
+    await writeFile(join(directory, "capsule-switch-frames.json"), JSON.stringify(switchFrames));
+    window.show();
     window.focus();
     await clickMore();
     await until(() => panel.isVisible(), "Panel must reopen on the next click");
@@ -156,13 +231,13 @@ app.once("browser-window-created", async (_event, window) => {
       panel.setBounds({ ...normalPanelBounds, height });
       await openActions();
       const labels = await panel.webContents.executeJavaScript(`[...document.querySelectorAll('.desktop-action-content [role="tab"]')].map(e => e.textContent)`);
-      assert.deepEqual(labels, ["单次动作", "循环动作", "舞蹈演出"]);
-      for (const [label, kind] of [["单次动作", "oneShot"], ["循环动作", "loop"], ["舞蹈演出", "performance"]]) {
+      assert.deepEqual(labels, ["单次", "循环", "演出"]);
+      for (const [label, kind] of [["单次", "oneShot"], ["循环", "loop"], ["演出", "performance"]]) {
         await filterActions(label);
         const items = await panel.webContents.executeJavaScript(`[...document.querySelectorAll('.desktop-action-content [cmdk-item]')].map(e => e.textContent)`);
         assert.deepEqual(items, actions.filter(a => (a.kind ?? "oneShot") === kind).sort((a,b)=>Number(!!a.idle)-Number(!!b.idle)).map(a => a.label));
       }
-      await filterActions("循环动作");
+      await filterActions("循环");
       await new Promise(resolve => setTimeout(resolve, 150));
       const metrics = await panel.webContents.executeJavaScript(`(() => {
         const popup = document.querySelector('.desktop-action-content'), r = popup.getBoundingClientRect(), list=popup.querySelector('[cmdk-list]');
@@ -195,7 +270,7 @@ app.once("browser-window-created", async (_event, window) => {
         return item.length===1 && item[0].textContent===${JSON.stringify(name)} && !!item[0].querySelector('svg');
       })()`), `Actual playback must select ${name}`);
     };
-    await openActions(); await filterActions("舞蹈演出"); await selectAction("复梦天使");
+    await openActions(); await filterActions("演出"); await selectAction("复梦天使");
     await until(() => actualAction(angel.id), "Selecting the real dance must start the Player");
     await openActions(); await verifyPlaying("复梦天使");
     await until(() => panel.webContents.executeJavaScript(`Number(getComputedStyle(document.querySelector('.desktop-action-content')).opacity) > .99`), "Action popup must finish painting before capture");
@@ -203,11 +278,11 @@ app.once("browser-window-created", async (_event, window) => {
     await selectAction("我的悲伤是水做的");
     await until(() => actualAction(sadWater.id), "A different dance must interrupt and replace the current dance");
     await openActions(); await verifyPlaying("我的悲伤是水做的");
-    await filterActions("循环动作"); await selectAction("思考");
+    await filterActions("循环"); await selectAction("思考");
     await until(() => actualAction(thinking.id), "A regular action must interrupt the dance and take over");
     await openActions(); await verifyPlaying("思考"); await selectAction("思考");
     await until(async () => !(await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).presentation?.action, "Clicking the selected loop must stop it and restore idle");
-    await openActions(); await filterActions("舞蹈演出");
+    await openActions(); await filterActions("演出");
     assert.equal(await panel.webContents.executeJavaScript(`document.querySelectorAll('.desktop-action-content [data-playing="true"]').length`), 0);
     await until(() => panel.webContents.executeJavaScript(`document.querySelector('[aria-label="动作"]').textContent === "自动待机"`), "After stopping, the trigger must show automatic idle");
     await selectAction("复梦天使"); await until(() => actualAction(angel.id), "Dance must remain playable after interruption");

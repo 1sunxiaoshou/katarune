@@ -1,4 +1,5 @@
 import { DefaultModelsSettings } from "./DefaultModelsSettings";
+import { DiagnosticsSettings } from "./DiagnosticsSettings";
 import { Switch } from "@/components/ui/switch";
 import {
   Tabs,
@@ -130,6 +131,7 @@ export function GeneralSettings({
             </label>
           </div>
         </section>
+        <DiagnosticsSettings />
       </div>
     </section>
   );

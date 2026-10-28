@@ -78,18 +78,18 @@ describe("character package IPC transactions", () => {
     avatar.switchPackage.mockRejectedValueOnce(new Error("bad model"));
     await expect(
       invoke(PACKAGE_CHANNELS.bind, { characterId, packageId }),
-    ).rejects.toThrow("bad model");
+    ).rejects.toThrow("操作失败，请稍后重试。");
     expect(db.bindCharacterPackage).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(2);
   });
   it("restores the previous package when saving the binding fails", async () => {
     const { invoke, avatar, db, release } = setup();
     db.bindCharacterPackage.mockImplementationOnce(() => {
-      throw new Error("disk full");
+      throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
     });
     await expect(
       invoke(PACKAGE_CHANNELS.bind, { characterId, packageId }),
-    ).rejects.toThrow("disk full");
+    ).rejects.toThrow("磁盘空间不足，请清理后重试。");
     expect(avatar.switchPackage).toHaveBeenNthCalledWith(2, characterId, {
       id: "builtin:default",
     });

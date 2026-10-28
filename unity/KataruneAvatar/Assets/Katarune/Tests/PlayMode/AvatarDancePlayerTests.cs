@@ -67,7 +67,7 @@ namespace Katarune.Avatar.Tests
             Object.Destroy(playerObject); File.Delete(path); yield return null;
         }
 
-        [UnityTest] public IEnumerator LyricsUseTheAudioCursorAndYieldToOrdinarySubtitlesWithoutLeakingPink()
+        [UnityTest] public IEnumerator LyricsOwnTheSubtitleAreaIncludingGapsAndRejectOrdinarySubtitles()
         {
             var audio = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             var subtitles = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -93,14 +93,13 @@ namespace Katarune.Avatar.Tests
                 Assert.That(connection.CurrentSubtitleColor, Is.EqualTo(new Color(1f, 143f / 255f, 179f / 255f)));
 
                 Publish(connection, "ShowUserSubtitle", "用户说话");
-                Assert.That(connection.CurrentSubtitle, Is.EqualTo("你：用户说话"));
-                Assert.That(connection.ShowingDanceSubtitle, Is.False);
-                Assert.That(connection.CurrentSubtitleColor, Is.EqualTo(new Color(.12f, .18f, .25f)));
+                Assert.That(connection.CurrentSubtitle, Is.EqualTo("第一句"));
+                Assert.That(connection.ShowingDanceSubtitle, Is.True);
                 Publish(connection, "ShowSubtitle", "普通对白");
-                Assert.That(connection.CurrentSubtitleColor, Is.EqualTo(Color.white));
+                Assert.That(connection.CurrentSubtitleColor, Is.EqualTo(new Color(1f, 143f / 255f, 179f / 255f)));
                 source.timeSamples = (int)(source.clip.frequency * .85f); yield return null; yield return null;
                 Assert.That(player.SubtitleText, Is.EqualTo("第二句"));
-                Assert.That(connection.CurrentSubtitle, Is.EqualTo("普通对白"));
+                Assert.That(connection.CurrentSubtitle, Is.EqualTo("第二句"));
                 Publish(connection, "ClearSubtitle");
                 Assert.That(connection.CurrentSubtitle, Is.EqualTo("第二句"), "Resume the current lyric, not the missed first one.");
                 Assert.That(connection.ShowingDanceSubtitle, Is.True);
@@ -110,7 +109,7 @@ namespace Katarune.Avatar.Tests
                 source.timeSamples = (int)(source.clip.frequency * 1.4f); yield return null; yield return null;
                 Assert.That(player.SubtitleText, Is.EqualTo("末句"));
                 player.Cancel("测试会话重置");
-                Assert.That(events, Is.EqualTo(new[] { "started", "failed" }));
+                Assert.That(events, Is.EqualTo(new[] { "started", "cancelled" }));
                 Assert.That(player.SubtitleText, Is.Empty); Assert.That(connection.CurrentSubtitle, Is.Empty);
 
                 events.Clear(); player.Play("dance", (status, error) => events.Add(status));

@@ -1,3 +1,16 @@
+function safeDiagnostic(error) {
+  return { name: ['Error', 'TypeError', 'RangeError'].includes(error?.name) ? error.name : 'Error',
+    code: ['ENOENT', 'EACCES', 'EPERM', 'ENOMEM', 'MODULE_NOT_FOUND'].includes(error?.code) ? error.code : undefined,
+    frames: typeof error?.stack === 'string' ? [...error.stack.matchAll(/asr-worker\.cjs:(\d+):(\d+)/g)].slice(0, 12).map(match => `resources/asr-worker.cjs:${match[1]}:${match[2]}`) : [], messageRedacted: true };
+}
+let fatal = false;
+function fatalError(error) {
+  if (fatal) return;
+  fatal = true;
+  try { process.parentPort.postMessage({ fatal: safeDiagnostic(error) }); } finally { setTimeout(() => process.exit(1), 20); }
+}
+process.on('uncaughtException', fatalError);
+process.on('unhandledRejection', fatalError);
 const { createRequire } = require('node:module');
 const { join } = require('node:path');
 const load = createRequire(join(process.argv[2], 'package.json'));
@@ -22,6 +35,7 @@ function decode(samples) {
 }
 process.parentPort.on('message', ({ data }) => {
   let result;
+  let diagnostic;
   try {
     result = { status: 'success', text: '' };
     switch (data.operation) {
@@ -47,9 +61,10 @@ process.parentPort.on('message', ({ data }) => {
       }
       default: throw new Error('Unknown operation');
     }
-  } catch {
+  } catch (error) {
+    diagnostic = safeDiagnostic(error);
     result = { status: 'error', message: data.operation === 'load' || data.operation === 'vad-load'
       ? '离线语音模型无法加载，请检查 SenseVoice 与 Silero 语音资源。' : '离线语音识别失败，请重试。' };
   }
-  process.parentPort.postMessage({ id: data.id, result });
+  process.parentPort.postMessage({ id: data.id, result, diagnostic });
 });

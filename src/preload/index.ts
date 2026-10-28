@@ -1,6 +1,8 @@
+import { diagnosticsApi } from "./diagnostics";
 import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
+import { avatarTextInputSchema, avatarTextResultSchema, type AvatarTextInput } from "../shared/avatar";
 import {
   MEMORY_CHANNELS, listMemoryRequestSchema, memoryDiarySettingsSchema, memoryDiaryStateSchema, memoryChangedSchema,
   memoryEntrySchema, memoryIdRequestSchema, memoryListSchema, memoryVersionRequestSchema,
@@ -114,6 +116,7 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  ...diagnosticsApi,
   retryMemoryDiaries: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.retryDiary, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),
   onMemoryChanged: (listener: (characterId: string) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, value: unknown) => { const parsed = memoryChangedSchema.safeParse(value); if (parsed.success) listener(parsed.data.characterId); };
@@ -157,6 +160,18 @@ const api: KataruneApi = Object.freeze({
     return () => { ipcRenderer.removeListener(AVATAR_CHANNELS.changed, handle); };
   },
   prepareAsr: (request: { requestId: string }) => invokeValidated(ASR_CHANNELS.prepare, asrResultSchema, asrRequestIdSchema.parse(request)),
+  onAvatarTextInput: (listener: (request: AvatarTextInput) => string | null) => {
+    const handle = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = avatarTextInputSchema.safeParse(value);
+      if (!parsed.success) return;
+      let error: string | null;
+      try { error = listener(parsed.data); }
+      catch { error = "暂时无法发送，请稍后重试。"; }
+      ipcRenderer.send(AVATAR_CHANNELS.textResult, avatarTextResultSchema.parse({ id: parsed.data.id, error }));
+    };
+    ipcRenderer.on(AVATAR_CHANNELS.textInput, handle);
+    return () => { ipcRenderer.removeListener(AVATAR_CHANNELS.textInput, handle); };
+  },
   transcribeAsr: (request: AsrRequest) => invokeValidated(ASR_CHANNELS.transcribe, asrResultSchema, asrRequestSchema.parse(request)),
   cancelAsr: (request: { requestId: string }) => ipcRenderer.send(ASR_CHANNELS.cancel, asrRequestIdSchema.parse(request)),
   startAvatar: (request: AvatarBinding) => invokeValidated(AVATAR_CHANNELS.start, avatarStatusSchema, avatarBindingSchema.parse(request)),

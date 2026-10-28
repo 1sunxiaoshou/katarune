@@ -1,4 +1,5 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { diagnosticIpcMain } from "../diagnostics/ipc";
+import { BrowserWindow, dialog } from "electron";
 import {
   PACKAGE_CHANNELS,
   packageIdRequestSchema,
@@ -16,15 +17,15 @@ export function registerCharacterPackageHandlers(
 ): void {
   const owners = new Map<string, { senderId: number; canceled: boolean }>();
   const binding = new Set<string>();
-  ipcMain.handle(PACKAGE_CHANNELS.list, () => service.list());
-  ipcMain.handle(PACKAGE_CHANNELS.detail, (_event, value: unknown) =>
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.list, () => service.list());
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.detail, (_event, value: unknown) =>
     service.detail(packageIdRequestSchema.parse(value).id),
   );
-  ipcMain.handle(PACKAGE_CHANNELS.remove, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.remove, (_event, value: unknown) => {
     service.remove(packageIdRequestSchema.parse(value).id);
     return { success: true };
   });
-  ipcMain.handle(PACKAGE_CHANNELS.cancel, (event, value: unknown) => {
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.cancel, (event, value: unknown) => {
     const { requestId } = packageImportRequestSchema.parse(value);
     const job = owners.get(requestId);
     if (job?.senderId === event.sender.id) {
@@ -33,7 +34,7 @@ export function registerCharacterPackageHandlers(
     }
     return { success: true };
   });
-  ipcMain.handle(PACKAGE_CHANNELS.import, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.import, async (event, value: unknown) => {
     const { requestId } = packageImportRequestSchema.parse(value);
     if (owners.has(requestId)) throw new Error("重复导入请求。");
     const job = { senderId: event.sender.id, canceled: false };
@@ -70,7 +71,7 @@ export function registerCharacterPackageHandlers(
       event.sender.removeListener("destroyed", cancel);
     }
   });
-  ipcMain.handle(PACKAGE_CHANNELS.bind, async (_event, value: unknown) => {
+  diagnosticIpcMain.handle(PACKAGE_CHANNELS.bind, async (_event, value: unknown) => {
     const { characterId, packageId } = packageBindSchema.parse(value);
     if (binding.has(characterId)) throw new Error("角色包正在切换，请稍候。");
     binding.add(characterId);

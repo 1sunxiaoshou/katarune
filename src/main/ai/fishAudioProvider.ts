@@ -1,4 +1,5 @@
 import {
+  APICallError,
   NoSuchModelError,
   type ProviderV4,
   type SharedV4Warning,
@@ -160,7 +161,12 @@ class FishAudioSpeechModel implements SpeechModelV4, TimestampedSpeechModel, Str
       body: JSON.stringify({ text: options.text, reference_id: options.voice, ...output }),
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     });
-    if (!response.ok || !response.body) throw new Error(`Fish timestamp synthesis failed (${response.status}).`);
+    if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => {});
+      throw new APICallError({ message: "Fish timestamp synthesis failed.",
+        url: `${this.config.baseURL}/v1/tts/stream/with-timestamp`,
+        requestBodyValues: undefined, statusCode: response.status });
+    }
     return response.body;
   }
 

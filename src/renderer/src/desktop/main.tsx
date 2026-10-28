@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { initializeRendererDiagnostics } from "../diagnostics";
 import {
   ArrowLeft,
   ChevronsLeft,
@@ -19,6 +20,7 @@ import {
   MoreHorizontal,
   Move,
   RotateCcw,
+  Send,
   X,
 } from "lucide-react";
 import type {
@@ -123,12 +125,64 @@ function Choice({
     </ModelSelectorRoot>
   );
 }
+function CapsuleComposer({ open, sessionId }: { open: boolean; sessionId: string | null }) {
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const pending = useRef(false);
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+  const submit = async () => {
+    if (pending.current || !sessionId || !text.trim()) return;
+    pending.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await window.avatarDesktop.submitText({ sessionId, text });
+      if (result.error) setError(result.error);
+      else setText("");
+    } catch {
+      setError("暂时无法发送，请稍后重试。");
+    } finally {
+      pending.current = false;
+      setSubmitting(false);
+      input.current?.focus();
+    }
+  };
+  return (
+    <div className="capsule-composer" inert={!open}>
+      <div className="capsule-input-field">
+        <input ref={input} aria-label="桌宠消息" placeholder={sessionId ? "想说些什么…" : "正在连接…"}
+          value={text} maxLength={20_000} readOnly={submitting} aria-invalid={!!error}
+          aria-describedby={error ? "capsule-input-error" : undefined}
+          onChange={event => { setText(event.target.value); setError(null); }}
+          onKeyDown={event => {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+              event.preventDefault();
+              void submit();
+            }
+          }} />
+        {error && <span id="capsule-input-error" className="capsule-input-error" role="alert">{error}</span>}
+      </div>
+      <Icon label="发送消息" disabled={!sessionId || !text.trim() || submitting} onClick={() => void submit()}>
+        {submitting ? <LoaderCircle className="animate-spin" /> : <Send />}
+      </Icon>
+    </div>
+  );
+}
 function Desktop() {
   const [state, setState] = useState<DesktopSnapshot>();
   const capsuleRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const exit = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && state?.inputOpen && !event.isComposing) {
+        event.preventDefault();
+        command("input", "close");
+        return;
+      }
       if (event.key === "Escape" && state?.mode === "immersive") {
         event.preventDefault();
         command("mode", "desktop");
@@ -136,7 +190,7 @@ function Desktop() {
     };
     window.addEventListener("keydown", exit, true);
     return () => window.removeEventListener("keydown", exit, true);
-  }, [state?.mode]);
+  }, [state?.mode, state?.inputOpen]);
   useEffect(() => {
     let receivedUpdate = false;
     const off = window.avatarDesktop.subscribe((snapshot) => {
@@ -175,7 +229,7 @@ function Desktop() {
         operation: "capsule-size",
         width: Math.max(
           100,
-          Math.min(220, element.getBoundingClientRect().width),
+          Math.min(520, element.getBoundingClientRect().width),
         ),
       });
     };
@@ -208,19 +262,21 @@ function Desktop() {
     return (
       <div
         ref={capsuleRef}
-        className={`capsule ${state.compact ? "compact" : ""}`}
+        className={`capsule ${state.compact ? "compact" : ""} ${state.inputOpen ? "input-open" : ""}`}
+        data-input-anchor={state.inputAnchorRight ? "right" : "left"}
       >
         <Icon
-          label={state.compact ? "展开" : "收起"}
-          onClick={() => command("compact")}
+          label={state.inputOpen ? "关闭输入" : state.compact ? "展开" : "收起"}
+          onClick={() => state.inputOpen ? command("input", "close") : command("compact")}
         >
-          {state.compact ? <ChevronsRight /> : <ChevronsLeft />}
+          {state.inputOpen ? <X /> : state.compact ? <ChevronsRight /> : <ChevronsLeft />}
         </Icon>
-        <span className="capsule-extra" inert={state.compact}>
-          <Icon label="打开聊天" onClick={() => command("chat")}>
+        <span className="capsule-extra" inert={state.compact || state.inputOpen}>
+          <Icon label="文本输入" onClick={() => command("input")}>
             <MessageCircle />
           </Icon>
         </span>
+        <CapsuleComposer key={state.textSessionId} open={state.inputOpen} sessionId={state.textSessionId} />
         <Icon
           label={state.status.voice?.desired ? "关闭麦克风" : "开启麦克风"}
           disabled={!ready}
@@ -249,7 +305,7 @@ function Desktop() {
             )}
           </span>
         </Icon>
-        <span className="capsule-extra capsule-actions" inert={state.compact}>
+        <span className="capsule-extra capsule-actions" inert={state.compact || state.inputOpen}>
           {state.status.phase === "error" ? (
             <Icon
               label={`重试：${error ?? "连接失败"}`}
@@ -321,6 +377,9 @@ function Desktop() {
           </>
         )}
         <span className="spacer" />
+        <Icon label="打开聊天" onClick={() => command("chat")}>
+          <MessageCircle />
+        </Icon>
         <Icon
           label={state.panel === "more" ? "操作说明" : "返回"}
           onClick={() => command("panel", state.panel === "more" ? "help" : "more")}
@@ -466,4 +525,4 @@ function Desktop() {
 initializeDevicePreferences();
 window.addEventListener("storage", () => initializeDevicePreferences());
 document.documentElement.dataset.surface = surface ?? "panel";
-createRoot(document.getElementById("root")!).render(<Desktop />);
+createRoot(document.getElementById("root")!, initializeRendererDiagnostics(window.avatarDesktop)).render(<Desktop />);

@@ -1,3 +1,4 @@
+import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { ipcMain, webContents } from 'electron';
 import { ASR_CHANNELS, asrRequestIdSchema, asrRequestSchema, asrFrameSchema, realtimeAsrRequestSchema, type RealtimeAsrRequest } from '../../shared/asr';
 import type { AvatarService } from '../avatar/avatarService';
@@ -26,7 +27,7 @@ export function registerAsrHandlers(database: Pick<DatabaseRuntime, 'getAppSetti
       if (!validBinding(request)) { realtime.delete(sender); service.cancel(sender, request.requestId); }
     }
   });
-  ipcMain.handle(ASR_CHANNELS.realtime, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(ASR_CHANNELS.realtime, async (event, value: unknown) => {
     const request = realtimeAsrRequestSchema.parse(value);
     if (!validBinding(request)) return { status: 'error', message: '请先连接桌宠，再开启实时对话。' };
     if (database.getAppSettings().defaultAsrModel === null) return { status: 'error', message: '请先启用语音识别模型。' };
@@ -40,7 +41,7 @@ export function registerAsrHandlers(database: Pick<DatabaseRuntime, 'getAppSetti
     if (!validBinding(request)) { service.cancel(event.sender.id, request.requestId); return { status: 'cancelled' }; }
     return result;
   });
-  ipcMain.handle(ASR_CHANNELS.frame, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(ASR_CHANNELS.frame, async (event, value: unknown) => {
     const frame = asrFrameSchema.parse(value);
     const request = realtime.get(event.sender.id);
     if (!request || request.requestId !== frame.requestId || !validBinding(request)) return { status: 'cancelled' };
@@ -52,11 +53,11 @@ export function registerAsrHandlers(database: Pick<DatabaseRuntime, 'getAppSetti
     if (realtime.get(event.sender.id) !== request || !validBinding(request)) return { status: 'success', text: '' };
     return result;
   });
-  ipcMain.handle(ASR_CHANNELS.reset, (event, value: unknown) => {
+  diagnosticIpcMain.handle(ASR_CHANNELS.reset, (event, value: unknown) => {
     const { requestId } = asrRequestIdSchema.parse(value);
     return service.reset(event.sender.id, requestId);
   });
-  ipcMain.handle(ASR_CHANNELS.prepare, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(ASR_CHANNELS.prepare, async (event, value: unknown) => {
     const { requestId } = asrRequestIdSchema.parse(value);
     if (database.getAppSettings().defaultAsrModel === null) {
       return { status: 'error', message: '请先在默认模型设置中选择语音识别模型。' };
@@ -65,7 +66,7 @@ export function registerAsrHandlers(database: Pick<DatabaseRuntime, 'getAppSetti
     watch(event.sender);
     return service.prepare(id, requestId);
   });
-  ipcMain.handle(ASR_CHANNELS.transcribe, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(ASR_CHANNELS.transcribe, async (event, value: unknown) => {
     const request = asrRequestSchema.parse(value);
     if (database.getAppSettings().defaultAsrModel === null) {
       service.cancel(event.sender.id, request.requestId);

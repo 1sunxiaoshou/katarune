@@ -1,4 +1,5 @@
 import { StrictMode } from "react";
+import { initializeRendererDiagnostics } from "./diagnostics";
 import { createRoot } from "react-dom/client";
 import "@fontsource-variable/noto-sans-sc";
 import "@fontsource/yellowtail/latin-400.css";
@@ -18,7 +19,7 @@ if (rootElement === null) {
 
 initializeDevicePreferences();
 
-createRoot(rootElement).render(
+createRoot(rootElement, initializeRendererDiagnostics(window.katarune)).render(
   <StrictMode>
     <TooltipProvider>
       <NotificationProvider>

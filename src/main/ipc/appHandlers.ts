@@ -1,4 +1,5 @@
-import { app, ipcMain } from "electron";
+import { diagnosticIpcMain } from "../diagnostics/ipc";
+import { app } from "electron";
 import {
   appInfoSchema,
   appSettingsSchema,
@@ -14,7 +15,7 @@ export function registerAppHandlers(
   database: DatabaseRuntime,
   aiRuntime: AiRuntime,
 ): void {
-  ipcMain.handle(IPC_CHANNELS.getAppInfo, () =>
+  diagnosticIpcMain.handle(IPC_CHANNELS.getAppInfo, () =>
     appInfoSchema.parse({
       name: app.getName(),
       version: app.getVersion(),
@@ -23,19 +24,19 @@ export function registerAppHandlers(
       nodeVersion: process.versions.node,
     }),
   );
-  ipcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
-  ipcMain.handle(IPC_CHANNELS.getAiRuntimeStatus, () => aiRuntime.getStatus());
-  ipcMain.handle(IPC_CHANNELS.getAppState, () =>
+  diagnosticIpcMain.handle(IPC_CHANNELS.getDatabaseStatus, () => database.getStatus());
+  diagnosticIpcMain.handle(IPC_CHANNELS.getAiRuntimeStatus, () => aiRuntime.getStatus());
+  diagnosticIpcMain.handle(IPC_CHANNELS.getAppState, () =>
     appStateSchema.parse(database.getAppState()),
   );
-  ipcMain.handle(IPC_CHANNELS.setActiveCharacter, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.setActiveCharacter, (_event, value: unknown) => {
     const { characterId } = setActiveCharacterRequestSchema.parse(value);
     return appStateSchema.parse(database.setActiveCharacter(characterId));
   });
-  ipcMain.handle(IPC_CHANNELS.getAppSettings, () =>
+  diagnosticIpcMain.handle(IPC_CHANNELS.getAppSettings, () =>
     appSettingsSchema.parse(database.getAppSettings()),
   );
-  ipcMain.handle(IPC_CHANNELS.updateAppSettings, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.updateAppSettings, (_event, value: unknown) => {
     const request = updateAppSettingsRequestSchema.parse(value);
     if (request.defaultLanguageModelConfigId != null) {
       try {

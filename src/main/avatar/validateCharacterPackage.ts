@@ -1,3 +1,4 @@
+import { diagnostic } from "../diagnostics/logger";
 import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,8 +26,7 @@ export async function validateCharacterPackage(
           input,
           "--validation-result",
           output,
-          "-logFile",
-          join(stage, "validation.log"),
+          "-nolog",
         ],
         {
           cwd: dirname(executable),
@@ -69,6 +69,9 @@ export async function validateCharacterPackage(
       error?: string;
     };
     if (!report.ok) throw new Error(report.error || "Unity 角色包验证失败。");
+  } catch (error) {
+    diagnostic(signal.aborted ? "info" : "error", signal.aborted ? "package.validation-cancelled" : "package.validation-failed", {}, signal.aborted ? undefined : error);
+    throw error;
   } finally {
     await rm(stage, { recursive: true, force: true });
   }

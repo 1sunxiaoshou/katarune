@@ -1,3 +1,4 @@
+import { diagnostic } from "../diagnostics/logger";
 import { createHash } from "node:crypto";
 import { ToolLoopAgent, tool, stepCountIs, type LanguageModel, type ToolSet } from "ai";
 import { createMemoryReadTools } from "./memoryTools";
@@ -77,6 +78,7 @@ export function createDiaryService({ database, aiRuntime, generate = generateDia
       if (digest(database.memoryDiaryTranscript(job)) !== evidenceHash) throw new DiaryError("context_changed");
       database.finishMemoryDiaryJob(job, draft);
     } catch (error) {
+      if (!stopped) diagnostic("error", "memory.diary-failed", {}, error);
       if (job && !stopped) database.failMemoryDiaryJob(job, now(), diaryFailureCode(error));
     } finally { running = false; }
     return job !== null;

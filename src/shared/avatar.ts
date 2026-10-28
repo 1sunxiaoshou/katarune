@@ -1,20 +1,32 @@
 import { avatarPresentationSchema, avatarWindowReportSchema } from "./avatarDesktop";
 import * as z from "zod/mini";
 import { avatarPerformanceStateSchema } from "./avatarPerformance";
+import { safeErrorSchema } from "./diagnostics";
 
 export const avatarBindingSchema = z.object({
   characterId: z.uuid(),
   threadId: z.string().check(z.minLength(1)),
 });
 export type AvatarBinding = z.infer<typeof avatarBindingSchema>;
-export const avatarPlaySchema = z.object({ action: z.string().check(z.minLength(1), z.maxLength(256)) });
-export const avatarDanceStartedSchema = z.object({
-  status: z.literal("started"), performanceId: z.uuid(), action: z.string().check(z.minLength(1), z.maxLength(256)),
+export const avatarTextInputSchema = z.object({
+  id: z.uuid(),
+  binding: avatarBindingSchema,
+  text: z.string().check(z.minLength(1), z.maxLength(20_000)),
 });
+export const avatarTextResultSchema = z.object({
+  id: z.uuid(),
+  error: z.nullable(z.string().check(z.maxLength(1000))),
+});
+export type AvatarTextInput = z.infer<typeof avatarTextInputSchema>;
+export const avatarPlaySchema = z.object({ action: z.string().check(z.minLength(1), z.maxLength(256)) });
+export const avatarDanceAcceptedSchema = z.object({
+  status: z.literal("accepted"), performanceId: z.uuid(), action: z.string().check(z.minLength(1), z.maxLength(256)),
+});
+const danceState = z.enum(["accepted", "preparing", "started", "completed", "cancelled", "failed"]);
 export const avatarDanceStateSchema = z.object({
   performanceId: z.uuid(), toolCallId: z.string().check(z.minLength(1), z.maxLength(256)),
   actionId: z.string().check(z.minLength(1), z.maxLength(256)), action: z.string().check(z.minLength(1), z.maxLength(256)),
-  state: z.enum(["started", "completed", "failed"]), error: z.optional(z.string().check(z.maxLength(4000))),
+  state: danceState, error: z.optional(z.string().check(z.maxLength(4000))),
 });
 export type AvatarDanceState = z.infer<typeof avatarDanceStateSchema>;
 export const avatarStatusSchema = z.object({
@@ -76,8 +88,10 @@ export const avatarCapabilitiesSchema = z.object({
 });
 export type AvatarCapabilities = z.infer<typeof avatarCapabilitiesSchema>;
 export const avatarReplySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("diagnostic"), processInstanceId: z.uuid(), sequence: z.number().check(z.int(), z.gte(0)),
+    timestamp: z.string().check(z.maxLength(40)), dropped: z.number().check(z.int(), z.gte(0)), error: safeErrorSchema }),
   z.object({ type: z.literal("dance"), id: z.uuid(), actionId: identifier,
-    status: z.enum(["completed", "failed"]), error: z.optional(z.nullable(z.string().check(z.maxLength(4000)))) }),
+    status: danceState, error: z.optional(z.nullable(z.string().check(z.maxLength(4000)))) }),
   z.object({ type: z.literal("performance"), performance: avatarPerformanceStateSchema }),
   avatarPresentationSchema, avatarWindowReportSchema,
   z.object({ type: z.literal("startup-error"), error: z.string().check(z.minLength(1), z.maxLength(4000)) }),
@@ -91,6 +105,8 @@ export const avatarReplySchema = z.discriminatedUnion("type", [
     error: z.optional(z.nullable(z.string())),
   }),
   z.object({ type: z.literal("dialogue-completed"), runId: z.uuid(), dialogueId: z.string() }),
+  z.object({ type: z.literal("dialogue-delivery"), runId: z.uuid(), dialogueId: identifier,
+    delivery: z.enum(["spoken", "chat-only"]) }),
   z.object({
     type: z.literal("action"),
     id: z.uuid(),
@@ -125,4 +141,6 @@ export const AVATAR_CHANNELS = {
   playbackControl: "avatar:playback-control",
   userSubtitle: "avatar:user-subtitle",
   openChat: "avatar:open-chat",
+  textInput: "avatar:text-input",
+  textResult: "avatar:text-result",
 } as const;

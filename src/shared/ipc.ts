@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import type { DiagnosticsApi } from "./diagnostics";
 import type { Asset } from "./assets";
 import {
   characterSchema,
@@ -633,7 +634,7 @@ export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateReques
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
-export interface KataruneApi {
+export interface KataruneApi extends DiagnosticsApi {
   listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
   readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
   saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;
@@ -655,6 +656,7 @@ export interface KataruneApi {
   resetRealtimeAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
   onAsrTranscribing(listener: (requestId: string) => void): () => void;
   onAvatarStatus(listener: (status: import('./avatar').AvatarStatus) => void): () => void;
+  onAvatarTextInput(listener: (request: import('./avatar').AvatarTextInput) => string | null): () => void;
   prepareAsr(request: { requestId: string }): Promise<import('./asr').AsrResult>;
   transcribeAsr(request: import('./asr').AsrRequest): Promise<import('./asr').AsrResult>;
   cancelAsr(request: { requestId: string }): void;

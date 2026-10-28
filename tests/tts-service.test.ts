@@ -1,5 +1,5 @@
 import { emptyAppSettings } from "./defaultSettings";
-import type { SpeechResult } from "ai";
+import { APICallError, RetryError, type SpeechResult } from "ai";
 import { MockSpeechModelV4 } from "ai/test";
 import type { SpeechStreamEvent } from "../src/main/ai/streamingSpeech";
 import { describe, expect, it, vi } from "vitest";
@@ -11,10 +11,31 @@ import type {
 } from "../src/shared/ipc";
 import {
   createSpeechService,
+  SpeechServiceError,
+  toSpeechServiceError,
 } from "../src/main/speech/ttsService";
 import type { TtsCache } from "../src/main/speech/ttsCache";
 
 const characterId = "00000000-0000-4000-8000-000000000001";
+
+it("preserves actionable configuration errors and hides raw exception details", () => {
+  const missingVoice = new SpeechServiceError("not-configured", "请设置默认音色。");
+  expect(toSpeechServiceError(missingVoice)).toBe(missingVoice);
+  expect(toSpeechServiceError(new Error("sensitive internal details")).message).toBe("语音生成失败，请稍后重试。");
+  expect(toSpeechServiceError(new DOMException("expired", "TimeoutError")).message).toContain("超时");
+});
+
+it.each([[401, "API Key"], [402, "付费"], [429, "请求受限"], [503, "暂时不可用"]])("reports HTTP %i safely through SDK retries", (statusCode, expected) => {
+  const cause = new APICallError({ message: "private provider message", url: "https://example.invalid/private",
+    requestBodyValues: { text: "private text" }, responseBody: "private response", statusCode: Number(statusCode) });
+  const error = new RetryError({ message: "retry failed", reason: "maxRetriesExceeded", errors: [cause] });
+  const result = toSpeechServiceError(error);
+  expect(result.cause).toBe(error);
+  expect(result.code).toBe("provider-error");
+  expect(result.message).toContain(String(expected));
+  expect(result.message).toContain(`HTTP ${statusCode}`);
+  expect(result.message).not.toContain("private");
+});
 const modelConfigId = "00000000-0000-4000-8000-000000000002";
 const providerConfigId = "00000000-0000-4000-8000-000000000003";
 const now = new Date("2026-07-30T00:00:00.000Z");

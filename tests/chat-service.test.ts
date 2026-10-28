@@ -125,6 +125,31 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("refreshes dance feedback between native tool steps in the same response", async () => {
+    const prompts: unknown[] = [];
+    let feedback: AvatarDanceState | null = null;
+    let step = 0;
+    const model = new MockLanguageModelV4({ doStream: async ({ prompt }) => {
+      prompts.push(prompt); const current = ++step;
+      return { stream: new ReadableStream({ start(controller) {
+        if (current === 1) controller.enqueue({ type: "tool-call", toolCallId: "dance", toolName: "avatar_play", input: "{}" });
+        controller.enqueue({ type: "finish", finishReason: { unified: current === 1 ? "tool-calls" : "stop", raw: undefined },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
+        controller.close();
+      } }) };
+    } });
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, avatar: {
+      captureBinding: () => 0, relay: (_binding, stream) => stream, getDanceFeedback: () => feedback,
+      createTools: () => ({ avatar_play: tool({ inputSchema: z.object({}), execute: async () => {
+        feedback = { performanceId: "00000000-0000-4000-8000-000000000099", toolCallId: "dance", actionId: "one", action: "测试舞蹈", state: "preparing" };
+        return { status: "accepted", performanceId: feedback.performanceId };
+      } }) }),
+    } });
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    expect(prompts).toHaveLength(2);
+    expect(JSON.stringify(prompts[0])).not.toContain('"state":"preparing"'.replaceAll('"', '\\"'));
+    expect(JSON.stringify(prompts[1])).toContain('"state":"preparing"'.replaceAll('"', '\\"'));
+  });
   it("feeds the latest real dance result into subsequent model calls without scheduling another Agent", async () => {
     const prompts: unknown[] = [];
     const model = createModel(prompt => prompts.push(prompt));
@@ -142,7 +167,6 @@ describe("chat service", () => {
     const complete = JSON.stringify(prompts[1]);
     expect(complete).toContain('"state":"completed"'.replaceAll('"', '\\"'));
     expect(complete).toContain("月光舞");
-    expect(complete).toContain("不要因看到状态快照而重复启动舞蹈");
     feedback = { ...feedback, state: "failed", error: "Unity 已断开。" };
     await (await service.createResponse(request, new AbortController().signal)).text();
     expect(JSON.stringify(prompts[2])).toContain("Unity 已断开。");
@@ -237,7 +261,7 @@ describe("chat service", () => {
     expect(result).toContain('"type":"text-delta"');
     expect(result).toContain("让我做个动作。");
     expect(result).not.toContain("speak");
-    expect(createTools).toHaveBeenCalledWith(expect.objectContaining({ characterId, threadId: request.threadId }), signal, 0);
+    expect(createTools).toHaveBeenCalledWith(expect.objectContaining({ characterId, threadId: request.threadId }), signal, 0, expect.any(String));
   });
 
   it("injects bounded core memory and exposes character-bound memory tools", async () => {

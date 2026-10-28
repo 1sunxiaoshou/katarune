@@ -4,6 +4,15 @@ import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import type { WarningHandlerWithDefault } from "rollup";
 
+// electron-vite 5's isolatedEntries progress reporter calls TTY methods even
+// with redirected stdout. Keep CI/headless builds working without changing
+// runtime code or upgrading the build tool as part of this feature.
+if (!process.stdout.isTTY) {
+  process.stdout.clearLine ??= () => true;
+  process.stdout.cursorTo ??= () => true;
+  process.stdout.moveCursor ??= () => true;
+}
+
 const ignoreBundledUseClientWarnings: WarningHandlerWithDefault = (
   warning,
   defaultHandler,
@@ -28,12 +37,14 @@ export default defineConfig({
         ],
       },
       rollupOptions: {
+        input: { index: resolve("src/main/index.ts"), diagnosticWriter: resolve("src/main/diagnostics/diagnosticWriter.ts") },
         onwarn: ignoreBundledUseClientWarnings,
       },
     },
   },
   preload: {
     build: {
+      isolatedEntries: true,
       externalizeDeps: {
         exclude: ["zod", "zod/mini"],
       },

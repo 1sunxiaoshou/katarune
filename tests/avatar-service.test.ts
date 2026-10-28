@@ -5,6 +5,7 @@ import { connect, type Socket } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AvatarService } from "../src/main/avatar/avatarService";
+import { SpeechServiceError } from "../src/main/speech/ttsService";
 import { avatarReplySchema, type AvatarCapabilities } from "../src/shared/avatar";
 import { avatarStepSchema } from "../src/shared/avatarPerformance";
 import { z } from "zod";
@@ -76,12 +77,15 @@ async function launch(capabilities: AvatarCapabilities = {
   );
   await startup;
   const tools = service.createTools(binding, new AbortController().signal);
+  const callCounts = new Map<string, number>();
   const invoke = async (name: string, input: unknown) => {
     const target = tools[name]!;
     const parsed = await asSchema(target.inputSchema).validate!(input);
     if (!parsed.success) throw parsed.error;
+    const count = (callCounts.get(name) ?? 0) + 1;
+    callCounts.set(name, count);
     return target.execute!(parsed.value, {
-        toolCallId: name,
+        toolCallId: count === 1 ? name : `${name}-${count}`,
         messages: [],
         context: undefined,
       });
@@ -96,7 +100,7 @@ describe("Unity local control bridge", () => {
     for (const invalid of [{ ...event, status: "paused" }, { ...event, id: "not-a-uuid" }, { ...event, actionId: "" }, { ...event, status: 1 }])
       expect(avatarReplySchema.safeParse(invalid).success).toBe(false);
   });
-  it("starts a dance only after the Player acknowledges it and keeps it independent of chat completion", async () => {
+  it("separates dance acceptance from real startup and completion", async () => {
     const { service, socket, requests, tools, invoke } = await launch({ actions: [
       { id: "dance-one", key: "dance-one", label: "月光舞", kind: "performance", durationSeconds: 45 },
       { id: "wave", label: "挥手", kind: "oneShot" },
@@ -112,8 +116,12 @@ describe("Unity local control bridge", () => {
     expect(service.status.dance).toBeUndefined();
     const id = requests[0]!.id;
     socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
-    await expect(run).resolves.toEqual({ status: "started", performanceId: id, action: "月光舞" });
-    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "started", action: "月光舞", actionId: "dance-one" });
+    await expect(run).resolves.toEqual({ status: "accepted", performanceId: id, action: "月光舞" });
+    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "accepted", action: "月光舞", actionId: "dance-one" });
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "preparing" }) + "\n");
+    await vi.waitFor(() => expect(service.status.dance?.state).toBe("preparing"));
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "started" }) + "\n");
+    await vi.waitFor(() => expect(service.status.dance?.state).toBe("started"));
     const abort = new AbortController();
     const reader = service.relay(binding, new ReadableStream<UIMessageChunk>({ start(controller) {
       controller.enqueue({ type: "start", messageId: "dance-chat" }); controller.close();
@@ -128,7 +136,7 @@ describe("Unity local control bridge", () => {
     socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
     await vi.waitFor(() => expect(service.status.dance?.state).toBe("completed"));
     expect(service.getDanceFeedback({ ...binding, threadId: "other" })).toBeNull();
-    await expect(invoke("avatar_control", { performanceId: id, command: "finish" })).rejects.toThrow("不属于");
+    await expect(invoke("avatar_control", { performanceId: id, command: "finish" })).rejects.toThrow("不支持 finish");
   });
   it("preserves an immediate dance terminal event that arrives before the startup response", async () => {
     const { service, socket, requests, invoke } = await launch({ actions: [{ id: "dance-one", key: "one", label: "短舞", kind: "performance" }], expressions: [] });
@@ -137,7 +145,7 @@ describe("Unity local control bridge", () => {
     const id = requests[0]!.id;
     socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
     socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
-    await expect(run).resolves.toMatchObject({ status: "started", action: "短舞" });
+    await expect(run).resolves.toMatchObject({ status: "accepted", action: "短舞" });
     expect(service.status.dance?.state).toBe("completed");
   });
   it("keeps a dispatched dance independent of chat abortion, but rejects an already-aborted call", async () => {
@@ -154,8 +162,8 @@ describe("Unity local control bridge", () => {
     controller.abort(new Error("聊天已取消。"));
     expect(service.status.dance).toBeUndefined();
     socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
-    await expect(run).resolves.toMatchObject({ status: "started", action: "短舞" });
-    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "started", performanceId: id });
+    await expect(run).resolves.toMatchObject({ status: "accepted", action: "短舞" });
+    expect(service.getDanceFeedback(binding)).toMatchObject({ state: "accepted", performanceId: id });
     socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "completed" }) + "\n");
     await vi.waitFor(() => expect(service.getDanceFeedback(binding)?.state).toBe("completed"));
     expect(requests).toHaveLength(1);
@@ -175,7 +183,7 @@ describe("Unity local control bridge", () => {
     await run;
     socket.write(JSON.stringify({ type: "dance", id, actionId: "unrelated", status: "completed" }) + "\n");
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(service.status.dance?.state).toBe("started");
+    expect(service.status.dance?.state).toBe("accepted");
     socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "failed", error: "动作播放失败" }) + "\n");
     await vi.waitFor(() => expect(service.getDanceFeedback(binding)).toMatchObject({ state: "failed", error: "动作播放失败" }));
   });
@@ -375,7 +383,11 @@ describe("Unity local control bridge", () => {
     };
     await sendTurn();
     await sendTurn();
-    expect(generate).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(requests.filter(request => request.event?.type === "text-start")).toHaveLength(2));
+    expect(generate).not.toHaveBeenCalled();
+    for (const request of requests.filter(request => request.event?.type === "text-start"))
+      socket.write(JSON.stringify({ type: "dialogue-delivery", runId: request.runId, dialogueId: "text", delivery: "spoken" }) + "\n");
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2));
     expect(requests.some(request => request.type === "dialogue-audio")).toBe(false);
     resume();
     await vi.waitFor(() => expect(requests.filter(request => request.type === "dialogue-audio")).toHaveLength(2));
@@ -395,7 +407,7 @@ describe("Unity local control bridge", () => {
   it.each([false, true])("always enables desktop dialogue speech without a browser preference (failure=%s)", async (failed) => {
     const { service, socket, requests } = await launch();
     const generate = vi.fn(async () => {
-      if (failed) throw new Error("voice unavailable");
+      if (failed) throw new SpeechServiceError("not-configured", "请设置默认音色。");
       return { audio: new Uint8Array([1, 2, 3]), format: "wav" as const,
         mediaType: "audio/wav" as const, cacheHit: false, spokenText: "你好。" };
     });
@@ -411,10 +423,14 @@ describe("Unity local control bridge", () => {
     } });
     const reader = service.relay(binding, input, new AbortController().signal).getReader();
     for (const chunk of chunks) expect((await reader.read()).value).toEqual(chunk);
+    await vi.waitFor(() => expect(requests.some(request => request.event?.type === "text-start")).toBe(true));
+    expect(generate).not.toHaveBeenCalled();
+    socket.write(JSON.stringify({ type: "dialogue-delivery", runId: requests[0]!.runId, dialogueId: "dialogue", delivery: "spoken" }) + "\n");
     await vi.waitFor(() => expect(requests).toContainEqual(expect.objectContaining({
       type: "dialogue-audio", dialogueId: "dialogue", failed, text: "你好。",
     })));
     expect(generate).toHaveBeenCalledExactlyOnceWith(binding.characterId, "你好。", expect.any(AbortSignal), true, expect.any(Function));
+    if (failed) expect(service.status.error).toBe("桌宠语音合成失败：请设置默认音色。");
     expect(requests.filter(request => request.type === "event")).toEqual(
       chunks.map(event => expect.objectContaining({ event, speechEnabled: true })),
     );
@@ -433,6 +449,58 @@ describe("Unity local control bridge", () => {
     expect(service.relay({ ...binding, threadId: "other" }, input, new AbortController().signal)).toBe(input);
     expect(generate).not.toHaveBeenCalled();
     expect(requests).toHaveLength(0);
+  });
+
+  it.each([true, false])("keeps chat-only text intact without creating TTS or audio, admission before text-end=%s", async (early) => {
+    const { service, socket, requests } = await launch();
+    const generate = vi.fn(); service.configureSpeech({ generate });
+    let input!: ReadableStreamDefaultController<UIMessageChunk>;
+    const reader = service.relay(binding, new ReadableStream<UIMessageChunk>({ start(controller) { input = controller; } }), new AbortController().signal).getReader();
+    input.enqueue({ type: "text-start", id: "quiet" });
+    expect((await reader.read()).value).toEqual({ type: "text-start", id: "quiet" });
+    await vi.waitFor(() => expect(requests.some(request => request.event?.type === "text-start")).toBe(true));
+    const runId = requests[0]!.runId;
+    const admit = () => socket.write(JSON.stringify({ type: "dialogue-delivery", runId, dialogueId: "quiet", delivery: "chat-only" }) + "\n");
+    if (early) admit();
+    const chunks: UIMessageChunk[] = [{ type: "text-delta", id: "quiet", delta: "这段回复仍在聊天中。" }, { type: "text-end", id: "quiet" }];
+    for (const chunk of chunks) { input.enqueue(chunk); expect((await reader.read()).value).toEqual(chunk); }
+    if (!early) admit();
+    // A duplicate/late permission must not promote already suppressed text.
+    socket.write(JSON.stringify({ type: "dialogue-delivery", runId, dialogueId: "quiet", delivery: "spoken" }) + "\n");
+    input.close(); await reader.read();
+    await vi.waitFor(() => expect(requests.some(request => request.operation === "drain")).toBe(true));
+    const drain = requests.find(request => request.operation === "drain")!;
+    socket.write(JSON.stringify({ type: "result", id: drain.id, ok: true }) + "\n");
+    await vi.waitFor(() => expect(service.status.busy).toBe(false));
+    expect(generate).not.toHaveBeenCalled();
+    expect(requests.some(request => request.type === "dialogue-audio")).toBe(false);
+  });
+
+  it("deduplicates a dance call, rejects mismatched duplicates and lets dance-only characters stop it", async () => {
+    const { service, socket, requests, tools } = await launch({ actions: [
+      { id: "dance-one", key: "one", label: "舞蹈", kind: "performance" },
+      { id: "dance-two", key: "two", label: "另一支舞", kind: "performance" },
+    ], expressions: [] });
+    const context = { toolCallId: "same-call", messages: [], context: undefined };
+    const first = tools.avatar_play!.execute!({ action: "action:one" }, context);
+    const duplicate = tools.avatar_play!.execute!({ action: "action:one" }, context);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    const id = requests[0]!.id;
+    socket.write(JSON.stringify({ type: "result", id, ok: true }) + "\n");
+    expect(await first).toEqual(await duplicate);
+    await expect(tools.avatar_play!.execute!({ action: "action:two" }, context)).rejects.toThrow("参数不一致");
+    expect(requests).toHaveLength(1);
+    expect(service.canPlayManualSpeech).toBe(false);
+    const stop = tools.avatar_control!.execute!({ performanceId: id, command: "cancel" }, { ...context, toolCallId: "stop-call" });
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    expect(requests[1]).toMatchObject({ operation: "dance-cancel", value: id });
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "cancelled" }) + "\n");
+    socket.write(JSON.stringify({ type: "result", id: requests[1]!.id, ok: true }) + "\n");
+    await stop;
+    expect(service.canPlayManualSpeech).toBe(true);
+    socket.write(JSON.stringify({ type: "dance", id, actionId: "dance-one", status: "started" }) + "\n");
+    await vi.waitFor(() => expect(service.status.dance?.state).toBe("cancelled"));
+    await expect(tools.avatar_control!.execute!({ performanceId: "00000000-0000-4000-8000-000000000099", command: "cancel" }, context)).rejects.toThrow("不属于");
   });
 
   it("plays trusted audio, forwards start, and removes its temporary file after completion", async () => {
@@ -521,7 +589,7 @@ describe("Unity local control bridge", () => {
     await vi.waitFor(() => expect(requests.filter(r => r.type === "event")).toHaveLength(chunks.length));
     expect(requests.filter(r => r.type === "event").map((r) => r.event)).toEqual(chunks);
     // Observing the tool request must never execute the action twice.
-    expect(requests.every((r) => r.type === "event" || r.type === "dialogue-text")).toBe(true);
+    expect(requests.every((r) => r.type === "run-start" || r.type === "event" || r.type === "dialogue-text")).toBe(true);
     expect(service.status.busy).toBe(true);
     source.close();
     let closed = false;

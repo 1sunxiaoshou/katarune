@@ -1,10 +1,12 @@
+import { diagnostic } from "../diagnostics/logger";
+import { safeErrorSchema } from "../../shared/diagnostics";
 import { app, utilityProcess, type UtilityProcess } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { asrResultSchema, type AsrResult } from '../../shared/asr';
 
 type Owner = { sender: number; requestId: string; realtime: boolean; inFlight: boolean };
-type Pending = { owner: Owner | undefined; resolve: (result: AsrResult) => void; timer: ReturnType<typeof setTimeout> };
+type Pending = { owner: Owner | undefined; resolve: (result: AsrResult) => void; timer: ReturnType<typeof setTimeout>; operation: string; started: number };
 const cancelled: AsrResult = { status: 'cancelled' };
 
 /** Requests lease the worker; weights remain loaded for the application lifetime. */
@@ -21,10 +23,14 @@ export class AsrService {
   private request(operation: string, samples?: Float32Array): Promise<AsrResult> {
     const id = randomUUID();
     return new Promise(resolve => {
-      const timer = setTimeout(() => this.dispose({ status: 'error', message: '离线识别超时，请重试。' }), 90_000);
-      this.pending.set(id, { owner: this.owner, resolve, timer });
+      const timer = setTimeout(() => {
+        diagnostic("error", "asr.timeout", { operationId: id });
+        this.dispose({ status: 'error', message: '离线识别超时，请重试。' });
+      }, 90_000);
+      this.pending.set(id, { owner: this.owner, resolve, timer, operation, started: performance.now() });
+      if (operation !== 'frame' && operation !== 'reset') diagnostic("info", "asr.started", { operationId: id });
       try { this.child!.postMessage({ id, operation, samples }); }
-      catch { this.dispose({ status: 'error', message: '离线识别进程不可用，请重试。' }); }
+      catch (error) { diagnostic('error', 'asr.send-failed', { operationId: id }, error); this.dispose({ status: 'error', message: '离线识别进程不可用，请重试。' }); }
     });
   }
   private load(): Promise<AsrResult> {
@@ -34,8 +40,16 @@ export class AsrService {
         [this.applicationPath, join(this.resourcePath, 'asr', 'sensevoice-int8')],
         { stdio: 'ignore', serviceName: 'Katarune offline speech' });
       this.child = child;
-      child.on('message', (value: { id?: string; result?: unknown; progress?: string }) => {
-        if (this.child !== child || !value || typeof value.id !== 'string') return;
+      const processInstanceId = randomUUID();
+      child.on('message', (value: { id?: string; result?: unknown; progress?: string; diagnostic?: unknown; fatal?: unknown }) => {
+        if (this.child !== child || !value) return;
+        const fatal = safeErrorSchema.safeParse(value.fatal);
+        if (fatal.success) {
+          diagnostic("error", "asr.worker-fatal", {}, { ...fatal.data, stack: `Error\n${fatal.data.frames.join("\n")}` }, { source: "asr", processInstanceId });
+          this.dispose({ status: 'error', message: '离线识别进程异常，请重试。' });
+          return;
+        }
+        if (typeof value.id !== 'string') return;
         const request = this.pending.get(value.id);
         if (!request) return;
         if (value.progress === 'transcribing') {
@@ -45,16 +59,21 @@ export class AsrService {
         this.pending.delete(value.id);
         clearTimeout(request.timer);
         const parsed = asrResultSchema.safeParse(value.result);
+        const failure = safeErrorSchema.safeParse(value.diagnostic);
+        if (!parsed.success || parsed.data.status === 'error') diagnostic("error", "asr.failed", { operationId: value.id, durationMs: performance.now() - request.started }, failure.success ? { ...failure.data, stack: `Error\n${failure.data.frames.join("\n")}` } : new Error(), { source: "asr", processInstanceId });
+        else if (request.operation !== 'frame' && request.operation !== 'reset' || parsed.data.status === 'success' && parsed.data.complete) diagnostic("info", "asr.completed", { operationId: value.id, durationMs: performance.now() - request.started });
         request.resolve(parsed.success ? parsed.data : { status: 'error', message: '离线识别返回无效结果。' });
       });
-      child.on('exit', () => {
+      child.on('exit', code => {
+        if (this.child === child) diagnostic('error', 'asr.exited', { exitCode: code }, undefined, { source: 'asr', processInstanceId });
         if (this.child === child) this.dispose({ status: 'error', message: '离线识别进程已退出，请重试。' });
       });
       this.ready = this.request('load');
       const ready = this.ready;
       void ready.then(result => { if (result.status !== 'success' && this.ready === ready) this.dispose(result); });
       return ready;
-    } catch {
+    } catch (error) {
+      diagnostic('error', 'asr.start-failed', {}, error);
       return Promise.resolve({ status: 'error', message: '离线语音模型无法加载，请检查语音资源。' });
     }
   }

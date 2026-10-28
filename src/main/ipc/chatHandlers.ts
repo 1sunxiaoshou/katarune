@@ -1,3 +1,4 @@
+import { diagnosticIpcMain } from "../diagnostics/ipc";
 import type { AvatarService } from "../avatar/avatarService";
 import { ipcMain } from "electron";
 import {
@@ -41,45 +42,45 @@ export function registerChatHandlers(
     },
   });
 
-  ipcMain.handle(IPC_CHANNELS.importChatAttachment, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.importChatAttachment, (_event, value: unknown) => {
     const request = importChatAttachmentRequestSchema.parse(value);
     return assetService.importChatAttachment(request, database);
   });
-  ipcMain.handle(IPC_CHANNELS.releaseChatAttachment, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.releaseChatAttachment, (_event, value: unknown) => {
     const { assetId } = releaseChatAttachmentRequestSchema.parse(value);
     assetService.releaseChatAttachment(assetId, database);
     return operationSuccessSchema.parse({ success: true });
   });
 
-  ipcMain.handle(IPC_CHANNELS.listThreads, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.listThreads, (_event, value: unknown) => {
     const { characterId } = listThreadsRequestSchema.parse(value);
     return database.listThreads(characterId);
   });
-  ipcMain.handle(IPC_CHANNELS.initializeThread, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.initializeThread, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     return database.initializeThread(threadId, characterId);
   });
-  ipcMain.handle(IPC_CHANNELS.fetchThread, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.fetchThread, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     return database.fetchThread(threadId, characterId);
   });
-  ipcMain.handle(IPC_CHANNELS.generateThreadTitle, async (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.generateThreadTitle, async (_event, value: unknown) => {
     const request = generateThreadTitleRequestSchema.parse(value);
     return generateThreadTitleResponseSchema.parse(
       await chatService.generateTitle(request),
     );
   });
-  ipcMain.handle(IPC_CHANNELS.renameThread, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.renameThread, (_event, value: unknown) => {
     const { threadId, characterId, title } = renameThreadRequestSchema.parse(value);
     database.renameThread(threadId, characterId, title);
     return operationSuccessSchema.parse({ success: true });
   });
-  ipcMain.handle(IPC_CHANNELS.setThreadStatus, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.setThreadStatus, (_event, value: unknown) => {
     const { threadId, characterId, status } = setThreadStatusRequestSchema.parse(value);
     database.setThreadStatus(threadId, characterId, status);
     return operationSuccessSchema.parse({ success: true });
   });
-  ipcMain.handle(IPC_CHANNELS.deleteThread, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.deleteThread, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     chatStreams.cancelThread(characterId, threadId);
     const candidateAssetIds = database.deleteThread(threadId, characterId);
@@ -88,17 +89,17 @@ export function registerChatHandlers(
     }
     return operationSuccessSchema.parse({ success: true });
   });
-  ipcMain.handle(IPC_CHANNELS.loadThreadMessages, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.loadThreadMessages, (_event, value: unknown) => {
     const { threadId, characterId } = threadIdRequestSchema.parse(value);
     return database.loadThreadMessages(threadId, characterId);
   });
-  ipcMain.handle(IPC_CHANNELS.appendThreadMessage, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.appendThreadMessage, (_event, value: unknown) => {
     const request = appendThreadMessageRequestSchema.parse(value);
     database.appendThreadMessage(request);
     database.queueMemoryDiaryMessage(request.characterId, request.message.id, Intl.DateTimeFormat().resolvedOptions().timeZone);
     return operationSuccessSchema.parse({ success: true });
   });
-  ipcMain.handle(IPC_CHANNELS.deleteThreadMessages, (_event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.deleteThreadMessages, (_event, value: unknown) => {
     const { threadId, characterId, messageIds } =
       deleteThreadMessagesRequestSchema.parse(value);
     const candidateAssetIds = database.deleteThreadMessages(

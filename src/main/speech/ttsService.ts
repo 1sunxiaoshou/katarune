@@ -1,4 +1,4 @@
-import { generateSpeech, type SpeechResult } from "ai";
+import { APICallError, RetryError, generateSpeech, type SpeechResult } from "ai";
 import { createHash } from "node:crypto";
 import type { SpeechSegment } from "../../shared/speechTiming";
 import type { createSpeechArtifactCache } from "./speechArtifactCache";
@@ -26,10 +26,38 @@ export class SpeechServiceError extends Error {
   public constructor(
     public readonly code: SpeechErrorCode,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "SpeechServiceError";
   }
+}
+
+// Only expose our own messages and HTTP status, never provider bodies, URLs or credentials.
+export function toSpeechServiceError(error: unknown): SpeechServiceError {
+  const original = error;
+  if (RetryError.isInstance(error)) error = error.lastError;
+  if (error instanceof SpeechServiceError) return error;
+  const status = APICallError.isInstance(error) ? error.statusCode : undefined;
+  let message = "语音生成失败，请稍后重试。";
+  if ((error instanceof Error && error.name === "TimeoutError") || status === 408 || status === 504)
+    message = "语音生成超时，请稍后重试。";
+  else if (status === 401 || status === 403)
+    message = "语音供应商拒绝访问，请检查 API Key 和模型权限。";
+  else if (status === 402)
+    message = "语音供应商要求付费，请检查账户余额或套餐。";
+  else if (status === 429)
+    message = "语音供应商请求受限，请检查额度或稍后重试。";
+  else if (status === 400 || status === 422)
+    message = "语音供应商拒绝请求参数，请检查模型和音色。";
+  else if (status === 404)
+    message = "语音接口或模型不存在，请检查供应商地址和模型配置。";
+  else if (status !== undefined && status >= 500)
+    message = "语音供应商暂时不可用，请稍后重试。";
+  else if (APICallError.isInstance(error) && status === undefined
+    || error instanceof TypeError && /fetch failed|Failed to fetch/i.test(error.message))
+    message = "无法连接语音供应商，请检查网络和供应商地址。";
+  return new SpeechServiceError("provider-error", status === undefined ? message : `${message}（HTTP ${status}）`, { cause: original });
 }
 
 type SpeechDatabase = Pick<

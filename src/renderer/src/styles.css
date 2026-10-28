@@ -398,17 +398,20 @@
   content: "";
 }
 
-.app-shell {
+:root {
   --app-titlebar-height: 0px;
+}
+
+:root:has(.app-shell[data-custom-titlebar="true"]) {
+  --app-titlebar-height: env(titlebar-area-height, 36px);
+}
+
+.app-shell {
   --app-content-height: calc(100dvh - var(--app-titlebar-height));
   display: flex;
   height: 100dvh;
   flex-direction: column;
   overflow: hidden;
-}
-
-.app-shell[data-custom-titlebar="true"] {
-  --app-titlebar-height: 36px;
 }
 
 .app-titlebar {

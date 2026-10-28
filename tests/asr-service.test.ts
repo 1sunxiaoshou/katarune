@@ -26,6 +26,14 @@ async function prepare(id = 'first', realtime = false) {
   expect((await pending).status).toBe('success');
 }
 describe('resident speech worker', () => {
+  it('settles outstanding work after a worker startup exception and can recover', async () => {
+    const pending = service.prepare(1, 'startup');
+    worker.emit('message', { fatal: { name: 'Error', code: 'MODULE_NOT_FOUND', frames: ['resources/asr-worker.cjs:18:1'], messageRedacted: true } });
+    expect((await pending).status).toBe('error');
+    expect(worker.kill).toHaveBeenCalledTimes(1);
+    worker = new Worker(); mock.fork.mockReturnValue(worker);
+    await prepare('retry');
+  });
   it('retains weights after completion, cancellation and more than 60 seconds idle', async () => {
     await prepare();
     const result = service.transcribe(1, 'first', new Float32Array(160));

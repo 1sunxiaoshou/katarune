@@ -1,3 +1,4 @@
+import { diagnostic } from "../diagnostics/logger";
 import { validateCharacterPackage } from "./validateCharacterPackage";
 import type { RuntimeCharacterPackage } from "../../shared/characterPackages";
 import { writeFileSync } from "node:fs";
@@ -8,8 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { SpeechServiceResult } from "../speech/ttsService";
-import type { SpeechService } from "../speech/ttsService";
+import { toSpeechServiceError, type SpeechServiceResult, type SpeechService } from "../speech/ttsService";
 import { AvatarDialogueSpeech } from "./avatarDialogueSpeech";
 import { dirname, join } from "node:path";
 import { tool, type ToolSet, type UIMessageChunk } from "ai";
@@ -31,6 +31,7 @@ type Pending = {
   cleanup: () => void;
 };
 type DancePlayback = { actionId: string; action: string; toolCallId: string; state: AvatarDanceState | null };
+const danceTerminal = (state: AvatarDanceState["state"]) => ["completed", "cancelled", "failed"].includes(state);
 
 function describeAction(action: AvatarCapabilities["actions"][number]): string {
   const duration = action.durationSeconds;
@@ -46,6 +47,7 @@ function actionSelector(action: AvatarCapabilities["actions"][number]): string {
 }
 
 export class AvatarService {
+  private diagnosticSource = { source: "unity" as const, processInstanceId: randomUUID() };
   onOpenPackages: (() => void) | undefined;
   private packageResolver?: (characterId: string) => RuntimeCharacterPackage;
   private activePackageId: string | undefined;
@@ -76,7 +78,8 @@ export class AvatarService {
     this.voiceError = null; this.changed();
   }
   desktopCommand(operation: string, value: string): Promise<string> {
-    return this.request(operation, value, new AbortController().signal);
+    const dance = operation === "desktop-action" ? this.capabilities?.actions.find(action => action.id === value && action.kind === "performance") : undefined;
+    return this.request(operation, value, new AbortController().signal, "", dance ? { actionId: dance.id, action: dance.label } : undefined);
   }
   sendWindowLayout(value: unknown): void {
     this.socket?.write(`${JSON.stringify({ type: "window-layout", value: JSON.stringify(value) })}\n`);
@@ -139,13 +142,21 @@ export class AvatarService {
       ...(this.latestDance ? { dance: this.latestDance } : {}),
       voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
   }
-  private get latestDance(): AvatarDanceState | null { return this.latestDanceId ? this.dances.get(this.latestDanceId)?.state ?? null : null; }
+  get canPlayManualSpeech(): boolean {
+    return this.activeRuns.size === 0 && ![...this.dances.values()].some(dance => !dance.state || !danceTerminal(dance.state.state));
+  }
+  private get latestDance(): AvatarDanceState | null {
+    const active = [...this.dances.values()].find(dance => dance.state && !danceTerminal(dance.state.state));
+    return active?.state ?? (this.latestDanceId ? this.dances.get(this.latestDanceId)?.state ?? null : null);
+  }
   getDanceFeedback(binding: AvatarBinding, epoch = this.bindingEpoch): AvatarDanceState | null {
     return epoch === this.bindingEpoch && this.matches(binding) && this.latestDance ? { ...this.latestDance } : null;
   }
   private updateDance(id: string, state: AvatarDanceState["state"], error?: string): void {
     const dance = this.dances.get(id);
-    if (!dance || (dance.state && dance.state.state !== "started")) return;
+    if (!dance || (dance.state && danceTerminal(dance.state.state))) return;
+    const order = ["accepted", "preparing", "started"];
+    if (dance.state && !danceTerminal(state) && order.indexOf(state) < order.indexOf(dance.state.state)) return;
     dance.state = { performanceId: id, toolCallId: dance.toolCallId, actionId: dance.actionId, action: dance.action, state,
       ...(error ? { error: error.slice(0, 4000) } : {}) };
     this.latestDanceId = id;
@@ -242,7 +253,9 @@ export class AvatarService {
             buffer = buffer.slice(end + 1);
             try {
               const reply = avatarReplySchema.parse(JSON.parse(line));
-              if (reply.type === "presentation") {
+              if (reply.type === "diagnostic") {
+                diagnostic("error", "unity.engine-error", { count: reply.dropped }, { name: reply.error.name, stack: `Error\n${reply.error.frames.join("\n")}` }, { ...this.diagnosticSource, sourceSequence: reply.sequence, timestamp: reply.timestamp });
+              } else if (reply.type === "presentation") {
                 this.presentation = reply;
               } else if (reply.type === "window-state") {
                 this.onWindowState?.(reply);
@@ -262,17 +275,22 @@ export class AvatarService {
               } else if (reply.type === "performance") {
                 if (!this.performances.has(reply.performance.performanceId)) continue;
                 this.performances.set(reply.performance.performanceId, reply.performance);
+                diagnostic(reply.performance.state === "failed" ? "error" : "info", `performance.${reply.performance.state}`, { performanceId: reply.performance.performanceId, toolCallId: reply.performance.toolCallId, bindingEpoch: this.bindingEpoch }, undefined, this.diagnosticSource);
                 if (reply.performance.state === "failed") this.state = { ...this.state, error: reply.performance.error || "角色表演失败。" };
               } else if (reply.type === "dance") {
+                diagnostic(reply.status === "failed" ? "error" : "info", `dance.${reply.status}`, { performanceId: reply.id, bindingEpoch: this.bindingEpoch }, undefined, this.diagnosticSource);
                 const dance = this.dances.get(reply.id);
                 if (dance?.actionId === reply.actionId) this.updateDance(reply.id, reply.status, reply.status === "failed" ? reply.error || "舞蹈播放失败。" : undefined);
               } else if (reply.type === "playback") {
                 if (!this.activeRuns.has(reply.runId) || this.state.phase !== "ready") continue;
+                diagnostic("info", `playback.${reply.state}`, { runId: reply.runId }, undefined, this.diagnosticSource);
                 this.playingRunId = reply.active ? reply.runId : this.playingRunId === reply.runId ? null : this.playingRunId;
                 this.playbackState = { runId: reply.runId, state: reply.state };
                 this.changed();
               } else if (reply.type === "dialogue-completed") {
                 this.dialogueRuns.get(reply.runId)?.completed(reply.dialogueId);
+              } else if (reply.type === "dialogue-delivery") {
+                this.dialogueRuns.get(reply.runId)?.admit(reply.dialogueId, reply.delivery);
               } else if (reply.type === "speech") {
                 const request = this.pending.get(reply.id);
                 if (!request && !(reply.runId && this.activeRuns.has(reply.runId))) continue;
@@ -292,13 +310,15 @@ export class AvatarService {
                 if (reply.ok) request.resolve();
                 else request.reject(new Error(reply.error || "角色执行失败。"));
               }
-            } catch {
+            } catch (error) {
+              diagnostic("error", "unity.invalid-message", {}, error, this.diagnosticSource);
               this.fail("Unity 控制消息无效。");
               return;
             } finally { this.changed(); }
           }
         });
-        socket.on("error", () => {
+        socket.on("error", (error) => {
+          if (this.socket === socket) diagnostic("error", "unity.connection-failed", {}, error, this.diagnosticSource);
           if (this.socket === socket) this.fail("Unity 连接失败。");
         });
         socket.on("close", () => {
@@ -311,6 +331,7 @@ export class AvatarService {
         if (this.server !== server) return;
         try {
           mkdirSync(this.logsDirectory, { recursive: true });
+          this.diagnosticSource = { source: "unity", processInstanceId: randomUUID() };
           const child = spawn(
             this.executable,
             [
@@ -318,24 +339,26 @@ export class AvatarService {
               "-screen-fullscreen",
               "1",
               "-window-mode", "borderless",
-              "-logFile",
-              join(this.logsDirectory, "avatar.log"),
+              "-nolog",
             ],
             {
               cwd: dirname(this.executable),
               windowsHide: true,
               stdio: "ignore",
-              env: { ...process.env, KATARUNE_AVATAR_PIPE: pipeName, KATARUNE_CHARACTER_PACKAGE: startupPackage ? packageFile : "" },
+              env: { ...process.env, KATARUNE_DIAGNOSTICS_FALLBACK: join(this.logsDirectory, "unity-fallback.jsonl"), KATARUNE_AVATAR_PIPE: pipeName, KATARUNE_CHARACTER_PACKAGE: startupPackage ? packageFile : "" },
             },
           );
           this.child = child;
-          child.on("error", () => {
+          child.on("error", (error) => {
+            diagnostic("error", "unity.start-failed", {}, error);
             if (this.child === child) this.fail("Unity 无法启动。");
           });
-          child.on("exit", () => {
+          child.on("exit", (code) => {
+            if (this.child === child) diagnostic("error", "unity.exited", { exitCode: code ?? -1 }, undefined, this.diagnosticSource);
             if (this.child === child) this.fail("Unity 已退出。");
           });
-        } catch {
+        } catch (error) {
+          diagnostic("error", "unity.launch-failed", {}, error);
           this.fail("Unity 无法启动或日志目录不可写。");
         }
       });
@@ -441,7 +464,7 @@ export class AvatarService {
 
   private fail(message: string): void {
     const binding = this.state.binding;
-    for (const [id, dance] of this.dances) if (!dance.state || dance.state.state === "started") this.updateDance(id, "failed", message);
+    for (const [id, dance] of this.dances) if (!dance.state || !danceTerminal(dance.state.state)) this.updateDance(id, "failed", message);
     const dance = this.latestDance;
     this.stop(new Error(message));
     if (dance) {
@@ -462,7 +485,7 @@ export class AvatarService {
     return this.matches(binding) && this.state.phase === "ready" ? this.bindingEpoch : null;
   }
 
-  createTools(binding: AvatarBinding, signal: AbortSignal, epoch = this.bindingEpoch): ToolSet {
+  createTools(binding: AvatarBinding, signal: AbortSignal, epoch = this.bindingEpoch, runId?: string): ToolSet {
     const capabilities = this.capabilities;
     const socket = this.socket;
     if (
@@ -497,6 +520,17 @@ export class AvatarService {
     const exampleExpression = capabilities.expressions.includes("happy") ? "happy" : capabilities.expressions[0];
     const example = { steps: [{ at: "start", ...(exampleAction ? { action: actionSelector(exampleAction) } : {}),
       ...(exampleExpression ? { expression: exampleExpression } : {}) }] };
+    const calls = new Map<string, { operation: string; value: string; result: Promise<string> }>();
+    const executeRequest = (operation: string, value: string, abort: AbortSignal, toolCallId: string, dance?: { actionId: string; action: string }) => {
+      const prior = calls.get(toolCallId);
+      if (prior) {
+        if (prior.operation !== operation || prior.value !== value) throw new Error("重复工具调用的参数不一致。");
+        return prior.result;
+      }
+      const result = this.request(operation, value, abort, toolCallId, dance, runId);
+      calls.set(toolCallId, { operation, value, result });
+      return result;
+    };
     return {
       ...(actions.length || capabilities.expressions.length ? {
       avatar_perform: tool({
@@ -508,7 +542,7 @@ export class AvatarService {
             sentence: step.sentence ?? undefined,
             action: step.action ? actions.find(action => actionSelector(action) === step.action)!.id : null,
           })) };
-          const performanceId = await this.request("performance", JSON.stringify(resolved), signal, toolCallId);
+          const performanceId = await executeRequest("performance", JSON.stringify(resolved), signal, toolCallId);
           current();
           return { status: "accepted", performanceId, steps: resolved.steps.map(step => ({
             action: step.action ? capabilities.actions.find(action => action.id === step.action)!.label : undefined,
@@ -516,27 +550,33 @@ export class AvatarService {
           })) };
         },
       }),
+      } : {}),
       avatar_control: tool({
-        description: "控制本会话先前已接收的表演。finish 取消尚未开始的提示点并让当前动作自然收尾；cancel 立即取消该表演。使用 avatar_perform 返回的 performanceId。",
+        description: "控制本会话已接收的日常编排或完整演出。cancel 停止目标并释放占用；finish 仅支持日常编排的自然收尾，舞蹈不支持。使用 avatar_perform 或 avatar_play 返回的 performanceId。明确停止成功后，后续新正文恢复出声。",
         inputSchema: avatarControlSchema,
         execute: async ({ performanceId, command }, { toolCallId }) => {
           current();
-          if (!this.performances.has(performanceId)) throw new Error("该表演不属于当前角色会话或已经释放。");
-          await this.request(`performance-${command}`, performanceId, signal, toolCallId);
+          const dance = this.dances.get(performanceId);
+          if (dance) {
+            if (command !== "cancel") throw new Error("舞蹈不支持 finish，请使用 cancel 停止演出。");
+            await executeRequest("dance-cancel", performanceId, signal, toolCallId);
+          } else {
+            if (!this.performances.has(performanceId)) throw new Error("该表演不属于当前角色会话或已经释放。");
+            await executeRequest(`performance-${command}`, performanceId, signal, toolCallId);
+          }
           return { status: "accepted" as const, performanceId, command };
         },
       }),
-      } : {}),
       ...(dances.length ? { avatar_play: tool({
-        description: `选择并播放一支独立舞蹈，只填写 action。伴奏和镜头由动作自身配置决定。成功返回 started 表示播放器已实际启动，不表示演完；对白结束不会结束舞蹈。最终完成或失败会由播放器回报，在后续对话中提供真实状态。可用舞蹈：${dances.map(describeAction).join("；")}。`,
+        description: `安排一支完整舞蹈，只填写 action。需要引导语时先输出原生正文，再调用本工具；播放器会等待前文播完。返回 accepted 仅表示接收，实际启动与终态由播放器回报。接收后的正文和演出期间的新回复只进入聊天记录，不出声、不占用歌词、不在演后补播。演出期间不能再次安排舞蹈或日常动作；用户要求停止时调用 avatar_control.cancel。可用舞蹈：${dances.map(describeAction).join("；")}。`,
         inputSchema: z.object({ action: z.enum(dances.map(actionSelector)) }),
         execute: async ({ action }, { toolCallId }) => {
           current();
           signal.throwIfAborted();
           const dance = dances.find(dance => actionSelector(dance) === action)!;
-          const performanceId = await this.request("dance", dance.id, new AbortController().signal, toolCallId, { actionId: dance.id, action: dance.label });
+          const performanceId = await executeRequest("dance", dance.id, new AbortController().signal, toolCallId, { actionId: dance.id, action: dance.label });
           current();
-          return { status: "started" as const, performanceId, action: dance.label };
+          return { status: "accepted" as const, performanceId, action: dance.label };
         },
       }) } : {}),
     };
@@ -547,20 +587,23 @@ export class AvatarService {
     stream: ReadableStream<UIMessageChunk>,
     signal: AbortSignal,
     epoch = this.bindingEpoch,
+    runId = randomUUID(),
   ): ReadableStream<UIMessageChunk> {
     const socket = this.socket;
     if (!socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready")
       return stream;
     const current = () => this.socket === socket && epoch === this.bindingEpoch && this.state.phase === "ready";
     const reader = stream.getReader();
-    const runId = randomUUID();
     this.activeRuns.add(runId);
+    socket.write(`${JSON.stringify({ type: "run-start", runId })}\n`);
     this.state = { ...this.state, error: null };
     const speech = this.speechService
       ? new AvatarDialogueSpeech(runId, binding.characterId, this.speechService, message => {
         if (current()) socket.write(`${JSON.stringify(message)}\n`);
-      }, this.speechDirectory, () => {
-        if (current()) this.state = { ...this.state, error: "桌宠语音合成失败，请检查模型和音色后重试。" };
+      }, this.speechDirectory, (error, incidentId) => {
+        if (current()) {
+          this.state = { ...this.state, error: `桌宠语音合成失败：${toSpeechServiceError(error).message}${incidentId ? `（故障编号：${incidentId}）` : ""}` };
+        }
       }) : undefined;
     if (speech) this.dialogueRuns.set(runId, speech);
     const textBlocks = new Map<string, string>();
@@ -651,7 +694,7 @@ export class AvatarService {
     epoch = this.bindingEpoch,
   ): Promise<boolean> {
     signal.throwIfAborted();
-    if (this.activeRuns.size > 0) throw new Error("角色表演期间不能手动朗读。");
+    if (!this.canPlayManualSpeech) throw new Error("角色表演期间不能手动朗读。");
     const socket = this.socket;
     if (!socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready") return false;
     if (!["wav", "mp3", "ogg"].includes(audio.format)) throw new Error("Unity 不支持该语音格式。");
@@ -662,7 +705,7 @@ export class AvatarService {
       await writeFile(path, audio.audio, { signal });
       signal.throwIfAborted();
       if (this.socket !== socket || epoch !== this.bindingEpoch || !this.matches(binding) || this.state.phase !== "ready") throw new Error("角色连接已改变。");
-      if (this.activeRuns.size > 0) throw new Error("角色表演期间不能手动朗读。");
+      if (!this.canPlayManualSpeech) throw new Error("角色表演期间不能手动朗读。");
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
           // Keep the request until Unity acknowledges cancellation, so the file stays valid during decode.
@@ -696,19 +739,21 @@ export class AvatarService {
     signal: AbortSignal,
     toolCallId = "",
     danceAction?: { actionId: string; action: string },
+    runId?: string,
   ): Promise<string> {
     signal.throwIfAborted();
     const socket = this.socket;
     if (!socket || (this.state.phase !== "ready" && !((operation === "session-reset" || operation === "load-package") && this.state.phase === "switching")))
       return Promise.reject(new Error("Unity 尚未连接。"));
     const id = randomUUID();
+    diagnostic(operation === "dance" || operation === "performance" ? "info" : "debug", `unity.${operation}.requested`, { operationId: id, ...(runId ? { runId } : {}), ...(toolCallId ? { toolCallId } : {}), performanceId: id, bindingEpoch: this.bindingEpoch });
     if (danceAction) {
       if (this.dances.size >= 8) {
-        const retired = [...this.dances].find(([, dance]) => dance.state && dance.state.state !== "started")?.[0];
+        const retired = [...this.dances].find(([, dance]) => dance.state && danceTerminal(dance.state.state))?.[0];
         if (!retired) return Promise.reject(new Error("舞蹈请求过多，请等待当前播放结束。"));
         this.dances.delete(retired);
       }
-      this.dances.set(id, { ...danceAction, toolCallId, state: null });
+      this.dances.set(id, { ...danceAction, toolCallId: toolCallId || id, state: null });
     }
     return new Promise<string>((resolve, reject) => {
       const abort = () => {
@@ -734,12 +779,12 @@ export class AvatarService {
         }
         this.performances.set(id, null);
       }
-      this.pending.set(id, { resolve: () => { if (danceAction) this.updateDance(id, "started"); resolve(id); },
+      this.pending.set(id, { resolve: () => { if (danceAction) this.updateDance(id, "accepted"); resolve(id); },
         reject: error => { if (danceAction) this.updateDance(id, "failed", error.message); reject(error); }, cleanup });
       this.changed();
       signal.addEventListener("abort", abort, { once: true });
       socket.write(
-        `${JSON.stringify({ id, operation, value, toolCallId })}\n`,
+        `${JSON.stringify({ id, operation, value, toolCallId, runId })}\n`,
       );
     });
   }

@@ -10,7 +10,7 @@ import { realtimeVoice } from "./speech/realtimeVoice";
 import { createChatSendQueue } from "./chat/chatSendQueue";
 import { interruptForVoice } from "./chat/voiceInterruption";
 import { useAvatarState } from "./chat/avatarState";
-import { AvatarSessionBinding } from "./chat/AvatarControl";
+import { AvatarSessionBinding, AvatarTextInputBridge } from "./chat/AvatarControl";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import {
@@ -272,6 +272,7 @@ function CharacterRuntimeHost({
         {active ? (
           <>
             <AvatarSessionBinding />
+            <AvatarTextInputBridge />
             <AutoReadReplies />
             <MemoryToolUI />
             <ViewChatImageToolUI />

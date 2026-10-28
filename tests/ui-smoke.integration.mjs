@@ -443,7 +443,7 @@ function registerMockHandlers() {
           writer.write({ type: "tool-input-available", toolCallId: "performance-ui-state-only", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
           writer.write({ type: "tool-output-available", toolCallId: "performance-ui-state-only", output: {} });
           writer.write({ type: "tool-input-available", toolCallId: "dance-ui", toolName: "avatar_play", input: { action: "action:test-dance" } });
-          writer.write({ type: "tool-output-available", toolCallId: "dance-ui", output: { status: "started", performanceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", action: "测试舞蹈" } });
+          writer.write({ type: "tool-output-available", toolCallId: "dance-ui", output: { status: "accepted", performanceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", action: "测试舞蹈" } });
           writer.write({ type: "tool-input-available", toolCallId: "dance-ui-error", toolName: "avatar_play", input: { action: "action:test-dance" } });
           writer.write({ type: "tool-output-error", toolCallId: "dance-ui-error", errorText: "舞蹈伴奏无法加载。" });
           writer.write({ type: "finish-step" }); writer.write({ type: "start-step" });
@@ -1412,14 +1412,18 @@ async function run() {
       window.webContents.send('avatar:changed', { ...avatarStatus, performances: [{ ...performance, state: 'failed', error: '测试播放失败' }] });
       await waitForText(window, '[data-testid="avatar-performance"] [role="alert"]', '测试播放失败');
       window.webContents.send('avatar:changed', avatarStatus);
-      await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已启动');
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已安排');
       await waitForText(window, '[data-tool-call-id="dance-ui"]', '测试舞蹈');
       await waitForText(window, '[data-tool-call-id="dance-ui-error"] [role="alert"]', '舞蹈伴奏无法加载');
       const dance = { performanceId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', toolCallId: 'dance-ui', actionId: '11111111-1111-4111-8111-111111111111', action: '测试舞蹈', state: 'started' };
+      window.webContents.send('avatar:changed', { ...avatarStatus, dance: { ...dance, state: 'preparing' } });
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '正在准备舞蹈');
       window.webContents.send('avatar:changed', { ...avatarStatus, dance });
       await waitForText(window, '[data-tool-call-id="dance-ui"]', '正在表演');
       window.webContents.send('avatar:changed', { ...avatarStatus, dance: { ...dance, state: 'completed' } });
       await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已完成');
+      window.webContents.send('avatar:changed', { ...avatarStatus, dance: { ...dance, state: 'cancelled' } });
+      await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已停止');
       window.webContents.send('avatar:changed', avatarStatus);
       await waitUntil('performance response stream completion', () => activeChatStreamCount === 0);
       await waitForSelector(window, 'button[aria-label="发送消息"]');
@@ -1531,7 +1535,25 @@ async function run() {
       };
       await sendText("桌宠第一句");
       await waitForText(window, '[data-slot="aui_thread-viewport"]', "字幕对白第1句");
-      await sendText("桌宠第二句");
+      // The capsule uses the same active runtime and queue even when the main
+      // window is hidden. A stale target must never fall through to this thread.
+      const capsuleText = async (id, binding, text) => {
+        const reply = new Promise(resolve => {
+          const listener = (event, result) => {
+            if (event.sender !== window.webContents || result.id !== id) return;
+            ipcMain.removeListener("avatar:text-result", listener);
+            resolve(result);
+          };
+          ipcMain.on("avatar:text-result", listener);
+        });
+        window.webContents.send("avatar:text-input", { id, binding, text });
+        return reply;
+      };
+      const stale = await capsuleText("00000000-0000-4000-8000-000000000021", { ...avatarStatus.binding, threadId: "old-thread" }, "不应发送");
+      assert.ok(stale.error);
+      const accepted = await capsuleText("00000000-0000-4000-8000-000000000022", avatarStatus.binding, "桌宠第二句");
+      assert.equal(accepted.error, null);
+      assert.equal(window.isVisible(), false, "Capsule text must not open the chat window");
       await waitForText(window, '[role="status"]:not(.sr-only)', "1");
       await sendText("桌宠第三句", true);
       await waitForText(window, '[role="status"]:not(.sr-only)', "2");
@@ -1853,6 +1875,23 @@ async function run() {
       realtimeText = '实时模式创建的新会话。';
       await waitUntil('first voice message persists a new thread', () => avatarChatRequests.length > beforeNew);
       avatarStatus = { ...avatarStatus, busy: false }; window.webContents.send('avatar:changed', avatarStatus);
+      avatarStatus = { ...avatarStatus, error: '桌宠语音合成失败：语音供应商请求受限，请检查额度或稍后重试。（HTTP 429）' };
+      window.webContents.send('avatar:changed', avatarStatus);
+      await waitForText(window, '[data-testid="notification-toast"]', 'HTTP 429');
+      await window.webContents.executeJavaScript('new Promise(resolve => setTimeout(resolve, 250))');
+      const notificationLayout = await window.webContents.executeJavaScript(`(() => {
+        const toast = [...document.querySelectorAll('[data-testid="notification-toast"]')].find(el => el.textContent.includes('HTTP 429'));
+        const box = toast.getBoundingClientRect();
+        const close = toast.querySelector('button[aria-label="关闭通知"]');
+        const button = close.getBoundingClientRect();
+        return { top: box.top, titlebarBottom: document.querySelector('.app-titlebar')?.getBoundingClientRect().bottom ?? 0,
+          fits: box.right <= innerWidth && box.bottom <= innerHeight && toast.scrollWidth <= toast.clientWidth,
+          closeReachable: close.contains(document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)) };
+      })()`);
+      assert.ok(notificationLayout.top >= notificationLayout.titlebarBottom + 8, 'Notifications must clear the native titlebar control area');
+      assert.ok(notificationLayout.fits && notificationLayout.closeReachable, 'Full error and its close button must remain reachable');
+      writeFileSync(join(projectRoot, '.test-dist', 'speech-error-notification.png'), (await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`const toast = [...document.querySelectorAll('[data-testid="notification-toast"]')].find(el => el.textContent.includes('HTTP 429')); toast.querySelector('button[aria-label="关闭通知"]').click()`);
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       testingRealtime = false; includeGoogleSpeechFixture = false;
       await clickSelector(window, '[data-testid="settings-launcher"]');

@@ -1,3 +1,4 @@
+import type { DiagnosticsApi } from "./diagnostics";
 import * as z from "zod/mini";
 import type { AvatarStatus, AvatarCapabilities } from "./avatar";
 
@@ -49,6 +50,7 @@ export type AvatarWindowReport = z.infer<typeof avatarWindowReportSchema>;
 export const desktopCommandSchema = z.object({
   operation: z.enum([
     "chat",
+    "input",
     "voice",
     "retry",
     "stop",
@@ -71,8 +73,15 @@ export const desktopCommandSchema = z.object({
     "camera-view",
   ]),
   value: z.optional(z.string().check(z.maxLength(256))),
-  width: z.optional(z.number().check(z.gte(100), z.lte(220))),
+  width: z.optional(z.number().check(z.gte(100), z.lte(520))),
 });
+export const desktopTextSchema = z.object({
+  sessionId: z.uuid(),
+  text: z.string().check(z.minLength(1), z.maxLength(20_000)),
+});
+export const desktopTextResultSchema = z.object({ error: z.nullable(z.string()) });
+export type DesktopText = z.infer<typeof desktopTextSchema>;
+export type DesktopTextResult = z.infer<typeof desktopTextResultSchema>;
 export type DesktopCommand = z.infer<typeof desktopCommandSchema>;
 export type DesktopSurface = "capsule" | "panel";
 export type DesktopSnapshot = {
@@ -83,6 +92,9 @@ export type DesktopSnapshot = {
   selectedDisplay: string;
   adjusting: boolean;
   compact: boolean;
+  inputOpen: boolean;
+  inputAnchorRight: boolean;
+  textSessionId: string | null;
   mode: AvatarDisplayMode;
   cameraView: AvatarCameraView;
   voiceLevel: number;
@@ -92,8 +104,9 @@ export type DesktopSnapshot = {
   error: string | null;
 };
 
-export interface AvatarDesktopApi {
+export interface AvatarDesktopApi extends DiagnosticsApi {
   getState(): Promise<DesktopSnapshot>;
   command(command: DesktopCommand): Promise<void>;
+  submitText(request: DesktopText): Promise<DesktopTextResult>;
   subscribe(listener: (state: DesktopSnapshot) => void): () => void;
 }

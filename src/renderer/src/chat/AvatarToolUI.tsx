@@ -2,7 +2,7 @@ import { makeAssistantToolUI, type ToolCallMessagePartProps } from "@assistant-u
 import { ChevronDown, Drama, LoaderCircle, TriangleAlert } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { avatarPerformSchema, avatarPerformAcceptedSchema, avatarPerformResultSchema, avatarControlSchema, type AvatarStep } from "../../../shared/avatarPerformance";
-import { avatarDanceStartedSchema } from "../../../shared/avatar";
+import { avatarDanceAcceptedSchema } from "../../../shared/avatar";
 import { useAvatarState } from "./avatarState";
 import { toolErrorMessage } from "./toolErrorMessage";
 
@@ -58,19 +58,20 @@ function PerformanceView({ args, result, status, isError, toolCallId }: ToolCall
 }
 const Performance = makeAssistantToolUI({ toolName: "avatar_perform", display: "standalone", render: PerformanceView });
 function DanceView({ result, status, isError, toolCallId }: ToolCallMessagePartProps) {
-  const started = avatarDanceStartedSchema.safeParse(result);
+  const accepted = avatarDanceAcceptedSchema.safeParse(result);
   const live = useAvatarState(state => state.status.dance?.toolCallId === toolCallId
-    || (started.success && state.status.dance?.performanceId === started.data.performanceId) ? state.status.dance : undefined);
+    || (accepted.success && state.status.dance?.performanceId === accepted.data.performanceId) ? state.status.dance : undefined);
   const error = live ? live.error : toolErrorMessage(result, status);
   const failed = live ? live.state === "failed" : isError || status.type === "incomplete";
   const pending = !live && status.type === "running";
-  const label = failed ? "舞蹈播放失败" : pending ? "正在准备舞蹈…"
+  const label = failed ? "舞蹈播放失败" : pending ? "正在安排舞蹈…"
     : live?.state === "completed" ? "舞蹈已完成" : live?.state === "started" ? "正在表演"
-      : started.success ? "舞蹈已启动" : "播放状态未同步";
+      : live?.state === "cancelled" ? "舞蹈已停止" : live?.state === "preparing" ? "正在准备舞蹈…"
+        : live?.state === "accepted" || accepted.success ? "舞蹈已安排" : "播放状态未同步";
   return <div className="text-muted-foreground my-1 text-sm" data-testid="avatar-dance" data-tool-call-id={toolCallId}>
     <p className="flex items-center gap-2 py-1">{failed ? <TriangleAlert className="text-destructive size-4 shrink-0" aria-hidden />
       : pending ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : <Drama className="size-4 shrink-0" aria-hidden />}
-      <span>{label}{live ? ` · ${live.action}` : started.success ? ` · ${started.data.action}` : ""}</span></p>
+      <span>{label}{live ? ` · ${live.action}` : accepted.success ? ` · ${accepted.data.action}` : ""}</span></p>
     {error ? <p className="text-destructive" role="alert">{error}</p> : null}
   </div>;
 }

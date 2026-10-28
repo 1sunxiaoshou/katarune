@@ -21,6 +21,7 @@ function silentWav(seconds) {
   data.write("data", 36); data.writeUInt32LE(frames * 2, 40); return data;
 }
 const audio = join(output, "music.wav"), vanishedAudio = join(output, "vanishing.wav"), nearEndAudio = join(output, "near-end.wav");
+const introductionAudio = join(output, "introduction.wav"); await writeFile(introductionAudio, silentWav(1));
 await writeFile(audio, silentWav(3)); await writeFile(vanishedAudio, silentWav(3)); await writeFile(nearEndAudio, silentWav(2.951));
 const subtitles = join(output, "lyrics.srt");
 const cameraTrack = join(output, "camera.glb");
@@ -63,10 +64,11 @@ async function operation(operation, value = "", ok = true) {
   const reply = await wait(message => message.type === "result" && message.id === id);
   assert.equal(reply.ok, ok, reply.error); return reply;
 }
+const terminal = message => message.type === "dance" && ["completed", "cancelled", "failed"].includes(message.status);
 async function completed(reply, actionId) {
-  const result = await wait(message => message.type === "dance" && message.id === reply.id);
+  const result = await wait(message => terminal(message) && message.id === reply.id);
   assert.equal(result.status, "completed", result.error); assert.equal(result.actionId, actionId);
-  assert.ok(result.sequence > reply.sequence, "The true-start reply must precede terminal feedback"); return result;
+  assert.ok(result.sequence > reply.sequence, "Acceptance must precede terminal feedback"); return result;
 }
 const lifetime = setTimeout(() => { child?.kill(); console.error("Dance Player timeout"); process.exit(1); }, 120000);
 try {
@@ -78,35 +80,98 @@ try {
   const ready = await wait(message => message.type === "ready");
   assert.equal(ready.capabilities.actions.filter(action => action.kind === "performance").length, 5);
   send({ type: "binding", epoch: 1 });
+  const native = (runId, event, speechEnabled = true) => send({ type: "event", runId, event, speechEnabled });
+  const dialogue = (runId, id, text = "测试对白。", speechEnabled = true) => {
+    native(runId, { type: "text-start", id }, speechEnabled);
+    native(runId, { type: "text-delta", id, delta: text }, speechEnabled);
+    native(runId, { type: "text-end", id }, speechEnabled);
+    send({ type: "dialogue-text", runId, dialogueId: id, text });
+  };
+  const delivery = (runId, dialogueId) => wait(message => message.type === "dialogue-delivery" && message.runId === runId && message.dialogueId === dialogueId);
+  const endRun = runId => operation("drain", runId);
+  const introductionRun = randomUUID(), queuedDanceId = randomUUID();
+  dialogue(introductionRun, "introduction", "给你跳支舞。");
+  native(introductionRun, { type: "tool-input-available", toolName: "avatar_play", toolCallId: "queued-dance" });
+  send({ id: queuedDanceId, operation: "dance", value: mediaId, runId: introductionRun, toolCallId: "queued-dance" });
+  const queued = await wait(message => message.type === "result" && message.id === queuedDanceId);
+  assert.equal(queued.ok, true, queued.error);
+  assert.equal((await delivery(introductionRun, "introduction")).delivery, "spoken");
+  assert.ok(!messages.some(message => message.type === "dance" && message.id === queuedDanceId && message.status === "started"), "An accepted dance must wait for the introduction audio");
+  dialogue(introductionRun, "after-tool", "请欣赏。", false);
+  const waitingRun = randomUUID(); dialogue(waitingRun, "while-waiting");
+  await operation("performance", JSON.stringify({ steps: [{ at: "start", expression: "happy" }] }), false);
+  send({ type: "dialogue-audio", runId: introductionRun, dialogueId: "introduction", text: "给你跳支舞。", value: introductionAudio, segments: [] });
+  const danceStarted = await wait(message => message.type === "dance" && message.id === queuedDanceId && message.status === "started");
+  const introductionEnded = await wait(message => message.type === "dialogue-completed" && message.runId === introductionRun && message.dialogueId === "introduction");
+  assert.ok(introductionEnded.sequence < danceStarted.sequence, "Introduction must actually finish before music starts");
+  assert.equal((await delivery(introductionRun, "after-tool")).delivery, "chat-only");
+  assert.equal((await delivery(waitingRun, "while-waiting")).delivery, "chat-only");
+  send({ type: "user-subtitle", text: "用户字幕不应覆盖歌词" });
+  const duringRun = randomUUID(); dialogue(duringRun, "during");
+  const delayedRun = randomUUID(); send({ type: "run-start", runId: delayedRun });
+  assert.equal((await delivery(duringRun, "during")).delivery, "chat-only");
+  await completed(queued, mediaId);
+  dialogue(introductionRun, "late-origin"); dialogue(duringRun, "late-chat");
+  dialogue(delayedRun, "late-first-text");
+  assert.equal((await delivery(introductionRun, "late-origin")).delivery, "chat-only");
+  assert.equal((await delivery(duringRun, "late-chat")).delivery, "chat-only");
+  assert.equal((await delivery(delayedRun, "late-first-text")).delivery, "chat-only");
+  for (const runId of [introductionRun, waitingRun, duringRun, delayedRun]) await endRun(runId);
+
+  const stopDance = await operation("dance", mediaId);
+  await wait(message => message.type === "dance" && message.id === stopDance.id && message.status === "started");
+  const stopRun = randomUUID(); dialogue(stopRun, "before-stop");
+  assert.equal((await delivery(stopRun, "before-stop")).delivery, "chat-only");
+  native(stopRun, { type: "tool-input-available", toolName: "avatar_control", toolCallId: "stop-dance" });
+  const stopId = randomUUID(); send({ id: stopId, operation: "dance-cancel", value: stopDance.id, runId: stopRun, toolCallId: "stop-dance" });
+  assert.equal((await wait(message => message.type === "result" && message.id === stopId)).ok, true);
+  assert.equal((await wait(message => terminal(message) && message.id === stopDance.id)).status, "cancelled");
+  dialogue(stopRun, "after-stop");
+  assert.equal((await delivery(stopRun, "after-stop")).delivery, "spoken");
+  send({ type: "dialogue-audio", runId: stopRun, dialogueId: "after-stop", text: "已经停下。", failed: true });
+  await endRun(stopRun);
+  const nextRun = randomUUID(), nextDanceId = randomUUID();
+  native(nextRun, { type: "tool-input-available", toolName: "avatar_play", toolCallId: "next-dance" });
+  send({ id: nextDanceId, operation: "dance", value: mediaId, runId: nextRun, toolCallId: "next-dance" });
+  await wait(message => message.type === "dance" && message.id === nextDanceId && message.status === "started");
+  native(nextRun, { type: "tool-input-available", toolName: "avatar_control", toolCallId: "repeat-old-stop" });
+  const repeatStopId = randomUUID();
+  send({ id: repeatStopId, operation: "dance-cancel", value: stopDance.id, runId: nextRun, toolCallId: "repeat-old-stop" });
+  assert.equal((await wait(message => message.type === "result" && message.id === repeatStopId)).ok, true);
+  dialogue(nextRun, "after-old-stop");
+  assert.equal((await delivery(nextRun, "after-old-stop")).delivery, "chat-only", "Stopping an older dance must not release the current performance's subtitle ownership");
+  await endRun(nextRun);
+  await wait(message => terminal(message) && message.id === nextDanceId);
+  console.log("[dance-player] ordered introduction, exclusive delivery, late text suppression and explicit stop recovery passed");
+
   const silent = await operation("dance", silentId);
-  assert.ok(!messages.some(message => message.type === "dance" && message.id === silent.id), "Starting must return while the dance is still playing");
+  assert.ok(!messages.some(message => terminal(message) && message.id === silent.id), "Starting must return while the dance is still playing");
   await operation("action", ordinaryId, false);
   await operation("dance", mediaId, false);
   await operation("drain", "synthetic-dialogue");
   await operation("run-cancel", "synthetic-dialogue");
   await delay(250);
-  assert.ok(!messages.some(message => message.type === "dance" && message.id === silent.id), "Dialogue completion/cancellation must not end an independent dance");
+  assert.ok(!messages.some(message => terminal(message) && message.id === silent.id), "Dialogue completion/cancellation must not end an independent dance");
   await completed(silent, silentId);
   console.log("[dance-player] no-media playback, busy rejection and dialogue-independent lifetime passed");
 
   const manualMedia = await operation("desktop-action", mediaId);
   await delay(400);
   await operation("desktop-action", "unavailable-action", false);
-  assert.ok(!messages.some(message => message.type === "dance" && message.id === manualMedia.id), "An invalid selection must leave the current dance playing");
+  assert.ok(!messages.some(message => terminal(message) && message.id === manualMedia.id), "An invalid selection must leave the current dance playing");
   const manualTrack = await operation("desktop-action", trackId);
-  const replacedMedia = await wait(message => message.type === "dance" && message.id === manualMedia.id);
-  assert.equal(replacedMedia.status, "failed");
-  assert.match(replacedMedia.error, /切换/);
+  const replacedMedia = await wait(message => terminal(message) && message.id === manualMedia.id);
+  assert.equal(replacedMedia.status, "cancelled");
   assert.ok(replacedMedia.sequence < manualTrack.sequence, "The previous dance must terminate before its replacement starts");
   await delay(400);
   const manualGesture = await operation("desktop-action", ordinaryId);
-  assert.equal((await wait(message => message.type === "dance" && message.id === manualTrack.id)).status, "failed");
+  assert.equal((await wait(message => terminal(message) && message.id === manualTrack.id)).status, "cancelled");
   await wait(message => message.type === "presentation" && message.action === ordinaryId && message.playingActions?.includes(ordinaryId) && !message.playingActions.some(id => [mediaId, trackId].includes(id)), manualGesture.sequence - 1);
   await delay(350);
   await operation("desktop-action", "none");
   const manualStop = await operation("desktop-action", mediaId);
   await operation("desktop-action-stop", mediaId);
-  assert.equal((await wait(message => message.type === "dance" && message.id === manualStop.id)).status, "failed");
+  assert.equal((await wait(message => terminal(message) && message.id === manualStop.id)).status, "cancelled");
   console.log("[dance-player] manual dance-to-dance, dance-to-gesture, stop and invalid-selection retention passed");
 
   const headOnly = await operation("desktop-action", headId);
@@ -133,7 +198,9 @@ try {
   console.log("[dance-player] permitted accompaniment tail tolerance completed");
 
   await unlink(vanishedAudio);
-  const missing = await operation("dance", missingId, false);
+  const missingRequest = await operation("dance", missingId);
+  const missing = await wait(message => terminal(message) && message.id === missingRequest.id);
+  assert.equal(missing.status, "failed");
   assert.match(missing.error, /伴奏.*不可用/);
   assert.ok(!missing.error.includes(output), "Player errors must not expose managed file paths");
   const invalid = { ...pack, id: randomUUID(), actions: [{ ...pack.actions[2], playback: { kind: "performance", motion: motion, audio: join(output, "absent.wav") } }] };
@@ -144,11 +211,11 @@ try {
 
   const interrupted = await operation("dance", mediaId);
   await operation("session-reset");
-  const stopped = await wait(message => message.type === "dance" && message.id === interrupted.id);
-  assert.equal(stopped.status, "failed", "Reset must report interruption instead of successful completion");
+  const stopped = await wait(message => terminal(message) && message.id === interrupted.id);
+  assert.equal(stopped.status, "cancelled", "Reset must report interruption instead of successful completion");
   const interruptedTrack = await operation("dance", trackId);
   await delay(1100); await operation("session-reset");
-  assert.equal((await wait(message => message.type === "dance" && message.id === interruptedTrack.id)).status, "failed");
+  assert.equal((await wait(message => terminal(message) && message.id === interruptedTrack.id)).status, "cancelled");
   await operation("dance", ordinaryId, false);
   await delay(250);
   const frames = (await readFile(join(output, "frames.jsonl"), "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));

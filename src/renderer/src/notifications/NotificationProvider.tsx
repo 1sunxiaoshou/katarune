@@ -25,7 +25,7 @@ function NotificationViewport(): React.JSX.Element {
   return (
     <Toast.Portal>
       <Toast.Viewport
-        className="pointer-events-none fixed top-4 right-4 z-100 flex w-[min(22.5rem,calc(100vw-2rem))] flex-col gap-2 outline-none"
+        className="pointer-events-none fixed top-[calc(var(--app-titlebar-height,0px)+1rem)] right-4 z-100 flex w-[min(22.5rem,calc(100vw-2rem))] flex-col gap-2 outline-none"
         data-testid="notification-viewport"
       >
         {toasts.map((toast) => {

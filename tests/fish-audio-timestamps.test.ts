@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { APICallError } from "ai";
 import { readFishTimestampStream } from "../src/main/ai/fishAudioTimestamps";
 import { extractSpokenText } from "../src/main/speech/spokenText";
 import { createFishAudio } from "../src/main/ai/fishAudioProvider";
@@ -25,6 +26,17 @@ const event = (seq: number, offset: number, alignment: unknown, byte = 1) =>
     chunk_seq: seq, chunk_audio_offset_sec: offset })}\r\n\r\n`;
 
 describe("Fish timestamp stream", () => {
+  it("retains the HTTP status without attaching private provider response data", async () => {
+    const model = createFishAudio({ apiKey: "test-only", fetch: async () => new Response("private response", { status: 429 }) }).speechModel!("test-model");
+    if (!hasStreamingSpeech(model)) throw new Error("Missing streaming capability");
+    const iterator = model.streamSpeech({ text: "test" })[Symbol.asyncIterator]();
+    await iterator.next();
+    const failure = await iterator.next().catch(error => error);
+    expect(APICallError.isInstance(failure)).toBe(true);
+    expect(failure.statusCode).toBe(429);
+    expect(failure.responseBody).toBeUndefined();
+    expect(failure.requestBodyValues).toBeUndefined();
+  });
   it("delivers aligned PCM before the response closes and joins split samples", async () => {
     let source!: ReadableStreamDefaultController<Uint8Array>;
     const body = new ReadableStream<Uint8Array>({ start(controller) { source = controller; } });

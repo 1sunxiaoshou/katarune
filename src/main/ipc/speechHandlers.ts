@@ -1,3 +1,5 @@
+import { diagnosticIpcMain } from "../diagnostics/ipc";
+import { diagnostic } from "../diagnostics/logger";
 import { ipcMain } from "electron";
 import type { AvatarService } from "../avatar/avatarService";
 import {
@@ -9,6 +11,7 @@ import {
 import { SpeechRequestRegistry } from "../speech/speechRequestRegistry";
 import {
   SpeechServiceError,
+  toSpeechServiceError,
   type SpeechService,
 } from "../speech/ttsService";
 
@@ -17,7 +20,7 @@ export function registerSpeechHandlers(
   speechRequests: SpeechRequestRegistry,
   avatar?: AvatarService,
 ): void {
-  ipcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
+  diagnosticIpcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
     const request = speechGenerateRequestSchema.parse(value);
     const abortController = new AbortController();
     const binding = request.threadId ? { characterId: request.characterId, threadId: request.threadId } : undefined;
@@ -36,7 +39,8 @@ export function registerSpeechHandlers(
     event.sender.once("destroyed", handleSenderDestroyed);
 
     try {
-      if (avatarEpoch != null && avatar?.status.busy) throw new Error("角色表演期间不能手动朗读。");
+      if (avatarEpoch != null && avatar && !avatar.canPlayManualSpeech)
+        throw new SpeechServiceError("provider-error", "角色正在表演，请先停止演出再朗读。");
       const result = await speechService.generate(
         request.characterId,
         request.text,
@@ -76,18 +80,13 @@ export function registerSpeechHandlers(
           requestId: request.requestId,
         });
       }
-      const publicError =
-        error instanceof SpeechServiceError
-          ? error
-          : new SpeechServiceError(
-              "provider-error",
-              "语音生成失败，请检查供应商连接后重试。",
-            );
+      const publicError = toSpeechServiceError(error);
+      const incidentId = diagnostic("error", "tts.manual-failed", {}, error);
       return speechGenerateResponseSchema.parse({
         status: "error",
         requestId: request.requestId,
         code: publicError.code,
-        message: publicError.message,
+        message: `${publicError.message}${incidentId ? `（故障编号：${incidentId}）` : ""}`,
       });
     } finally {
       unsubscribeAvatar?.();

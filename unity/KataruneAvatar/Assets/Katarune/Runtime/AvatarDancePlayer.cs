@@ -169,7 +169,7 @@ namespace Katarune.Avatar
             if (!Active) return;
             ++_generation;
             if (_playing != null) StopCoroutine(_playing);
-            Complete("failed", reason);
+            Complete("cancelled", reason);
         }
         private void Complete(string status, string error)
         {
