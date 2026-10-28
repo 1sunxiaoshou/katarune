@@ -26,6 +26,7 @@ import { createTtsCache } from "./speech/ttsCache";
 import { createSpeechService } from "./speech/ttsService";
 import { createSpeechArtifactCache } from "./speech/speechArtifactCache";
 import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirectory";
+import { registerWindowThemeHandler } from "./windowTheme";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
@@ -49,7 +50,8 @@ function createMainWindow(): BrowserWindow {
     icon: app.isPackaged
       ? join(__dirname, "../renderer/katarune-logo.png")
       : join(app.getAppPath(), "resources", "katarune-logo.png"),
-    backgroundColor: "#10131a",
+    backgroundColor: "#ffffff",
+    ...(process.platform === "win32" ? { accentColor: "#ffffff" } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -154,6 +156,7 @@ void app.whenReady().then(async () => {
     cache: ttsCache,
   });
   registerAssetProtocol(databaseRuntime, assetService);
+  registerWindowThemeHandler(() => mainWindow);
   avatarService = new AvatarService(
     app.isPackaged ? join(process.resourcesPath, "avatar", "KataruneAvatar.exe")
       : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),

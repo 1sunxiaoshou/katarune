@@ -5,6 +5,7 @@ import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
+import { registerWindowThemeHandler } from "../src/main/windowTheme";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
 import {
   createUIMessageStream,
@@ -827,12 +828,17 @@ function registerMockHandlers() {
     if (request.id === characterId) character = updated;
     return updated;
   });
+  const packageActions = [
+    { id: "00000000-0000-4000-8000-000000000041", key: "greet", name: "问候", description: "问候动作说明", playback: { kind: "oneShot", motion: "actions/greet.vrma" } },
+    { id: "00000000-0000-4000-8000-000000000042", key: "idle", name: "基础待机", description: "循环动作说明", playback: { kind: "loop", motion: "actions/idle.vrma" } },
+    { id: "00000000-0000-4000-8000-000000000043", key: "dance", name: "测试舞蹈", description: "舞蹈动作说明", playback: { kind: "performance", motion: "actions/dance.vrma" } },
+  ];
   const builtin = { id: "builtin:default", builtin: true,
-    manifest: { formatVersion: 3, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", actions: [] },
-    portraitAssetId: "00000000-0000-4000-8000-000000000002", thumbnailAssetId: "00000000-0000-4000-8000-000000000004", actions: [], referenceCount: characters.length };
+    manifest: { formatVersion: 3, name: "春原心奈", version: "1.0.0", portrait: "portrait.png", thumbnail: "thumbnail.png", model: "avatar.vrm", actions: packageActions.map(({ id, ...action }) => action) },
+    portraitAssetId: "00000000-0000-4000-8000-000000000002", thumbnailAssetId: "00000000-0000-4000-8000-000000000004", actions: packageActions, referenceCount: characters.length };
   let packages = [builtin, { ...builtin,
     id: "00000000-0000-4000-8000-000000000031", builtin: false,
-    manifest: { ...builtin.manifest, name: "测试角色包", author: "测试作者" }, referenceCount: 0 }];
+    manifest: { ...builtin.manifest, name: "测试角色包", author: "测试作者", actions: [] }, actions: [], referenceCount: 0 }];
   const listPackages = () => packages.map(pack => ({ ...pack,
     referenceCount: characters.filter(c => c.packageId === pack.id).length }));
   ipcMain.handle("character-packages:list", listPackages);
@@ -953,6 +959,7 @@ let exitCode = 0;
 
 async function run() {
   registerMockHandlers();
+  registerWindowThemeHandler(sender => BrowserWindow.fromWebContents(sender) ?? undefined);
   const window = createTestWindow();
 
   try {
@@ -1613,6 +1620,20 @@ async function run() {
       })()`);
       await waitForSelector(window, '[data-testid="character-package-dialog"]');
       await waitForText(window, '[data-testid="character-package-dialog"]', "春原心奈");
+      const packageActionNames = () => window.webContents.executeJavaScript(`
+        [...document.querySelectorAll('.character-package-actions [role="tabpanel"] li')].map(item => item.textContent)
+      `);
+      assert.deepEqual(await packageActionNames(), ["问候"]);
+      assert.deepEqual(await window.webContents.executeJavaScript(`
+        [...document.querySelectorAll('.character-package-actions [role="tab"]')].map(tab => tab.textContent.trim())
+      `), ["单次1", "循环1", "演出1"]);
+      await clickSelector(window, '.character-package-actions [role="tab"]:nth-child(2)');
+      await waitForText(window, '.character-package-actions [role="tabpanel"]', "基础待机");
+      assert.deepEqual(await packageActionNames(), ["基础待机"]);
+      await clickSelector(window, '.character-package-actions [role="tab"]:nth-child(3)');
+      await waitForText(window, '.character-package-actions [role="tabpanel"]', "测试舞蹈");
+      assert.deepEqual(await packageActionNames(), ["测试舞蹈"]);
+      writeFileSync(join(projectRoot, '.test-dist', 'character-package-tabs.png'), (await window.webContents.capturePage()).toPNG());
       assert.equal(await window.webContents.executeJavaScript(`(() => {
         const dialog = document.querySelector('[data-testid="character-package-dialog"]');
         const remove = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === '删除');
@@ -1633,6 +1654,8 @@ async function run() {
       const packageClosed = async () => waitUntil("package dialog closed", async () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="character-package-dialog"]')`));
       await openPackages();
       await selectPackage("测试角色包");
+      await waitForText(window, '.character-package-actions [role="tabpanel"]', "暂无此类动作");
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.character-package-actions [role="tab"][aria-selected="true"]').textContent.trim()`), "单次0");
       assert.equal(character.packageId, "builtin:default");
       await packageButton("取消");
       await packageClosed();
@@ -1686,6 +1709,9 @@ async function run() {
       await waitForSelector(window, '[data-testid="general-settings"]');
       await clickSelector(window, '[data-testid="theme-dark"]');
       await waitForSelector(window, "html.dark");
+      if (process.platform === "win32") {
+        await waitUntil("native title bar follows dark theme", () => String(window.getAccentColor()).toLowerCase() === "#0a0a0a");
+      }
       await clickSelector(window, '[data-testid="reduce-motion"]');
       await waitForSelector(window, 'html[data-reduce-motion]');
       await clickSelector(window, '[data-testid="auto-read-replies"]');
@@ -1850,6 +1876,9 @@ async function run() {
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await waitForSelector(window, '[data-testid="general-settings"]');
       await clickSelector(window, '[data-testid="theme-light"]');
+      if (process.platform === "win32") {
+        await waitUntil("native title bar follows light theme", () => String(window.getAccentColor()).toLowerCase() === "#ffffff");
+      }
       await new Promise(resolve => setTimeout(resolve, 300));
       await waitForText(window, '[data-testid="default-language-model"]', '无');
       await clickSelector(window, '[data-testid="default-language-model"]');

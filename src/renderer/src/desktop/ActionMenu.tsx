@@ -12,9 +12,9 @@ import {
 import { Tabs, TabsIndicator, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const groups = [
-  { kind: "oneShot", label: "单次动作" },
-  { kind: "loop", label: "循环动作" },
-  { kind: "performance", label: "舞蹈演出" },
+  { kind: "oneShot", label: "单次" },
+  { kind: "loop", label: "循环" },
+  { kind: "performance", label: "演出" },
 ] as const;
 type ActionKind = typeof groups[number]["kind"];
 

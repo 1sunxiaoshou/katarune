@@ -76,6 +76,7 @@ export type {
 
 export const IPC_CHANNELS = {
   getAppInfo: "app:get-info",
+  setWindowTheme: "window:set-theme",
   getDatabaseStatus: "database:get-status",
   getAiRuntimeStatus: "ai:get-runtime-status",
   getAppState: "app-state:get",
@@ -130,6 +131,9 @@ export const appInfoSchema = z.strictObject({
   electronVersion: nonEmptyStringSchema,
   nodeVersion: nonEmptyStringSchema,
 });
+
+export const windowThemeSchema = z.enum(["light", "dark"]);
+export type WindowTheme = z.infer<typeof windowThemeSchema>;
 
 export const databaseStatusSchema = z.strictObject({
   ready: z.literal(true),
@@ -662,6 +666,7 @@ export interface KataruneApi {
   showAvatarUserSubtitle(request: import("./avatar").AvatarUserSubtitleRequest): Promise<void>;
   onSpeechStarted(callback: (request: SpeechCancelRequest) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
+  setWindowTheme(theme: WindowTheme): Promise<void>;
   getDatabaseStatus(): Promise<DatabaseStatus>;
   getAiRuntimeStatus(): Promise<AiRuntimeStatus>;
   getAppState(): Promise<AppState>;

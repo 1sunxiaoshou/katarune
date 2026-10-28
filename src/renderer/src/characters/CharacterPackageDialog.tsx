@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { assetUrl } from "../../../shared/assets";
 import {
   DEFAULT_PACKAGE_ID,
@@ -19,6 +20,12 @@ interface Props {
   onUse: (id: string) => Promise<void>;
   onClose: () => void;
 }
+const actionGroups = [
+  { kind: "oneShot", label: "单次" },
+  { kind: "loop", label: "循环" },
+  { kind: "performance", label: "演出" },
+] as const;
+
 export function CharacterPackageDialog({
   packageId,
   onUse,
@@ -53,8 +60,6 @@ export function CharacterPackageDialog({
     };
   }, []);
   const selected = packages.find((p) => p.id === selectedId);
-  const idleCount = Number(Boolean(selected?.manifest.idle?.base)) + (selected?.manifest.idle?.variations?.length ?? 0);
-  const performanceCount = selected?.actions.filter(a => a.playback.kind === "performance").length ?? 0;
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -150,23 +155,33 @@ export function CharacterPackageDialog({
                   <dd>{selected.manifest.author ?? "未提供"}</dd>
                   <dt>版本</dt>
                   <dd>{selected.manifest.version}</dd>
-                  <dt>动作总数</dt>
-                  <dd>{selected.actions.length}</dd>
-                  <dt>自动待机</dt>
-                  <dd>{idleCount}</dd>
-                  <dt>舞蹈演出</dt>
-                  <dd>{performanceCount}</dd>
                 </dl>
-                {selected.actions.length > 0 && (
-                  <ul>
-                    {selected.actions.map((action) => (
-                      <li key={action.id}>
-                        <strong>{action.name}</strong>
-                        <span>{action.description}</span>
-                      </li>
+                <Tabs key={selected.id} defaultValue="oneShot" className="character-package-actions">
+                  <TabsList aria-label="动作类型">
+                    {actionGroups.map(group => (
+                      <TabsTrigger key={group.kind} value={group.kind}>
+                        {group.label}
+                        <span className="character-package-action-count">
+                          {selected.actions.filter(action => action.playback.kind === group.kind).length}
+                        </span>
+                      </TabsTrigger>
                     ))}
-                  </ul>
-                )}
+                  </TabsList>
+                  {actionGroups.map(group => {
+                    const actions = selected.actions.filter(action => action.playback.kind === group.kind);
+                    return (
+                      <TabsContent key={group.kind} value={group.kind}>
+                        {actions.length > 0 ? (
+                          <ul>
+                            {actions.map(action => <li key={action.id}>{action.name}</li>)}
+                          </ul>
+                        ) : (
+                          <p className="character-package-actions-empty" role="status">暂无此类动作</p>
+                        )}
+                      </TabsContent>
+                    );
+                  })}
+                </Tabs>
               </div>
             </div>
           ) : (

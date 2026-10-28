@@ -13,6 +13,7 @@ import {
   aiRuntimeStatusSchema,
   appendThreadMessageRequestSchema,
   appInfoSchema,
+  windowThemeSchema,
   appSettingsSchema,
   appStateSchema,
   availableModelListSchema,
@@ -71,6 +72,7 @@ import {
   type GenerateThreadTitleRequest,
   type ImportChatAttachmentRequest,
   type KataruneApi,
+  type WindowTheme,
   type ProviderConfigIdRequest,
   type ReplaceProviderCredentialRequest,
   type ModelConfigIdRequest,
@@ -164,6 +166,9 @@ const api: KataruneApi = Object.freeze({
   controlAvatarPlayback: (request: import('../shared/avatar').AvatarPlaybackControlRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.playbackControl, avatarPlaybackControlSchema.parse(request)),
   showAvatarUserSubtitle: (request: import('../shared/avatar').AvatarUserSubtitleRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.userSubtitle, avatarUserSubtitleSchema.parse(request)),
   getAppInfo: () => invokeValidated(IPC_CHANNELS.getAppInfo, appInfoSchema),
+  setWindowTheme: async (theme: WindowTheme) => {
+    await invokeValidated(IPC_CHANNELS.setWindowTheme, operationSuccessSchema, windowThemeSchema.parse(theme));
+  },
   getDatabaseStatus: () => invokeValidated(IPC_CHANNELS.getDatabaseStatus, databaseStatusSchema),
   getAiRuntimeStatus: () => invokeValidated(IPC_CHANNELS.getAiRuntimeStatus, aiRuntimeStatusSchema),
   getAppState: () => invokeValidated(IPC_CHANNELS.getAppState, appStateSchema),
