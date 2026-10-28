@@ -51,7 +51,11 @@ function createMainWindow(): BrowserWindow {
       ? join(__dirname, "../renderer/katarune-logo.png")
       : join(app.getAppPath(), "resources", "katarune-logo.png"),
     backgroundColor: "#ffffff",
-    ...(process.platform === "win32" ? { accentColor: "#ffffff" } : {}),
+    ...(process.platform === "win32" ? {
+      accentColor: "#ffffff",
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: "#ffffff", symbolColor: "#1a1c1f", height: 36 },
+    } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,

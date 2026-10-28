@@ -19,6 +19,8 @@ const MemoryPage = lazy(async () => {
   return { default: module.MemoryPage };
 });
 
+const hasCustomTitleBar = navigator.userAgent.includes("Windows");
+
 export function App(): React.JSX.Element {
   useEffect(() => realtimeVoice.mount(), []);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "characters" | "memory">("chat");
@@ -31,52 +33,60 @@ export function App(): React.JSX.Element {
   const [settingsTab, setSettingsTab] = useState<"general" | "models">("general");
 
   return (
-    <div className="h-dvh overflow-hidden">
-      <KataruneAssistantRuntimePool>
-        {activeView === "chat" ? (
-          <ChatPage
-            onOpenCharacters={() => setActiveView("characters")}
-            onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
-            onOpenMemory={() => setActiveView("memory")}
-          />
-        ) : null}
-      </KataruneAssistantRuntimePool>
-      {activeView === "settings" ? (
-        <Suspense
-          fallback={
-            <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
-              正在打开设置……
-            </main>
-          }
-        >
-          <SettingsPage
-            initialTab={settingsTab}
-            onClose={() => {
-              window.dispatchEvent(new Event(SPEECH_CONFIG_CHANGED_EVENT));
-              setActiveView("chat");
-            }}
-          />
-        </Suspense>
-      ) : activeView === "characters" ? (
-        <Suspense
-          fallback={
-            <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
-              正在打开角色图鉴……
-            </main>
-          }
-        >
-          <CharacterPage
-            packageRequest={packageRequest}
-            onPackageRequestHandled={() => setPackageRequest(null)}
-            onClose={() => setActiveView("chat")}
-            onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
-          />
-        </Suspense>
-      ) : activeView === "memory" ? (
-        <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开记忆……</main>}>
-          <MemoryPage onClose={() => setActiveView("chat")} />
-        </Suspense>
+    <div className="app-shell" data-custom-titlebar={hasCustomTitleBar}>
+      {hasCustomTitleBar ? (
+        <header className="app-titlebar" aria-label="Katarune">
+          <img src="./katarune-logo.png" alt="" draggable={false} />
+          <span>Katarune</span>
+        </header>
       ) : null}
+      <div className="app-workspace">
+        <KataruneAssistantRuntimePool>
+          {activeView === "chat" ? (
+            <ChatPage
+              onOpenCharacters={() => setActiveView("characters")}
+              onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
+              onOpenMemory={() => setActiveView("memory")}
+            />
+          ) : null}
+        </KataruneAssistantRuntimePool>
+        {activeView === "settings" ? (
+          <Suspense
+            fallback={
+              <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
+                正在打开设置……
+              </main>
+            }
+          >
+            <SettingsPage
+              initialTab={settingsTab}
+              onClose={() => {
+                window.dispatchEvent(new Event(SPEECH_CONFIG_CHANGED_EVENT));
+                setActiveView("chat");
+              }}
+            />
+          </Suspense>
+        ) : activeView === "characters" ? (
+          <Suspense
+            fallback={
+              <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
+                正在打开角色图鉴……
+              </main>
+            }
+          >
+            <CharacterPage
+              packageRequest={packageRequest}
+              onPackageRequestHandled={() => setPackageRequest(null)}
+              onClose={() => setActiveView("chat")}
+              onOpenSettings={() => { setSettingsTab("models"); setActiveView("settings"); }}
+            />
+          </Suspense>
+        ) : activeView === "memory" ? (
+          <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开记忆……</main>}>
+            <MemoryPage onClose={() => setActiveView("chat")} />
+          </Suspense>
+        ) : null}
+      </div>
     </div>
   );
 }

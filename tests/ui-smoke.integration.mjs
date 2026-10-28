@@ -937,6 +937,10 @@ function createTestWindow(size = { width: 1280, height: 900 }) {
     ...size,
     show: false,
     backgroundColor: "#ffffff",
+    ...(process.platform === "win32" ? {
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: "#ffffff", symbolColor: "#1a1c1f", height: 36 },
+    } : {}),
     webPreferences: {
       preload: join(projectRoot, "out", "preload", "index.cjs"),
       contextIsolation: true,

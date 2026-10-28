@@ -10,8 +10,13 @@ export function registerWindowThemeHandler(getWindow: (sender: WebContents) => B
     }
     const background = theme === "dark" ? "#0a0a0a" : "#ffffff";
     window.setBackgroundColor(background);
-    // Electron applies this to the native Windows caption and frame via DWM.
-    if (process.platform === "win32") window.setAccentColor(background);
+    if (process.platform === "win32") {
+      window.setAccentColor(background);
+      window.setTitleBarOverlay({
+        color: background,
+        symbolColor: theme === "dark" ? "#fafafa" : "#1a1c1f",
+      });
+    }
     return { success: true };
   });
 }

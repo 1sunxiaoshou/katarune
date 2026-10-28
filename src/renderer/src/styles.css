@@ -398,9 +398,62 @@
   content: "";
 }
 
+.app-shell {
+  --app-titlebar-height: 0px;
+  --app-content-height: calc(100dvh - var(--app-titlebar-height));
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell[data-custom-titlebar="true"] {
+  --app-titlebar-height: 36px;
+}
+
+.app-titlebar {
+  display: flex;
+  width: env(titlebar-area-width, calc(100% - 150px));
+  height: var(--app-titlebar-height);
+  flex: 0 0 var(--app-titlebar-height);
+  margin-left: env(titlebar-area-x, 0px);
+  align-items: center;
+  gap: 8px;
+  padding-left: 16px;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  app-region: drag;
+  user-select: none;
+}
+
+.app-titlebar img {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  object-fit: contain;
+}
+
+.app-titlebar span {
+  overflow: hidden;
+  font-family: "Segoe UI Variable", "Segoe UI", var(--font-ui);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .character-studio {
   position: relative;
-  height: 100dvh;
+  height: 100%;
   min-width: 760px;
   overflow: hidden;
   padding: 16px 0 0;
@@ -467,7 +520,7 @@
 
 .character-layout {
   display: grid;
-  height: calc(100dvh - 50px);
+  height: calc(var(--app-content-height) - 50px);
   min-height: 0;
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns:
@@ -822,7 +875,7 @@
 .character-page-loading,
 .character-page-error {
   display: grid;
-  height: calc(100dvh - 70px);
+  height: calc(var(--app-content-height) - 70px);
   place-content: center;
   justify-items: center;
   gap: 12px;
@@ -834,7 +887,7 @@
 .chat-shell {
   display: flex;
   width: 100%;
-  height: 100dvh;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
 }
