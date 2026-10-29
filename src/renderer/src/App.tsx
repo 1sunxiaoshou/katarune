@@ -71,7 +71,7 @@ export function App(): React.JSX.Element {
             />
           ) : null}
         </KataruneAssistantRuntimePool>
-        {activeView === "live" ? <Suspense fallback={<main role="status">正在打开直播……</main>}><LivePage onClose={() => setActiveView("chat")} /></Suspense> : activeView === "settings" ? (
+        {activeView === "live" ? <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开直播……</main>}><LivePage onClose={() => setActiveView("chat")} /></Suspense> : activeView === "settings" ? (
           <Suspense
             fallback={
               <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
