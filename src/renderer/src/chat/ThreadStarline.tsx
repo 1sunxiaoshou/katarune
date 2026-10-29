@@ -18,7 +18,6 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   AppContextMenu,
   AppContextMenuItem,
-  AppContextMenuSeparator,
 } from "@/components/app-context-menu";
 import {
   Tooltip,
@@ -203,17 +202,19 @@ function ThreadStarlineItem({
             {editing ? (
               <div className="thread-starline-row" data-editing="true">
                 <span className="thread-starline-marker" aria-hidden="true" />
-                <input
-                  ref={renameInput}
-                  className="thread-starline-rename"
-                  data-testid="thread-rename-input"
-                  aria-label="重命名会话"
-                  disabled={pending}
-                  value={draft}
-                  onBlur={() => void saveRename()}
-                  onChange={(event) => setDraft(event.currentTarget.value)}
-                  onKeyDown={handleRenameKeyDown}
-                />
+                <span className="thread-starline-copy">
+                  <input
+                    ref={renameInput}
+                    className="thread-starline-rename"
+                    data-testid="thread-rename-input"
+                    aria-label="重命名会话"
+                    disabled={pending}
+                    value={draft}
+                    onBlur={() => void saveRename()}
+                    onChange={(event) => setDraft(event.currentTarget.value)}
+                    onKeyDown={handleRenameKeyDown}
+                  />
+                </span>
               </div>
             ) : (
               <ThreadListItemPrimitive.Trigger
@@ -245,9 +246,7 @@ function ThreadStarlineItem({
           <ArchiveIcon aria-hidden="true" />
           归档
         </AppContextMenuItem>
-        <AppContextMenuSeparator />
         <AppContextMenuItem
-          danger
           data-testid="thread-context-delete"
           disabled={pending}
           onClick={() => setDeleteOpen(true)}
