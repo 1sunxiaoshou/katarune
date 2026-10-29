@@ -6,6 +6,7 @@
     "Katarune.Avatar.Core",
     "Katarune.Avatar.Motion",
     "Katarune.Avatar.UniVrm",
-    "Kirurobo.UniWindowController"
+    "Kirurobo.UniWindowController",
+    "Unity.RenderPipelines.Universal.Runtime"
   ]
 }

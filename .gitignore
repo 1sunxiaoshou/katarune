@@ -66,3 +66,5 @@ unity/KataruneAvatar/Assets/KataruneLocal.meta
 # Local, separately distributed Unity animation bundles
 unity/KataruneAvatar/MotionPacks/
 resources/asr/silero-vad/
+# Downloaded, checksum-verified livestream runtime tools.
+/resources/live-media/

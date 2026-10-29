@@ -1,4 +1,5 @@
 import { diagnosticsApi } from "./diagnostics";
+import { liveApi } from "./live";
 import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer } from "electron";
@@ -116,6 +117,7 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  ...liveApi,
   ...diagnosticsApi,
   retryMemoryDiaries: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.retryDiary, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),
   onMemoryChanged: (listener: (characterId: string) => void) => {

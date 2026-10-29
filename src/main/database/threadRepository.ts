@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { OperationRejected } from "../diagnostics/operationRejected";
 import {
   CHAT_ATTACHMENT_LIMITS,
   assetSchema,
@@ -38,16 +39,39 @@ export function createThreadRepository(
       .get();
 
     if (thread === undefined) {
-      throw new Error(`Thread "${threadId}" was not found.`);
+      throw new OperationRejected("resource-unavailable");
     }
 
     return threadMetadataSchema.parse({
       remoteId: thread.id,
+      kind: thread.kind,
       status: thread.status,
       title: thread.title,
       lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
       characterId: thread.characterId,
     });
+  };
+
+  const initializeThread: ThreadRepository["initializeThread"] = (threadId, characterId, kind = "chat") => {
+    fetchCharacter(characterId);
+    const now = new Date();
+    database
+      .insert(threads)
+      .values({
+        id: threadId,
+        kind,
+        characterId,
+        title: "新对话",
+        status: "regular",
+        lastMessageAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: threads.id })
+      .run();
+
+    fetchThread(threadId, characterId);
+    return initializeThreadResponseSchema.parse({ remoteId: threadId });
   };
 
   return {
@@ -72,32 +96,14 @@ export function createThreadRepository(
           .all()
           .map((thread) => ({
             remoteId: thread.id,
+            kind: thread.kind,
             status: thread.status,
             title: thread.title,
             lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
             characterId: thread.characterId,
           })),
       }),
-    initializeThread: (threadId, characterId) => {
-      fetchCharacter(characterId);
-      const now = new Date();
-      database
-        .insert(threads)
-        .values({
-          id: threadId,
-          characterId,
-          title: "新对话",
-          status: "regular",
-          lastMessageAt: now,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing({ target: threads.id })
-        .run();
-
-      fetchThread(threadId, characterId);
-      return initializeThreadResponseSchema.parse({ remoteId: threadId });
-    },
+    initializeThread,
     fetchThread,
     renameThread: (threadId, characterId, title) => {
       const result = database
@@ -145,25 +151,22 @@ export function createThreadRepository(
         .run();
       return candidateAssetIds;
     },
-    loadThreadMessages: (threadId, characterId) => {
+    loadThreadMessages: (threadId, characterId, recentLimit) => {
       fetchThread(threadId, characterId);
+      if (recentLimit !== undefined && (!Number.isSafeInteger(recentLimit) || recentLimit < 1 || recentLimit > 100)) throw new Error("Invalid recent message limit.");
+      const query = database.select({ id: messages.id, parent_id: messages.parentId, format: messages.format, content: messages.content })
+        .from(messages).where(eq(messages.threadId, threadId))
+        .orderBy(recentLimit === undefined ? asc(messages.createdAt) : desc(messages.createdAt), recentLimit === undefined ? asc(sql`rowid`) : desc(sql`rowid`));
       return threadMessagesSchema.parse({
-        messages: database
-          .select({
-            id: messages.id,
-            parent_id: messages.parentId,
-            format: messages.format,
-            content: messages.content,
-          })
-          .from(messages)
-          .where(eq(messages.threadId, threadId))
-          .orderBy(asc(messages.createdAt))
-          .all(),
+        messages: recentLimit === undefined ? query.all() : query.limit(recentLimit).all().reverse(),
       });
     },
-    appendThreadMessage: ({ threadId, characterId, message, assetIds }) => {
-      fetchThread(threadId, characterId);
+    appendThreadMessage: ({ threadId, characterId, message, assetIds }, initializeKind) => {
       database.transaction((transaction) => {
+        if (initializeKind !== undefined) initializeThread(threadId, characterId, initializeKind);
+        const thread = fetchThread(threadId, characterId);
+        if (initializeKind !== undefined && thread.kind !== initializeKind)
+          throw new Error("会话类型与待保存消息不匹配。");
         const referencedAssets =
           assetIds.length === 0
             ? []
@@ -187,7 +190,7 @@ export function createThreadRepository(
               asset.byteSize > CHAT_ATTACHMENT_LIMITS.maxFileBytes,
           )
         ) {
-          throw new Error("消息引用了不存在或不可用的聊天附件。");
+          throw new OperationRejected("resource-unavailable", "消息引用了不存在或不可用的聊天附件。");
         }
         const totalAttachmentBytes = referencedAssets.reduce(
           (total, asset) => total + (asset.byteSize ?? 0),
@@ -197,7 +200,7 @@ export function createThreadRepository(
           totalAttachmentBytes >
           CHAT_ATTACHMENT_LIMITS.maxTotalBytesPerMessage
         ) {
-          throw new Error("单条消息的附件合计不能超过 50 MiB。");
+          throw new OperationRejected("invalid-input", "单条消息的附件合计不能超过 50 MiB。");
         }
 
         const existingMessage = transaction
@@ -209,9 +212,7 @@ export function createThreadRepository(
           existingMessage !== undefined &&
           existingMessage.threadId !== threadId
         ) {
-          throw new Error(
-            `Message "${message.id}" already belongs to another thread.`,
-          );
+          throw new OperationRejected("ownership-mismatch");
         }
 
         const now = new Date();
@@ -308,9 +309,7 @@ export function createThreadRepository(
         )
         .get();
       if (asset === undefined) {
-        throw new Error(
-          `Chat attachment "${assetId}" was not found in thread "${threadId}".`,
-        );
+        throw new OperationRejected("resource-unavailable");
       }
       return assetSchema.parse(asset);
     },

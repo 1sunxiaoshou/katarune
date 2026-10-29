@@ -12,7 +12,8 @@ import { interruptForVoice } from "./chat/voiceInterruption";
 import { useAvatarState } from "./chat/avatarState";
 import { AvatarSessionBinding, AvatarTextInputBridge } from "./chat/AvatarControl";
 import { AvatarToolUI } from "./chat/AvatarToolUI";
-import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
+import { lastAssistantMessageIsCompleteWithApprovalResponses, validateUIMessages } from "ai";
+import { useLiveState } from "./live/liveState";
 import {
   createContext,
   useContext,
@@ -56,6 +57,8 @@ function ThreadRuntimeHook() {
   const threadId = useAuiState((s) => s.threadListItem.id);
   const remoteId = useAuiState((s) => s.threadListItem.remoteId);
   const resolvedThreadId = remoteId ?? threadId;
+  const liveKind = useLiveState(s => s.kinds[resolvedThreadId] === "live");
+  const live = useLiveState(s => s.state);
   const avatar = useAvatarState((s) => s.status);
   const avatarBound =
     avatar.phase === "ready" &&
@@ -113,8 +116,24 @@ function ThreadRuntimeHook() {
     id: threadId,
     transport,
     // Main owns the Agent loop; completed backend tools must not start another request.
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    sendAutomaticallyWhen: liveKind ? () => false : lastAssistantMessageIsCompleteWithApprovalResponses,
   });
+  useEffect(() => {
+    if (!liveKind || !remoteId) return;
+    let disposed = false, loading = false, again = false;
+    const refresh = async () => {
+      if (loading) { again = true; return; } loading = true;
+      try {
+        const stored = await window.katarune.loadThreadMessages({ characterId: character.id, threadId: remoteId });
+        const messages = await validateUIMessages({ messages: stored.messages.map(row => ({ id: row.id, ...row.content })) });
+        if (!disposed) chat.setMessages(messages);
+      } catch { /* Existing history UI owns load errors; a transient refresh is retried by the next update. */ }
+      finally { loading = false; if (again && !disposed) { again = false; void refresh(); } }
+    };
+    void refresh();
+    const unsubscribe = window.katarune.onLiveChanged(state => { if (state.threadId === remoteId) void refresh(); });
+    return () => { disposed = true; unsubscribe(); };
+  }, [liveKind, remoteId, character.id, chat.setMessages]);
   const chatRef = useRef(chat);
   chatRef.current = chat;
   const sendRef = useRef(chat.sendMessage);
@@ -143,20 +162,20 @@ function ThreadRuntimeHook() {
     return () => queue.dispose();
   }, [queue]);
   const runtime = useAISDKRuntime(
-    { ...chat, sendMessage: avatarBound ? queue.send : chat.sendMessage },
+    { ...chat, status: liveKind && live?.threadId === resolvedThreadId && live.generating ? "streaming" : chat.status, sendMessage: avatarBound ? queue.send : chat.sendMessage },
     {
-      adapters: { attachments, speech, dictation },
+      adapters: { attachments, speech: avatar.live || liveKind ? undefined : speech, dictation: avatar.live || liveKind ? undefined : dictation },
       cancelPendingToolCallsOnSend: !avatarBound,
       isSendDisabled:
-        character.modelConfigId === null &&
-        appSettings.defaultLanguageModelConfigId === null,
+        liveKind || (character.modelConfigId === null &&
+        appSettings.defaultLanguageModelConfigId === null),
     },
   );
   transport.setRuntime(runtime);
   const voiceState = useRef({ busy: false, available: false, pending: true, error: chat.error });
   voiceState.current = {
     busy: chat.status === "submitted" || chat.status === "streaming",
-    available: appSettings.defaultAsrModel !== null && speechAvailable === true
+    available: !avatar.live && !liveKind && appSettings.defaultAsrModel !== null && speechAvailable === true
       && (character.modelConfigId !== null || appSettings.defaultLanguageModelConfigId !== null),
     pending: speechAvailable === null,
     error: chat.error,
@@ -230,7 +249,7 @@ function AutoReadReplies(): null {
     if (isRunning && !wasRunning.current) handledByAvatar.current = avatarActive;
     const completedRun = wasRunning.current && !isRunning;
     wasRunning.current = isRunning;
-    if (!completedRun || !autoReadReplies || !canSpeak || handledByAvatar.current) return;
+    if (!completedRun || !autoReadReplies || !canSpeak || handledByAvatar.current || useAvatarState.getState().status.live) return;
 
     const timer = window.setTimeout(() => {
       const thread = aui.thread().getState();
@@ -275,6 +294,9 @@ function CharacterRuntimeHost({
     adapter,
     runtimeHook: ThreadRuntimeHook,
   });
+  useEffect(() => window.katarune.onLiveChanged(state => {
+    if (state.threadId && state.settings.characterId === character.id && (state.phase === "starting" || !state.generating)) void runtime.threads.reload().catch(() => {});
+  }), [runtime, character.id]);
 
   return (
     <CharacterRuntimeConfigContext.Provider value={character}>

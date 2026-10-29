@@ -29,12 +29,17 @@ import { createSpeechTemporaryDirectory } from "./speech/speechTemporaryDirector
 import { registerWindowThemeHandler } from "./windowTheme";
 import { initializeDiagnostics, diagnostic } from "./diagnostics/logger";
 import { registerDiagnosticsHandlers } from "./diagnostics/handlers";
+import { LiveService } from "./live/liveService";
+import { LiveMedia } from "./live/media";
+import { registerLiveHandlers } from "./ipc/liveHandlers";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
 let avatarService: AvatarService | undefined;
 let characterPackageService: CharacterPackageService | undefined;
 let asrService: AsrService | undefined;
+let liveService: LiveService | undefined;
+let liveShutdownDone = false;
 
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
@@ -193,6 +198,8 @@ void app.whenReady().then(async () => {
   avatarService.configureSpeech(speechService,
     await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
   diaryService = createDiaryService({ database: databaseRuntime, aiRuntime });
+  const liveMedia = new LiveMedia(app.isPackaged ? join(process.resourcesPath, "live-media") : join(app.getAppPath(), "resources", "live-media"), join(app.getPath("userData"), "live-runtime"));
+  liveService = new LiveService({ database: databaseRuntime, credentials: credentialStore, aiRuntime, avatar: avatarService, media: liveMedia });
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
@@ -201,9 +208,11 @@ void app.whenReady().then(async () => {
     speechService,
     avatarService,
     () => { void diaryService?.runPending(); },
+    liveService,
   );
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
+  registerLiveHandlers(liveService, liveMedia, mainWindow!);
   diaryService.start();
   desktopWindows = new AvatarDesktopWindows(avatarService, app.getPath("userData"), () => mainWindow);
 
@@ -216,7 +225,12 @@ void app.whenReady().then(async () => {
   fatal("app.initialization-failed", error);
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", event => {
+  if (liveService && !liveShutdownDone) {
+    event.preventDefault();
+    void liveService.stop(false).finally(() => { liveShutdownDone = true; app.quit(); });
+    return;
+  }
   diaryService?.dispose();
   desktopWindows?.dispose();
   desktopWindows = undefined;

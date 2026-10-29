@@ -18,6 +18,14 @@ namespace Katarune.Avatar
         private IntPtr _handle;
         private bool _adjusting, _dragging, _rotating, _policyRestored;
         private bool _immersive;
+        internal bool LiveOutput { get; private set; }
+        internal void SetLiveOutput(bool enabled) {
+            LiveOutput = enabled;
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            EnsureWindowHandle();
+            if (enabled && _handle != IntPtr.Zero) ShowWindow(_handle, 0);
+#endif
+        }
         private Rectangle[] _inputZones = Array.Empty<Rectangle>();
         private Point _grab;
         private string _lastReport;
@@ -72,6 +80,7 @@ namespace Katarune.Avatar
         }
         private void RestoreTopmost()
         {
+            if (LiveOutput) return;
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             if (_handle == IntPtr.Zero) return;
             var style = GetWindowLongPtr(_handle, -20).ToInt64();
@@ -88,6 +97,7 @@ namespace Katarune.Avatar
         }
         public void ApplyLayout(string json)
         {
+            if (LiveOutput) return;
             var layout = JsonUtility.FromJson<Layout>(json);
             if (layout == null) return;
             if (layout.mode != null && layout.mode != "desktop" && layout.mode != "immersive") return;
@@ -165,6 +175,7 @@ namespace Katarune.Avatar
         }
         private void Update()
         {
+            if (LiveOutput) return;
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
             if (_handle == IntPtr.Zero) return;
             if (Time.unscaledTime >= _nextPolicyCheck) { _nextPolicyCheck = Time.unscaledTime + 1f; RestoreTopmost(); }

@@ -10,6 +10,7 @@ namespace Katarune.Avatar
     // Owns one independent dance. Dialogue generation and its drain barrier never own this lifetime.
     internal sealed class AvatarDancePlayer : MonoBehaviour
     {
+        internal float OutputVolume { get => _source != null ? _source.volume : 1f; set { if (_source != null) _source.volume = Mathf.Clamp01(value); } }
         private IAvatarRuntimeFacade _runtime;
         private IAvatarDanceRuntime _motion;
         private AvatarSceneRig _rig;

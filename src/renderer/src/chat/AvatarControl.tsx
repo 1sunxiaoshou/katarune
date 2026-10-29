@@ -6,6 +6,7 @@ import { TooltipIconButton } from "../components/tooltip-icon-button";
 import { notify } from "../notifications/notificationCenter";
 import { useAvatarState } from "./avatarState";
 import { useApplicationSettings } from "../settings/ApplicationSettingsProvider";
+import { useLiveState, useThreadReadOnly } from "../live/liveState";
 
 // Mounted once for the active character, including while settings or the
 // minimized chat window are shown. The capsule never owns a second runtime.
@@ -38,19 +39,28 @@ export function AvatarSessionBinding(): null {
   const threadId = useAuiState(s => s.threadListItem.remoteId ?? s.threadListItem.id);
   const status = useAvatarState(s => s.status);
   const followEnabled = useAvatarState(s => s.followEnabled);
+  const live = useLiveState(s => !!s.state && ["starting", "running", "stopping"].includes(s.state.phase));
+  const liveThread = useLiveState(s => s.kinds[threadId] === "live");
+  const wasLive = useRef(false), restoredSelection = useRef<string | null>(null);
   const enabled = status.phase === "ready" || status.phase === "starting" || status.phase === "switching";
   useEffect(() => {
+    const selection = `${activeCharacter.id}:${threadId}`;
+    if (status.live || live) { wasLive.current = true; return; }
+    if (wasLive.current) { wasLive.current = false; restoredSelection.current = selection; }
+    if (restoredSelection.current === selection || liveThread) return;
+    restoredSelection.current = null;
     if (!followEnabled || !useAvatarState.getState().followEnabled || !enabled || (status.binding?.characterId === activeCharacter.id && status.binding.threadId === threadId)) return;
     let cancelled = false;
     void window.katarune.startAvatar({ characterId: activeCharacter.id, threadId }).catch(error => {
       if (!cancelled) notify({ level: "error", message: error instanceof Error ? error.message : "桌宠会话切换失败。" });
     });
     return () => { cancelled = true; };
-  }, [activeCharacter.id, threadId, enabled, followEnabled, status.binding]);
+  }, [activeCharacter.id, threadId, enabled, followEnabled, status.binding, status.live, live, liveThread]);
   return null;
 }
 
 export function AvatarControl(): React.JSX.Element {
+  const readOnly = useThreadReadOnly();
   const { activeCharacter } = useCharacterSession();
   const threadId = useAuiState(s => s.threadListItem.remoteId ?? s.threadListItem.id);
   const status = useAvatarState(s => s.status);
@@ -60,8 +70,9 @@ export function AvatarControl(): React.JSX.Element {
   const operationVersion = useRef(0);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const enabled = status.phase === "ready" || status.phase === "starting" || status.phase === "switching";
-  const disabled = operation === "stopping" || (operation === "connecting" && !enabled);
+  const disabled = operation === "stopping" || (operation === "connecting" && !enabled) || (readOnly && !enabled);
   const toggle = async () => {
+    if (status.live) return;
     if (disabled) return;
     const version = ++operationVersion.current;
     useAvatarState.getState().setFollowEnabled(!enabled);
@@ -80,7 +91,7 @@ export function AvatarControl(): React.JSX.Element {
   const pending = operation !== null || status.phase === "starting" || status.phase === "switching";
   const failure = error || status.error;
   const state = pending ? "pending" : failure ? "error" : enabled ? "connected" : "disconnected";
-  const label = enabled ? "停止桌宠" : failure ? "重试桌宠连接" : "开启桌宠";
+  const label = status.live ? "直播正在使用角色" : enabled ? "停止桌宠" : readOnly ? "直播记录仅供查看" : failure ? "重试桌宠连接" : "开启桌宠";
   const tooltip = [status.phase === "switching" ? "切换会话中 · 停止桌宠" : label, failure].filter(Boolean).join("；");
   return (
     <TooltipIconButton

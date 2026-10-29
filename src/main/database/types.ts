@@ -49,7 +49,7 @@ export interface DatabaseConfigValidator {
   ): void;
 }
 
-export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository>, ReturnType<typeof import("./memoryRepository").createMemoryRepository> {
+export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository>, ReturnType<typeof import("./memoryRepository").createMemoryRepository>, ReturnType<typeof import("./liveRepository").createLiveRepository> {
   getStatus(): DatabaseStatus;
   getAppState(): AppState;
   setActiveCharacter(characterId: string): AppState;
@@ -59,6 +59,7 @@ export interface DatabaseRuntime extends ReturnType<typeof import("./characterPa
   initializeThread(
     threadId: string,
     characterId: string,
+    kind?: "chat" | "live",
   ): InitializeThreadResponse;
   fetchThread(threadId: string, characterId: string): ThreadMetadata;
   renameThread(threadId: string, characterId: string, title: string): void;
@@ -71,8 +72,10 @@ export interface DatabaseRuntime extends ReturnType<typeof import("./characterPa
   loadThreadMessages(
     threadId: string,
     characterId: string,
+    recentLimit?: number,
   ): ThreadMessages;
-  appendThreadMessage(request: AppendThreadMessageRequest): void;
+  // Main-only option: initialize the thread atomically with its first message.
+  appendThreadMessage(request: AppendThreadMessageRequest, initializeKind?: "chat" | "live"): void;
   deleteThreadMessages(
     threadId: string,
     characterId: string,

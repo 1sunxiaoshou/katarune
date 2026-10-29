@@ -30,6 +30,7 @@ export const avatarDanceStateSchema = z.object({
 });
 export type AvatarDanceState = z.infer<typeof avatarDanceStateSchema>;
 export const avatarStatusSchema = z.object({
+  live: z.optional(z.boolean()),
   dance: z.optional(avatarDanceStateSchema),
   performances: z.optional(z.array(avatarPerformanceStateSchema).check(z.maxLength(64))),
   busy: z.optional(z.boolean()),

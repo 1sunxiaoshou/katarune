@@ -391,6 +391,7 @@ export class AvatarDesktopWindows {
   }
   private changed(): void {
     if (this.disposed) return;
+    if (this.avatar.liveActive) { this.closeWindows(); return; }
     const phase = this.avatar.status.phase;
     const binding = this.avatar.status.binding;
     const key = phase === "ready" && binding ? JSON.stringify(binding) : "";
@@ -636,6 +637,7 @@ export class AvatarDesktopWindows {
     surface: DesktopSurface,
     c: DesktopCommand,
   ): Promise<void> {
+    if (this.avatar.liveActive) return;
     const allowed: Record<
       DesktopSurface,
       readonly DesktopCommand["operation"][]

@@ -3,6 +3,11 @@ import { realtimeVoice } from "./speech/realtimeVoice";
 import { ChatPage } from "./chat/ChatPage";
 import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
 import { SPEECH_CONFIG_CHANGED_EVENT } from "./speech/speechAvailability";
+import { useLiveState } from "./live/liveState";
+import { notify } from "./notifications";
+import { cancelLocalDictation } from "./speech/KataruneDictationAdapter";
+import { cancelApplicationSpeech } from "./speech/KataruneSpeechSynthesisAdapter";
+const LivePage = lazy(async () => ({ default: (await import("./live/LivePage")).LivePage }));
 
 const SettingsPage = lazy(async () => {
   const settingsModule = await import("./settings/SettingsPage");
@@ -23,7 +28,22 @@ const hasCustomTitleBar = navigator.userAgent.includes("Windows");
 
 export function App(): React.JSX.Element {
   useEffect(() => realtimeVoice.mount(), []);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "characters" | "memory">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "characters" | "memory" | "live">("chat");
+  useEffect(() => {
+    let mounted = true;
+    let previousError: string | null = null;
+    let previousLive = false;
+    void window.katarune.getLiveState().then(state => { if (mounted) useLiveState.getState().setState(state); }).catch(() => {});
+    const unsubscribe = window.katarune.onLiveChanged(state => {
+      useLiveState.getState().setState(state);
+      if (state.error && state.error !== previousError) notify({ level: "error", message: state.error, dedupeKey: "live-failure" });
+      previousError = state.error;
+      const active = ["starting", "running", "stopping"].includes(state.phase);
+      if (active && !previousLive) { realtimeVoice.stop(); cancelLocalDictation(); cancelApplicationSpeech(); }
+      previousLive = active;
+    });
+    return () => { mounted = false; unsubscribe(); };
+  }, []);
 
   const [packageRequest, setPackageRequest] = useState<{ characterId: string | null } | null>(null);
   useEffect(() => window.katarune.onOpenCharacterPackages(characterId => {
@@ -47,10 +67,11 @@ export function App(): React.JSX.Element {
               onOpenCharacters={() => setActiveView("characters")}
               onOpenSettings={() => { setSettingsTab("general"); setActiveView("settings"); }}
               onOpenMemory={() => setActiveView("memory")}
+              onOpenLive={() => setActiveView("live")}
             />
           ) : null}
         </KataruneAssistantRuntimePool>
-        {activeView === "settings" ? (
+        {activeView === "live" ? <Suspense fallback={<main role="status">正在打开直播……</main>}><LivePage onClose={() => setActiveView("chat")} /></Suspense> : activeView === "settings" ? (
           <Suspense
             fallback={
               <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">

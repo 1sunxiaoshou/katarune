@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 
 async function requireFile(path) {
   const info = await stat(path).catch(() => null);
@@ -20,6 +21,14 @@ export async function verifyWindowsResources(root, packaged = false) {
   const avatar = join(resources, "avatar");
   const runtime = packaged ? join(avatar, "KataruneAvatar_Data", "KataruneLocal")
     : join(root, "unity", "KataruneAvatar", "Assets", "KataruneLocal");
+  const mediaFiles = ["ffmpeg.exe", "ffprobe.exe", "mediamtx.exe", "media-supervisor.exe", "avcodec-62.dll", "avdevice-62.dll", "avfilter-11.dll", "avformat-62.dll", "avutil-60.dll", "swresample-6.dll", "swscale-9.dll"];
+  for (const file of [...mediaFiles, "manifest.json", "checksums.json", "ffmpeg-LICENSE.txt", "mediamtx-LICENSE", "SOURCES.md", "media-supervisor.cs"]) await requireFile(join(resources, "live-media", file));
+  const liveManifest = JSON.parse(await readFile(join(resources, "live-media", "manifest.json"), "utf8"));
+  if (!liveManifest.ffmpeg?.sha256 || !liveManifest.mediamtx?.sha256) throw new Error("Live media component manifest is invalid.");
+  const checksums = JSON.parse(await readFile(join(resources, "live-media", "checksums.json"), "utf8"));
+  for (const name of mediaFiles) {
+    if (checksums[name] !== createHash("sha256").update(await readFile(join(resources, "live-media", name))).digest("hex")) throw new Error(`Live media checksum mismatch: ${name}`);
+  }
   const manifest = JSON.parse(await readFile(join(builtin, "manifest.json"), "utf8"));
   if (manifest.formatVersion !== 3) throw new Error("Default character package must use formatVersion 3.");
   for (const image of [manifest.portrait, manifest.thumbnail].filter(Boolean)) await requireFile(resourcePath(builtin, image));

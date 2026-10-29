@@ -1,3 +1,4 @@
+import { OperationRejected } from "../src/main/diagnostics/operationRejected";
 import { emptyAppSettings } from "./defaultSettings";
 import { runMemoryIntegration } from "./memory.integration";
 import assert from "node:assert/strict";
@@ -296,7 +297,7 @@ try {
         initialCharacterId,
         attachmentId,
       ),
-    /not found/,
+    (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable",
   );
   assert.deepEqual(
     runtime.deleteThreadMessages(threadId, initialCharacterId, [
@@ -631,17 +632,60 @@ try {
     runtime.listThreads(secondCharacterId).threads.map((thread) => thread.remoteId),
     [secondThreadId],
   );
+  assert.equal(runtime.fetchThread(threadId, restoredCharacterId).kind, "chat");
+  runtime.initializeThread("live-kind-test", restoredCharacterId, "live");
+  runtime.renameThread("live-kind-test", restoredCharacterId, "自由修改的名称");
+  runtime.setThreadStatus("live-kind-test", restoredCharacterId, "archived");
+  assert.equal(runtime.fetchThread("live-kind-test", restoredCharacterId).kind, "live");
+  const liveConfig = runtime.getLiveConfig();
+  assert.equal(liveConfig.settings.replyIntervalSeconds, 15);
+  assert.equal(liveConfig.settings.connectionMode, "official");
+  assert.equal(liveConfig.webCredentialRef, null);
+  runtime.setLiveCredentialRef("synthetic-official-reference");
+  runtime.setLiveWebCredentialRef("synthetic-web-reference");
+  assert.equal(runtime.getLiveConfig().credentialRef, "synthetic-official-reference");
+  assert.equal(runtime.getLiveConfig().webCredentialRef, "synthetic-web-reference");
+  runtime.saveLiveConfig({ ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90 });
+  assert.equal(runtime.getLiveConfig().settings.idleSeconds, 90);
+  const liveDatabase = runtime;
+  const firstLiveMessage = {
+    threadId: "lazy-live-test", characterId: restoredCharacterId,
+    message: { ...message, id: "lazy-live-first", parent_id: null }, assetIds: [],
+  };
+  assert.throws(() => liveDatabase.appendThreadMessage(firstLiveMessage), (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable");
+  assert.throws(() => liveDatabase.appendThreadMessage({ ...firstLiveMessage, assetIds: ["00000000-0000-4000-8000-000000000099"] }, "live"), /附件/);
+  assert.throws(() => liveDatabase.fetchThread(firstLiveMessage.threadId, restoredCharacterId), (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable", "Failed first writes must roll back thread initialization");
+  liveDatabase.appendThreadMessage(firstLiveMessage, "live");
+  liveDatabase.appendThreadMessage(firstLiveMessage, "live");
+  assert.equal(liveDatabase.fetchThread(firstLiveMessage.threadId, restoredCharacterId).kind, "live");
+  assert.equal(liveDatabase.loadThreadMessages(firstLiveMessage.threadId, restoredCharacterId).messages.length, 1);
+  assert.throws(() => liveDatabase.appendThreadMessage({ ...firstLiveMessage, characterId: secondCharacterId }, "live"), (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable");
+  assert.throws(() => liveDatabase.appendThreadMessage({ ...firstLiveMessage, threadId }, "live"), /类型/);
+  liveDatabase.deleteThread(firstLiveMessage.threadId, restoredCharacterId);
+  assert.throws(() => liveDatabase.fetchThread("live-kind-test", secondCharacterId));
+  runtime.deleteThread("live-kind-test", restoredCharacterId);
   assert.throws(
     () => runtime?.fetchThread(secondThreadId, restoredCharacterId),
-    /not found/,
+    (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable",
   );
   runtime.setActiveCharacter(secondCharacterId);
   runtime.close();
+  const legacyLiveSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
+  try {
+    legacyLiveSqlite.exec("UPDATE live_settings SET config = json_set(config, '$.fps', 30, '$.videoBitrateKbps', 3000)");
+    legacyLiveSqlite.exec("DELETE FROM __drizzle_migrations WHERE created_at = (SELECT max(created_at) FROM __drizzle_migrations)");
+  } finally { legacyLiveSqlite.close(); }
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
     configValidator,
   });
+  const upgradedLiveConfig = runtime.getLiveConfig();
+  assert.equal(upgradedLiveConfig.settings.idleSeconds, 90);
+  assert.equal(upgradedLiveConfig.settings.characterId, restoredCharacterId);
+  assert.equal(upgradedLiveConfig.credentialRef, "synthetic-official-reference");
+  assert.equal(upgradedLiveConfig.webCredentialRef, "synthetic-web-reference");
+  assert.ok(!("fps" in upgradedLiveConfig.settings) && !("videoBitrateKbps" in upgradedLiveConfig.settings));
   assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
   runtime.setThreadStatus(threadId, restoredCharacterId, "archived");
   assert.equal(
@@ -714,7 +758,7 @@ try {
   );
   assert.throws(
     () => runtime?.loadThreadMessages(threadId, restoredCharacterId),
-    /not found/,
+    (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable",
   );
   runtime.deleteProviderConfig(providerConfig.id);
   assert.deepEqual(runtime.listProviderConfigs().providerConfigs, []);
@@ -899,7 +943,7 @@ try {
   assert.equal(nonActiveDelete.activeCharacter.id, deletionDefault.id);
   assert.throws(
     () => deletionRuntime?.loadThreadMessages(nonActiveThreadId, secondCreatedCharacter.id),
-    /not found/,
+    (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable",
   );
 
   const regularDeleteThreadId = "active-character-regular-thread";
@@ -921,7 +965,7 @@ try {
   assert.throws(() => deletionRuntime?.fetchCharacter(deletionDefault.id), /not found/);
   assert.throws(
     () => deletionRuntime?.loadThreadMessages(regularDeleteThreadId, deletionDefault.id),
-    /not found/,
+    (error: unknown) => error instanceof OperationRejected && error.reasonCode === "resource-unavailable",
   );
   assert.equal(
     deletionRuntime.fetchAsset("00000000-0000-4000-8000-000000000002").id,

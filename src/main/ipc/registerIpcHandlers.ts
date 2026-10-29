@@ -13,6 +13,7 @@ import { registerCharacterHandlers } from "./characterHandlers";
 import { registerChatHandlers } from "./chatHandlers";
 import { registerProviderHandlers } from "./providerHandlers";
 import { registerSpeechHandlers } from "./speechHandlers";
+import type { LiveService } from "../live/liveService";
 
 export function registerIpcHandlers(
   database: DatabaseRuntime,
@@ -22,16 +23,17 @@ export function registerIpcHandlers(
   speechService: SpeechService,
   avatar?: AvatarService,
   retryDiaries?: () => void,
+  live?: LiveService,
 ): SpeechRequestRegistry {
   const chatStreams = new ChatStreamRegistry();
   const speechRequests = new SpeechRequestRegistry();
 
   registerAppHandlers(database, aiRuntime);
-  registerChatHandlers(database, aiRuntime, chatStreams, assetService, avatar);
+  registerChatHandlers(database, aiRuntime, chatStreams, assetService, avatar, live);
   if (avatar) registerAvatarHandlers(avatar, database);
   registerSpeechHandlers(speechService, speechRequests, avatar);
   registerProviderHandlers(database, aiRuntime, credentialStore);
-  registerCharacterHandlers(database, chatStreams);
+  registerCharacterHandlers(database, chatStreams, live);
   registerMemoryHandlers(database, retryDiaries);
 
   return speechRequests;

@@ -20,7 +20,9 @@ export function registerSpeechHandlers(
   speechRequests: SpeechRequestRegistry,
   avatar?: AvatarService,
 ): void {
+  avatar?.subscribe(status => { if (status.live) speechRequests.cancelAll(); });
   diagnosticIpcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
+    if (avatar?.liveActive) throw new OperationRejected("operation-not-allowed", "直播期间仅直播会话可以播放声音。");
     const request = parseRequest(speechGenerateRequestSchema, value);
     const abortController = new AbortController();
     const binding = request.threadId ? { characterId: request.characterId, threadId: request.threadId } : undefined;

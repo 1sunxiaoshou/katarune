@@ -47,6 +47,28 @@ function actionSelector(action: AvatarCapabilities["actions"][number]): string {
 }
 
 export class AvatarService {
+  private liveBinding: AvatarBinding | null = null;
+  private beforeLive: AvatarBinding | null = null;
+  private beforeLiveVoice = false;
+  get liveActive() { return this.liveBinding !== null; }
+  get livePlaybackBusy() { return this.activeRuns.size > 0 || this.playingRunId !== null || [...this.dialogueRuns.values()].some(run => !run.isIdle) || [...this.dances.values()].some(dance => !dance.state || !danceTerminal(dance.state.state)); }
+  async acquireLive(binding: AvatarBinding) {
+    if (this.liveBinding) throw new Error("已有直播正在占用角色。");
+    this.beforeLive = this.state.phase === "ready" ? this.state.binding : null;
+    this.beforeLiveVoice = this.voiceDesired;
+    this.liveBinding = binding; this.voiceDesired = false; this.changed();
+    await this.start(binding);
+    this.voiceDesired = false; this.voicePhase = "idle"; this.changed();
+  }
+  async resetLivePresentation() { if (this.liveBinding && this.state.phase === "ready") await this.rebind(this.liveBinding); }
+  async releaseLive(restore: boolean, available: (binding: AvatarBinding) => boolean = () => true) {
+    if (!this.liveBinding) return;
+    try { if (this.state.phase === "ready") await this.desktopCommand("live-stop", ""); } catch { /* Restore the desktop after an output failure. */ }
+    const previous = this.beforeLive; this.beforeLive = null; this.liveBinding = null;
+    if (restore && previous && available(previous)) { this.voiceDesired = this.beforeLiveVoice; await this.start(previous); }
+    else this.stop();
+    this.changed();
+  }
   private diagnosticSource = { source: "unity" as const, processInstanceId: randomUUID() };
   onOpenPackages: (() => void) | undefined;
   private packageResolver?: (characterId: string) => RuntimeCharacterPackage;
@@ -58,6 +80,7 @@ export class AvatarService {
     await validateCharacterPackage(this.executable, pack, signal);
   }
   async switchPackage(characterId: string, pack: RuntimeCharacterPackage): Promise<void> {
+    if (this.liveBinding?.characterId === characterId) throw new Error("请先停止直播再切换角色包。");
     if (this.starting) await this.starting;
     if (this.switching) await this.switching;
     if (this.state.binding?.characterId !== characterId || this.state.phase !== "ready") return;
@@ -82,6 +105,7 @@ export class AvatarService {
     return this.request(operation, value, new AbortController().signal, "", dance ? { actionId: dance.id, action: dance.label } : undefined);
   }
   sendWindowLayout(value: unknown): void {
+    if (this.liveActive) return;
     this.socket?.write(`${JSON.stringify({ type: "window-layout", value: JSON.stringify(value) })}\n`);
   }
   sendWindowInputZones(rects: DesktopRect[]): void {
@@ -138,7 +162,7 @@ export class AvatarService {
     private readonly logsDirectory: string,
   ) {}
   get status(): AvatarStatus {
-    return { ...this.state, performances: [...this.performances.values()].flatMap(state => state ? [state] : []), busy: this.activeRuns.size > 0 || this.pending.size > 0,
+    return { ...this.state, live: this.liveActive, performances: [...this.performances.values()].flatMap(state => state ? [state] : []), busy: this.activeRuns.size > 0 || this.pending.size > 0,
       ...(this.latestDance ? { dance: this.latestDance } : {}),
       voice: { desired: this.voiceDesired, phase: this.voicePhase, error: this.voiceError }, playback: this.playbackState };
   }
@@ -199,6 +223,7 @@ export class AvatarService {
   clearError(): void { this.state = { ...this.state, error: null }; }
 
   async start(binding: AvatarBinding): Promise<AvatarStatus> {
+    if (this.liveBinding && (binding.threadId !== this.liveBinding.threadId || binding.characterId !== this.liveBinding.characterId)) throw new Error("直播正在占用角色，请先停止直播。");
     const startupPackage = this.packageResolver?.(binding.characterId);
     if (this.matches(binding) && this.state.phase === "ready" && (!startupPackage || this.activePackageId === startupPackage.id))
       return this.status;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using UnityEngine;
 
 namespace Katarune.Avatar
 {
@@ -16,6 +17,16 @@ namespace Katarune.Avatar
 
     public static class AvatarSpeechSubtitles
     {
+        internal static class Layout
+        {
+            internal static readonly string[] FontFamilies={ "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Arial" };
+            internal static int FontSize(float scale) => Mathf.RoundToInt(18f*scale);
+            internal static float HorizontalPadding(float scale) => 16f*scale;
+            internal static float VerticalPadding(float scale) => 10f*scale;
+            internal static float Radius(float scale) => 14f*scale;
+            internal static float MaxWidth(float width,float scale,bool wide) => Mathf.Max(1f,Mathf.Min((wide?960f:480f)*scale,width*(wide?.8f:.6f)));
+            internal static float BottomMargin(float height,float scale) => Mathf.Max(24f*scale,height*.045f);
+        }
         internal const int MaxPageLength = 32;
         private const string Closing = "。！？!?….，,；;：:、”’\"）)]」』】";
         private static bool IsWord(char ch) => ch <= 127 && (char.IsLetterOrDigit(ch) || ch == '\'' || ch == '-');

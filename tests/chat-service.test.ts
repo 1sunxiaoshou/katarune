@@ -1,6 +1,6 @@
 import { emptyAppSettings } from "./defaultSettings";
 import { MockLanguageModelV4 } from "ai/test";
-import { APICallError, UnsupportedFunctionalityError, tool } from "ai";
+import { APICallError, UnsupportedFunctionalityError, tool, readUIMessageStream, validateUIMessages, type UIMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
@@ -47,6 +47,7 @@ function createDatabase(
     })),
     fetchThread: vi.fn(() => ({
       remoteId: request.threadId,
+      kind: "chat" as const,
       status: "regular" as const,
       title: "新对话",
       lastMessageAt: new Date(),
@@ -125,6 +126,14 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("assigns durable native message IDs when a background consumer reads the stream", async () => {
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => createModel(() => {}) } });
+    const stream = await service.createStream(request, new AbortController().signal);
+    let latest: UIMessage | undefined;
+    for await (const message of readUIMessageStream({ stream, terminateOnError: true })) latest = message;
+    expect(latest?.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect((await validateUIMessages({ messages: [request.messages[0], latest] })).map(message => message.role)).toEqual(["user", "assistant"]);
+  });
   it("refreshes dance feedback between native tool steps in the same response", async () => {
     const prompts: unknown[] = [];
     let feedback: AvatarDanceState | null = null;

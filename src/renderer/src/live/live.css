@@ -1,0 +1,74 @@
+.live-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 12px 18px 16px;
+  gap: 12px;
+  font-family: var(--font-ui);
+}
+
+.live-header { display: flex; align-items: center; gap: 8px; height: 28px; flex: none; }
+.live-header h1 { font-size: 15px; font-weight: 600; }
+.live-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr);
+  grid-template-rows: minmax(155px, 1fr) minmax(180px, 1.15fr);
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+.live-preview {
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+}
+.live-preview-frame { position: absolute; width: 100%; height: 100%; object-fit: contain; visibility: hidden; }
+.live-preview-frame.is-ready { visibility: visible; }
+.live-preview-placeholder { display: flex; align-items: center; flex-direction: column; gap: 18px; font-size: 13px; }
+.live-preview-placeholder img { max-height: 170px; max-width: 150px; object-fit: contain; opacity: .6; }
+.live-monitor { position: absolute; right: 12px; bottom: 12px; }
+.live-panel { min-width: 0; min-height: 0; }
+.live-connection-content { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.live-room-info { display: flex; flex: 1; flex-direction: column; min-height: 0; gap: 8px; }
+.live-room-navigation { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; }
+.live-room-method { flex: none; color: var(--muted-foreground); font-size: 11px; }
+.live-room-details { display: flex; flex: 1; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; }
+.live-room-overview { display: flex; flex: none; align-items: center; gap: 12px; }
+.live-room-cover { width: 88px; }
+.live-room-summary { display: grid; min-width: 0; gap: 8px; }
+.live-room-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.live-room-id { display: flex; flex-wrap: wrap; gap: 4px 6px; color: var(--muted-foreground); font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.live-room-description { display: grid; flex: none; gap: 4px; }
+.live-room-description h4 { color: var(--muted-foreground); font-size: 11px; font-weight: 500; }
+.live-room-description p { color: var(--foreground-secondary); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-room-actions { display: flex; flex: none; align-items: center; gap: 12px; padding-top: 10px; }
+.live-room-actions > button { margin-left: auto; }
+.live-event-list { display: flex; flex-direction: column; flex: 1; overflow: auto; min-height: 0; }
+.live-event { flex: none; font-size: 13px; line-height: 1.7; padding: 4px 0; overflow-wrap: anywhere; }
+.live-event b { font-weight: 500; color: var(--muted-foreground); margin-right: 8px; }
+.live-event-gift { color: var(--warning); }
+.live-event small { font-size: 11px; margin-left: 6px; color: var(--muted-foreground); }
+.live-empty { display: flex; align-items: center; justify-content: center; flex: 1; min-height: 64px; color: var(--muted-foreground); font-size: 13px; text-align: center; }
+.live-settings, .live-connect-form { display: flex; flex-direction: column; gap: 16px; overflow: auto; min-height: 0; }
+.live-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 144px); align-items: center; gap: 12px; }
+.live-field > [data-slot=label] { line-height: 1.5; color: var(--foreground-secondary); }
+.live-field > [data-slot=switch] { justify-self: end; }
+.live-field-stacked { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.live-output { display: grid; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+.live-output > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-output code { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.live-connect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-footer { flex: none; display: flex; align-items: center; gap: 14px; min-height: 44px; }
+.live-character { min-width: 0; }
+@media (max-width: 850px) {
+  .live-workspace { grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); }
+  .live-field { grid-template-columns: minmax(0, 1fr) minmax(0, 128px); }
+  .live-field-stacked { grid-template-columns: minmax(0, 1fr); }
+}

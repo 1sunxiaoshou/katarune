@@ -71,6 +71,8 @@ namespace Katarune.Avatar
         private float _transitionFieldOfView;
         private AvatarImmersiveBackdrop _immersiveBackdrop;
         internal bool Immersive => _immersive;
+        internal bool LiveSolidBackground;
+        internal bool LiveOutputActive;
         internal string CameraView => _cameraView;
         internal string EffectiveCameraView => _danceCameraTrack != null ? "track" : _danceCameraView ?? _cameraView;
         internal bool DancePresentationActive { get; set; }
@@ -411,7 +413,7 @@ namespace Katarune.Avatar
             if (_camera == null || !_hasFramedBounds) return;
             if (_danceCameraTrack != null)
             {
-                ApplyDanceCameraTrack(); _immersiveBackdrop?.SetVisibility(_immersive, deltaTime); return;
+                ApplyDanceCameraTrack(); _immersiveBackdrop?.SetVisibility(_immersive && !LiveSolidBackground, deltaTime); return;
             }
             if (_danceCameraRestoring)
             {
@@ -455,12 +457,13 @@ namespace Katarune.Avatar
                 Quaternion.Slerp(_transitionRotation, rotation, t));
             _camera.lensShift = Vector2.Lerp(_transitionLensShift, lensShift, t);
             _camera.fieldOfView = Mathf.Lerp(_transitionFieldOfView, fieldOfView, t);
-            _immersiveBackdrop?.SetVisibility(_immersive, deltaTime);
+            _immersiveBackdrop?.SetVisibility(_immersive && !LiveSolidBackground, deltaTime);
             if (_transitionElapsed >= .9f) _cameraTransition = false;
         }
 
         private void ReadShowcaseInput()
         {
+            if (LiveOutputActive) return;
             var mousePosition = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
             if (_isDragging)
             {

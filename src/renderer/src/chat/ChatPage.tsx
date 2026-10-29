@@ -1,5 +1,5 @@
 import { AvatarControl } from "./AvatarControl";
-import { BookOpenIcon, EyeIcon, EyeOffIcon, SettingsIcon } from "lucide-react";
+import { BookOpenIcon, EyeIcon, EyeOffIcon, SettingsIcon, RadioIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Thread } from "@/components/thread";
@@ -16,12 +16,14 @@ interface ChatPageProps {
   readonly onOpenCharacters: () => void;
   readonly onOpenSettings: () => void;
   readonly onOpenMemory: () => void;
+  readonly onOpenLive: () => void;
 }
 
 export function ChatPage({
   onOpenCharacters,
   onOpenSettings,
   onOpenMemory,
+  onOpenLive,
 }: ChatPageProps): React.JSX.Element {
   const { activeCharacter } = useCharacterSession();
   const [collapsed, setCollapsed] = useState(() =>
@@ -93,6 +95,7 @@ export function ChatPage({
             <BookOpenIcon aria-hidden="true" />
           </TooltipIconButton>
           <AvatarControl />
+          <TooltipIconButton tooltip="直播" side="top" className="size-8" data-testid="live-launcher" onClick={onOpenLive}><RadioIcon aria-hidden="true" /></TooltipIconButton>
           <TooltipIconButton
             ref={visibilityButton}
             tooltip={collapsed ? "显示侧栏" : "隐藏侧栏"}

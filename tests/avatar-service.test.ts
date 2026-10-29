@@ -33,6 +33,24 @@ afterEach(() => {
   sockets.splice(0).forEach((socket) => socket.destroy());
 });
 
+it("owns the avatar during a livestream and restores the prior conversation and voice preference", async () => {
+  const { service, socket, requests } = await launch();
+  const acknowledge = async (operation: string, after: number) => {
+    await vi.waitFor(() => expect(requests.slice(after).some(request => request.operation === operation)).toBe(true));
+    const request = requests.slice(after).find(request => request.operation === operation)!;
+    socket.write(JSON.stringify({ type: "result", id: request.id, ok: true }) + "\n");
+  };
+  const liveBinding = { ...binding, threadId: "live-thread" };
+  const starting = service.acquireLive(liveBinding); await acknowledge("session-reset", 0); await starting;
+  expect(service.status.live).toBe(true); expect(service.status.voice?.desired).toBe(false);
+  expect(service.captureBinding(binding)).toBeNull(); expect(service.captureBinding(liveBinding)).not.toBeNull();
+  await expect(service.start(binding)).rejects.toThrow("直播");
+  await expect(service.switchPackage(binding.characterId, { formatVersion: 3, id: "builtin:default", version: "1.0.0", model: "model.vrm", idle: { variations: [] }, actions: [], bindings: [] })).rejects.toThrow("直播");
+  const count = requests.length, stopping = service.releaseLive(true);
+  await acknowledge("live-stop", count); await acknowledge("session-reset", count); await stopping;
+  expect(service.status.live).toBe(false); expect(service.status.binding).toEqual(binding); expect(service.status.voice?.desired).toBe(true);
+});
+
 async function launch(capabilities: AvatarCapabilities = {
   actions: [{ id: "wave", label: "挥手", durationSeconds: 2.4 }],
   expressions: ["neutral", "happy"],

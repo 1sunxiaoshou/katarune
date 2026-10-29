@@ -10,7 +10,8 @@ import { realtimeVoice } from './realtimeVoice';
 export function DictationControl(): React.JSX.Element {
   const aui = useAui();
   const { appSettings } = useApplicationSettings();
-  const enabled = appSettings.defaultAsrModel !== null;
+  const live = useAvatarState(state => !!state.status.live);
+  const enabled = !live && appSettings.defaultAsrModel !== null;
   useEffect(() => { if (!enabled) { cancelLocalDictation(); realtimeVoice.stop(); } }, [enabled]);
   const threadId = useAuiState(state => state.threadListItem.id);
   const phase = useSyncExternalStore(dictationStore.subscribe, dictationStore.getSnapshot);
@@ -20,7 +21,7 @@ export function DictationControl(): React.JSX.Element {
   const running = useAuiState(state => state.thread.isRunning);
   useEffect(() => () => cancelLocalDictation(), [threadId]);
   const loading = phase === 'preparing' || phase === 'transcribing';
-  const label = realtime ? '请在桌宠面板控制语音'
+  const label = live ? '直播期间仅文字交流' : realtime ? '请在桌宠面板控制语音'
     : loading ? '取消听写'
     : phase === 'recording' ? '结束听写'
     : !enabled ? '语音识别未启用'

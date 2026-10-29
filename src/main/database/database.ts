@@ -21,6 +21,7 @@ import { reconcileAttachmentMigrationHistory } from "./migrationHistory";
 import { createProviderRepository } from "./providerRepository";
 import { appSettings, appState, assets, characters, threads } from "./schema";
 import { createThreadRepository } from "./threadRepository";
+import { createLiveRepository } from "./liveRepository";
 import type {
   DatabaseRuntime,
   DatabaseConfigValidator,
@@ -248,6 +249,7 @@ export function openDatabase({
     ...appStateRepository,
     ...appSettingsRepository,
     ...threadRepository,
+    ...createLiveRepository(database),
     ...providerRepository,
     ...modelRepository,
     ...characterRepository,

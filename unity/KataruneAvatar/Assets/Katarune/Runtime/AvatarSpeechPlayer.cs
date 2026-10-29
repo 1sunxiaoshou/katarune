@@ -9,6 +9,7 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarSpeechPlayer : MonoBehaviour
     {
+        internal float OutputVolume { get => _source != null ? _source.volume : 1f; set { if (_source != null) _source.volume = Mathf.Clamp01(value); } }
         private AudioSource _source;
         private AvatarLipSync _lipSync;
         private UnityWebRequest _loading;

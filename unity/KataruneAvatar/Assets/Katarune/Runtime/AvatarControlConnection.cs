@@ -58,6 +58,7 @@ namespace Katarune.Avatar
         internal bool ShowingDanceSubtitle => _dance?.Active == true;
         internal Color CurrentSubtitleColor => ShowingDanceSubtitle ? new Color(1f, 143f / 255f, 179f / 255f)
             : _userSubtitleActive ? new Color(.12f, .18f, .25f) : Color.white;
+        internal Color CurrentSubtitleBackground => _userSubtitleActive ? new Color(.92f,.96f,1f,.94f) : new Color(.11f,.10f,.14f,.92f);
         private AvatarSceneRig _rig;
         private long _presentationRevision = -1;
         private Vector2 _presentationReference;
@@ -78,6 +79,7 @@ namespace Katarune.Avatar
         private readonly HashSet<string> _mutedRuns = new HashSet<string>();
         private AvatarSpeechPlayer _speech;
         private AvatarDancePlayer _dance;
+        private AvatarLiveOutput _liveOutput;
         // This connection is the presentation coordinator. Players retain their own clocks.
         private Request _danceRequest;
         private readonly HashSet<string> _endedDances = new();
@@ -102,6 +104,8 @@ namespace Katarune.Avatar
             _rig = FindFirstObjectByType<AvatarSceneRig>();
             _dance = gameObject.AddComponent<AvatarDancePlayer>();
             _dance.Configure(runtime, _rig);
+            _liveOutput = gameObject.AddComponent<AvatarLiveOutput>();
+            _liveOutput.Configure(this, _speech, _dance);
             _window = FindFirstObjectByType<AvatarWindow>();
             if (_window != null) _window.StateChanged += Send;
             _ = Task.Run(() => Connect(pipeName));
@@ -202,6 +206,9 @@ namespace Katarune.Avatar
                 try
                 {
                     request = JsonUtility.FromJson<Request>(line);
+                    if (request?.operation == "live-start") { _liveOutput.Begin(request.value); Reply(request); continue; }
+                    if (request?.operation == "live-update") { _liveOutput.UpdateSettings(request.value); Reply(request); continue; }
+                    if (request?.operation == "live-stop") { _liveOutput.End(); Reply(request); continue; }
                     if (request?.type == "binding") { _epoch = request.epoch; ClearSubtitle(); continue; }
                     if (request?.type == "window-layout") { _window?.ApplyLayout(request.value); continue; }
                     if (request?.type == "window-input-zones") { _window?.ApplyInputZones(request.value); continue; }
@@ -535,37 +542,37 @@ namespace Katarune.Avatar
         }
         private void OnGUI()
         {
+            if (_liveOutput?.Active == true) return;
             var text = CurrentSubtitle;
             if (string.IsNullOrEmpty(text)) return;
             var scale = _window != null ? _window.UiScale : Mathf.Max(1f, Screen.dpi / 96f);
-            var fontSize = Mathf.RoundToInt(18f * scale);
+            var fontSize = AvatarSpeechSubtitles.Layout.FontSize(scale);
             if (_subtitleStyle == null || _subtitleScale != scale)
             {
                 if (_subtitleFont == null)
                     _subtitleFont = Font.CreateDynamicFontFromOSFont(
-                        new[] { "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Arial" }, fontSize);
+                        AvatarSpeechSubtitles.Layout.FontFamilies, fontSize);
                 _subtitleStyle = new GUIStyle(GUI.skin.label) {
                     font = _subtitleFont, fontSize = fontSize, wordWrap = true,
                     richText = false, alignment = TextAnchor.MiddleCenter,
-                    padding = new RectOffset(Mathf.RoundToInt(16f * scale), Mathf.RoundToInt(16f * scale),
-                        Mathf.RoundToInt(10f * scale), Mathf.RoundToInt(10f * scale)),
+                    padding = new RectOffset(Mathf.RoundToInt(AvatarSpeechSubtitles.Layout.HorizontalPadding(scale)),Mathf.RoundToInt(AvatarSpeechSubtitles.Layout.HorizontalPadding(scale)),
+                        Mathf.RoundToInt(AvatarSpeechSubtitles.Layout.VerticalPadding(scale)),Mathf.RoundToInt(AvatarSpeechSubtitles.Layout.VerticalPadding(scale))),
                 };
                 _subtitleScale = scale;
             }
             _subtitleStyle.normal.textColor = CurrentSubtitleColor;
             var wide = (_rig != null && _rig.Immersive) || (_dance != null && _dance.Active);
-            var maxWidth = Mathf.Max(1f, Mathf.Min((wide ? 960f : 480f) * scale, Screen.width * (wide ? .8f : .6f)));
+            var maxWidth = AvatarSpeechSubtitles.Layout.MaxWidth(Screen.width,scale,wide);
             var content = new GUIContent(text);
             var width = Mathf.Min(maxWidth, Mathf.Ceil(_subtitleStyle.CalcSize(content).x));
-            var bottomMargin = Mathf.Max(24f * scale, Screen.height * .045f);
+            var bottomMargin = AvatarSpeechSubtitles.Layout.BottomMargin(Screen.height,scale);
             var edgeMargin = 6f * scale;
             var height = Mathf.Min(Mathf.Ceil(_subtitleStyle.CalcHeight(content, width)),
                 Mathf.Max(1f, Screen.height - bottomMargin - edgeMargin));
             var bounds = new Rect((Screen.width - width) * .5f,
                 Mathf.Max(edgeMargin, Screen.height - height - bottomMargin), width, height);
             GUI.DrawTexture(bounds, Texture2D.whiteTexture, ScaleMode.StretchToFill, true,
-                0f, _userSubtitleActive ? new Color(.92f, .96f, 1f, .94f)
-                    : new Color(.11f, .10f, .14f, .92f), 0f, 14f * scale);
+                0f, CurrentSubtitleBackground, 0f, AvatarSpeechSubtitles.Layout.Radius(scale));
             GUI.Label(bounds, content, _subtitleStyle);
         }
 

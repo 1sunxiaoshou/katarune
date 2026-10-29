@@ -183,6 +183,27 @@
       "when": 1793070345513,
       "tag": "0025_character_dance_camera",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1793240830336,
+      "tag": "0026_live_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1793253471666,
+      "tag": "0027_web_live_connection",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1793258398234,
+      "tag": "0028_managed_live_output",
+      "breakpoints": true
     }
   ]
 }

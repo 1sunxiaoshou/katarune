@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, nativeImage } from "electron";
 import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
+import { DEFAULT_LIVE_SETTINGS, LIVE_CHANNELS, liveSettingsSchema, liveCredentialsSchema, liveWebCredentialsSchema } from "../src/shared/live";
+import { Mp4Preview } from "../src/main/live/mp4Preview";
 import { registerWindowThemeHandler } from "../src/main/windowTheme";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
 import {
@@ -79,6 +82,8 @@ const importedAttachmentIds = [
 ];
 const releasedAttachmentIds = [];
 const appendedMessageRequests = [];
+let changeLiveFixture;
+const livePreviewAcks = [];
 let character = {
   id: characterId,
   name: "测试角色 A",
@@ -181,6 +186,18 @@ function messageKey(threadId, characterId) {
 }
 
 function registerMockHandlers() {
+  let live = { settings: { ...DEFAULT_LIVE_SETTINGS, characterId }, credentialsConfigured: false, officialCredentialsConfigured: false, webCredentialsConfigured: false, phase: "stopped", connection: "disconnected", broadcast: "unknown", roomId: "", roomName: "", threadId: null, runId: null, monitor: false, generating: false, revision: 0, events: [], error: null };
+  const changeLive = next => { live = { ...live, ...next, revision: live.revision + 1 }; live.credentialsConfigured = live.settings.connectionMode === 'web' ? !!live.settings.webRoomId : live.officialCredentialsConfigured; for (const window of BrowserWindow.getAllWindows()) window.webContents.send(LIVE_CHANNELS.changed, live); return live; };
+  changeLiveFixture = changeLive;
+  ipcMain.handle(LIVE_CHANNELS.state, () => live);
+  ipcMain.handle(LIVE_CHANNELS.settings, (_event, value) => { const settings=liveSettingsSchema.parse(value); return changeLive({settings,...(settings.connectionMode!==live.settings.connectionMode?{connection:'disconnected',broadcast:'unknown',roomId:'',roomName:''}:{})}); });
+  ipcMain.handle(LIVE_CHANNELS.credentials, (_event, value) => { liveCredentialsSchema.parse(value); return changeLive({ officialCredentialsConfigured: true }); });
+  ipcMain.handle(LIVE_CHANNELS.webCredentials, (_event, value) => changeLive({ webCredentialsConfigured: !!liveWebCredentialsSchema.parse(value).cookie }));
+  ipcMain.handle(LIVE_CHANNELS.connect, () => { if(!live.credentialsConfigured)throw new Error('Missing fixture connection config'); return changeLive({connection:'connected',broadcast:'unknown',roomId:'101',roomName:'合成直播间',roomCover:'',roomDescription:'<p>欢迎来到直播间</p><p>一起聊天<br>一起玩耍</p><script>bad()</script>'}); });
+  ipcMain.handle(LIVE_CHANNELS.disconnect, () => changeLive({settings:{...live.settings,connectionMode:"official",webRoomId:""},connection:"disconnected",broadcast:"unknown",roomId:"",roomName:"",officialCredentialsConfigured:false,webCredentialsConfigured:false}));
+  ipcMain.handle(LIVE_CHANNELS.start, () => changeLive({ phase: 'error', error: '请先配置直播间连接。（故障编号：11111111-1111-4111-8111-111111111111）' }));
+  ipcMain.handle(LIVE_CHANNELS.monitor, (_event, value) => changeLive({ monitor: value.enabled }));
+  ipcMain.on(LIVE_CHANNELS.subscribePreview, (_event, value) => { if (typeof value === 'number') livePreviewAcks.push(value); });
   memoryDatabase = openDatabase({ userDataPath, appPath: projectRoot, configValidator: { validateModelMetadata, validateModelSettings, validateProviderSettings } });
   registerMemoryHandlers({ ...memoryDatabase, getAppState: () => ({ activeCharacter: characters.find(item => item.id === activeCharacterId) }) });
   ipcMain.handle('asr:prepare', () => { ordinaryPrepareCount++; return { status: 'success', text: '' }; });
@@ -906,6 +923,14 @@ async function waitUntil(label, predicate) {
   }
 }
 
+async function scrollLiveSettingIntoView(window, selector) {
+  await window.webContents.executeJavaScript(`(() => {
+    const panel = document.querySelector('.live-settings');
+    const control = document.querySelector(${JSON.stringify(selector)});
+    panel.scrollTop += control.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+  })()`);
+}
+
 async function clickSelector(window, selector) {
   const point = await window.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -934,7 +959,7 @@ async function clickSelector(window, selector) {
 }
 
 function createTestWindow(size = { width: 1280, height: 900 }) {
-  return new BrowserWindow({
+  const testWindow = new BrowserWindow({
     ...size,
     show: false,
     backgroundColor: "#ffffff",
@@ -951,6 +976,8 @@ function createTestWindow(size = { width: 1280, height: 900 }) {
       offscreen: true,
     },
   });
+  testWindow.webContents.on("console-message", event => { if (event.level === "error") console.error("[renderer]", event.message); });
+  return testWindow;
 }
 
 async function runStep(label, action) {
@@ -982,6 +1009,169 @@ async function run() {
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
     });
 
+    await runStep("livestream layout, configuration and local monitoring", async () => {
+      await clickSelector(window, '[data-testid="live-launcher"]');
+      await waitForSelector(window, '[data-testid="live-page"]');
+      await waitForText(window, '.live-output', 'rtmp://127.0.0.1:1935/katarune/live');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-character-name"]')?.textContent`), character.name);
+      await waitForSelector(window, '[data-testid="live-connect-official"]');
+      await waitForSelector(window, '[data-testid="live-connect-web"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form')===null`),true,'Disconnected rooms show connection choices first');
+      await clickSelector(window, '[data-testid="live-toggle"]');
+      await waitForText(window, '[data-testid="notification-toast"]', '请先配置直播间连接');
+      await waitUntil('failed startup has returned and enabled the start button', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-toggle"]').disabled`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="notification-toast"]').length`), 1, 'One failed launch must show one notification');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="notification-toast"]').textContent.includes('Error invoking remote method')`), false);
+      await clickSelector(window, '[data-testid="notification-toast"] [aria-label="关闭通知"]');
+      await waitUntil('startup notification dismissed', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="notification-toast"]')`));
+      await clickSelector(window, '[data-testid="live-character-trigger"]');
+      await waitForSelector(window, '.live-character-menu button[aria-current="true"]');
+      assert.ok(await window.webContents.executeJavaScript(`(() => {
+        const trigger = document.querySelector('[data-testid="live-character-trigger"]').getBoundingClientRect();
+        const menu = document.querySelector('.live-character-menu').getBoundingClientRect();
+        return menu.bottom <= trigger.top && Math.abs(menu.width - trigger.width) < 1;
+      })()`));
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await waitUntil('character popup dismisses and restores trigger focus', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu') && document.activeElement === document.querySelector('[data-testid="live-character-trigger"]')`));
+      await clickSelector(window, '[data-testid="live-character-trigger"]');
+      await waitForSelector(window, '.live-character-menu');
+      await clickSelector(window, '.live-events [data-slot="card-title"]');
+      await waitUntil('outside click dismisses character popup', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu')`));
+      await waitForSelector(window, '[data-testid="live-connect-official"]');
+      await scrollLiveSettingIntoView(window, 'label[for="live-proactive"]');
+      await clickSelector(window, 'label[for="live-proactive"]');
+      await waitUntil('proactive switch hides idle setting', () => window.webContents.executeJavaScript(`!document.querySelector('#live-idle-seconds')`));
+      await clickSelector(window, 'label[for="live-proactive"]');
+      await waitForSelector(window, '#live-idle-seconds');
+      await scrollLiveSettingIntoView(window, '#live-output-settings');
+      await clickSelector(window, '#live-output-settings');
+      await waitForSelector(window, '#live-resolution');
+      assert.ok(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution').textContent.includes('1080p')`));
+      writeFileSync(join(projectRoot, '.test-dist', 'live-page-output.png'), (await window.webContents.capturePage()).toPNG());
+      await scrollLiveSettingIntoView(window, '#live-resolution');
+      await clickSelector(window, '#live-resolution');
+      await waitForSelector(window, '[data-testid="live-resolution-option-1920"]');
+      await new Promise(resolve=>setTimeout(resolve,150));
+      writeFileSync(join(projectRoot, '.test-dist', 'live-resolution-menu.png'), (await window.webContents.capturePage()).toPNG());
+      const resolutionMenuBounds = await window.webContents.executeJavaScript(`(() => {
+        const trigger=document.querySelector('#live-resolution').getBoundingClientRect();
+        const popup=document.querySelector('[data-testid="live-resolution-option-1920"]').closest('[data-slot="popover-content"]').getBoundingClientRect();
+        const x=Math.max(0,Math.floor(Math.min(trigger.left,popup.left)-4)), y=Math.max(0,Math.floor(Math.min(trigger.top,popup.top)-4));
+        return {x,y,width:Math.ceil(Math.max(trigger.right,popup.right)-x+4),height:Math.ceil(Math.max(trigger.bottom,popup.bottom)-y+4)};
+      })()`);
+      writeFileSync(join(projectRoot, '.test-dist', 'live-resolution-menu-detail.png'), (await window.webContents.capturePage(resolutionMenuBounds)).toPNG());
+      await clickSelector(window, '[data-testid="live-resolution-option-1920"]');
+      await waitUntil('resolution selection persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===1920)`));
+      await waitUntil('resolution menu closes after selection', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-resolution-option-2560"]')`));
+      await window.webContents.executeJavaScript(`document.querySelector('#live-resolution').focus()`);
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Down'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Down'});
+      await waitForSelector(window, '[data-testid="live-resolution-option-2560"]');
+      await waitUntil('resolution list receives keyboard focus', () => window.webContents.executeJavaScript(`document.activeElement===document.querySelector('[aria-label="分辨率选项"]')`));
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Down'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Down'});
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+      await waitUntil('keyboard resolution selection persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`));
+      await waitUntil('keyboard selection closes the menu', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-resolution-option-2560"]')`));
+      await scrollLiveSettingIntoView(window, '#live-output-settings');
+      await clickSelector(window, '#live-output-settings');
+      await window.webContents.executeJavaScript(`document.querySelector('.live-settings').scrollTop=0`);
+      await clickSelector(window, '.live-monitor');
+      await waitUntil('local monitoring toggled', () => window.webContents.executeJavaScript(`document.querySelector('.live-monitor')?.getAttribute('aria-pressed') === 'true'`));
+      await window.webContents.executeJavaScript(`document.querySelector('.live-settings textarea').value`);
+      await window.webContents.executeJavaScript(`document.fonts.ready.then(() => true)`);
+      await new Promise(resolve => setTimeout(resolve, 250));
+      writeFileSync(join(projectRoot, '.test-dist', 'live-page.png'), (await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.documentElement.classList.add('dark')`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      writeFileSync(join(projectRoot, '.test-dist', 'live-page-dark.png'), (await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.documentElement.classList.remove('dark')`);
+      await clickSelector(window, '[data-testid="live-connect-official"]');
+      await waitForSelector(window, '#live-app-id');
+      writeFileSync(join(projectRoot, '.test-dist', 'live-page-connection.png'), (await window.webContents.capturePage()).toPNG());
+      const fillLiveConnection = values => window.webContents.executeJavaScript(`(() => {
+        for (const [id,value] of Object.entries(${JSON.stringify(values)})) {
+          const input=document.getElementById(id);
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);
+          input.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+        const form=document.querySelector('.live-connect-form'); form.scrollTop=form.scrollHeight;
+      })()`);
+      await fillLiveConnection({'live-app-id':'123','live-access-key':'synthetic','live-access-secret':'synthetic','live-identity-code':'synthetic'});
+      await clickSelector(window, '.live-connect-form button[type="submit"]');
+      await waitUntil('official connection saved', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection==='connected'&&state.officialCredentialsConfigured)`));
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await waitForText(window, '[data-testid="live-room-description"]', '欢迎来到直播间');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-room-description"]').textContent.includes('bad()')`),false);
+      writeFileSync(join(projectRoot,'.test-dist','live-room-information.png'),(await window.webContents.capturePage()).toPNG());
+
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form')===null`),true);
+      await clickSelector(window, '[aria-label="返回弹幕"]');
+      await waitForText(window, '[data-testid="live-room-status"]', '开播状态待确认');
+      const roomEvents = [
+        {id:'ui-live-danmaku',kind:'danmaku',roomId:'101',timestamp:1000,userId:'viewer',userName:'观众',text:'你好，主播',giftId:'',giftName:'',quantity:0},
+        {id:'ui-live-gift',kind:'gift',roomId:'101',timestamp:1000,userId:'viewer',userName:'观众',text:'',giftId:'1',giftName:'小花',quantity:2},
+      ];
+      changeLiveFixture({broadcast:'offline',events:roomEvents});
+      await waitForText(window, '[data-testid="live-room-status"]', '未开播');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.live-event').length`),0,'Offline room must hide old events');
+      await waitForText(window, '[aria-label="管理直播间连接"]', '已连接');
+      await new Promise(resolve=>setTimeout(resolve,100));
+      writeFileSync(join(projectRoot,'.test-dist','live-page-offline.png'),(await window.webContents.capturePage()).toPNG());
+      changeLiveFixture({broadcast:'live'});
+      await waitForText(window, '[aria-label="直播间事件"]', '你好，主播');
+      await waitForText(window, '[aria-label="直播间事件"]', '小花 × 2');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-room-status"]')===null`),true);
+      await new Promise(resolve=>setTimeout(resolve,100));
+      writeFileSync(join(projectRoot,'.test-dist','live-page-onair.png'),(await window.webContents.capturePage()).toPNG());
+      changeLiveFixture({connection:'reconnecting',broadcast:'unknown'});
+      await waitForText(window, '[data-testid="live-room-status"]', '正在重新连接直播间');
+      changeLiveFixture({connection:'connected',broadcast:'offline'});
+      await waitForText(window, '[data-testid="live-room-status"]', '未开播');
+      await clickSelector(window, '[aria-label="管理直播间连接"]');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-access-secret')===null`),true);
+      await clickSelector(window, '[data-testid="live-disconnect"]');
+      await waitForSelector(window, '[data-testid="live-connect-web"]');
+      await clickSelector(window, '[data-testid="live-connect-web"]');
+      await waitForSelector(window, '#live-web-room-id');
+      await fillLiveConnection({'live-web-room-id':'101','live-web-cookie':'SESSDATA=synthetic-session'});
+      await clickSelector(window, '.live-connect-form button[type="submit"]');
+      await waitUntil('web configuration saved', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection==='connected'&&state.webCredentialsConfigured&&state.settings.webRoomId==='101'&&!JSON.stringify(state).includes('synthetic-session'))`));
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await clickSelector(window, '[aria-label="返回对话"]');
+      changeLiveFixture({connection:'disconnected',broadcast:'unknown'});
+      await waitForSelector(window, '[data-testid="live-launcher"]');
+      await clickSelector(window, '[data-testid="live-launcher"]');
+      await waitForText(window, '[aria-label="管理直播间连接"]', '已连接');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-room')===null`),true);
+      await clickSelector(window, '[aria-label="管理直播间连接"]');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await clickSelector(window, '[data-testid="live-disconnect"]');
+      await waitForSelector(window, '[data-testid="live-connect-official"]');
+      window.setSize(960,680);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      writeFileSync(join(projectRoot, '.test-dist', 'live-page-compact.png'), (await window.webContents.capturePage()).toPNG());
+      window.setSize(1280,900);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const fixture=join(runDirectory,'live-preview.mp4');
+      execFileSync(join(projectRoot,'resources/live-media/ffmpeg.exe'),['-nostdin','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=size=2560x1440:rate=60','-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-t','2','-c:v','h264_mf','-pix_fmt','nv12','-profile:v','100','-level:v','51','-g','30','-bf','0','-c:a','aac','-movflags','frag_keyframe+empty_moov+default_base_moof',fixture],{windowsHide:true,timeout:30000});
+      const fragments=[];
+      new Mp4Preview((initialization,fragment)=>fragments.push({initialization:new Uint8Array(initialization),fragment:new Uint8Array(fragment),sequence:123+fragments.length})).write(readFileSync(fixture));
+      changeLiveFixture({phase:'running',monitor:false});
+      await new Promise(resolve=>setTimeout(resolve,250));
+      for(const fragment of fragments){window.webContents.send(LIVE_CHANNELS.preview,fragment);await waitUntil('preview fragment appended',()=>livePreviewAcks.includes(fragment.sequence));}
+      await waitUntil('full-size live video plays under CSP', () => window.webContents.executeJavaScript(`document.querySelector('.live-preview-frame')?.videoWidth === 2560 && document.querySelector('.live-preview-frame')?.videoHeight === 1440 && document.querySelector('.live-preview-frame')?.currentTime > 0`));
+      assert.ok(livePreviewAcks.includes(123));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-preview-frame').muted`),false);
+      // A missing segment must rejoin at the next independently decodable fragment.
+      const rejoined={...fragments[0],sequence:200};window.webContents.send(LIVE_CHANNELS.preview,rejoined);
+      await waitUntil('preview rejoins after backpressure',()=>livePreviewAcks.includes(200));
+      await clickSelector(window, '[aria-label="返回对话"]');
+      await waitForSelector(window, '[data-testid="memory-launcher"]');
+    });
     await runStep("browse, edit and forget real SQLite memories", async () => {
       const key = async (keyCode, modifiers = []) => {
         window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
@@ -1005,6 +1195,7 @@ async function run() {
       await clickSelector(window, '[data-testid="memory-diary-toggle"]');
       await waitUntil('diary disabled persisted', () => !memoryDatabase.getMemoryDiaryState(characterId).enabled);
       await clickSelector(window, '[data-testid="memory-tab-person"]');
+      await waitForSelector(window, '[data-testid="memory-add"]');
       await clickSelector(window, '[data-testid="memory-add"]');
       await waitForSelector(window, '[data-testid="memory-editor"]');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null && document.querySelector('.memory-reading > [data-testid="memory-editor"]') !== null`), true, 'editing must remain in the original reading area');
@@ -1018,6 +1209,7 @@ async function run() {
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#memory-is-user') === null`), true, 'reading a profile must not show the editing switch');
       await waitForText(window, '[data-testid="memory-list-item"][aria-current="true"] [aria-label="你的画像"]', '你');
       await clickSelector(window, '[data-testid="memory-tab-event"]');
+      await waitForSelector(window, '[data-testid="memory-add"]');
       await clickSelector(window, '[data-testid="memory-add"]');
       await waitForSelector(window, '[data-testid="memory-editor"]');
       await fill('[data-testid="memory-title-input"]', '准备生日礼物');
@@ -2035,6 +2227,37 @@ async function run() {
       );
       await clickSelector(window, '[data-slot="dialog-close"]');
     });
+    await runStep("live history uses existing conversation UI without a composer or duplicate writes", async () => {
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="thread-starline-item"]');
+      const liveId = 'live-ui-thread';
+      const owner = activeCharacterId;
+      threads.unshift({ remoteId: liveId, characterId: owner, kind: 'live', status: 'regular', title: '后台直播记录', lastMessageAt: new Date() });
+      const liveMessages = [
+        { id: 'live-user', parent_id: null, format: 'ai-sdk/v6', content: { role: 'user', parts: [{ type: 'text', text: '本轮观众互动' }] } },
+        { id: 'live-assistant', parent_id: 'live-user', format: 'ai-sdk/v6', content: { role: 'assistant', parts: [{ type: 'text', text: '后台保存的直播回复' }] } },
+      ];
+      storedMessages.set(messageKey(liveId, owner), liveMessages);
+      avatarStatus = { ...avatarStatus, live: true, phase: 'ready', binding: { characterId: owner, threadId: liveId } };
+      window.webContents.send('avatar:changed', avatarStatus);
+      changeLiveFixture({ phase: 'running', threadId: liveId, runId: '11111111-1111-4111-8111-111111111111', settings: { ...DEFAULT_LIVE_SETTINGS, characterId: owner } });
+      await waitForText(window, '.thread-starline-root', '后台直播记录');
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="thread-starline-trigger"]')).find(element=>element.textContent.includes('后台直播记录')).click()`);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '后台保存的直播回复');
+      assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('.aui-composer-root')`), false);
+      liveMessages[1] = { ...liveMessages[1], content: { role: 'assistant', parts: [{ type: 'text', text: '持续更新的直播回复' }] } };
+      changeLiveFixture({ generating: true });
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '持续更新的直播回复');
+      changeLiveFixture({ generating: false }); await new Promise(resolve=>setTimeout(resolve,300));
+      assert.equal(appendedMessageRequests.filter(request=>request.threadId===liveId).length,0);
+      assert.equal(titleRequests.filter(request=>request.threadId===liveId).length,0);
+    });
+  } catch (error) {
+    if (!window.isDestroyed()) {
+      const frame = await window.webContents.capturePage().catch(() => null);
+      if (frame) writeFileSync(join(projectRoot, '.test-dist', 'ui-smoke-failure.png'), frame.toPNG());
+    }
+    throw error;
   } finally {
     if (!window.isDestroyed()) window.destroy();
   }
@@ -2049,5 +2272,6 @@ void app.whenReady()
   })
   .finally(() => {
     memoryDatabase?.close();
-    app.exit(exitCode);
+    if (exitCode) app.exit(exitCode);
+    else app.quit();
   });

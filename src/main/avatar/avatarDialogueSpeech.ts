@@ -8,6 +8,7 @@ import { extractSpokenText } from "../speech/spokenText";
 import { createAvatarSpeechStream } from "./avatarSpeechStream";
 
 export class AvatarDialogueSpeech {
+  get isIdle() { return this.stopped || (!this.generating && this.occupied.size === 0 && this.queue.length === 0 && this.blocks.size === 0); }
   private blocks = new Map<string, string>();
   private queue: { id: string; text: string }[] = [];
   private occupied = new Set<string>();

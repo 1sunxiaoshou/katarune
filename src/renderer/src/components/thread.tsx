@@ -24,6 +24,7 @@ import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAvatarState } from "@/chat/avatarState";
+import { useThreadReadOnly } from "@/live/liveState";
 import { DictationControl } from '@/speech/DictationControl';
 import {
   ActionBarMorePrimitive,
@@ -111,6 +112,7 @@ export const Thread: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
 };
 
 const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
+  const readOnly = useThreadReadOnly();
   const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 
   return (
@@ -156,9 +158,9 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
             )}
           >
             <ThreadScrollToBottom />
-            <ThreadFollowupSuggestions />
-            <Composer />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
+            {!readOnly && <ThreadFollowupSuggestions />}
+            {!readOnly && <Composer />}
+            <AuiIf condition={(s) => !readOnly && isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
           </ThreadPrimitive.ViewportFooter>
@@ -392,9 +394,11 @@ const VoicePlaybackNotice: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const readOnly = useThreadReadOnly();
   const avatarBusy = useAvatarState((s) => !!s.status.busy);
   const running = useAuiState((s) => s.thread.isRunning);
   const speechStarting = useAuiState((s) => s.message.speech?.status.type === "starting");
+  if (readOnly) return <ActionBarPrimitive.Root className="col-start-3 row-start-2 text-muted-foreground"><ActionBarPrimitive.Copy render={<TooltipIconButton tooltip="复制" />}><CopyIcon /></ActionBarPrimitive.Copy></ActionBarPrimitive.Root>;
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -473,6 +477,8 @@ const UserMessage: FC = () => {
 };
 
 const UserActionBar: FC = () => {
+  const readOnly = useThreadReadOnly();
+  if (readOnly) return null;
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning

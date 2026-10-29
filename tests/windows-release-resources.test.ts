@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 
 const roots: string[] = [];
 function fixture() {
@@ -15,6 +16,11 @@ function fixture() {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), "fixture");
   }
+  mkdirSync(join(root, "live-media"));
+  const mediaFiles = ["ffmpeg.exe", "ffprobe.exe", "mediamtx.exe", "media-supervisor.exe", "avcodec-62.dll", "avdevice-62.dll", "avfilter-11.dll", "avformat-62.dll", "avutil-60.dll", "swresample-6.dll", "swscale-9.dll"];
+  for (const file of [...mediaFiles, "ffmpeg-LICENSE.txt", "mediamtx-LICENSE", "SOURCES.md", "media-supervisor.cs"]) writeFileSync(join(root, "live-media", file), "fixture");
+  writeFileSync(join(root, "live-media/checksums.json"), JSON.stringify(Object.fromEntries(mediaFiles.map(file => [file, createHash("sha256").update("fixture").digest("hex")]))));
+  writeFileSync(join(root, "live-media/manifest.json"), JSON.stringify({ ffmpeg: { sha256: "fixture" }, mediamtx: { sha256: "fixture" } }));
   mkdirSync(join(root, "avatar/MonoBleedingEdge"));
   const manifest = JSON.stringify({ formatVersion: 3, model: "avatar/model.vrm", portrait: "portrait.png", actions: [] });
   writeFileSync(join(root, "characters/default-package/manifest.json"), manifest);
@@ -27,6 +33,14 @@ function verify(root: string) {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("Windows packaged resources", () => {
+  it("requires the bundled live encoder and process supervisor", () => {
+    const root = fixture(); rmSync(join(root, "live-media/media-supervisor.exe"));
+    expect(verify(root).status).not.toBe(0); expect(verify(root).stderr).toContain("media-supervisor.exe");
+  });
+  it("rejects a corrupted bundled media DLL", () => {
+    const root = fixture(); writeFileSync(join(root, "live-media/avcodec-62.dll"), "corrupt");
+    expect(verify(root).status).not.toBe(0); expect(verify(root).stderr).toContain("checksum mismatch: avcodec-62.dll");
+  });
   it("accepts a complete bundle and rejects a missing VRM", () => {
     const root = fixture();
     expect(verify(root).status).toBe(0);

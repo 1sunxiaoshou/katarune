@@ -11,6 +11,7 @@ import {
   type UpdateCharacterRequest,
 } from "./characters";
 import { MODEL_TYPES } from "./models";
+import type { LiveApi } from "./live";
 import { PROVIDER_TYPES } from "./providers";
 import {
   speechVoiceSchema,
@@ -161,6 +162,7 @@ export const listThreadsRequestSchema = z.strictObject({
 
 export const threadMetadataSchema = z.strictObject({
   remoteId: nonEmptyStringSchema,
+  kind: z._default(z.enum(["chat", "live"]), "chat"),
   status: z.enum(["regular", "archived"]),
   title: nonEmptyStringSchema,
   lastMessageAt: z.date(),
@@ -634,7 +636,7 @@ export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateReques
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
-export interface KataruneApi extends DiagnosticsApi {
+export interface KataruneApi extends DiagnosticsApi, LiveApi {
   listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
   readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
   saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;

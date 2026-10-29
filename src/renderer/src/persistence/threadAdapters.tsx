@@ -13,6 +13,7 @@ import { createAssistantStream } from "assistant-stream";
 import { useMemo, type PropsWithChildren } from "react";
 
 import { notify } from "../notifications";
+import { useLiveState } from "../live/liveState";
 import { parseAssetUrl } from "../../../shared/ipc";
 
 function extractAssetIds(value: unknown): string[] {
@@ -93,6 +94,7 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
       item: MessageFormatItem<TMessage>,
     ): Promise<void> => {
       const { remoteId } = await this.aui.threadListItem().initialize();
+      if (useLiveState.getState().kinds[remoteId] === "live") return;
       const content = formatAdapter.encode(item);
       await window.katarune.appendThreadMessage({
         threadId: remoteId,
@@ -169,7 +171,10 @@ export function createKataruneThreadListAdapter(
 
   return {
     unstable_Provider: ThreadPersistenceProvider,
-    list: () => window.katarune.listThreads({ characterId }),
+    list: async () => {
+      const result = await window.katarune.listThreads({ characterId });
+      useLiveState.getState().remember(result.threads); return result;
+    },
     initialize: async (threadId) => {
       const thread = await window.katarune.initializeThread({
         threadId,
@@ -177,7 +182,10 @@ export function createKataruneThreadListAdapter(
       });
       return { remoteId: thread.remoteId, externalId: undefined };
     },
-    fetch: (threadId) => window.katarune.fetchThread({ threadId, characterId }),
+    fetch: async (threadId) => {
+      const result = await window.katarune.fetchThread({ threadId, characterId });
+      useLiveState.getState().remember([result]); return result;
+    },
     rename: async (remoteId, newTitle) => {
       await window.katarune.renameThread({
         threadId: remoteId,

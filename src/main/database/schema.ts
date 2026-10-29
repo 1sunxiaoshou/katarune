@@ -157,10 +157,18 @@ export const characters = sqliteTable(
   ],
 );
 
+export const liveSettings = sqliteTable("live_settings", {
+  id: integer("id").primaryKey(),
+  config: text("config", { mode: "json" }).$type<import("../../shared/live").LiveSettings>().notNull(),
+  credentialRef: text("credential_ref"),
+  webCredentialRef: text("web_credential_ref"),
+});
+
 export const threads = sqliteTable(
   "threads",
   {
     id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["chat", "live"] }).notNull().default("chat"),
     characterId: text("character_id")
       .notNull()
       .references(() => characters.id, { onDelete: "restrict" }),
