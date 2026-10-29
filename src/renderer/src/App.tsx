@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect } from "react";
 import { realtimeVoice } from "./speech/realtimeVoice";
 import { ChatPage } from "./chat/ChatPage";
+import { PageLoading } from "./components/page-loading";
 import { KataruneAssistantRuntimePool } from "./KataruneAssistantRuntimeProvider";
 import { SPEECH_CONFIG_CHANGED_EVENT } from "./speech/speechAvailability";
 import { useLiveState } from "./live/liveState";
@@ -71,14 +72,12 @@ export function App(): React.JSX.Element {
             />
           ) : null}
         </KataruneAssistantRuntimePool>
-        {activeView === "live" ? <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开直播……</main>}><LivePage onClose={() => setActiveView("chat")} /></Suspense> : activeView === "settings" ? (
-          <Suspense
-            fallback={
-              <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
-                正在打开设置……
-              </main>
-            }
-          >
+        {activeView === "live" ? (
+          <Suspense fallback={<PageLoading message="正在打开直播……" />}>
+            <LivePage onClose={() => setActiveView("chat")} />
+          </Suspense>
+        ) : activeView === "settings" ? (
+          <Suspense fallback={<PageLoading message="正在打开设置……" />}>
             <SettingsPage
               initialTab={settingsTab}
               onClose={() => {
@@ -88,13 +87,7 @@ export function App(): React.JSX.Element {
             />
           </Suspense>
         ) : activeView === "characters" ? (
-          <Suspense
-            fallback={
-              <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">
-                正在打开角色图鉴……
-              </main>
-            }
-          >
+          <Suspense fallback={<PageLoading message="正在打开角色图鉴……" />}>
             <CharacterPage
               packageRequest={packageRequest}
               onPackageRequestHandled={() => setPackageRequest(null)}
@@ -103,7 +96,7 @@ export function App(): React.JSX.Element {
             />
           </Suspense>
         ) : activeView === "memory" ? (
-          <Suspense fallback={<main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在打开记忆……</main>}>
+          <Suspense fallback={<PageLoading message="正在打开记忆……" />}>
             <MemoryPage onClose={() => setActiveView("chat")} />
           </Suspense>
         ) : null}

@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { Switch } from "../components/ui/switch";
 import { Textarea } from "../components/ui/textarea";
 import { TooltipIconButton } from "../components/tooltip-icon-button";
+import { PageLoading } from "../components/page-loading";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { notify } from "../notifications";
 import { assetUrl, type Character } from "../../../shared/ipc";
@@ -103,7 +104,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   useEffect(() => { if (state?.phase !== "running") setPreviewReady(false); }, [state?.phase]);
   const lastEvent = state?.events.at(-1)?.id;
   useEffect(() => { if (events.current) events.current.scrollTop = events.current.scrollHeight; }, [lastEvent, state?.broadcast, state?.connection, connectionView]);
-  if (!state) return <main className="grid h-full place-items-center text-sm text-muted-foreground" role="status">正在读取直播配置……</main>;
+  if (!state) return <PageLoading message="正在读取直播配置……" />;
   const active = ["starting", "running", "stopping"].includes(state.phase);
   const transitioning = state.phase === "starting" || state.phase === "stopping";
   const character = characters.find(item => item.id === state.settings.characterId) ?? activeCharacter;
