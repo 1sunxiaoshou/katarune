@@ -18,7 +18,6 @@ export function PageHeader({ title, onBack, backLabel = "返回聊天", backDisa
       <TooltipIconButton className="size-8 shrink-0" tooltip={backLabel} aria-label={backLabel} onClick={onBack} disabled={backDisabled} data-testid={backTestId}>
         <ArrowLeftIcon aria-hidden="true" />
       </TooltipIconButton>
-      <span className="page-header-star" aria-hidden="true">✦</span>
       <h1>{title}</h1>
       <div className="page-header-line" aria-hidden="true" />
       {trailing != null ? <div className="page-header-trailing">{trailing}</div> : null}
