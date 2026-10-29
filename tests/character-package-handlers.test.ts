@@ -109,7 +109,7 @@ describe("character package IPC transactions", () => {
     expect(await pending).toEqual({ canceled: true, package: null });
     expect(service.import).not.toHaveBeenCalled();
   });
-  it("ignores cancellation from a different window and cancels a destroyed sender", async () => {
+  it("rejects cancellation from a different window and cancels a destroyed sender", async () => {
     const { invoke, service, event } = setup();
     let select!: (value: unknown) => void;
     fixture.picker.mockReturnValue(
@@ -118,10 +118,10 @@ describe("character package IPC transactions", () => {
       }),
     );
     const pending = invoke(PACKAGE_CHANNELS.import, { requestId });
-    fixture.handlers.get(PACKAGE_CHANNELS.cancel)!(
+    await expect(fixture.handlers.get(PACKAGE_CHANNELS.cancel)!(
       { sender: { id: 8 } },
       { requestId },
-    );
+    )).rejects.toThrow("原因码：ownership-mismatch");
     expect(service.cancel).not.toHaveBeenCalled();
     event.sender.emit("destroyed");
     select({ canceled: false, filePaths: ["pack.zip"] });

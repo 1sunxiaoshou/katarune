@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull, notExists } from "drizzle-orm";
 import { assetSchema, type Asset } from "../../shared/ipc";
+import { OperationRejected } from "../diagnostics/operationRejected";
 import { assets, messageAssets } from "./schema";
 import type {
   AssetRepository,
@@ -29,7 +30,7 @@ export function createAssetRepository(
       .where(eq(assets.id, id))
       .get();
     if (asset === undefined) {
-      throw new Error(`Asset "${id}" was not found.`);
+      throw new OperationRejected("resource-unavailable");
     }
     return assetSchema.parse(asset);
   };

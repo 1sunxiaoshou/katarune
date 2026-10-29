@@ -1,3 +1,4 @@
+import { OperationRejected, parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { BrowserWindow } from "electron";
 import { characterIdRequestSchema } from "../../shared/ipc";
@@ -15,43 +16,43 @@ export function registerMemoryHandlers(database: DatabaseRuntime, retryDiaries?:
     }
   });
   const requireActiveCharacter = (characterId: string) => {
-    if (database.getAppState().activeCharacter.id !== characterId) throw new Error("请先切换到此记忆所属的角色。");
+    if (database.getAppState().activeCharacter.id !== characterId) throw new OperationRejected("ownership-mismatch", "请先切换到此记忆所属的角色。");
     database.fetchCharacter(characterId);
   };
   diagnosticIpcMain.handle(MEMORY_CHANNELS.retryDiary, (_event, value: unknown) => {
-    const { id } = characterIdRequestSchema.parse(value);
+    const { id } = parseRequest(characterIdRequestSchema, value);
     requireActiveCharacter(id);
     const state = database.retryMemoryDiaryJobs(id);
     retryDiaries?.();
     return memoryDiaryStateSchema.parse(state);
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.list, (_event, value: unknown) => {
-    const request = listMemoryRequestSchema.parse(value);
+    const request = parseRequest(listMemoryRequestSchema, value);
     requireActiveCharacter(request.characterId);
     return memoryListSchema.parse(database.listMemory(request));
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.read, (_event, value: unknown) => {
-    const request = memoryIdRequestSchema.parse(value);
+    const request = parseRequest(memoryIdRequestSchema, value);
     requireActiveCharacter(request.characterId);
     return memoryEntrySchema.parse(database.readMemory(request.characterId, request.id));
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.save, (_event, value: unknown) => {
-    const { characterId, ...request } = saveMemoryRequestSchema.parse(value);
+    const { characterId, ...request } = parseRequest(saveMemoryRequestSchema, value);
     requireActiveCharacter(characterId);
     return memoryWriteResultSchema.parse(database.saveMemory(characterId, request));
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.forget, (_event, value: unknown) => {
-    const { characterId, id, revision } = memoryVersionRequestSchema.parse(value);
+    const { characterId, id, revision } = parseRequest(memoryVersionRequestSchema, value);
     requireActiveCharacter(characterId);
     return memoryWriteResultSchema.parse(database.forgetMemory(characterId, id, revision));
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.diaryState, (_event, value: unknown) => {
-    const { id } = characterIdRequestSchema.parse(value);
+    const { id } = parseRequest(characterIdRequestSchema, value);
     requireActiveCharacter(id);
     return memoryDiaryStateSchema.parse(database.getMemoryDiaryState(id));
   });
   diagnosticIpcMain.handle(MEMORY_CHANNELS.diarySettings, (_event, value: unknown) => {
-    const { characterId, enabled } = memoryDiarySettingsSchema.parse(value);
+    const { characterId, enabled } = parseRequest(memoryDiarySettingsSchema, value);
     requireActiveCharacter(characterId);
     return memoryDiaryStateSchema.parse(database.setMemoryDiaryEnabled(characterId, enabled));
   });

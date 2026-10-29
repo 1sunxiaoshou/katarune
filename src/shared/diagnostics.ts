@@ -24,6 +24,12 @@ export const diagnosticStatusSchema = z.object({
   queued: z.number(), bytes: z.number(), files: z.number(),
 });
 export type DiagnosticStatus = z.infer<typeof diagnosticStatusSchema>;
+export const rejectionCodeSchema = z.enum([
+  "invalid-input", "forbidden-source", "resource-unavailable", "ownership-mismatch",
+  "operation-not-allowed", "operation-in-progress", "configuration-required",
+  "missing-port", "method-not-allowed", "unsupported-media", "rate-limited",
+]);
+export type RejectionCode = z.infer<typeof rejectionCodeSchema>;
 export const PROCESS_EXIT_REASONS = ["clean-exit", "abnormal-exit", "killed", "crashed", "oom", "launch-failed", "integrity-failure", "memory-eviction"] as const;
 const id = z.string().check(z.regex(/^[A-Za-z0-9_-]{1,100}$/));
 export const diagnosticRecordSchema = z.object({
@@ -35,7 +41,8 @@ export const diagnosticRecordSchema = z.object({
   operationId: z.optional(id), parentOperationId: z.optional(id), runId: z.optional(id), dialogueId: z.optional(id),
   toolCallId: z.optional(id), performanceId: z.optional(id), incidentId: z.optional(z.uuid()),
   bindingEpoch: z.optional(z.number()), durationMs: z.optional(z.number()), attempt: z.optional(z.number()), exitCode: z.optional(z.number()), count: z.optional(z.number()),
-  outcome: z.optional(z.enum(["success", "failed", "cancelled", "degraded", "spoken", "chat-only"])),
+  outcome: z.optional(z.enum(["success", "failed", "cancelled", "degraded", "spoken", "chat-only", "rejected"])),
+  reasonCode: z.optional(rejectionCodeSchema),
   reason: z.optional(z.enum(PROCESS_EXIT_REASONS)), processKind: z.optional(z.enum(["renderer", "utility", "gpu", "other"])),
   error: z.optional(z.array(safeErrorSchema).check(z.maxLength(4))),
 });

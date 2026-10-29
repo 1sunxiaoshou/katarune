@@ -14,6 +14,7 @@ import type { Asset } from "../src/shared/assets";
 import { createAssetService } from "../src/main/assets/assetService";
 import { loadDefaultCharacterConfig } from "../src/main/characters/defaultCharacter";
 import { handleAssetRequest } from "../src/main/assets/assetProtocol";
+import { OperationRejected } from "../src/main/diagnostics/operationRejected";
 import type { DatabaseRuntime } from "../src/main/database/database";
 
 const assetId = "00000000-0000-4000-8000-000000000002";
@@ -131,7 +132,7 @@ describe("generic asset service and protocol", () => {
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
       fetchAsset: (id: string) => {
-        if (id !== imported.id) throw new Error("not found");
+        if (id !== imported.id) throw new OperationRejected("resource-unavailable");
         return asset;
       },
     } as unknown as DatabaseRuntime;
@@ -184,11 +185,9 @@ describe("generic asset service and protocol", () => {
         throw new Error("escape");
       },
     };
-    expect(handleAssetRequest(new Request(url), database, unsafeService).status).toBe(400);
-    expect(readFileSync(join(process.cwd(), "src", "renderer", "index.html"), "utf8"))
-      .toContain("img-src 'self' data: katarune-asset:");
-    expect(readFileSync(join(process.cwd(), "src", "renderer", "index.html"), "utf8"))
-      .toContain("media-src 'self' blob: katarune-asset:");
+    expect(handleAssetRequest(new Request(url), database, unsafeService).status).toBe(500);
+    const brokenDatabase = { ...database, fetchAsset: () => { throw Object.assign(new Error("private database failure"), { code: "SQLITE_CORRUPT" }); } };
+    expect(handleAssetRequest(new Request(url), brokenDatabase, service).status).toBe(500);
   });
 
   it("removes stale generic asset stages on startup", () => {

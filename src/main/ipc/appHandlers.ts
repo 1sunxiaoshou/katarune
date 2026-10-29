@@ -1,3 +1,4 @@
+import { parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { app } from "electron";
 import {
@@ -30,14 +31,14 @@ export function registerAppHandlers(
     appStateSchema.parse(database.getAppState()),
   );
   diagnosticIpcMain.handle(IPC_CHANNELS.setActiveCharacter, (_event, value: unknown) => {
-    const { characterId } = setActiveCharacterRequestSchema.parse(value);
+    const { characterId } = parseRequest(setActiveCharacterRequestSchema, value);
     return appStateSchema.parse(database.setActiveCharacter(characterId));
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.getAppSettings, () =>
     appSettingsSchema.parse(database.getAppSettings()),
   );
   diagnosticIpcMain.handle(IPC_CHANNELS.updateAppSettings, (_event, value: unknown) => {
-    const request = updateAppSettingsRequestSchema.parse(value);
+    const request = parseRequest(updateAppSettingsRequestSchema, value);
     if (request.defaultLanguageModelConfigId != null) {
       try {
         aiRuntime.resolveLanguageModel(request.defaultLanguageModelConfigId);

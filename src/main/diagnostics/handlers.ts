@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import * as z from "zod/mini";
-import { DIAGNOSTICS_CHANNELS, diagnosticExportSchema, rendererDiagnosticSchema, diagnosticRecordSchema, projectError } from "../../shared/diagnostics";
+import { DIAGNOSTICS_CHANNELS, diagnosticExportSchema, rendererDiagnosticSchema, diagnosticRecordSchema, projectError, type RejectionCode } from "../../shared/diagnostics";
 import type { Diagnostics } from "./logger";
 
 export function registerDiagnosticsHandlers(logger: Diagnostics) {
@@ -23,30 +23,44 @@ export function registerDiagnosticsHandlers(logger: Diagnostics) {
     contents.on("preload-error", (_event, _path, error) => logger.record("error", "preload.error", {}, error));
   });
   const allowed = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) => trusted.has(event.sender) && event.senderFrame === event.sender.mainFrame;
+  const reject = (action: string, reasonCode: RejectionCode) => {
+    logger.record("warn", `diagnostics.${action}.rejected`, { outcome: "rejected", reasonCode });
+    return { status: "error" };
+  };
+  const rejectionError = (action: string, reasonCode: RejectionCode) => {
+    reject(action, reasonCode);
+    const error = new Error(`诊断请求不可用。（原因码：${reasonCode}）`);
+    error.stack = `Error: ${error.message}`;
+    return error;
+  };
   ipcMain.on(DIAGNOSTICS_CHANNELS.report, (event, value: unknown) => {
-    if (!allowed(event)) return;
+    if (!allowed(event)) { reject("report", "forbidden-source"); return; }
     const source = sources.get(event.sender.id); if (!source) return;
     const now = Date.now(); source.tokens = Math.min(100, source.tokens + (now - source.updated) * .02); source.updated = now;
-    if (source.tokens < 1) { source.dropped++; return; }
+    if (source.tokens < 1) { source.dropped++; reject("report", "rate-limited"); return; }
     source.tokens--;
-    const parsed = rendererDiagnosticSchema.safeParse(value); if (!parsed.success) return;
+    const parsed = rendererDiagnosticSchema.safeParse(value); if (!parsed.success) { reject("report", "invalid-input"); return; }
     if (source.dropped) { logger.record("warn", "diagnostics.source-dropped", { count: source.dropped }, undefined, "renderer", source.instance); source.dropped = 0; }
     const error = parsed.data.error;
     logger.record(parsed.data.event === "renderer.resize-observer" ? "warn" : "error", parsed.data.event, {}, { name: error.name, code: error.code,
       statusCode: error.httpStatus, isRetryable: error.retryable, stack: `Error\n${error.frames.join("\n")}` }, "renderer", source.instance);
   });
-  ipcMain.handle(DIAGNOSTICS_CHANNELS.status, event => { if (!allowed(event)) throw new Error("诊断请求不可用。"); return logger.status(); });
+  ipcMain.handle(DIAGNOSTICS_CHANNELS.status, event => { if (!allowed(event)) throw rejectionError("status", "forbidden-source"); return logger.status(); });
   ipcMain.handle(DIAGNOSTICS_CHANNELS.debug, (event, value: unknown) => {
-    if (!allowed(event)) throw new Error("诊断请求不可用。"); return logger.debug(z.boolean().parse(value));
+    if (!allowed(event)) throw rejectionError("debug", "forbidden-source");
+    const enabled = z.boolean().safeParse(value);
+    if (!enabled.success) throw rejectionError("debug", "invalid-input");
+    return logger.debug(enabled.data);
   });
   ipcMain.handle(DIAGNOSTICS_CHANNELS.open, async event => {
-    if (!allowed(event)) return { status: "error" };
+    if (!allowed(event)) return reject("open", "forbidden-source");
     try { return { status: await shell.openPath(logger.directory) ? "error" : "success" }; } catch { return { status: "error" }; }
   });
   let exporting = false;
   ipcMain.handle(DIAGNOSTICS_CHANNELS.export, async (event, value: unknown) => {
-    if (!allowed(event) || exporting) return { status: "error" };
-    const request = diagnosticExportSchema.safeParse(value); if (!request.success) return { status: "error" };
+    if (!allowed(event)) return reject("export", "forbidden-source");
+    if (exporting) return reject("export", "operation-in-progress");
+    const request = diagnosticExportSchema.safeParse(value); if (!request.success) return reject("export", "invalid-input");
     exporting = true;
     try {
       await logger.flush();

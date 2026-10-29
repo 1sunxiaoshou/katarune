@@ -20,11 +20,14 @@ try {
   assert.equal(initial.debugUntil, 0);
   const debug = await window.webContents.executeJavaScript("window.katarune.setDiagnosticsDebug(true)");
   assert.ok(debug.debugUntil > Date.now());
+  await assert.rejects(window.webContents.executeJavaScript("window.katarune.setDiagnosticsDebug('secret-invalid-input')"), /原因码：invalid-input/);
   await window.webContents.executeJavaScript(`window.katarune.reportDiagnostic({ event: 'renderer.error', error: { name: 'TypeError', frames: ['src/renderer/src/main.tsx:1:1'], messageRedacted: true }, message: 'private chat', token: 'secret-token', source: 'main' })`);
   await new Promise(resolve => setTimeout(resolve, 100));
   await logger.flush();
   const events = (await readFile(join(directory, "logs", "events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
   assert.ok(events.some(event => event.event === "renderer.error" && event.source === "renderer" && event.incidentId));
+  assert.ok(events.some(event => event.event === "diagnostics.debug.rejected" && event.level === "warn" && event.reasonCode === "invalid-input" && !event.incidentId && !event.error));
+  assert.doesNotMatch(JSON.stringify(events), /secret-invalid-input/);
   assert.doesNotMatch(JSON.stringify(events), /private chat|secret-token/);
   await window.webContents.executeJavaScript(`for (let i = 0; i < 500; i++) window.katarune.reportDiagnostic({event: 'renderer.error', error: {name: 'TypeError', frames: [], messageRedacted: true}})`);
   await new Promise(resolve => setTimeout(resolve, 150));
@@ -39,6 +42,7 @@ try {
     const exported = JSON.parse(await readFile(target, "utf8"));
     assert.ok(exported.events.some(event => event.event === "diagnostics.source-dropped" && event.count > 0));
     assert.ok(exported.manifest.excludes.includes("raw-engine-logs"));
+    assert.ok(exported.events.some(event => event.reasonCode === "invalid-input" && event.outcome === "rejected"));
     assert.doesNotMatch(JSON.stringify(exported), /private chat|secret-token/);
     dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
     assert.deepEqual(await window.webContents.executeJavaScript("window.katarune.exportDiagnostics({hours: 24})"), { status: "cancelled" });

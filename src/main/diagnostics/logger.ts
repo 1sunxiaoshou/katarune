@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Worker } from "node:worker_threads";
 import { join } from "node:path";
 import { mkdirSync, existsSync, writeFileSync, rmSync } from "node:fs";
-import { projectErrorChain, PROCESS_EXIT_REASONS, type DiagnosticStatus } from "../../shared/diagnostics";
+import { projectErrorChain, PROCESS_EXIT_REASONS, rejectionCodeSchema, type RejectionCode, type DiagnosticStatus } from "../../shared/diagnostics";
 
 type Level = "debug" | "info" | "warn" | "error" | "fatal";
 type Source = { source: "main" | "renderer" | "unity" | "asr"; processInstanceId: string; sourceSequence?: number; timestamp?: string };
@@ -14,7 +14,8 @@ export type DiagnosticContext = {
   toolCallId?: string; performanceId?: string; bindingEpoch?: number; durationMs?: number;
   attempt?: number; exitCode?: number; count?: number;
   reason?: string; processKind?: "renderer" | "utility" | "gpu" | "other";
-  outcome?: "success" | "failed" | "cancelled" | "degraded" | "spoken" | "chat-only";
+  outcome?: "success" | "failed" | "cancelled" | "degraded" | "spoken" | "chat-only" | "rejected";
+  reasonCode?: RejectionCode;
 };
 const identifier = /^[A-Za-z0-9_-]{1,100}$/;
 export function safeContext(context: DiagnosticContext): DiagnosticContext {
@@ -25,7 +26,9 @@ export function safeContext(context: DiagnosticContext): DiagnosticContext {
   for (const key of ["bindingEpoch", "durationMs", "attempt", "exitCode", "count"] as const) {
     const value = context[key]; if (typeof value === "number" && Number.isFinite(value)) safe[key] = value;
   }
-  if (context.outcome && ["success", "failed", "cancelled", "degraded", "spoken", "chat-only"].includes(context.outcome)) safe.outcome = context.outcome;
+  if (context.outcome && ["success", "failed", "cancelled", "degraded", "spoken", "chat-only", "rejected"].includes(context.outcome)) safe.outcome = context.outcome;
+  const reason = rejectionCodeSchema.safeParse(context.reasonCode);
+  if (reason.success) safe.reasonCode = reason.data;
   if (context.reason && PROCESS_EXIT_REASONS.some(value => value === context.reason)) safe.reason = context.reason;
   if (context.processKind && ["renderer", "utility", "gpu", "other"].includes(context.processKind)) safe.processKind = context.processKind;
   return safe;
@@ -48,6 +51,7 @@ export class Diagnostics {
   private closing = false;
   private repeats = new Map<string, { count: number; last: number; incidentId: string }>();
   private incidents = new WeakMap<object, string>();
+  private rejections = new Map<string, { event: string; source: string; processInstanceId: string; context: DiagnosticContext; count: number; since: number }>();
   constructor(readonly directory: string, readonly version: string) {}
   start(writerPath = join(__dirname, "diagnosticWriter.js")) {
     this.writerPath = writerPath;
@@ -90,6 +94,16 @@ export class Diagnostics {
   record(level: Level, event: string, context: DiagnosticContext = {}, error?: unknown, source = "main", processInstanceId: string = this.bootId, origin?: Source): string | undefined {
     if (level === "debug" && Date.now() >= this.debugUntil) return;
     if (!/^[a-z][a-z0-9.-]{0,79}$/.test(event)) return;
+    const safe = { ...operationContext.getStore(), ...safeContext(context) };
+    if (level === "warn" && safe.outcome === "rejected" && safe.count === undefined) {
+      // Fixed windows also flush during a sustained flood. No payload or resource ID in keys.
+      this.flushRejections();
+      const key = `${source}:${event}:${safe.reasonCode}`;
+      const previous = this.rejections.get(key);
+      if (previous) { previous.count++; return; }
+      if (this.rejections.size >= 128) { this.dropped++; return; }
+      this.rejections.set(key, { event, source, processInstanceId, context: safe, count: 0, since: Date.now() });
+    }
     const chain = error === undefined ? undefined : projectErrorChain(error);
     let incidentId: string | undefined;
     if (level === "error" || level === "fatal") {
@@ -105,7 +119,7 @@ export class Diagnostics {
     const now = new Date().toISOString();
     const line = JSON.stringify({ schemaVersion: 1, timestamp: origin?.timestamp && Number.isFinite(Date.parse(origin.timestamp)) ? new Date(origin.timestamp).toISOString() : now, observedTimestamp: now, level, event,
       component: event.split(".")[0], source, bootId: this.bootId, processInstanceId,
-      sequence: ++this.sequence, sourceSequence: origin?.sourceSequence, appVersion: this.version, ...operationContext.getStore(), ...safeContext(context), incidentId, error: chain });
+      sequence: ++this.sequence, sourceSequence: origin?.sourceSequence, appVersion: this.version, ...safe, incidentId, error: chain });
     if (Buffer.byteLength(line) > 8192) { this.dropped++; return incidentId; }
     if (this.queue.length >= 512) {
       const debug = this.queue.findIndex(item => item.includes('"level":"debug"'));
@@ -116,7 +130,14 @@ export class Diagnostics {
     return incidentId;
   }
   private trimFallback() { if (this.fallback.length > 512) { this.dropped += this.fallback.length - 512; this.fallback.splice(0, this.fallback.length - 512); } }
+  private flushRejections(all = false) {
+    for (const [key, repeat] of this.rejections) if (all || Date.now() - repeat.since >= 10_000) {
+      this.rejections.delete(key);
+      if (repeat.count) this.record("warn", repeat.event, { ...repeat.context, count: repeat.count }, undefined, repeat.source, repeat.processInstanceId);
+    }
+  }
   private pump() {
+    this.flushRejections();
     for (const [key, repeat] of this.repeats) if (Date.now() - repeat.last >= 10_000) {
       this.repeats.delete(key);
       if (repeat.count) this.record("warn", "diagnostics.repeated", { operationId: repeat.incidentId, count: repeat.count });
@@ -131,12 +152,14 @@ export class Diagnostics {
   status(): DiagnosticStatus { return { degraded: this.degraded, dropped: this.dropped, debugUntil: Date.now() < this.debugUntil ? this.debugUntil : 0, queued: this.queue.length + this.inFlight.length + this.fallback.length, bytes: this.bytes, files: this.files }; }
   debug(enabled: boolean) { this.debugUntil = enabled ? Date.now() + 30 * 60_000 : 0; this.record("info", enabled ? "diagnostics.debug-enabled" : "diagnostics.debug-disabled"); return this.status(); }
   async flush(timeoutMs = 1500) {
+    this.flushRejections(true);
     const deadline = Date.now() + timeoutMs;
     while ((this.queue.length || this.inFlight.length) && Date.now() < deadline) { this.pump(); await new Promise(resolve => setTimeout(resolve, 20)); }
     return !this.queue.length && !this.inFlight.length && !this.degraded;
   }
   async close(clean: boolean) {
     this.closing = true;
+    this.flushRejections(true);
     for (const repeat of this.repeats.values()) if (repeat.count) this.record("warn", "diagnostics.repeated", { operationId: repeat.incidentId, count: repeat.count });
     this.repeats.clear();
     this.record("info", clean ? "app.stopped" : "app.fatal-exit", { count: this.dropped, outcome: clean ? "success" : "failed" });

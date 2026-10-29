@@ -1,3 +1,4 @@
+import { OperationRejected, parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { diagnostic } from "../diagnostics/logger";
 import { ipcMain } from "electron";
@@ -10,7 +11,6 @@ import {
 } from "../../shared/ipc";
 import { SpeechRequestRegistry } from "../speech/speechRequestRegistry";
 import {
-  SpeechServiceError,
   toSpeechServiceError,
   type SpeechService,
 } from "../speech/ttsService";
@@ -21,7 +21,7 @@ export function registerSpeechHandlers(
   avatar?: AvatarService,
 ): void {
   diagnosticIpcMain.handle(IPC_CHANNELS.generateSpeech, async (event, value: unknown) => {
-    const request = speechGenerateRequestSchema.parse(value);
+    const request = parseRequest(speechGenerateRequestSchema, value);
     const abortController = new AbortController();
     const binding = request.threadId ? { characterId: request.characterId, threadId: request.threadId } : undefined;
     const avatarEpoch = binding ? avatar?.captureBinding(binding) : null;
@@ -40,7 +40,7 @@ export function registerSpeechHandlers(
 
     try {
       if (avatarEpoch != null && avatar && !avatar.canPlayManualSpeech)
-        throw new SpeechServiceError("provider-error", "角色正在表演，请先停止演出再朗读。");
+        throw new OperationRejected("operation-not-allowed", "角色正在表演，请先停止演出再朗读。");
       const result = await speechService.generate(
         request.characterId,
         request.text,
@@ -74,6 +74,7 @@ export function registerSpeechHandlers(
         cacheHit: result.cacheHit,
       });
     } catch (error) {
+      if (error instanceof OperationRejected) throw error;
       if (abortController.signal.aborted) {
         return speechGenerateResponseSchema.parse({
           status: "cancelled",
@@ -96,7 +97,10 @@ export function registerSpeechHandlers(
   });
   ipcMain.on(IPC_CHANNELS.cancelSpeech, (event, value: unknown) => {
     const request = speechCancelRequestSchema.safeParse(value);
-    if (!request.success) return;
+    if (!request.success) {
+      diagnostic("warn", "tts.cancel-rejected", { outcome: "rejected", reasonCode: "invalid-input" });
+      return;
+    }
     speechRequests.cancel(event.sender.id, request.data.requestId);
   });
 }

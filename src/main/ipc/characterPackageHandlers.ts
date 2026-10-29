@@ -1,3 +1,4 @@
+import { OperationRejected, parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { BrowserWindow, dialog } from "electron";
 import {
@@ -19,15 +20,16 @@ export function registerCharacterPackageHandlers(
   const binding = new Set<string>();
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.list, () => service.list());
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.detail, (_event, value: unknown) =>
-    service.detail(packageIdRequestSchema.parse(value).id),
+    service.detail(parseRequest(packageIdRequestSchema, value).id),
   );
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.remove, (_event, value: unknown) => {
-    service.remove(packageIdRequestSchema.parse(value).id);
+    service.remove(parseRequest(packageIdRequestSchema, value).id);
     return { success: true };
   });
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.cancel, (event, value: unknown) => {
-    const { requestId } = packageImportRequestSchema.parse(value);
+    const { requestId } = parseRequest(packageImportRequestSchema, value);
     const job = owners.get(requestId);
+    if (job && job.senderId !== event.sender.id) throw new OperationRejected("ownership-mismatch");
     if (job?.senderId === event.sender.id) {
       job.canceled = true;
       service.cancel(requestId);
@@ -35,8 +37,8 @@ export function registerCharacterPackageHandlers(
     return { success: true };
   });
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.import, async (event, value: unknown) => {
-    const { requestId } = packageImportRequestSchema.parse(value);
-    if (owners.has(requestId)) throw new Error("重复导入请求。");
+    const { requestId } = parseRequest(packageImportRequestSchema, value);
+    if (owners.has(requestId)) throw new OperationRejected("operation-in-progress");
     const job = { senderId: event.sender.id, canceled: false };
     owners.set(requestId, job);
     const cancel = () => {
@@ -72,8 +74,8 @@ export function registerCharacterPackageHandlers(
     }
   });
   diagnosticIpcMain.handle(PACKAGE_CHANNELS.bind, async (_event, value: unknown) => {
-    const { characterId, packageId } = packageBindSchema.parse(value);
-    if (binding.has(characterId)) throw new Error("角色包正在切换，请稍候。");
+    const { characterId, packageId } = parseRequest(packageBindSchema, value);
+    if (binding.has(characterId)) throw new OperationRejected("operation-in-progress");
     binding.add(characterId);
     const releases: (() => void)[] = [];
     try {

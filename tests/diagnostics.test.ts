@@ -1,11 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, utimes, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
 import { APICallError, RetryError } from "ai";
-import { Diagnostics } from "../src/main/diagnostics/logger";
-import { projectErrorChain, rendererDiagnosticSchema } from "../src/shared/diagnostics";
+import { Diagnostics, safeContext } from "../src/main/diagnostics/logger";
+import { diagnosticRecordSchema, projectErrorChain, rendererDiagnosticSchema } from "../src/shared/diagnostics";
 
 let directory: string, writer: string;
 beforeAll(async () => {
@@ -16,6 +16,34 @@ beforeAll(async () => {
 afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
 describe("diagnostic privacy and resource bounds", () => {
+  it("retains only allowlisted rejection codes through export validation", () => {
+    const logger = new Diagnostics(join(directory, "rejections"), "test");
+    logger.record("warn", "chat.stream-rejected", { outcome: "rejected", reasonCode: "ownership-mismatch" });
+    const record = diagnosticRecordSchema.parse(JSON.parse(logger.memorySnapshot()[0]!));
+    expect(record).toMatchObject({ level: "warn", outcome: "rejected", reasonCode: "ownership-mismatch" });
+    expect(record.incidentId).toBeUndefined();
+    expect(record.error).toBeUndefined();
+    expect(diagnosticRecordSchema.safeParse({ ...record, reasonCode: "secret-token" }).success).toBe(false);
+    const hostile = { outcome: "rejected" as const };
+    Reflect.set(hostile, "reasonCode", "secret-token");
+    expect(safeContext(hostile)).not.toHaveProperty("reasonCode");
+  });
+  it("aggregates sustained rejections in fixed windows without flooding away faults", () => {
+    vi.useFakeTimers();
+    try {
+      const logger = new Diagnostics(join(directory, "rejection-flood"), "test");
+      for (let i = 0; i < 2000; i++) logger.record("warn", "asset.request-rejected", { outcome: "rejected", reasonCode: "invalid-input" });
+      logger.record("error", "database.failed", {}, { code: "SQLITE_CORRUPT" });
+      expect(logger.memorySnapshot()).toHaveLength(2);
+      vi.advanceTimersByTime(10_000);
+      logger.record("warn", "asset.request-rejected", { outcome: "rejected", reasonCode: "invalid-input" });
+      const records = logger.memorySnapshot().map(line => diagnosticRecordSchema.parse(JSON.parse(line)));
+      expect(records).toHaveLength(4);
+      expect(records[2]).toMatchObject({ event: "asset.request-rejected", count: 1999, reasonCode: "invalid-input", outcome: "rejected" });
+      expect(records[1]).toMatchObject({ level: "error", incidentId: expect.any(String) });
+      expect(logger.status().dropped).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it("keeps HTTP and nested causes without provider bodies, messages, URLs or user paths", () => {
     const cause = new APICallError({ message: "private chat", url: "https://secret.invalid?key=secret-token", requestBodyValues: { text: "private chat" }, responseBody: "private response", statusCode: 429, isRetryable: true });
     cause.stack = "Error: private chat\n at request (C:\\Users\\private-name\\repo\\src\\main\\speech\\ttsService.ts:123:4)";

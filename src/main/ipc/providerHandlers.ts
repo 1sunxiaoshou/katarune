@@ -1,3 +1,4 @@
+import { parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import {
   availableModelListSchema,
@@ -40,17 +41,17 @@ export function registerProviderHandlers(
     database.listProviderConfigs(),
   );
   diagnosticIpcMain.handle(IPC_CHANNELS.createProviderConfig, async (_event, value: unknown) => {
-    const request = createProviderConfigRequestSchema.parse(value);
+    const request = parseRequest(createProviderConfigRequestSchema, value);
     const result = database.createProviderConfig(request);
     await aiRuntime.reload();
     return result;
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.fetchProviderConfig, (_event, value: unknown) => {
-    const { id } = providerConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(providerConfigIdRequestSchema, value);
     return database.fetchProviderConfig(id);
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.updateProviderConfig, async (_event, value: unknown) => {
-    const request = updateProviderConfigRequestSchema.parse(value);
+    const request = parseRequest(updateProviderConfigRequestSchema, value);
     const result = database.updateProviderConfig(request);
     await aiRuntime.reload();
     return result;
@@ -59,7 +60,7 @@ export function registerProviderHandlers(
     IPC_CHANNELS.replaceProviderCredential,
     async (_event, value: unknown) => {
       const { providerConfigId, secret } =
-        replaceProviderCredentialRequestSchema.parse(value);
+        parseRequest(replaceProviderCredentialRequestSchema, value);
       const previousConfig = database.fetchProviderConfig(providerConfigId);
       const nextReference = await credentialStore.put(secret);
 
@@ -102,7 +103,7 @@ export function registerProviderHandlers(
     },
   );
   diagnosticIpcMain.handle(IPC_CHANNELS.clearProviderCredential, async (_event, value: unknown) => {
-    const { id } = providerConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(providerConfigIdRequestSchema, value);
     const previousConfig = database.fetchProviderConfig(id);
     if (previousConfig.credentialRef === null) return previousConfig;
 
@@ -118,7 +119,7 @@ export function registerProviderHandlers(
     }
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.deleteProviderConfig, async (_event, value: unknown) => {
-    const { id } = providerConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(providerConfigIdRequestSchema, value);
     const credentialRef = database.fetchProviderConfig(id).credentialRef;
     database.deleteProviderConfig(id);
     await aiRuntime.reload();
@@ -134,7 +135,7 @@ export function registerProviderHandlers(
     }),
   );
   diagnosticIpcMain.handle(IPC_CHANNELS.createModelConfig, async (_event, value: unknown) => {
-    const request = createModelConfigRequestSchema.parse(value);
+    const request = parseRequest(createModelConfigRequestSchema, value);
     const provider = database.fetchProviderConfig(request.providerConfigId);
     const inspected = await inspectModelForPersistence({
       provider,
@@ -155,11 +156,11 @@ export function registerProviderHandlers(
     return result;
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.fetchModelConfig, (_event, value: unknown) => {
-    const { id } = modelConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(modelConfigIdRequestSchema, value);
     return database.fetchModelConfig(id);
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.updateModelConfig, async (_event, value: unknown) => {
-    const request = updateModelConfigRequestSchema.parse(value);
+    const request = parseRequest(updateModelConfigRequestSchema, value);
     const current = database.fetchModelConfig(request.id);
     const inspected =
       current.modelId === request.modelId &&
@@ -192,13 +193,13 @@ export function registerProviderHandlers(
     return result;
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.deleteModelConfig, async (_event, value: unknown) => {
-    const { id } = modelConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(modelConfigIdRequestSchema, value);
     database.deleteModelConfig(id);
     await aiRuntime.reload();
     return operationSuccessSchema.parse({ success: true });
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.discoverProviderModels, async (_event, value: unknown) => {
-    const { id, autoAdd } = discoverProviderModelsRequestSchema.parse(value);
+    const { id, autoAdd } = parseRequest(discoverProviderModelsRequestSchema, value);
     const provider = database.fetchProviderConfig(id);
     const apiKey = await resolveApiKey(provider);
     const discovered = await discoverProviderModels(provider, apiKey);
@@ -207,7 +208,7 @@ export function registerProviderHandlers(
     return discoveredModelListSchema.parse(result);
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.refreshModelMetadata, async (_event, value: unknown) => {
-    const { id } = modelConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(modelConfigIdRequestSchema, value);
     const current = database.fetchModelConfig(id);
     const provider = database.fetchProviderConfig(current.providerConfigId);
     const inspected = await inspectModelForPersistence({
@@ -234,7 +235,7 @@ export function registerProviderHandlers(
     return result;
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.testModelConnection, (_event, value: unknown) => {
-    const { id } = modelConfigIdRequestSchema.parse(value);
+    const { id } = parseRequest(modelConfigIdRequestSchema, value);
     return aiRuntime.testConnection(id);
   });
 }
