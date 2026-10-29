@@ -42,7 +42,8 @@
     "package:linux": "npm run build && electron-builder --linux AppImage deb --x64",
     "postinstall": "electron-builder install-app-deps",
     "build:installer": "node scripts/build-nsis-installer.mjs",
-    "preview:installer": "node scripts/preview-nsis-installer.mjs"
+    "preview:installer": "node scripts/preview-nsis-installer.mjs",
+    "test:electron-shutdown": "node tests/run-electron-shutdown.mjs"
   },
   "engines": {
     "node": "^24.21.0",
@@ -104,7 +105,7 @@
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
     "drizzle-kit": "0.31.10",
-    "electron": "43.1.1",
+    "electron": "43.5.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "lucide-react": "1.25.0",
