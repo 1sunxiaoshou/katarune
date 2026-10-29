@@ -3,13 +3,12 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 12px 18px 16px;
+  padding: 16px 0;
   gap: 12px;
   font-family: var(--font-ui);
 }
 
-.live-header { display: flex; align-items: center; gap: 8px; height: 28px; flex: none; }
-.live-header h1 { font-size: 15px; font-weight: 600; }
+.live-workspace, .live-footer { margin-inline: 32px; }
 .live-workspace {
   display: grid;
   grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr);
@@ -71,4 +70,8 @@
   .live-workspace { grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); }
   .live-field { grid-template-columns: minmax(0, 1fr) minmax(0, 128px); }
   .live-field-stacked { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  .live-workspace, .live-footer { margin-inline: 24px; }
 }

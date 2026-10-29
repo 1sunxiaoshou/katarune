@@ -1,8 +1,7 @@
-import { ArrowLeftIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
-import { TooltipIconButton } from "@/components/tooltip-icon-button";
+import { PageHeader } from "@/components/page-header";
 import type {
   Character,
 } from "../../../shared/ipc";
@@ -50,18 +49,7 @@ export function CharacterPage({
       data-testid="character-page"
       id="main-content"
     >
-      <header className="character-header">
-        <TooltipIconButton
-          className="size-8"
-          data-testid="character-back"
-          tooltip="返回聊天"
-          onClick={() => void controller.leave("chat")}
-        >
-          <ArrowLeftIcon aria-hidden="true" />
-        </TooltipIconButton>
-        <span className="character-header-star" aria-hidden="true">✦</span>
-        <h1>角色图鉴</h1>
-        <div className="character-header-line" aria-hidden="true" />
+      <PageHeader title="角色图鉴" onBack={() => void controller.leave("chat")} backTestId="character-back" trailing={
         <span className="character-page-count">
           {selectedCharacter === undefined
             ? "00"
@@ -77,7 +65,7 @@ export function CharacterPage({
           {" / "}
           {String(controller.characterEntries.length).padStart(2, "0")}
         </span>
-      </header>
+      } />
 
       {controller.error !== null ? (
         <div className="character-page-error" role="alert">

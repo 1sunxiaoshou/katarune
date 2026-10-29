@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
-  ArrowLeftIcon,
   BotIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
@@ -13,7 +12,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { TooltipIconButton } from "@/components/tooltip-icon-button";
+import { PageHeader } from "@/components/page-header";
 import { ModelManagement } from "./ModelSettings";
 import { ProviderDialog } from "./ProviderDialog";
 import { GeneralSettings } from "./GeneralSettings";
@@ -49,19 +48,7 @@ export function SettingsPage({
       data-testid="settings-page"
       id="main-content"
     >
-      <header className="settings-header">
-        <TooltipIconButton
-          className="size-8"
-          data-testid="settings-back"
-          tooltip="返回聊天"
-          onClick={onClose}
-        >
-          <ArrowLeftIcon aria-hidden="true" />
-        </TooltipIconButton>
-        <span className="settings-header-star" aria-hidden="true">✦</span>
-        <h1>设置</h1>
-        <div className="settings-header-line" aria-hidden="true" />
-      </header>
+      <PageHeader title="设置" onBack={onClose} backTestId="settings-back" overlay />
 
       <Tabs
         className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-20 lg:gap-10"

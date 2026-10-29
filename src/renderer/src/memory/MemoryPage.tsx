@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import { ArrowLeftIcon, BookOpenIcon, NotebookPenIcon, UsersIcon, BookTextIcon, PlusIcon, CircleAlertIcon } from "lucide-react";
+import { BookOpenIcon, NotebookPenIcon, UsersIcon, BookTextIcon, PlusIcon, CircleAlertIcon } from "lucide-react";
 import type { MemoryDiaryState, MemoryEntry, MemoryKind, MemoryList } from "../../../shared/memory";
 import { diaryFailureMessage } from "../../../shared/memory";
 import { assetUrl } from "../../../shared/ipc";
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsIndicator, TabsList, TabsTrigger } from "@/compo
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PageHeader } from "@/components/page-header";
 import "./memory.css";
 
 const MemoryDocument = lazy(async () => ({ default: (await import("./MemoryDocument")).MemoryDocument }));
@@ -75,7 +76,7 @@ function MemoryWorkspace({ characterId, characterName, portraitAssetId, onClose 
   const formatDay = (day: string) => new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(`${day}T12:00:00`));
 
   return <main className="memory-page" data-testid="memory-page" id="main-content">
-    <header className="settings-header"><TooltipIconButton tooltip="返回聊天" disabled={editor !== null} onClick={onClose} className="size-8" data-testid="memory-back"><ArrowLeftIcon aria-hidden /></TooltipIconButton><span className="settings-header-star" aria-hidden>✦</span><h1>记忆</h1><div className="settings-header-line" aria-hidden /></header>
+    <PageHeader title="记忆" onBack={onClose} backDisabled={editor !== null} backTestId="memory-back" overlay />
     <Tabs className="memory-workspace" orientation="vertical" value={kind} onValueChange={value => { if (value === "diary" || value === "person" || value === "event") switchKind(value); }}>
       <aside className="memory-navigation" aria-label="记忆分类">
         <TabsList className="relative isolate flex-row! w-full items-stretch gap-2 bg-transparent p-0 md:flex-col!">

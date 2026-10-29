@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popove
 import { Switch } from "../components/ui/switch";
 import { Textarea } from "../components/ui/textarea";
 import { TooltipIconButton } from "../components/tooltip-icon-button";
+import { PageHeader } from "../components/page-header";
 import { PageLoading } from "../components/page-loading";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { notify } from "../notifications";
@@ -135,7 +136,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   };
   const connectionLabel = { disconnected: "未连接", connecting: "连接中", connected: "已连接", reconnecting: "重连中", error: "连接失败" }[state.connection];
   return <main className="live-page page-frame" data-testid="live-page">
-    <header className="live-header"><TooltipIconButton tooltip="返回对话" aria-label="返回对话" onClick={onClose}><ArrowLeftIcon /></TooltipIconButton><h1>直播</h1></header>
+    <PageHeader title="直播" onBack={onClose} backLabel="返回对话" />
     <div className="live-workspace">
       <section className="live-preview dark bg-background text-muted-foreground" aria-label="直播画面预览">
         <video ref={video} aria-label="当前直播画面" playsInline disablePictureInPicture
