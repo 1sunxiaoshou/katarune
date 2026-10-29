@@ -6,7 +6,7 @@ type Task = { args: Parameters<SendMessage>; priority: boolean; resolve(): void;
 export function createChatSendQueue(
   send: SendMessage,
   onPending: (count: number) => void,
-  onDispatch?: (priority: boolean) => void,
+  onDispatch?: (priority: boolean, message: Parameters<SendMessage>[0]) => void,
 ) {
   const pending: Task[] = [];
   let active = false;
@@ -16,7 +16,7 @@ export function createChatSendQueue(
     active = true;
     const task = pending.shift()!;
     onPending(pending.length);
-    onDispatch?.(task.priority);
+    onDispatch?.(task.priority, task.args[0]);
     void send(...task.args).then(task.resolve, task.reject).finally(() => {
       active = false;
       drain();

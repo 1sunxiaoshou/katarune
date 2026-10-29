@@ -144,6 +144,7 @@ let releaseFirstChatStream;
 let releaseCrossCharacterStream;
 let avatarStatus = { phase: "stopped", binding: null, error: null };
 const avatarChatRequests = [];
+const avatarUserSubtitles = [];
 const titleRequests = [];
 let releaseAvatarOutput;
 let canceledAvatarStreams = 0;
@@ -217,7 +218,7 @@ function registerMockHandlers() {
     event.sender.send('avatar:changed', avatarStatus);
   });
   ipcMain.handle("avatar:playback-control", () => {});
-  ipcMain.handle("avatar:user-subtitle", () => {});
+  ipcMain.handle("avatar:user-subtitle", (_event, request) => { avatarUserSubtitles.push(request); });
   ipcMain.handle("app:get-info", () => ({
     name: "Katarune",
     version: "0.1.0",
@@ -1518,6 +1519,7 @@ async function run() {
     });
 
     await runStep("queue avatar dialogue without interrupting or restarting the Agent", async () => {
+      const subtitleStart = avatarUserSubtitles.length;
       await waitUntil("previous chat complete", () => activeChatStreamCount === 0);
       await clickSelector(window, 'button[aria-label="新对话"]');
       await waitForSelector(window, ".aui-thread-welcome-root");
@@ -1558,12 +1560,14 @@ async function run() {
       await sendText("桌宠第三句", true);
       await waitForText(window, '[role="status"]:not(.sr-only)', "2");
       assert.equal(avatarChatRequests.length, 1);
+      assert.deepEqual(avatarUserSubtitles.slice(subtitleStart), [{ binding: avatarStatus.binding, text: "桌宠第一句" }]);
       assert.equal(canceledAvatarStreams, 0);
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="停止回复"]') === null`), true);
       releaseAvatarOutput();
       await waitForText(window, '[data-slot="aui_thread-viewport"]', "字幕对白第3句");
       await waitUntil("avatar stream completed", () => activeChatStreamCount === 0);
       assert.equal(avatarChatRequests.length, 3);
+      assert.deepEqual(avatarUserSubtitles.slice(subtitleStart), ["桌宠第一句", "桌宠第二句", "桌宠第三句"].map(text => ({ binding: avatarStatus.binding, text })));
       await waitUntil("avatar thread gets a native title after its first reply", () => titleRequests.some(r => r.threadId === avatarChatRequests[0].threadId));
       assert.equal(titleRequests.filter(r => r.threadId === avatarChatRequests[0].threadId).length, 1);
       await waitForText(window, "body", "测试会话：桌宠第一句");
@@ -1582,6 +1586,7 @@ async function run() {
       await waitForText(window, "body", "测试会话：普通新会话标题");
       await waitUntil("ordinary chat completed", () => activeChatStreamCount === 0);
       assert.equal(titleRequests.filter(r => r.messages[0]?.text === "普通新会话标题").length, 1);
+      assert.equal(avatarUserSubtitles.length, subtitleStart + 3, "Stopped avatar must not receive typed captions");
     });
 
     await runStep("missing inherited defaults preserve selection and settings navigation", async () => {
@@ -1845,6 +1850,7 @@ async function run() {
       const draft = await window.webContents.executeJavaScript(`document.querySelector('[aria-label="消息输入"]').value`);
       realtimeText = '这是实时语音对话。';
       await waitUntil('recognized utterance automatically sent', () => avatarChatRequests.length === beforeMessages + 1);
+      assert.equal(avatarUserSubtitles.filter(request => request.text === '这是实时语音对话。').length, 1, 'Voice caption must not be duplicated by the send queue');
       const request = avatarChatRequests.at(-1);
       assert.equal(request.threadId, bound.threadId); assert.equal(request.characterId, bound.characterId);
       assert.match(JSON.stringify(request.messages), /这是实时语音对话/);

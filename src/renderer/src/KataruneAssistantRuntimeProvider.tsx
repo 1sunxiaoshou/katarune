@@ -124,7 +124,17 @@ function ThreadRuntimeHook() {
       createChatSendQueue(
         (...args) => sendRef.current(...args),
         (count) => useAvatarState.getState().setQueued(threadId, count),
-        priority => { if (!priority) realtimeVoice.beforeSend({ characterId: character.id, threadId: remoteId ?? threadId }); },
+        (priority, message) => {
+          // Confirmed speech already publishes its caption before entering this queue.
+          if (priority) return;
+          const binding = { characterId: character.id, threadId: resolvedThreadId };
+          realtimeVoice.beforeSend(binding);
+          if (!message || ("role" in message && message.role && message.role !== "user")) return;
+          const text = (("text" in message ? message.text : undefined)
+            ?? message.parts?.filter(part => part.type === "text").map(part => part.text).join("\n") ?? "").trim();
+          if (!text || text.length > 20_000) return;
+          void window.katarune.showAvatarUserSubtitle({ binding, text }).catch(() => {});
+        },
       ),
     [threadId, resolvedThreadId, character.id],
   );
