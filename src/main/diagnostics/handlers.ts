@@ -85,7 +85,7 @@ export function registerDiagnosticsHandlers(logger: Diagnostics) {
       }
       for (const line of logger.memorySnapshot()) collect(line);
       const body = JSON.stringify({ manifest: { schemaVersion: 1, exportedAt: new Date().toISOString(), hours: request.data.hours,
-        appVersion: app.getVersion(), electronVersion: process.versions.electron, unityVersion: "6000.3.11f1", platform: process.platform,
+        appVersion: app.getVersion(), electronVersion: process.versions.electron, unityVersion: "6000.3.27f2", platform: process.platform,
         events: events.size, diagnostics: logger.status(), excludes: ["credentials", "conversations", "media", "database", "raw-engine-logs", "crash-dumps"] }, events: [...events.values()] }, null, 2);
       const confirmation = await dialog.showMessageBox({ type: "info", buttons: ["保存诊断", "取消"], cancelId: 1, defaultId: 0,
         message: "导出本地诊断", detail: `最近 ${request.data.hours} 小时，${events.size} 条事件，约 ${(Buffer.byteLength(body) / 1024).toFixed(0)} KB。包含版本、运行状态和已脱敏错误信息，不含聊天内容、音频或密钥。文件仅保存到你选择的位置。` });

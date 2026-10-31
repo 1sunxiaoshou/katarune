@@ -70,7 +70,7 @@ npx skills list --json
 ## Unity 特别规则
 
 - 讨论、规划、实现或评审 Unity 功能前，先读取 `unity/KataruneAvatar/ProjectSettings/ProjectVersion.txt` 和 `unity/KataruneAvatar/Packages/manifest.json`，再查询对应版本的 Unity 官方 Manual、Scripting API 或包文档。第三方包同时核对官方上游文档和项目锁定源码，不只依赖模型记忆或泛化教程。
-- Unity `6000.3.11f1`、Pipeline `0.8.0-exp.1` 与 Windows 中文工程路径的组合禁用 `eval` / `eval_file`；其他加载动态程序集的命令也须先验证。优先使用已注册的场景、播放、截图和测试命令；需要 C# 时写正常编译的 Editor 脚本。
+- Unity `6000.3.11f1`、Pipeline `0.8.0-exp.1` 与 Windows 中文工程路径的组合曾出现动态程序集故障；升级至 `6000.3.27f2` 后尚未验证此问题已修复，继续禁用 `eval` / `eval_file`；其他加载动态程序集的命令也须先验证。优先使用已注册的场景、播放、截图和测试命令；需要 C# 时写正常编译的 Editor 脚本。
 - 此组合下 `PipelineEval_*` 动态程序集可能发生 `GetName()` 失败，导致 QuickInstaller 持续刷错。恢复须保存场景并重载脚本域或重启 Editor，以卸载动态程序集；不能只清空 Console、屏蔽异常或修改 PackageCache。细节见工程规范的 Unity 编辑器排错记录。
 
 ## 验证与交付

@@ -2,14 +2,14 @@
 
 独立 Unity 角色运行时，负责 VRM、动作、表情、音频、口型、字幕与原生角色窗口。聊天、模型调用、语音服务和产品控件由 Electron 提供。
 
-版本以 `ProjectSettings/ProjectVersion.txt` 和 `Packages/manifest.json` 为准；当前 Unity 为 `6000.3.11f1`，Pipeline 为 `0.8.0-exp.1`。该版本与 Windows 中文路径组合禁用 Pipeline `eval` / `eval_file`，排错见[工程规范](../../docs/04-开发/工程规范.md#unity-编辑器动态程序集排错2026-09-27)。
+版本以 `ProjectSettings/ProjectVersion.txt` 和 `Packages/manifest.json` 为准；当前 Unity 为 `6000.3.27f2`，Pipeline 为 `0.8.0-exp.1`。旧版 `6000.3.11f1` 与 Windows 中文路径组合曾出现动态程序集故障；新版本尚未验证该问题已修复，继续禁用 Pipeline `eval` / `eval_file`，排错见[工程规范](../../docs/04-开发/工程规范.md#unity-编辑器动态程序集排错2026-09-27)。
 
 ## Build
 
 以下 Unity 命令在本目录执行。先准备许可允许使用的 VRM 1.0 模型：`Assets/KataruneLocal/Models/default-avatar.vrm`。素材与构建产物处于 Git 忽略目录；本机测试许可不等于分发许可。
 
 ```powershell
-unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Editor.AvatarBuilder.BuildWindows --editor-version 6000.3.11f1 --allow-dirty-build
+unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Editor.AvatarBuilder.BuildWindows --editor-version 6000.3.27f2 --allow-dirty-build
 ```
 
 默认开发 Player 为 `Builds/Windows/KataruneAvatar.exe`。`KATARUNE_AVATAR_BUILD_OUTPUT` 可覆盖输出位置；仓库根目录的 `npm run build:avatar` 使用独立的 `build/release/avatar/`，供 Windows 安装包收集，不覆盖开发 Player。完整资源前置条件与发行流程见[工程规范](../../docs/04-开发/工程规范.md#windows-内部发行包)。
@@ -43,8 +43,8 @@ unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Edit
 ## Test
 
 ```powershell
-unity test . --mode EditMode --output ./Logs/editmode-results.xml --editor-version 6000.3.11f1
-unity test . --mode PlayMode --output ./Logs/playmode-results.xml --editor-version 6000.3.11f1
+unity test . --mode EditMode --output ./Logs/editmode-results.xml --editor-version 6000.3.27f2
+unity test . --mode PlayMode --output ./Logs/playmode-results.xml --editor-version 6000.3.27f2
 ```
 
 构建开发 Player 后，在仓库根目录运行 `npm run test:avatar-packages` 检查实际角色包加载；其他 Player、语音和校准入口见[工程规范](../../docs/04-开发/工程规范.md#语音与-ulipsync-开发验收)。部分本机模型烟测需要 `KATARUNE_TEST_VRM_PATH`，缺少资源时会跳过，须如实报告。
