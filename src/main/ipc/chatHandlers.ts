@@ -13,6 +13,7 @@ import {
   generateThreadTitleResponseSchema,
   IPC_CHANNELS,
   importChatAttachmentRequestSchema,
+  referenceChatAttachmentRequestSchema,
   listThreadsRequestSchema,
   operationSuccessSchema,
   releaseChatAttachmentRequestSchema,
@@ -26,6 +27,7 @@ import type { AiRuntime } from "../ai/runtime";
 import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
 import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
+import type { AgentToolsService } from "../ai/agentTools";
 
 export function registerChatHandlers(
   database: DatabaseRuntime,
@@ -34,11 +36,13 @@ export function registerChatHandlers(
   assetService: AssetService,
   avatar?: AvatarService,
   live?: LiveService,
+  agentTools?: AgentToolsService,
 ): void {
   const chatService = createChatService({
     database,
     aiRuntime,
     memory: database,
+    ...(agentTools ? { agentTools } : {}),
     ...(avatar ? { avatar } : {}),
     attachmentSupport: {
       assetService,
@@ -48,12 +52,23 @@ export function registerChatHandlers(
 
   diagnosticIpcMain.handle(IPC_CHANNELS.importChatAttachment, (_event, value: unknown) => {
     const request = parseRequest(importChatAttachmentRequestSchema, value);
-    return assetService.importChatAttachment(request, database);
+    database.fetchCharacter(request.characterId);
+    const asset = assetService.importChatAttachment(request, database);
+    agentTools?.authorizeImportedAttachment(request.characterId, asset.id);
+    return asset;
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.releaseChatAttachment, (_event, value: unknown) => {
     const { assetId } = parseRequest(releaseChatAttachmentRequestSchema, value);
     assetService.releaseChatAttachment(assetId, database);
+    agentTools?.forgetImportedAttachment(assetId);
     return operationSuccessSchema.parse({ success: true });
+  });
+  diagnosticIpcMain.handle(IPC_CHANNELS.referenceChatAttachment, (_event, value: unknown) => {
+    const request = parseRequest(referenceChatAttachmentRequestSchema, value);
+    database.fetchCharacter(request.characterId);
+    const asset = assetService.referenceChatAttachment(request.path, database, request.mediaType);
+    agentTools?.authorizeImportedAttachment(request.characterId, asset.id);
+    return asset;
   });
 
   diagnosticIpcMain.handle(IPC_CHANNELS.listThreads, (_event, value: unknown) => {

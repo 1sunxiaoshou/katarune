@@ -131,7 +131,7 @@ describe("generic asset service and protocol", () => {
     copyFileSync(join(process.cwd(), "resources/characters/default-package/avatar/portrait.png"), service.resolveManagedPath(imported.id));
     const asset = { ...readyAsset(imported.byteSize), id: imported.id };
     const database = {
-      fetchAsset: (id: string) => {
+      fetchAssetSourcePath: () => null, fetchAsset: (id: string) => {
         if (id !== imported.id) throw new OperationRejected("resource-unavailable");
         return asset;
       },
@@ -166,7 +166,7 @@ describe("generic asset service and protocol", () => {
     ).toBe(404);
 
     const missingDatabase = {
-      fetchAsset: () => ({
+      fetchAssetSourcePath: () => null, fetchAsset: () => ({
         id: imported.id,
         status: "missing",
         mimeType: null,
@@ -186,7 +186,7 @@ describe("generic asset service and protocol", () => {
       },
     };
     expect(handleAssetRequest(new Request(url), database, unsafeService).status).toBe(500);
-    const brokenDatabase = { ...database, fetchAsset: () => { throw Object.assign(new Error("private database failure"), { code: "SQLITE_CORRUPT" }); } };
+    const brokenDatabase = { ...database, fetchAssetSourcePath: () => null, fetchAsset: () => { throw Object.assign(new Error("private database failure"), { code: "SQLITE_CORRUPT" }); } };
     expect(handleAssetRequest(new Request(url), brokenDatabase, service).status).toBe(500);
   });
 
@@ -197,7 +197,7 @@ describe("generic asset service and protocol", () => {
     expect(existsSync(path)).toBe(false);
   });
 
-  it("copies arbitrary chat attachment bytes, normalizes MIME, verifies integrity, and releases drafts", () => {
+  it("stores clipboard attachment bytes once, normalizes MIME, verifies integrity, and releases drafts", () => {
     const userDataPath = tempDirectory();
     const service = createAssetService({
       userDataPath,
@@ -224,7 +224,7 @@ describe("generic asset service and protocol", () => {
         assets.set(asset.id, asset);
         return asset;
       },
-      fetchAsset: (id: string) => {
+      fetchAssetSourcePath: () => null, fetchAsset: (id: string) => {
         const asset = assets.get(id);
         if (asset === undefined) throw new Error("not found");
         return asset;
@@ -301,7 +301,7 @@ describe("generic asset service and protocol", () => {
         } as Asset;
         return imported;
       },
-      fetchAsset: () => imported,
+      fetchAssetSourcePath: () => null, fetchAsset: () => imported,
     } as unknown as DatabaseRuntime;
     const asset = service.importChatAttachment(
       {

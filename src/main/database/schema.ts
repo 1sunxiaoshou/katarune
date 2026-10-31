@@ -14,6 +14,7 @@ import { MODEL_TYPES } from "../../shared/models";
 import { PROVIDER_TYPES } from "../../shared/providers";
 import { ASSET_KINDS } from "../../shared/assets";
 import type { DiaryFailureCode } from "../../shared/memory";
+import type { AgentAccessMode, DirectoryAccess } from "../../shared/agentTools";
 
 export const assets = sqliteTable(
   "assets",
@@ -21,6 +22,7 @@ export const assets = sqliteTable(
     id: text("id").primaryKey(),
     kind: text("kind", { enum: ASSET_KINDS }).notNull(),
     storageKey: text("storage_key").notNull(),
+    sourcePath: text("source_path"),
     status: text("status", { enum: ["ready", "missing"] }).notNull(),
     mimeType: text("mime_type"),
     byteSize: integer("byte_size"),
@@ -162,7 +164,23 @@ export const liveSettings = sqliteTable("live_settings", {
   config: text("config", { mode: "json" }).$type<import("../../shared/live").LiveSettings>().notNull(),
   credentialRef: text("credential_ref"),
   webCredentialRef: text("web_credential_ref"),
+  douyinCredentialRef: text("douyin_credential_ref"),
 });
+
+export const threadToolAccess = sqliteTable("thread_tool_access", {
+  threadId: text("thread_id").primaryKey().references(() => threads.id, { onDelete: "cascade" }),
+  mode: text("mode").$type<AgentAccessMode>().notNull().default("request-approval"),
+}, table => [check("thread_tool_access_mode_check", sql`${table.mode} in ('request-approval', 'full-access')`)]);
+
+export const threadDirectoryGrants = sqliteTable("thread_directory_grants", {
+  id: text("id").primaryKey(),
+  threadId: text("thread_id").notNull().references(() => threads.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  access: text("access").$type<DirectoryAccess>().notNull(),
+}, table => [
+  uniqueIndex("thread_directory_grants_path_unique").on(table.threadId, table.path),
+  check("thread_directory_grants_access_check", sql`${table.access} in ('read', 'read-write')`),
+]);
 
 export const threads = sqliteTable(
   "threads",

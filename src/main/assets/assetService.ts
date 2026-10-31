@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -39,16 +40,17 @@ const PORTRAIT_MIME_BY_EXTENSION = {
 type PortraitMime = (typeof PORTRAIT_MIME_BY_EXTENSION)[keyof typeof PORTRAIT_MIME_BY_EXTENSION];
 
 export interface AssetService {
+  referenceChatAttachment(path: string, database: DatabaseRuntime, mediaType: string): Asset;
   removeExact(assetId: string): void;
   resolveManagedPath(assetId: string): string;
   reconcile(database: DatabaseRuntime, config: DefaultCharacterConfig): void;
   importChatAttachment(
-    request: ImportChatAttachmentRequest,
+    request: Omit<ImportChatAttachmentRequest, "characterId">,
     database: DatabaseRuntime,
   ): Asset;
   readChatAttachment(
     assetId: string,
-    database: Pick<DatabaseRuntime, "fetchAsset">,
+    database: Pick<DatabaseRuntime, "fetchAsset" | "fetchAssetSourcePath">,
   ): ChatAttachmentBytes;
   releaseChatAttachment(assetId: string, database: DatabaseRuntime): boolean;
   cleanupUnreferencedChatAttachments(database: DatabaseRuntime): void;
@@ -61,6 +63,23 @@ export interface ChatAttachmentBytes {
 }
 
 export class ChatAttachmentError extends Error {}
+
+function readReferencedAttachment(path: string, requestedMediaType: string) {
+  try {
+    if (!isAbsolute(path) || realpathSync.native(path) !== path) throw new Error("changed path");
+    const info = statSync(path);
+    if (!info.isFile() || info.size > CHAT_ATTACHMENT_LIMITS.maxFileBytes) throw new Error("invalid file");
+    const data = readFileSync(path);
+    if (data.byteLength > CHAT_ATTACHMENT_LIMITS.maxFileBytes) throw new Error("oversized image");
+    const mediaType = requestedMediaType.startsWith("image/") ? detectedMime(data)
+      ?? (/^GIF8[79]a$/.test(data.subarray(0, 6).toString("ascii")) ? "image/gif" : null)
+      ?? (data.subarray(0, 2).toString("ascii") === "BM" ? "image/bmp" : null) : requestedMediaType;
+    if (!mediaType) throw new Error("unsupported image");
+    return { data: new Uint8Array(data), mediaType, filename: basename(path) };
+  } catch {
+    throw new ChatAttachmentError("原文件不可用，可能已移动、删除、位置改变或超过 25 MiB，请重新添加。");
+  }
+}
 
 interface CreateAssetServiceOptions {
   readonly userDataPath: string;
@@ -189,6 +208,16 @@ export function createAssetService({
       const path = resolveManagedPath(assetId);
       if (existsSync(path)) unlinkSync(path);
     },
+    referenceChatAttachment: (path, database, mediaType) => {
+      if (!isAbsolute(path)) throw new ChatAttachmentError("请选择本地文件。");
+      let sourcePath: string;
+      try { sourcePath = realpathSync.native(path); } catch { throw new ChatAttachmentError("原文件不存在，请重新添加。"); }
+      const image = readReferencedAttachment(sourcePath, mediaType);
+      const id = randomUUID();
+      return database.registerReadyAsset({ id, kind: "chat_attachment", storageKey: id, sourcePath,
+        originalName: image.filename, mimeType: image.mediaType, byteSize: image.data.byteLength,
+        sha256: createHash("sha256").update(image.data).digest("hex") });
+    },
     resolveManagedPath,
     reconcile: (database, config) => {
       for (const asset of database.listAssets()) {
@@ -298,6 +327,8 @@ export function createAssetService({
       ) {
         throw new ChatAttachmentError(`附件“${filename}”不可用。`);
       }
+      const sourcePath = database.fetchAssetSourcePath(assetId);
+      if (sourcePath !== null) return readReferencedAttachment(sourcePath, asset.mimeType);
       if (asset.byteSize > CHAT_ATTACHMENT_LIMITS.maxFileBytes) {
         throw new ChatAttachmentError(`附件“${filename}”超过 25 MiB 限制。`);
       }

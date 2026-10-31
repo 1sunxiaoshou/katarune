@@ -6,7 +6,7 @@ import { AvatarService } from "./avatar/avatarService";
 import { registerAsrHandlers } from './ipc/asrHandlers';
 import type { AsrService } from './speech/asrService';
 import { join } from "node:path";
-import { app, BrowserWindow, Menu, safeStorage, shell } from "electron";
+import { app, BrowserWindow, Menu, net, safeStorage, shell } from "electron";
 import { createAiRuntime, type AiRuntime } from "./ai/runtime";
 import {
   validateModelMetadata,
@@ -30,8 +30,11 @@ import { registerWindowThemeHandler } from "./windowTheme";
 import { initializeDiagnostics, diagnostic } from "./diagnostics/logger";
 import { registerDiagnosticsHandlers } from "./diagnostics/handlers";
 import { LiveService } from "./live/liveService";
+import { DouyinBrowserLogin } from "./live/douyinBrowserLogin";
 import { LiveMedia } from "./live/media";
 import { registerLiveHandlers } from "./ipc/liveHandlers";
+import { AgentToolsService } from "./ai/agentTools";
+import { registerAgentToolHandlers } from "./ipc/agentToolHandlers";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
@@ -39,6 +42,7 @@ let avatarService: AvatarService | undefined;
 let characterPackageService: CharacterPackageService | undefined;
 let asrService: AsrService | undefined;
 let liveService: LiveService | undefined;
+let agentToolsService: AgentToolsService | undefined;
 let liveShutdownDone = false;
 
 if (!app.isPackaged) {
@@ -199,7 +203,10 @@ void app.whenReady().then(async () => {
     await createSpeechTemporaryDirectory(join(app.getPath("userData"), "speech-playback")));
   diaryService = createDiaryService({ database: databaseRuntime, aiRuntime });
   const liveMedia = new LiveMedia(app.isPackaged ? join(process.resourcesPath, "live-media") : join(app.getAppPath(), "resources", "live-media"), join(app.getPath("userData"), "live-runtime"));
-  liveService = new LiveService({ database: databaseRuntime, credentials: credentialStore, aiRuntime, avatar: avatarService, media: liveMedia });
+  liveService = new LiveService({ database: databaseRuntime, credentials: credentialStore, aiRuntime, avatar: avatarService, media: liveMedia,
+    douyinLoginBrowser: () => new DouyinBrowserLogin(),
+    fetcher: (input, init) => net.fetch(typeof input === "string" || input instanceof URL ? String(input) : input.url, { ...init, credentials: "omit" }) });
+  agentToolsService = new AgentToolsService(join(app.getPath("userData"), "workspaces"), databaseRuntime, assetService);
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
@@ -209,7 +216,9 @@ void app.whenReady().then(async () => {
     avatarService,
     () => { void diaryService?.runPending(); },
     liveService,
+    agentToolsService,
   );
+  registerAgentToolHandlers(agentToolsService);
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
   registerLiveHandlers(liveService, liveMedia, mainWindow!);
@@ -232,6 +241,7 @@ app.on("before-quit", event => {
     return;
   }
   diaryService?.dispose();
+  agentToolsService?.cancel();
   desktopWindows?.dispose();
   desktopWindows = undefined;
   asrService?.dispose();

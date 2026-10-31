@@ -3,8 +3,9 @@ import type { ToolSet, UIMessage } from "ai";
 import type { Asset } from "../src/shared/ipc";
 import {
   ChatAttachmentRunBudget,
+  chatAttachmentPath,
   createChatAttachmentDownload,
-  createViewChatImageTools,
+  createViewImageTools,
   projectChatAttachmentMessages,
 } from "../src/main/ai/chatAttachments";
 
@@ -28,9 +29,9 @@ function readyImage(id: string, filename = "历史图片.png"): Asset {
 }
 
 function executableTool(tools: ToolSet) {
-  const imageTool = tools.view_chat_image;
+  const imageTool = tools.view_image;
   if (imageTool?.execute === undefined || imageTool.toModelOutput === undefined) {
-    throw new Error("view_chat_image is not executable");
+    throw new Error("view_image is not executable");
   }
   return imageTool as NonNullable<ToolSet[string]> &
     Required<
@@ -39,6 +40,17 @@ function executableTool(tools: ToolSet) {
 }
 
 describe("chat attachment model projection", () => {
+  it("routes current text/data files through the workspace while retaining native image input", () => {
+    const messages: UIMessage[] = [{ id: "current", role: "user", parts: [
+      { type: "file", filename: "data.csv", mediaType: "text/csv", url: `katarune-asset://asset/${imageId}` },
+      { type: "file", filename: "image.png", mediaType: "image/png", url: `katarune-asset://asset/${currentImageId}` },
+    ] }];
+    const projected = projectChatAttachmentMessages(messages, { fetchThreadChatAttachment: () => readyImage(imageId) }, "thread-1", characterId, new Map([[imageId, chatAttachmentPath(readyImage(imageId))]]));
+    expect(projected.messages[0]?.parts.map(part => part.type)).toEqual(["text", "file"]);
+    expect(projected.messages[0]?.parts[1]).toEqual(messages[0]?.parts[1]);
+    expect(projected.currentAssetIds).toEqual(new Set([imageId, currentImageId]));
+    expect(messages[0]?.parts[0]?.type).toBe("file");
+  });
   it("keeps only the latest user attachments and replaces history with stable references", () => {
     const historical: UIMessage = {
       id: "historical-user",
@@ -73,14 +85,15 @@ describe("chat attachment model projection", () => {
       { fetchThreadChatAttachment },
       "thread-1",
       characterId,
+      new Map([[imageId, chatAttachmentPath(readyImage(imageId))]]),
     );
 
     expect(projected.currentAssetIds).toEqual(new Set([currentImageId]));
     expect(projected.messages[0]?.parts[1]).toMatchObject({
       type: "text",
-      text: expect.stringContaining(`"attachmentId":"${imageId}"`),
+      text: expect.stringContaining(`"path":"${chatAttachmentPath(readyImage(imageId))}"`),
     });
-    expect(JSON.stringify(projected.messages[0])).toContain("view_chat_image");
+    expect(JSON.stringify(projected.messages[0])).toContain("view_image");
     expect(projected.messages[1]?.parts[1]).toEqual(current.parts[1]);
     expect(historical.parts[1]).toMatchObject({ type: "file" });
     expect(fetchThreadChatAttachment).toHaveBeenCalledWith(
@@ -97,7 +110,7 @@ describe("chat attachment model projection", () => {
       filename: "历史图片.png",
     }));
     const download = createChatAttachmentDownload(
-      { fetchAsset: () => readyImage(imageId) },
+      { fetchAssetSourcePath: () => null, fetchAsset: () => readyImage(imageId) },
       { readChatAttachment },
       new ChatAttachmentRunBudget(),
       new Set([currentImageId]),
@@ -115,153 +128,53 @@ describe("chat attachment model projection", () => {
   });
 });
 
-describe("view_chat_image", () => {
-  function createTools(
-    assets: ReadonlyMap<string, Asset>,
-    readChatAttachment = vi.fn((assetId: string) => ({
-      data: new Uint8Array([1, 2, 3]),
-      mediaType: "image/png",
-      filename: assets.get(assetId)?.originalName ?? "图片.png",
-    })),
-  ) {
-    const fetchThreadChatAttachment = vi.fn(
-      (_threadId: string, _characterId: string, assetId: string) => {
-        const asset = assets.get(assetId);
-        if (asset === undefined) throw new Error("not found");
-        return asset;
-      },
-    );
-    const prepare = vi.fn((data: Uint8Array) => ({
-      data: new Uint8Array([...data, 4]),
-      mediaType: "image/png",
-    }));
-    const tools = createViewChatImageTools({
-      database: {
-        fetchAsset: (id) => {
-          const asset = assets.get(id);
-          if (asset === undefined) throw new Error("not found");
-          return asset;
-        },
-        fetchThreadChatAttachment,
-      },
-      assetService: { readChatAttachment },
-      imageProcessor: { prepare },
-      budget: new ChatAttachmentRunBudget(),
-      threadId: "thread-1",
-      characterId,
-    });
-    return { tools, fetchThreadChatAttachment, readChatAttachment, prepare };
+describe("view_image", () => {
+  function setup(readImage = vi.fn(async (_path: string) => ({ data: new Uint8Array([1, 2, 3]), mediaType: "image/png", filename: "image.png" }))) {
+    return { readImage, imageTool: executableTool(createViewImageTools({ readImage,
+      imageProcessor: { prepare: (data, mediaType) => ({ data, mediaType }) }, budget: new ChatAttachmentRunBudget(),
+    })) };
   }
 
-  it("returns image content only for tool calls executed in the current response", async () => {
-    const assets = new Map([[imageId, readyImage(imageId)]]);
-    const current = createTools(assets);
-    const imageTool = executableTool(current.tools);
-    const output = await imageTool.execute(
-      { attachmentId: imageId, detail: "high" },
-      {
-        toolCallId: "call-current",
-        messages: [],
-        context: undefined,
-      },
-    );
-    if (Symbol.asyncIterator in Object(output)) {
-      throw new Error("unexpected streaming tool output");
-    }
-    const modelOutput = await imageTool.toModelOutput({
-      toolCallId: "call-current",
-      input: { attachmentId: imageId, detail: "high" },
-      output,
-    });
-
-    expect(output).toEqual({
-      status: "loaded",
-      attachmentId: imageId,
-      filename: "历史图片.png",
-      mediaType: "image/png",
-      sourceByteSize: 3,
-      detail: "high",
-    });
-    expect(JSON.stringify(output)).not.toContain("AQIDBA");
-    expect(JSON.stringify(modelOutput)).toContain("AQIDBA==");
-
-    const replay = executableTool(createTools(assets).tools);
-    const replayOutput = await replay.toModelOutput({
-      toolCallId: "call-current",
-      input: { attachmentId: imageId, detail: "high" },
-      output,
-    });
-    expect(JSON.stringify(replayOutput)).toContain("未在后续请求中重放");
-    expect(JSON.stringify(replayOutput)).not.toContain("AQIDBA==");
+  it("returns native image content without persisting bytes in tool results or replaying history", async () => {
+    const { imageTool } = setup();
+    const input = { path: "/attachments/image.png" };
+    const output = await imageTool.execute(input, { toolCallId: "view", messages: [], context: undefined });
+    expect(output).toEqual({ status: "loaded", filename: "image.png", mediaType: "image/png", sourceByteSize: 3 });
+    expect(JSON.stringify(await imageTool.toModelOutput({ toolCallId: "view", input, output }))).toContain("AQID");
+    const replay = setup().imageTool;
+    expect(JSON.stringify(await replay.toModelOutput({ toolCallId: "view", input, output }))).not.toContain("AQID");
   });
 
-  it("scopes access to the current thread and caches duplicate reads", async () => {
-    const assets = new Map([[imageId, readyImage(imageId)]]);
-    const context = createTools(assets);
-    const imageTool = executableTool(context.tools);
-    const outputs: unknown[] = [];
-    for (const toolCallId of ["call-one", "call-two"]) {
-      const output = await imageTool.execute(
-        { attachmentId: imageId, detail: "high" },
-        { toolCallId, messages: [], context: undefined },
-      );
-      if (Symbol.asyncIterator in Object(output)) {
-        throw new Error("unexpected streaming tool output");
-      }
-      outputs.push(
-        await imageTool.toModelOutput({
-          toolCallId,
-          input: { attachmentId: imageId, detail: "high" },
-          output,
-        }),
-      );
+  it("accepts only path and propagates permission failures", async () => {
+    const { imageTool, readImage } = setup();
+    for (const input of [{}, { attachmentId: imageId }, { path: "image.png", detail: "original" }, { path: "" }, { path: "bad\0path" }]) {
+      await expect(imageTool.execute(input, { toolCallId: "invalid", messages: [], context: undefined })).rejects.toThrow();
     }
-    expect(context.fetchThreadChatAttachment).toHaveBeenCalledTimes(1);
-    expect(context.readChatAttachment).toHaveBeenCalledTimes(1);
-    expect(context.prepare).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(outputs[0])).toContain("AQIDBA==");
-    expect(JSON.stringify(outputs[1])).toContain("已在本次回复中读取");
-    expect(JSON.stringify(outputs[1])).not.toContain("AQIDBA==");
-
-    const missingId = "99999999-9999-4999-8999-999999999999";
-    await expect(
-      imageTool.execute(
-        { attachmentId: missingId, detail: "high" },
-        { toolCallId: "call-missing", messages: [], context: undefined },
-      ),
-    ).rejects.toThrow("不属于当前会话");
+    expect(readImage).not.toHaveBeenCalled();
+    readImage.mockRejectedValue(new Error("not authorized"));
+    await expect(imageTool.execute({ path: "/outside/image.png" }, { toolCallId: "denied", messages: [], context: undefined })).rejects.toThrow("not authorized");
   });
 
-  it("enforces the four-image history budget", async () => {
-    const assets = new Map<string, Asset>();
-    for (let index = 1; index <= 5; index += 1) {
-      const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
-      assets.set(id, readyImage(id, `图片${index}.png`));
-    }
-    const imageTool = executableTool(createTools(assets).tools);
-    let index = 0;
-    for (const id of assets.keys()) {
-      index += 1;
-      const execution = imageTool.execute(
-        { attachmentId: id, detail: "high" },
-        { toolCallId: `call-${index}`, messages: [], context: undefined },
-      );
-      if (index <= 4) {
-        await expect(execution).resolves.toMatchObject({ attachmentId: id });
-      } else {
-        await expect(execution).rejects.toThrow("最多读取 4 张");
-      }
-    }
+  it("rereads edited images and does not serve cached bytes after deletion", async () => {
+    const { imageTool, readImage } = setup();
+    const input = { path: "image.png" };
+    await imageTool.execute(input, { toolCallId: "first", messages: [], context: undefined });
+    readImage.mockResolvedValue({ data: new Uint8Array([4, 5, 6]), mediaType: "image/png", filename: "image.png" });
+    const output = await imageTool.execute(input, { toolCallId: "second", messages: [], context: undefined });
+    expect(JSON.stringify(await imageTool.toModelOutput({ toolCallId: "second", input, output }))).toContain("BAUG");
+    readImage.mockRejectedValue(new Error("file missing"));
+    await expect(imageTool.execute(input, { toolCallId: "third", messages: [], context: undefined })).rejects.toThrow("file missing");
   });
 
-  it("charges history limits against source bytes before image processing", async () => {
+  it("bounds repeated image reads and rejects non-images", async () => {
+    const { imageTool } = setup();
+    for (let i = 0; i < 4; i++) await imageTool.execute({ path: "image.png" }, { toolCallId: `view-${i}`, messages: [], context: undefined });
+    await expect(imageTool.execute({ path: "image.png" }, { toolCallId: "overflow", messages: [], context: undefined })).rejects.toThrow("最多读取 4 张");
+    const other = setup();
+    other.readImage.mockResolvedValue({ data: new Uint8Array([1]), mediaType: "text/plain", filename: "file.txt" });
+    await expect(other.imageTool.execute({ path: "file.txt" }, { toolCallId: "text", messages: [], context: undefined })).rejects.toThrow("不是图片");
     const budget = new ChatAttachmentRunBudget();
-    const firstId = "10000000-0000-4000-8000-000000000001";
-    const secondId = "10000000-0000-4000-8000-000000000002";
-    budget.claimHistory(firstId, 30 * 1024 * 1024);
-
-    expect(() =>
-      budget.claimHistory(secondId, 21 * 1024 * 1024),
-    ).toThrow("不能超过 50 MiB");
+    budget.claimHistory("first", 30 * 1024 * 1024);
+    expect(() => budget.claimHistory("second", 21 * 1024 * 1024)).toThrow("不能超过 50 MiB");
   });
 });

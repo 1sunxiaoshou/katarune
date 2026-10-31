@@ -1,0 +1,1 @@
+ALTER TABLE `live_settings` ADD `douyin_credential_ref` text;

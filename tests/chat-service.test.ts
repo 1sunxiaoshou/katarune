@@ -66,7 +66,7 @@ function createDatabase(
       createdAt: new Date(),
       updatedAt: new Date(),
     })),
-    fetchAsset: vi.fn(() => {
+    fetchAssetSourcePath: () => null, fetchAsset: vi.fn(() => {
       throw new Error("asset not found");
     }),
     fetchThreadChatAttachment: vi.fn(() => {
@@ -127,6 +127,23 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("does not replay image bytes from completed tool results in conversation history", async () => {
+    const model = createModel(() => undefined);
+    const readChatAttachment = vi.fn(() => ({ data: new Uint8Array([1, 2, 3]), mediaType: "image/png", filename: "old.png" }));
+    const service = createChatService({
+      database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model },
+      attachmentSupport: { assetService: { readChatAttachment }, imageProcessor: { prepare: (data, mediaType) => ({ data, mediaType }) } },
+    });
+    const response = await service.createResponse({ ...request, messages: [
+      { id: "before", role: "user", parts: [{ type: "text", text: "看看图片" }] },
+      { id: "old-image-call", role: "assistant", parts: [{ type: "tool-view_image", toolCallId: "old-image", state: "output-available", input: { path: "old.png" }, output: { status: "loaded", filename: "old.png" } }] },
+      ...request.messages,
+    ] }, new AbortController().signal);
+    expect(await response.text()).toContain("Katarune ready");
+    expect(readChatAttachment).not.toHaveBeenCalled();
+    expect(model.doStreamCalls[0]?.tools?.filter(candidate => candidate.name.includes("view_")).map(candidate => candidate.name)).toEqual(["view_image"]);
+  });
+
   it("preserves interrupted partial output without reporting a successful generation", async () => {
     const recorded = vi.spyOn(diagnostics, "diagnostic");
     try {
@@ -425,7 +442,7 @@ describe("chat service", () => {
     expect(model.doStreamCalls[0]?.tools).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "view_chat_image",
+          name: "view_image",
           type: "function",
         }),
       ]),
@@ -623,10 +640,9 @@ describe("chat service", () => {
                 controller.enqueue({
                   type: "tool-call",
                   toolCallId: "view-call-1",
-                  toolName: "view_chat_image",
+                  toolName: "view_image",
                   input: JSON.stringify({
-                    attachmentId: historicalImageId,
-                    detail: "high",
+                    path: `/attachments/${historicalImageId}/历史图片.png`,
                   }),
                 });
                 controller.enqueue({

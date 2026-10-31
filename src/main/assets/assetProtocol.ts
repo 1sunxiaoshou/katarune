@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { protocol } from "electron";
 import type { DatabaseRuntime } from "../database/database";
-import type { AssetService } from "./assetService";
+import { ChatAttachmentError, type AssetService } from "./assetService";
 import { diagnostic } from "../diagnostics/logger";
 import { OperationRejected } from "../diagnostics/operationRejected";
 import { projectError, type RejectionCode } from "../../shared/diagnostics";
@@ -81,6 +81,17 @@ export function handleAssetRequest(
   }
 
   let path: string;
+  if (asset.kind === "chat_attachment") {
+    try {
+      const image = assetService.readChatAttachment(assetId, database);
+      return response(200, request.method === "HEAD" ? null : Buffer.from(image.data), {
+        "Cache-Control": "no-store", "Content-Length": String(image.data.byteLength),
+        "Content-Type": image.mediaType, "X-Content-Type-Options": "nosniff",
+      });
+    } catch (error) {
+      return error instanceof ChatAttachmentError ? rejected(404, "resource-unavailable") : failed(error);
+    }
+  }
   try {
     path = assetService.resolveManagedPath(assetId);
   } catch (error) {

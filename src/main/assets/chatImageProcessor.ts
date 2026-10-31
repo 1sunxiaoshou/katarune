@@ -22,17 +22,17 @@ export function createElectronChatImageProcessor(): ChatImageProcessor {
   return {
     prepare: (data, mediaType, detail) => {
       if (!mediaType.toLowerCase().startsWith("image/")) {
-        throw new ChatAttachmentError("该历史附件不是图片，暂时无法读取。");
+        throw new ChatAttachmentError("该文件不是图片，暂时无法读取。");
       }
 
       let image: Electron.NativeImage;
       try {
         image = nativeImage.createFromBuffer(Buffer.from(data));
       } catch {
-        throw new ChatAttachmentError("历史图片无法解码或格式不受支持。");
+        throw new ChatAttachmentError("图片无法解码或格式不受支持。");
       }
       if (image.isEmpty()) {
-        throw new ChatAttachmentError("历史图片无法解码或格式不受支持。");
+        throw new ChatAttachmentError("图片无法解码或格式不受支持。");
       }
 
       if (detail === "original") {
@@ -52,7 +52,7 @@ export function createElectronChatImageProcessor(): ChatImageProcessor {
             });
       const png = prepared.toPNG();
       if (png.byteLength === 0) {
-        throw new ChatAttachmentError("历史图片处理失败，请尝试原图模式。");
+        throw new ChatAttachmentError("图片处理失败，请尝试原图模式。");
       }
       return {
         data: new Uint8Array(png),

@@ -1,8 +1,10 @@
 import { diagnosticsApi } from "./diagnostics";
+import { agentToolsApi } from "./agentTools";
 import { liveApi } from "./live";
 import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
+import { referenceChatAttachmentRequestSchema } from "../shared/ipc";
 import { avatarTextInputSchema, avatarTextResultSchema, type AvatarTextInput } from "../shared/avatar";
 import {
   MEMORY_CHANNELS, listMemoryRequestSchema, memoryDiarySettingsSchema, memoryDiaryStateSchema, memoryChangedSchema,
@@ -117,6 +119,7 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  ...agentToolsApi,
   ...liveApi,
   ...diagnosticsApi,
   retryMemoryDiaries: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.retryDiary, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),
@@ -263,6 +266,11 @@ const api: KataruneApi = Object.freeze({
       assetSchema,
       importChatAttachmentRequestSchema.parse(request),
     ),
+  importLocalChatAttachment: async (characterId: string, file: File) => {
+    const path = webUtils.getPathForFile(file);
+    if (path) return invokeValidated(IPC_CHANNELS.referenceChatAttachment, assetSchema, referenceChatAttachmentRequestSchema.parse({ characterId, path, mediaType: file.type || "application/octet-stream" }));
+    return invokeValidated(IPC_CHANNELS.importChatAttachment, assetSchema, importChatAttachmentRequestSchema.parse({ characterId, name: file.name.trim() || "未命名附件", mediaType: file.type || "application/octet-stream", data: new Uint8Array(await file.arrayBuffer()) }));
+  },
   releaseChatAttachment: (request: ReleaseChatAttachmentRequest) =>
     invokeValidated(
       IPC_CHANNELS.releaseChatAttachment,

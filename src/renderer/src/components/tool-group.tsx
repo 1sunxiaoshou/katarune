@@ -8,9 +8,9 @@ import {
   type FC,
   type PropsWithChildren,
 } from "react";
-import { ChevronDownIcon, LoaderIcon } from "lucide-react";
+import { AlertCircleIcon, ChevronDownIcon, LoaderIcon } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { useScrollLock } from "@assistant-ui/react";
+import { useAuiState, useScrollLock, type MessagePrimitive } from "@assistant-ui/react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -95,19 +95,21 @@ function ToolGroupRoot({
 function ToolGroupTrigger({
   count,
   active = false,
+  pending = false,
   className,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   count: number;
   active?: boolean;
+  pending?: boolean;
 }) {
-  const label = `${count} tool ${count === 1 ? "call" : "calls"}`;
+  const label = `${count} 项工具调用${pending ? " · 等待批准" : active ? " · 正在执行" : ""}`;
 
   return (
     <CollapsibleTrigger
       data-slot="tool-group-trigger"
       className={cn(
-        "aui-tool-group-trigger group/trigger flex origin-left items-center gap-2 text-sm transition-[color,scale] active:scale-[0.98]",
+        "aui-tool-group-trigger group/trigger flex max-w-full origin-left items-center gap-2 rounded-sm text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring",
         "group-data-[variant=ghost]/tool-group-root:text-muted-foreground group-data-[variant=ghost]/tool-group-root:hover:text-foreground group-data-[variant=ghost]/tool-group-root:py-1.5",
         "group-data-[variant=outline]/tool-group-root:w-full group-data-[variant=outline]/tool-group-root:px-4",
         "group-data-[variant=muted]/tool-group-root:w-full group-data-[variant=muted]/tool-group-root:px-4",
@@ -115,36 +117,37 @@ function ToolGroupTrigger({
       )}
       {...props}
     >
-      {active && (
+      {pending ? <AlertCircleIcon className="size-3.5 shrink-0" aria-hidden /> : active && (
         <LoaderIcon
+          aria-hidden
           data-slot="tool-group-trigger-loader"
-          className="aui-tool-group-trigger-loader size-3 shrink-0 animate-spin [animation-duration:0.6s]"
+          className="aui-tool-group-trigger-loader size-3.5 shrink-0 animate-spin [animation-duration:0.6s] motion-reduce:animate-none"
         />
       )}
       <span
         data-slot="tool-group-trigger-label"
         className={cn(
-          "aui-tool-group-trigger-label-wrapper relative inline-block text-start leading-none font-medium",
-          "group-data-[variant=ghost]/tool-group-root:font-normal",
+          "aui-tool-group-trigger-label-wrapper relative inline-flex items-center text-start leading-5 font-medium",
           "group-data-[variant=outline]/tool-group-root:grow",
           "group-data-[variant=muted]/tool-group-root:grow",
         )}
       >
-        <span className="text-xs">{label}</span>
-        {active && (
+        <span className="block">{label}</span>
+        {active && !pending && (
           <span
             aria-hidden
             data-slot="tool-group-trigger-shimmer"
-            className="aui-tool-group-trigger-shimmer shimmer pointer-events-none absolute inset-0 text-xs motion-reduce:animate-none"
+            className="aui-tool-group-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
           >
             {label}
           </span>
         )}
       </span>
       <ChevronDownIcon
+        aria-hidden
         data-slot="tool-group-trigger-chevron"
         className={cn(
-          "aui-tool-group-trigger-chevron size-3 shrink-0",
+          "aui-tool-group-trigger-chevron mt-0.5 size-3 shrink-0",
           "transition-transform duration-(--animation-duration) ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
           "-rotate-90",
           "group-data-open/trigger:rotate-0",
@@ -179,7 +182,7 @@ function ToolGroupContent({
       <div
         className={cn(
           "mt-2 flex flex-col gap-2",
-          "group-data-[variant=ghost]/tool-group-root:mt-1 group-data-[variant=ghost]/tool-group-root:gap-1",
+          "group-data-[variant=ghost]/tool-group-root:mt-0 group-data-[variant=ghost]/tool-group-root:gap-0 group-data-[variant=ghost]/tool-group-root:border-l group-data-[variant=ghost]/tool-group-root:border-border/60 group-data-[variant=ghost]/tool-group-root:ms-1.5 group-data-[variant=ghost]/tool-group-root:ps-4",
           "group-data-[variant=outline]/tool-group-root:mt-3 group-data-[variant=outline]/tool-group-root:border-t group-data-[variant=outline]/tool-group-root:px-4 group-data-[variant=outline]/tool-group-root:pt-3",
           "group-data-[variant=muted]/tool-group-root:mt-3 group-data-[variant=muted]/tool-group-root:border-t group-data-[variant=muted]/tool-group-root:px-4 group-data-[variant=muted]/tool-group-root:pt-3",
           "[&>*]:animate-in [&>*]:fade-in-0 [&>*]:blur-in-[2px] [&>*]:slide-in-from-top-1 [&>*]:duration-(--animation-duration) [&>*]:ease-[cubic-bezier(0.32,0.72,0,1)]",
@@ -194,6 +197,23 @@ function ToolGroupContent({
       </div>
     </CollapsibleContent>
   );
+}
+
+function ToolCallGroup({ group, children }: PropsWithChildren<{ group: MessagePrimitive.GroupedParts.GroupPart }>) {
+  // The pinned runtime exposes the last part's status on the group. Read all
+  // members so an earlier approval remains visible even if later calls finish.
+  const pending = useAuiState(s => group.indices.some(index => s.message.parts[index]?.status?.type === "requires-action"));
+  const active = useAuiState(s => group.indices.some(index => s.message.parts[index]?.status?.type === "running"));
+  const [open, setOpen] = useState(pending);
+  const [wasPending, setWasPending] = useState(pending);
+  if (pending !== wasPending) {
+    setWasPending(pending);
+    if (pending) setOpen(true);
+  }
+  return <ToolGroupRoot variant="ghost" open={open} onOpenChange={setOpen}>
+    <ToolGroupTrigger count={group.indices.length} active={active} pending={pending} />
+    <ToolGroupContent>{children}</ToolGroupContent>
+  </ToolGroupRoot>;
 }
 
 type ToolGroupComponent = FC<
@@ -231,6 +251,7 @@ ToolGroup.Trigger = ToolGroupTrigger;
 ToolGroup.Content = ToolGroupContent;
 
 export {
+  ToolCallGroup,
   ToolGroup,
   ToolGroupRoot,
   ToolGroupTrigger,

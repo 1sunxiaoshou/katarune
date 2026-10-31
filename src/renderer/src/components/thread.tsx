@@ -15,17 +15,14 @@ import {
   ReasoningTrigger,
 } from "@/components/reasoning";
 import { ToolFallback } from "@/components/tool-fallback";
-import {
-  ToolGroupContent,
-  ToolGroupRoot,
-  ToolGroupTrigger,
-} from "@/components/tool-group";
+import { ToolCallGroup } from "@/components/tool-group";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAvatarState } from "@/chat/avatarState";
 import { useThreadReadOnly } from "@/live/liveState";
 import { DictationControl } from '@/speech/DictationControl';
+import { AgentAccessControl } from "@/chat/AgentAccessControl";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -249,7 +246,7 @@ const ComposerAction: FC = () => {
   const avatarBound = useAvatarState((s) => s.status.phase === "ready" && s.status.binding?.threadId === remoteId);
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex min-w-0 items-center gap-1"><ComposerAddAttachment /><AgentAccessControl /></div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}><DictationControl /></AuiIf>
         {avatarBound && <QueuedMessageSend />}
@@ -306,8 +303,8 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.GroupedParts
           groupBy={groupPartByType({
             reasoning: ["group-chainOfThought", "group-reasoning"],
-            "tool-call": ["group-chainOfThought", "group-tool"],
-            "standalone-tool-call": [],
+            "tool-call": ["group-tool"],
+            "standalone-tool-call": ["group-tool"],
           })}
         >
           {({ part, children }) => {
@@ -318,15 +315,7 @@ const AssistantMessage: FC = () => {
                 if (ToolGroup) {
                   return <ToolGroup group={part}>{children}</ToolGroup>;
                 }
-                return (
-                  <ToolGroupRoot variant="ghost">
-                    <ToolGroupTrigger
-                      count={part.indices.length}
-                      active={part.status.type === "running"}
-                    />
-                    <ToolGroupContent>{children}</ToolGroupContent>
-                  </ToolGroupRoot>
-                );
+                return <ToolCallGroup group={part}>{children}</ToolCallGroup>;
               case "group-reasoning": {
                 if (ReasoningGroup) {
                   return (

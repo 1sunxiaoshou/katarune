@@ -1,12 +1,12 @@
 import { makeAssistantToolUI, type ToolCallMessagePartProps } from "@assistant-ui/react";
-import { BookOpenText, CheckCircle2, Eraser, FilePenLine, LoaderCircle, Search, TriangleAlert } from "lucide-react";
+import { ToolCallDetails } from "@/components/tool-fallback";
 import { toolErrorMessage } from "./toolErrorMessage";
 
 const labels = {
-  memory_search: { activity: "正在搜索记忆…", complete: "已搜索记忆", failed: "记忆搜索失败", success: "ok", icon: Search },
-  memory_read: { activity: "正在读取记忆…", complete: "已读取记忆", failed: "记忆读取失败", success: "found", icon: BookOpenText },
-  memory_save: { activity: "正在保存记忆…", complete: "已保存记忆", failed: "记忆保存失败", success: "saved", icon: FilePenLine },
-  memory_forget: { activity: "正在遗忘记忆…", complete: "已遗忘记忆", failed: "记忆遗忘失败", success: "forgotten", icon: Eraser },
+  memory_search: { activity: "正在搜索记忆…", complete: "已搜索记忆", failed: "记忆搜索失败" },
+  memory_read: { activity: "正在读取记忆…", complete: "已读取记忆", failed: "记忆读取失败" },
+  memory_save: { activity: "正在保存记忆…", complete: "已保存记忆", failed: "记忆保存失败" },
+  memory_forget: { activity: "正在遗忘记忆…", complete: "已遗忘记忆", failed: "记忆遗忘失败" },
 };
 type MemoryToolName = keyof typeof labels;
 const notices: Record<string, string> = {
@@ -15,37 +15,29 @@ const notices: Record<string, string> = {
   not_found: "未找到相关记忆",
 };
 
-function MemoryToolStatus({ operation, result, status, isError }: Pick<ToolCallMessagePartProps, "result" | "status" | "isError"> & {
+function MemoryToolStatus({ operation, ...props }: ToolCallMessagePartProps & {
   operation: MemoryToolName;
 }): React.JSX.Element {
   const label = labels[operation];
+  const { result, status, isError } = props;
   const error = toolErrorMessage(result, status);
-  if (isError || error || status.type === "incomplete") return (
-    <div className="text-destructive py-1 text-sm" data-testid="memory-tool-status">
-      <div className="flex items-center gap-2"><TriangleAlert className="size-4" aria-hidden /><span>{label.failed}</span></div>
-      {error ? <p role="alert" className="pt-1">{error}</p> : null}
-    </div>
-  );
-
+  const cancelled = status.type === "incomplete" && status.reason === "cancelled";
+  const failed = !cancelled && (!!isError || !!error || status.type === "incomplete");
   const resultStatus = typeof result === "object" && result !== null && "status" in result && typeof result.status === "string"
     ? result.status : undefined;
   const running = status.type === "running";
   const complete = status.type === "complete";
-  const success = complete && (resultStatus === label.success || (operation === "memory_read" && resultStatus === "not_found"));
   const notice = complete && resultStatus ? notices[resultStatus] : undefined;
-  const Icon = running ? LoaderCircle : success ? CheckCircle2 : notice ? TriangleAlert : label.icon;
-  return (
-    <div className="text-muted-foreground flex items-center gap-2 py-1 text-sm" data-testid="memory-tool-status">
-      <Icon className={running ? "size-4 animate-spin" : "size-4"} aria-hidden />
-      <span>{running ? label.activity : notice ?? label.complete}</span>
-    </div>
-  );
+  const summary = cancelled ? "记忆操作已取消" : failed ? label.failed : running ? label.activity : notice ?? label.complete;
+  return <ToolCallDetails {...props} label={summary} failed={failed} data-testid="memory-tool-status">
+    {error ? <p role="alert" className="text-destructive wrap-anywhere">{error}</p>
+      : <p className="text-muted-foreground">{notice ?? summary}。可在记忆页面查看和管理。</p>}
+  </ToolCallDetails>;
 }
 
 function registerMemoryToolUI(toolName: MemoryToolName) {
   return makeAssistantToolUI({
     toolName,
-    display: "standalone",
     render: props => <MemoryToolStatus {...props} operation={toolName} />,
   });
 }

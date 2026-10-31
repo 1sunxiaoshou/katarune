@@ -28,7 +28,8 @@ import { useCharacterSession } from "./characters/CharacterSessionProvider";
 import { KataruneChatTransport } from "./chat/KataruneChatTransport";
 import { KataruneAttachmentAdapter } from "./chat/KataruneAttachmentAdapter";
 import { MemoryToolUI } from "./chat/MemoryToolUI";
-import { ViewChatImageToolUI } from "./chat/ViewChatImageToolUI";
+import { ViewImageToolUI } from "./chat/ViewImageToolUI";
+import { AgentToolUI } from "./chat/AgentToolUI";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
 import { KataruneSpeechSynthesisAdapter } from "./speech/KataruneSpeechSynthesisAdapter";
 import { KataruneDictationAdapter } from './speech/KataruneDictationAdapter';
@@ -74,7 +75,7 @@ function ThreadRuntimeHook() {
       ),
     [character.id, aui],
   );
-  const attachments = useMemo(() => new KataruneAttachmentAdapter(), []);
+  const attachments = useMemo(() => new KataruneAttachmentAdapter(character.id), [character.id]);
   useEffect(() => {
     let active = true;
     setSpeechAvailable(null);
@@ -307,7 +308,8 @@ function CharacterRuntimeHost({
             <AvatarTextInputBridge />
             <AutoReadReplies />
             <MemoryToolUI />
-            <ViewChatImageToolUI />
+            <ViewImageToolUI />
+            <AgentToolUI />
             <AvatarToolUI />
             {children}
           </>

@@ -12,6 +12,7 @@ import {
 } from "./characters";
 import { MODEL_TYPES } from "./models";
 import type { LiveApi } from "./live";
+import type { AgentToolsApi } from "./agentTools";
 import { PROVIDER_TYPES } from "./providers";
 import {
   speechVoiceSchema,
@@ -120,6 +121,7 @@ export const IPC_CHANNELS = {
   deleteCharacter: "characters:delete",
   updateCharacter: "characters:update",
   importChatAttachment: "chat-attachments:import",
+  referenceChatAttachment: "chat-attachments:reference-file",
   releaseChatAttachment: "chat-attachments:release",
 } as const;
 
@@ -236,6 +238,7 @@ const attachmentDataSchema = z.custom<Uint8Array>(
 );
 
 export const importChatAttachmentRequestSchema = z.strictObject({
+  characterId: z.uuid(),
   name: z
     .string()
     .check(
@@ -249,6 +252,12 @@ export const importChatAttachmentRequestSchema = z.strictObject({
 
 export const releaseChatAttachmentRequestSchema = z.strictObject({
   assetId: z.uuid(),
+});
+
+export const referenceChatAttachmentRequestSchema = z.strictObject({
+  characterId: z.uuid(),
+  path: z.string().check(z.minLength(1), z.maxLength(4096), z.regex(/^[^\u0000]+$/)),
+  mediaType: z.string().check(z.minLength(1), z.maxLength(255)),
 });
 
 export const deleteThreadMessagesRequestSchema = z.strictObject({
@@ -636,7 +645,7 @@ export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateReques
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
-export interface KataruneApi extends DiagnosticsApi, LiveApi {
+export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi {
   listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
   readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
   saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;
@@ -689,6 +698,7 @@ export interface KataruneApi extends DiagnosticsApi, LiveApi {
   loadThreadMessages(request: ThreadIdRequest): Promise<ThreadMessages>;
   appendThreadMessage(request: AppendThreadMessageRequest): Promise<OperationSuccess>;
   importChatAttachment(request: ImportChatAttachmentRequest): Promise<Asset>;
+  importLocalChatAttachment(characterId: string, file: File): Promise<Asset>;
   releaseChatAttachment(request: ReleaseChatAttachmentRequest): Promise<OperationSuccess>;
   deleteThreadMessages(request: DeleteThreadMessagesRequest): Promise<OperationSuccess>;
   startChatStream(request: ChatStreamRequest, listener: ChatStreamFrameListener): void;

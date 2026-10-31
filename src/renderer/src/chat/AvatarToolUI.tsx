@@ -1,6 +1,5 @@
 import { makeAssistantToolUI, type ToolCallMessagePartProps } from "@assistant-ui/react";
-import { ChevronDown, Drama, LoaderCircle, TriangleAlert } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
+import { ToolCallDetails } from "@/components/tool-fallback";
 import { avatarPerformSchema, avatarPerformAcceptedSchema, avatarPerformResultSchema, avatarControlSchema, type AvatarStep } from "../../../shared/avatarPerformance";
 import { avatarDanceAcceptedSchema } from "../../../shared/avatar";
 import { useAvatarState } from "./avatarState";
@@ -17,29 +16,26 @@ function triggerLabel(step: AvatarStep, steps: AvatarStep[], index: number) {
     case "after_action": return `第 ${steps.slice(0, index).reduce((last, item, i) => item.action ? i + 1 : last, 0)} 项动作完成后`;
   }
 }
-function PerformanceView({ args, result, status, isError, toolCallId }: ToolCallMessagePartProps) {
+function PerformanceView(props: ToolCallMessagePartProps) {
+  const { args, result, status, isError, toolCallId } = props;
   const parsed = avatarPerformSchema.safeParse(args);
   const accepted = avatarPerformAcceptedSchema.safeParse(result);
   const summary = avatarPerformResultSchema.safeParse(result);
   const id = accepted.success ? accepted.data.performanceId : undefined;
   const live = useAvatarState(state => state.status.performances?.find(item => item.toolCallId === toolCallId
     || (id !== undefined && item.performanceId === id)));
-  const failed = isError || status.type === "incomplete" || live?.state === "failed";
+  const cancelled = status.type === "incomplete" && status.reason === "cancelled";
+  const failed = isError || (status.type === "incomplete" && !cancelled) || live?.state === "failed";
   const pending = status.type === "running";
   const label = status.type === "incomplete" && status.reason === "cancelled" ? "安排已取消"
     : failed ? "表演失败" : live ? states[live.state] : pending ? "正在安排表演…" : accepted.success ? "已安排" : "播放状态未同步";
   const steps = parsed.success ? parsed.data.steps : [];
   const error = live?.error ?? toolErrorMessage(result, status);
-  return <Collapsible className="my-1 text-sm" data-testid="avatar-performance" data-tool-call-id={toolCallId}>
-    <CollapsibleTrigger className="group text-muted-foreground hover:text-foreground flex w-full items-center gap-2 rounded-md py-1 text-left focus-visible:outline-2 focus-visible:outline-ring">
-      {failed ? <TriangleAlert className="text-destructive size-4 shrink-0" aria-hidden />
-        : pending ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : <Drama className="size-4 shrink-0" aria-hidden />}
-      <span>{label}{steps.length > 0 ? ` · ${steps.length} 项` : ""}</span>
-      <ChevronDown className="size-3.5 transition-transform group-data-panel-open:rotate-180" aria-hidden />
-    </CollapsibleTrigger>
-    {error ? <p className="text-destructive py-1" role="alert">{error}</p> : null}
-    <CollapsibleContent>
-      <ol className="border-border mt-1 ml-2 space-y-2 border-l pl-4 pb-1">
+  return <ToolCallDetails {...props} label={`${label}${steps.length > 0 ? ` · ${steps.length} 项` : ""}`} failed={failed}
+    hasDetails={steps.length > 0 || !!error}
+    active={pending || live?.state === "running" || live?.state === "exiting"} data-testid="avatar-performance">
+      {error ? <p className="text-destructive wrap-anywhere py-1" role="alert">{error}</p> : null}
+      {steps.length > 0 && <ol className="space-y-2 py-1">
         {steps.map((step, index) => {
           const id = `step-${index + 1}`;
           const saved = summary.success ? summary.data.steps[index] : undefined;
@@ -52,39 +48,42 @@ function PerformanceView({ args, result, status, isError, toolCallId }: ToolCall
             {cueState ? <span className="text-muted-foreground text-xs">{cueStates[cueState]}</span> : null}
           </li>;
         })}
-      </ol>
-    </CollapsibleContent>
-  </Collapsible>;
+      </ol>}
+  </ToolCallDetails>;
 }
-const Performance = makeAssistantToolUI({ toolName: "avatar_perform", display: "standalone", render: PerformanceView });
-function DanceView({ result, status, isError, toolCallId }: ToolCallMessagePartProps) {
+const Performance = makeAssistantToolUI({ toolName: "avatar_perform", render: PerformanceView });
+function DanceView(props: ToolCallMessagePartProps) {
+  const { result, status, isError, toolCallId } = props;
   const accepted = avatarDanceAcceptedSchema.safeParse(result);
   const live = useAvatarState(state => state.status.dance?.toolCallId === toolCallId
     || (accepted.success && state.status.dance?.performanceId === accepted.data.performanceId) ? state.status.dance : undefined);
   const error = live ? live.error : toolErrorMessage(result, status);
-  const failed = live ? live.state === "failed" : isError || status.type === "incomplete";
+  const cancelled = status.type === "incomplete" && status.reason === "cancelled";
+  const failed = live ? live.state === "failed" : isError || (status.type === "incomplete" && !cancelled);
   const pending = !live && status.type === "running";
-  const label = failed ? "舞蹈播放失败" : pending ? "正在安排舞蹈…"
+  const label = failed ? "舞蹈播放失败" : cancelled ? "舞蹈安排已取消" : pending ? "正在安排舞蹈…"
     : live?.state === "completed" ? "舞蹈已完成" : live?.state === "started" ? "正在表演"
       : live?.state === "cancelled" ? "舞蹈已停止" : live?.state === "preparing" ? "正在准备舞蹈…"
         : live?.state === "accepted" || accepted.success ? "舞蹈已安排" : "播放状态未同步";
-  return <div className="text-muted-foreground my-1 text-sm" data-testid="avatar-dance" data-tool-call-id={toolCallId}>
-    <p className="flex items-center gap-2 py-1">{failed ? <TriangleAlert className="text-destructive size-4 shrink-0" aria-hidden />
-      : pending ? <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden /> : <Drama className="size-4 shrink-0" aria-hidden />}
-      <span>{label}{live ? ` · ${live.action}` : accepted.success ? ` · ${accepted.data.action}` : ""}</span></p>
-    {error ? <p className="text-destructive" role="alert">{error}</p> : null}
-  </div>;
+  const action = live?.action ?? (accepted.success ? accepted.data.action : undefined);
+  return <ToolCallDetails {...props} label={label} target={action} targetClassName="font-sans" failed={failed} hasDetails={!!error || !!failed}
+    active={pending || live?.state === "preparing" || live?.state === "started"} data-testid="avatar-dance">
+    {error || failed ? <p className="text-destructive" role="alert">{error ?? "舞蹈播放失败。"}</p> : null}
+  </ToolCallDetails>;
 }
-const Dance = makeAssistantToolUI({ toolName: "avatar_play", display: "standalone", render: DanceView });
+const Dance = makeAssistantToolUI({ toolName: "avatar_play", render: DanceView });
 const Control = makeAssistantToolUI({
-  toolName: "avatar_control", display: "standalone",
-  render: ({ args, result, status, isError }) => {
+  toolName: "avatar_control",
+  render: props => {
+    const { args, result, status, isError } = props;
     const parsed = avatarControlSchema.safeParse(args);
     const error = toolErrorMessage(result, status);
-    return <div className="text-muted-foreground py-1 text-sm"><p>
-      {isError || status.type === "incomplete" ? "表演控制失败" : status.type === "running" ? "正在调整表演…"
-        : parsed.success && parsed.data.command === "cancel" ? "已请求取消表演" : "已请求自然收尾"}
-    </p>{error ? <p className="text-destructive" role="alert">{error}</p> : null}</div>;
+    const cancelled = status.type === "incomplete" && status.reason === "cancelled";
+    const label = cancelled ? "表演控制已取消" : isError || status.type === "incomplete" ? "表演控制失败" : status.type === "running" ? "正在调整表演…"
+      : parsed.success && parsed.data.command === "cancel" ? "已请求取消表演" : "已请求自然收尾";
+    return <ToolCallDetails {...props} label={label} hasDetails={!!error}>
+      {error ? <p className="text-destructive" role="alert">{error}</p> : null}
+    </ToolCallDetails>;
   },
 });
 export function AvatarToolUI() { return <><Performance /><Dance /><Control /></>; }

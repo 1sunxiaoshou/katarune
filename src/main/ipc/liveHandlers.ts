@@ -5,6 +5,7 @@ import { LIVE_CHANNELS, liveCredentialsSchema, liveWebCredentialsSchema, liveSet
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import type { LiveService } from "../live/liveService";
 import type { LiveMedia } from "../live/media";
+import { LIVE_LOGIN_CHANNELS, livePlatformSchema, liveLoginIdSchema, liveLoginStateSchema } from "../../shared/live";
 
 export function registerLiveHandlers(live: LiveService, media: LiveMedia, window: BrowserWindow) {
   const guard = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) => {
@@ -13,7 +14,21 @@ export function registerLiveHandlers(live: LiveService, media: LiveMedia, window
   const handle = (channel: string, action: (value: unknown) => unknown) => diagnosticIpcMain.handle(channel, async (event, value: unknown) => {
     guard(event); return liveStateSchema.parse(await action(value));
   });
-  handle(LIVE_CHANNELS.state, () => live.status);
+  handle(LIVE_CHANNELS.state, () => live.getState());
+  diagnosticIpcMain.handle(LIVE_LOGIN_CHANNELS.start, async (event, value: unknown) => {
+    guard(event); return liveLoginStateSchema.parse(await live.startLogin(parseRequest(livePlatformSchema, value)));
+  });
+  diagnosticIpcMain.handle(LIVE_LOGIN_CHANNELS.poll, async (event, value: unknown) => {
+    guard(event); return liveLoginStateSchema.parse(await live.pollLogin(parseRequest(liveLoginIdSchema, value)));
+  });
+  diagnosticIpcMain.handle(LIVE_LOGIN_CHANNELS.cancel, (event, value: unknown) => {
+    guard(event); live.cancelLogin(parseRequest(liveLoginIdSchema, value));
+  });
+  diagnosticIpcMain.handle(LIVE_LOGIN_CHANNELS.verification, (event, value: unknown) => {
+    guard(event); live.showLoginVerification(parseRequest(liveLoginIdSchema, value));
+  });
+  handle(LIVE_LOGIN_CHANNELS.logout, value => live.logoutAccount(parseRequest(livePlatformSchema, value)));
+  window.on("closed", () => live.cancelPendingLogin());
   handle(LIVE_CHANNELS.settings, value => live.updateSettings(parseRequest(liveSettingsSchema, value)));
   handle(LIVE_CHANNELS.credentials, value => live.setCredentials(parseRequest(liveCredentialsSchema, value)));
   handle(LIVE_CHANNELS.webCredentials, value => live.setWebCredentials(parseRequest(liveWebCredentialsSchema, value)));

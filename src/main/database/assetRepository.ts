@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, notExists } from "drizzle-orm";
+import { z } from "zod";
 import { assetSchema, type Asset } from "../../shared/ipc";
 import { OperationRejected } from "../diagnostics/operationRejected";
 import { assets, messageAssets } from "./schema";
@@ -37,6 +38,11 @@ export function createAssetRepository(
 
   return {
     fetchAsset,
+    fetchAssetSourcePath: (id) => {
+      const row = database.select({ sourcePath: assets.sourcePath }).from(assets).where(eq(assets.id, id)).get();
+      if (!row) throw new OperationRejected("resource-unavailable");
+      return z.string().min(1).max(4096).nullable().parse(row.sourcePath);
+    },
     listAssets: () =>
       database
         .select(assetColumns)

@@ -4,7 +4,7 @@ import {
   useAuiState,
   useThreadListItemRuntime,
 } from "@assistant-ui/react";
-import { ArchiveIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ArchiveIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/tooltip";
 import { notify } from "../notifications";
 import { normalizeThreadTitle } from "./threadSidebarState";
+import { useCharacterSession } from "../characters/CharacterSessionProvider";
+import { useLiveState } from "../live/liveState";
 
 interface ThreadStarlineProps {
   readonly hidden: boolean;
@@ -88,8 +90,11 @@ function ThreadStarlineItem({
   onActiveChange,
 }: ThreadStarlineItemProps): React.JSX.Element {
   const runtime = useThreadListItemRuntime();
+  const { activeCharacter } = useCharacterSession();
   const title = useAuiState((state) => state.threadListItem.title);
   const threadId = useAuiState((state) => state.threadListItem.id);
+  const remoteId = useAuiState((state) => state.threadListItem.remoteId);
+  const liveThread = useLiveState(state => state.kinds[remoteId ?? threadId] === "live");
   const mainThreadId = useAuiState((state) => state.threads.mainThreadId);
   const active = mainThreadId === threadId;
   const [editing, setEditing] = useState(false);
@@ -187,6 +192,14 @@ function ThreadStarlineItem({
     await runtime.delete();
   };
 
+  const openWorkspace = async (): Promise<void> => {
+    setPending(true);
+    try { await window.katarune.openAgentWorkspace({ characterId: activeCharacter.id }); }
+    catch (cause) {
+      notify({ level: "error", message: errorMessage(cause, "无法打开工作区。"), dedupeKey: `thread-workspace:${threadId}` });
+    } finally { setPending(false); }
+  };
+
   return (
     <ThreadListItemPrimitive.Root
       className="thread-starline-item"
@@ -230,6 +243,11 @@ function ThreadStarlineItem({
           </>
         }
       >
+        {!liveThread &&
+          <AppContextMenuItem data-testid="thread-context-workspace" disabled={pending} onClick={() => { void openWorkspace(); }}>
+            <FolderOpenIcon aria-hidden="true" />工作区
+          </AppContextMenuItem>
+        }
         <AppContextMenuItem
           data-testid="thread-context-rename"
           disabled={pending}

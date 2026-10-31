@@ -1,8 +1,14 @@
 import { ipcRenderer } from "electron";
+import { LIVE_LOGIN_CHANNELS, livePlatformSchema, liveLoginIdSchema, liveLoginStateSchema } from "../shared/live";
 import { LIVE_CHANNELS, liveCredentialsSchema, liveWebCredentialsSchema, liveSettingsSchema, liveStateSchema, liveMonitorSchema, livePreviewSchema, type LiveApi } from "../shared/live";
 
 const invoke = async (channel: string, value?: unknown) => liveStateSchema.parse(await ipcRenderer.invoke(channel, value));
 export const liveApi: LiveApi = {
+  startLiveLogin: async platform => liveLoginStateSchema.parse(await ipcRenderer.invoke(LIVE_LOGIN_CHANNELS.start, livePlatformSchema.parse(platform))),
+  pollLiveLogin: async id => liveLoginStateSchema.parse(await ipcRenderer.invoke(LIVE_LOGIN_CHANNELS.poll, liveLoginIdSchema.parse(id))),
+  cancelLiveLogin: async id => { await ipcRenderer.invoke(LIVE_LOGIN_CHANNELS.cancel, liveLoginIdSchema.parse(id)); },
+  showLiveLoginVerification: async id => { await ipcRenderer.invoke(LIVE_LOGIN_CHANNELS.verification, liveLoginIdSchema.parse(id)); },
+  logoutLiveAccount: async platform => liveStateSchema.parse(await ipcRenderer.invoke(LIVE_LOGIN_CHANNELS.logout, livePlatformSchema.parse(platform))),
   getLiveState: () => invoke(LIVE_CHANNELS.state),
   updateLiveSettings: value => invoke(LIVE_CHANNELS.settings, liveSettingsSchema.parse(value)),
   setLiveCredentials: value => invoke(LIVE_CHANNELS.credentials, liveCredentialsSchema.parse(value)),

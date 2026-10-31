@@ -18,12 +18,8 @@ function visibleAttachmentError(message: string): Error {
   return new Error(message);
 }
 
-function attachmentName(file: File): string {
-  const name = file.name.trim();
-  return name.length > 0 ? name : "未命名附件";
-}
-
 export class KataruneAttachmentAdapter implements AttachmentAdapter {
+  public constructor(private readonly characterId: string) {}
   public readonly accept = "*";
 
   private readonly reservedBytes = new Map<string, number>();
@@ -55,11 +51,7 @@ export class KataruneAttachmentAdapter implements AttachmentAdapter {
     this.pendingBytes += file.size;
     try {
       const mediaType = file.type || DEFAULT_ATTACHMENT_MEDIA_TYPE;
-      const asset = await window.katarune.importChatAttachment({
-        name: attachmentName(file),
-        mediaType,
-        data: new Uint8Array(await file.arrayBuffer()),
-      });
+      const asset = await window.katarune.importLocalChatAttachment(this.characterId, file);
       if (asset.status !== "ready" || asset.kind !== "chat_attachment") {
         throw visibleAttachmentError("附件托管结果无效。");
       }

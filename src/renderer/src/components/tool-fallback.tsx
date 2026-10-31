@@ -96,11 +96,11 @@ const statusIconMap: Record<ToolStatus, React.ElementType> = {
 };
 
 const formatToolDuration = (ms: number) => {
-  if (ms < 1000) return "<1s";
+  if (ms < 1000) return "不到 1 秒";
   const seconds = ms / 1000;
-  if (seconds < 10) return `${(Math.floor(seconds * 10) / 10).toFixed(1)}s`;
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+  if (seconds < 10) return `${(Math.floor(seconds * 10) / 10).toFixed(1)} 秒`;
+  if (seconds < 60) return `${Math.floor(seconds)} 秒`;
+  return `${Math.floor(seconds / 60)} 分 ${Math.floor(seconds % 60)} 秒`;
 };
 
 function ToolFallbackDuration({
@@ -127,70 +127,89 @@ function ToolFallbackDuration({
 function ToolFallbackTrigger({
   toolName,
   status,
+  label: customLabel,
+  target,
+  targetClassName,
+  hasDetails = true,
+  failed,
+  active,
   className,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
   status?: ToolCallMessagePartStatus;
+  label?: string | undefined;
+  target?: string | undefined;
+  targetClassName?: string | undefined;
+  hasDetails?: boolean | undefined;
+  failed?: boolean | undefined;
+  active?: boolean | undefined;
 }) {
   const statusType = status?.type ?? "complete";
-  const isRunning = statusType === "running";
+  const isRunning = active ?? statusType === "running";
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
-  const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const isFailed = failed ?? (statusType === "incomplete" && !isCancelled);
+  const Icon = isFailed ? XCircleIcon : isRunning ? LoaderIcon : statusIconMap[statusType];
+  const action = toolName === "get_current_time" ? "读取当前时间" : `调用 ${toolName}`;
+  const label = customLabel ?? (isCancelled ? `已取消${action}` : statusType === "requires-action" ? "等待批准" : isFailed ? `${action}失败` : isRunning ? `正在${action}…` : `已${action}`);
 
-  return (
-    <CollapsibleTrigger
-      data-slot="tool-fallback-trigger"
-      className={cn(
-        "aui-tool-fallback-trigger group/trigger text-muted-foreground hover:text-foreground flex w-fit origin-left items-center gap-2 py-1.5 text-sm transition-[color,scale] active:scale-[0.98]",
-        className,
-      )}
-      {...props}
-    >
+  const rowClassName = cn(
+    "aui-tool-fallback-trigger group/trigger text-muted-foreground flex w-fit max-w-full min-w-0 origin-left items-center gap-2 rounded-sm py-1.5 text-xs",
+    hasDetails && "hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-ring",
+    isFailed && "text-destructive",
+    isFailed && hasDetails && "hover:text-destructive",
+    className,
+  );
+  const content = <>
       <Icon
+        aria-hidden
         data-slot="tool-fallback-trigger-icon"
         className={cn(
-          "aui-tool-fallback-trigger-icon size-4 shrink-0",
+          "aui-tool-fallback-trigger-icon mt-0.5 size-3.5 shrink-0",
           isCancelled && "text-muted-foreground",
-          isRunning && "animate-spin [animation-duration:0.6s]",
+          isRunning && !isFailed && "animate-spin [animation-duration:0.6s] motion-reduce:animate-none",
         )}
       />
       <span
         data-slot="tool-fallback-trigger-label"
+        title={label}
         className={cn(
-          "aui-tool-fallback-trigger-label-wrapper relative inline-block text-start leading-none",
+          "aui-tool-fallback-trigger-label-wrapper relative max-w-[70%] shrink-0 truncate text-start leading-5",
           isCancelled && "text-muted-foreground line-through",
         )}
       >
         <span>
-          {label}: <b>{toolName}</b>
+          {label}
         </span>
-        {isRunning && (
+        {isRunning && !isFailed && (
           <span
             aria-hidden
             data-slot="tool-fallback-trigger-shimmer"
             className="aui-tool-fallback-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
           >
-            {label}: <b>{toolName}</b>
+            {label}
           </span>
         )}
       </span>
-      <ToolFallbackDuration />
-      <ChevronDownIcon
+      {target && <span className={cn("min-w-0 truncate font-mono", targetClassName)} title={target}>{target}</span>}
+      <ToolFallbackDuration className="shrink-0" />
+      {hasDetails && <ChevronDownIcon
+        aria-hidden
         data-slot="tool-fallback-trigger-chevron"
         className={cn(
-          "aui-tool-fallback-trigger-chevron size-4 shrink-0",
+          "aui-tool-fallback-trigger-chevron mt-0.5 size-3 shrink-0",
           "transition-transform duration-(--animation-duration) ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
           "-rotate-90",
           "group-data-open/trigger:rotate-0",
           "group-data-panel-open/trigger:rotate-0",
         )}
-      />
-    </CollapsibleTrigger>
-  );
+      />}
+    </>;
+  return hasDetails ? <CollapsibleTrigger data-slot="tool-fallback-trigger" className={rowClassName} {...props}>
+    {content}
+  </CollapsibleTrigger> : <div data-slot="tool-fallback-summary" className={rowClassName}>{content}</div>;
 }
 
 function ToolFallbackContent({
@@ -216,7 +235,8 @@ function ToolFallbackContent({
     >
       <div
         className={cn(
-          "flex flex-col gap-2 ps-6 pt-1 pb-2 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
+          "flex min-w-0 flex-col gap-2 border-l border-border/60 ms-1.5 ps-4 pt-1 pb-2 text-xs ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
+          "group-data-[variant=ghost]/tool-group-root:border-transparent",
           "group-data-open/collapsible-content:animate-in group-data-open/collapsible-content:fade-in-0 group-data-open/collapsible-content:blur-in-[2px] group-data-open/collapsible-content:slide-in-from-top-1",
           "group-data-closed/collapsible-content:animate-out group-data-closed/collapsible-content:fade-out-0 group-data-closed/collapsible-content:blur-out-[2px] group-data-closed/collapsible-content:slide-out-to-top-1",
           "group-data-closed/collapsible-content:duration-(--animation-duration) group-data-open/collapsible-content:duration-(--animation-duration)",
@@ -243,7 +263,8 @@ function ToolFallbackArgs({
       className={cn("aui-tool-fallback-args", className)}
       {...props}
     >
-      <pre className="aui-tool-fallback-args-value bg-muted/50 text-foreground/90 rounded-md p-2.5 text-xs whitespace-pre-wrap">
+      <p className="mb-1 text-muted-foreground">参数</p>
+      <pre className="aui-tool-fallback-args-value bg-muted/50 text-foreground/90 max-h-72 overflow-auto rounded-md p-2.5 text-xs whitespace-pre-wrap break-words">
         {argsText}
       </pre>
     </div>
@@ -266,9 +287,9 @@ function ToolFallbackResult({
       {...props}
     >
       <p className="aui-tool-fallback-result-header text-muted-foreground text-xs font-medium">
-        Result:
+        结果
       </p>
-      <pre className="aui-tool-fallback-result-content bg-muted/50 text-foreground/90 mt-1 rounded-md p-2.5 text-xs whitespace-pre-wrap">
+      <pre className="aui-tool-fallback-result-content bg-muted/50 text-foreground/90 mt-1 max-h-72 overflow-auto rounded-md p-2.5 text-xs whitespace-pre-wrap break-words">
         {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
       </pre>
     </div>
@@ -294,7 +315,7 @@ function ToolFallbackError({
   if (!errorText) return null;
 
   const isCancelled = status.reason === "cancelled";
-  const headerText = isCancelled ? "Cancelled reason:" : "Error:";
+  const headerText = isCancelled ? "取消原因" : "错误信息";
 
   return (
     <div
@@ -316,10 +337,10 @@ const APPROVED_RESULT = "Approved by user";
 const DENIED_RESULT = "User denied tool execution";
 
 const APPROVAL_OPTION_DEFAULT_LABELS: Record<string, string> = {
-  "allow-once": "Allow",
-  "allow-always": "Always allow",
-  "reject-once": "Deny",
-  "reject-always": "Always deny",
+  "allow-once": "批准一次",
+  "allow-always": "始终批准",
+  "reject-once": "拒绝一次",
+  "reject-always": "始终拒绝",
 };
 
 const isAllowKind = (kind: string) =>
@@ -416,7 +437,7 @@ function ToolFallbackApproval({
         {...props}
       >
         <p className="aui-tool-fallback-approval-confirm-title font-semibold">
-          {confirmMeta?.title ?? `${approvalOptionLabel(confirming)}?`}
+          {confirmMeta?.title ?? `确认${approvalOptionLabel(confirming)}？`}
         </p>
         {confirmDescription && (
           <p className="aui-tool-fallback-approval-confirm-description text-muted-foreground">
@@ -441,7 +462,7 @@ function ToolFallbackApproval({
             onClick={() => respondWithOption(confirming)}
             disabled={submitted}
           >
-            Confirm
+            确认
           </Button>
           <Button
             size="sm"
@@ -450,7 +471,7 @@ function ToolFallbackApproval({
             onClick={() => setConfirmingId(null)}
             disabled={submitted}
           >
-            Back
+            返回
           </Button>
         </div>
       </div>
@@ -489,7 +510,7 @@ function ToolFallbackApproval({
             onClick={() => respond(false)}
             disabled={submitted}
           >
-            Deny
+            拒绝
           </Button>
         )}
       </div>
@@ -511,7 +532,7 @@ function ToolFallbackApproval({
         onClick={() => respond(true)}
         disabled={submitted}
       >
-        Allow
+        批准
       </Button>
       <Button
         size="sm"
@@ -520,26 +541,40 @@ function ToolFallbackApproval({
         onClick={() => respond(false)}
         disabled={submitted}
       >
-        Deny
+        拒绝
       </Button>
     </div>
   );
 }
 
-const ToolFallbackImpl: ToolCallMessagePartComponent = ({
-  toolName,
-  argsText,
-  result,
-  status,
-  addResult,
-  resume,
-  interrupt,
-  approval,
-  respondToApproval,
-}) => {
+type ToolCallDetailsProps = ToolCallMessagePartProps & {
+  label?: string | undefined;
+  target?: string | undefined;
+  targetClassName?: string | undefined;
+  hasDetails?: boolean | undefined;
+  failed?: boolean | undefined;
+  active?: boolean | undefined;
+  children?: React.ReactNode;
+  "data-testid"?: string;
+};
+
+// All tool renderers share the same disclosure and approval lifecycle.
+function ToolCallDetails({
+  label,
+  target,
+  targetClassName,
+  hasDetails = true,
+  failed,
+  active,
+  children,
+  "data-testid": testId,
+  ...props
+}: ToolCallDetailsProps) {
+  const { toolName, toolCallId, status } = props;
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
   const isRequiresAction = status?.type === "requires-action";
+  const showDetails = hasDetails || isRequiresAction;
 
   const [open, setOpen] = useState(isRequiresAction);
   const [prevRequiresAction, setPrevRequiresAction] =
@@ -550,28 +585,29 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   }
 
   return (
-    <ToolFallbackRoot open={open} onOpenChange={setOpen}>
-      <ToolFallbackTrigger toolName={toolName} status={status} />
-      <ToolFallbackContent>
-        <ToolFallbackError status={status} />
-        <ToolFallbackArgs
-          argsText={argsText}
-          className={cn(isCancelled && "opacity-60")}
-        />
+    <ToolFallbackRoot open={open} onOpenChange={setOpen} data-testid={testId} data-tool-call-id={toolCallId}>
+      <ToolFallbackTrigger toolName={toolName} status={status} label={label} target={target} targetClassName={targetClassName} hasDetails={showDetails} failed={failed ?? (props.isError ? true : undefined)} active={active} />
+      {showDetails && <ToolFallbackContent>
+        {children ?? <>
+          <ToolFallbackError status={status} />
+          <ToolFallbackArgs argsText={props.argsText} className={cn(isCancelled && "opacity-60")} />
+          {!isCancelled && <ToolFallbackResult result={props.result} />}
+        </>}
         {isRequiresAction && (
           <ToolFallbackApproval
-            addResult={addResult}
-            resume={resume}
-            interrupt={interrupt}
-            approval={approval}
-            respondToApproval={respondToApproval}
+            addResult={props.addResult}
+            resume={props.resume}
+            interrupt={props.interrupt}
+            approval={props.approval}
+            respondToApproval={props.respondToApproval}
           />
         )}
-        {!isCancelled && <ToolFallbackResult result={result} />}
-      </ToolFallbackContent>
+      </ToolFallbackContent>}
     </ToolFallbackRoot>
   );
-};
+}
+
+const ToolFallbackImpl: ToolCallMessagePartComponent = props => <ToolCallDetails {...props} />;
 
 const ToolFallback = memo(
   ToolFallbackImpl,
@@ -595,6 +631,7 @@ ToolFallback.Error = ToolFallbackError;
 ToolFallback.Approval = ToolFallbackApproval;
 
 export {
+  ToolCallDetails,
   ToolFallback,
   ToolFallbackRoot,
   ToolFallbackTrigger,

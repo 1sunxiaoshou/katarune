@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ImageIcon, ArrowLeftIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Settings2Icon, Volume2Icon, VolumeXIcon, LoaderCircleIcon } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronUpIcon, CopyIcon, Volume2Icon, VolumeXIcon, LoaderCircleIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleIndicator, CollapsibleTrigger } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -19,6 +18,7 @@ import { notify } from "../notifications";
 import { assetUrl, type Character } from "../../../shared/ipc";
 import { DEFAULT_LIVE_SETTINGS, type LiveSettings } from "../../../shared/live";
 import { useLiveState } from "./liveState";
+import { LiveConnectionPanel } from "./LiveConnectionPanel";
 import { LivePreviewPlayer } from "./livePreviewPlayer";
 import "./live.css";
 
@@ -39,44 +39,19 @@ function SettingsSection({ id, title, children }: { id: string; title: string; c
   </Collapsible>;
 }
 
-function RoomCover({ src }: { src: string }) {
-  const [failed, setFailed] = useState("");
-  return <div className="live-room-cover relative aspect-video shrink-0 overflow-hidden rounded-lg bg-muted">
-    {src && failed !== src ? <img src={src} alt="直播间封面" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" onError={() => setFailed(src)} />
-      : <div role="img" aria-label="暂无直播间封面" className="absolute inset-0 flex items-center justify-center text-muted-foreground"><ImageIcon className="size-6" aria-hidden="true" /></div>}
-  </div>;
-}
-function plainRoomDescription(html: string) {
-  const document = new DOMParser().parseFromString(html, "text/html");
-  document.querySelectorAll("script,style,template").forEach(element => element.remove());
-  document.querySelectorAll("br").forEach(element => element.replaceWith("\n"));
-  document.querySelectorAll("p,div,li").forEach(element => element.append("\n"));
-  return document.body.textContent?.trim() || "暂无简介";
-}
-
 export function LivePage({ onClose }: { onClose: () => void }) {
   const state = useLiveState(s => s.state);
   const { activeCharacter } = useCharacterSession();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [pickRole, setPickRole] = useState(false);
-  const [connectionView, setConnectionView] = useState<"default" | "choices" | "form" | "info">("default");
-  const [credentials, setCredentials] = useState({ appId: "", accessKey: "", accessSecret: "", identityCode: "" });
-  const [webCookie, setWebCookie] = useState("");
   const [draft, setDraft] = useState<LiveSettings>(state?.settings ?? DEFAULT_LIVE_SETTINGS);
   const [pending, setPending] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
-  const video = useRef<HTMLVideoElement>(null), events = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
   const preview = useRef<LivePreviewPlayer | null>(null);
   const monitor = useRef(state?.monitor ?? false); monitor.current = state?.monitor ?? false;
   const initialized = useRef(false);
-  const connectionChecked = useRef(false);
-  useEffect(() => {
-    if (!state || connectionChecked.current) return;
-    connectionChecked.current = true;
-    if (state.credentialsConfigured && (state.phase === "stopped" || state.phase === "error")) void window.katarune.connectLiveRoom().then(useLiveState.getState().setState).catch(report);
-  }, [state]);
   const savedSettings = state?.settings;
-  const roomDescription = useMemo(() => plainRoomDescription(state?.roomDescription ?? ""), [state?.roomDescription]);
   useEffect(() => { if (savedSettings) setDraft(savedSettings); }, [savedSettings]);
   useEffect(() => { void window.katarune.listCharacters().then(result => setCharacters(result.characters)).catch(report); }, []);
   useEffect(() => {
@@ -103,8 +78,6 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   }, [state?.phase]);
   useEffect(() => { preview.current?.setMonitor(state?.monitor ?? false); }, [state?.monitor]);
   useEffect(() => { if (state?.phase !== "running") setPreviewReady(false); }, [state?.phase]);
-  const lastEvent = state?.events.at(-1)?.id;
-  useEffect(() => { if (events.current) events.current.scrollTop = events.current.scrollHeight; }, [lastEvent, state?.broadcast, state?.connection, connectionView]);
   if (!state) return <PageLoading message="正在读取直播配置……" />;
   const active = ["starting", "running", "stopping"].includes(state.phase);
   const transitioning = state.phase === "starting" || state.phase === "stopping";
@@ -121,20 +94,6 @@ export function LivePage({ onClose }: { onClose: () => void }) {
     if (pending) return; setPending(true);
     try { await action(); } catch (error) { report(error); } finally { setPending(false); }
   };
-  const configured = state.credentialsConfigured;
-  const connectionPanel = connectionView === "default" ? configured ? "events" : "choices" : connectionView;
-  const onAir = state.connection === "connected" && state.broadcast === "live";
-  const roomStatus = state.connection === "disconnected" ? "已断开连接" : state.connection === "error" ? "连接失败，请重试" : state.connection === "connecting" ? "正在检测直播间……" : state.connection === "reconnecting" ? "正在重新连接直播间……" : state.broadcast === "offline" ? "未开播" : "开播状态待确认";
-  const connectionModeLabel = draft.connectionMode === "official" ? "官方开放平台" : "网页直连";
-  const chooseConnection = (mode: LiveSettings["connectionMode"]) => {
-    const next = { ...draft, connectionMode: mode };
-    void perform(async () => {
-      const updated = await window.katarune.updateLiveSettings(next);
-      useLiveState.getState().setState(updated); setDraft(updated.settings);
-      setConnectionView("form");
-    });
-  };
-  const connectionLabel = { disconnected: "未连接", connecting: "连接中", connected: "已连接", reconnecting: "重连中", error: "连接失败" }[state.connection];
   return <main className="live-page page-frame" data-testid="live-page">
     <PageHeader title="直播" onBack={onClose} backLabel="返回对话" />
     <div className="live-workspace">
@@ -150,74 +109,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
           {state.monitor ? <Volume2Icon /> : <VolumeXIcon />}
         </TooltipIconButton>
       </section>
-      <Card size="sm" className="live-events live-panel" role="region" aria-label="弹幕与直播间连接">
-        <CardHeader className="items-center">
-          <CardTitle><h2>弹幕</h2></CardTitle>
-          <CardAction className="row-span-1 self-center">{configured ? <Button variant="ghost" size="sm" className="live-connection text-muted-foreground" data-state={state.connection} onClick={() => setConnectionView(connectionPanel === "events" ? "info" : "default")} aria-label="管理直播间连接" aria-expanded={connectionPanel !== "events"}>
-            <span aria-hidden="true" className={`size-1.5 rounded-full ${state.connection === "connected" ? "bg-green-500" : state.connection === "error" ? "bg-destructive" : "bg-muted-foreground"}`} />{connectionLabel}<Settings2Icon aria-hidden="true" />
-          </Button> : <span className="inline-flex h-7 items-center gap-1.5 text-xs text-muted-foreground" role="status"><span aria-hidden="true" className={`size-1.5 rounded-full ${state.connection === "error" ? "bg-destructive" : "bg-muted-foreground"}`} />{connectionLabel}</span>}</CardAction>
-        </CardHeader>
-        <CardContent className="flex min-h-0 flex-1 flex-col">
-        <div key={connectionPanel} className="live-connection-content panel-enter">
-        {connectionPanel === "choices" ? <div className="grid min-h-0 flex-1 content-center gap-3" aria-label="选择直播连接方式">
-          <Button variant="outline" size="lg" className="w-full justify-between" disabled={active || pending} data-testid="live-connect-official" onClick={() => chooseConnection("official")}>官方开放平台<ChevronRightIcon aria-hidden="true" /></Button>
-          <Button variant="outline" size="lg" className="w-full justify-between" disabled={active || pending} data-testid="live-connect-web" onClick={() => chooseConnection("web")}>网页直连<ChevronRightIcon aria-hidden="true" /></Button>
-          {active && <p className="text-xs text-muted-foreground">停止直播后可修改连接。</p>}
-        </div> : connectionPanel === "form" ? <form className="live-connect-form scrollbar-hidden" onSubmit={event => { event.preventDefault(); void perform(async () => {
-          if (draft.connectionMode === "web") { await window.katarune.setLiveWebCredentials({ cookie: webCookie }); setWebCookie(""); }
-          else { await window.katarune.setLiveCredentials(credentials); setCredentials({ appId: "", accessKey: "", accessSecret: "", identityCode: "" }); }
-          useLiveState.getState().setState(await window.katarune.updateLiveSettings(draft));
-          setConnectionView("info");
-          useLiveState.getState().setState(await window.katarune.connectLiveRoom());
-        }); }}>
-          <div className="flex items-center gap-2"><TooltipIconButton tooltip="返回连接方式" aria-label="返回连接方式" disabled={pending} onClick={() => setConnectionView("choices")}><ArrowLeftIcon /></TooltipIconButton><span className="text-sm font-medium">{connectionModeLabel}</span></div>
-          {draft.connectionMode === "official" ? <>
-          <Field id="live-app-id" label="项目 ID" stacked><Input id="live-app-id" required disabled={active} autoComplete="off" inputMode="numeric" value={credentials.appId} onChange={event => setCredentials({ ...credentials, appId: event.target.value.trim() })} /></Field>
-          <Field id="live-access-key" label="Access Key" stacked><Input id="live-access-key" required disabled={active} type="password" autoComplete="new-password" value={credentials.accessKey} onChange={event => setCredentials({ ...credentials, accessKey: event.target.value })} /></Field>
-          <Field id="live-access-secret" label="Access Secret" stacked><Input id="live-access-secret" required disabled={active} type="password" autoComplete="new-password" value={credentials.accessSecret} onChange={event => setCredentials({ ...credentials, accessSecret: event.target.value })} /></Field>
-          <Field id="live-identity-code" label="主播身份码" stacked><Input id="live-identity-code" required disabled={active} type="password" autoComplete="new-password" value={credentials.identityCode} onChange={event => setCredentials({ ...credentials, identityCode: event.target.value })} /></Field>
-          </> : <>
-          <Field id="live-web-room-id" label="直播间号" stacked><Input id="live-web-room-id" required disabled={active || pending} autoComplete="off" inputMode="numeric" pattern="[1-9][0-9]{0,14}" maxLength={15} value={draft.webRoomId} onChange={event => change("webRoomId", event.target.value.trim())} /></Field>
-          <Field id="live-web-cookie" label="Cookie（可选）" stacked><Input id="live-web-cookie" disabled={active || pending} type="password" autoComplete="new-password" maxLength={16384} value={webCookie} placeholder="SESSDATA=…; buvid3=…" aria-describedby="live-web-cookie-help" onChange={event => setWebCookie(event.target.value)} /></Field>
-          <p id="live-web-cookie-help" className="text-xs leading-5 text-muted-foreground">{state.webCredentialsConfigured ? "已保存登录态。留空确认将改为匿名连接。" : "留空匿名连接，用户名可能被隐藏。填写登录 Cookie 可获取更完整的信息，保存后不回显。"}</p>
-          </>}
-          <div className="live-connect-actions"><Button type="submit" size="sm" disabled={active || pending}>确定</Button></div>
-        </form> : connectionPanel === "info" ? <div className="live-room-info" aria-label="直播间配置信息">
-          <div className="live-room-navigation">
-            <div className="flex min-w-0 items-center gap-1"><TooltipIconButton size="icon-sm" tooltip="返回弹幕" aria-label="返回弹幕" onClick={() => setConnectionView("default")}><ArrowLeftIcon /></TooltipIconButton><span className="text-sm font-medium">直播间信息</span></div>
-            <span className="live-room-method">{connectionModeLabel}</span>
-          </div>
-          <div className="live-room-details scrollbar-hidden">
-            <div className="live-room-overview">
-              <RoomCover src={state.roomCover} />
-              <div className="live-room-summary">
-                <h3 className="line-clamp-2 text-sm font-semibold leading-5 wrap-anywhere" title={state.roomName}>{state.roomName || "暂无直播标题"}</h3>
-                <div className="live-room-meta">
-                  <p className="live-room-id"><span>房间号</span><span>{state.roomId || state.settings.webRoomId || "检测中"}</span></p>
-                  <Badge variant="secondary" className="text-muted-foreground data-[state=live]:bg-green-500/10 data-[state=live]:text-green-700 dark:data-[state=live]:text-green-400" data-state={state.broadcast}>{state.broadcast === "live" ? "直播中" : state.broadcast === "offline" ? "未开播" : "开播状态待确认"}</Badge>
-                </div>
-              </div>
-            </div>
-            <section className="live-room-description" aria-labelledby="live-room-description-label">
-              <h4 id="live-room-description-label">直播间简介</h4>
-              <p data-testid="live-room-description">{roomDescription}</p>
-            </section>
-          </div>
-          <div className="live-room-actions">
-            {active && <p className="text-xs text-muted-foreground">停止直播后可断开连接。</p>}
-            <Button variant="outline" size="sm" disabled={active || pending} data-testid="live-disconnect" onClick={() => { void perform(async () => { useLiveState.getState().setState(await window.katarune.disconnectLiveRoom()); setConnectionView("default"); }); }}>断开连接</Button>
-          </div>
-        </div> : <>
-          {onAir ? <div ref={events} className="live-event-list scrollbar-hidden" role="log" aria-label="直播间事件" aria-live="off">
-            {!state.events.length && <div className="live-empty">等待观众互动</div>}
-            {state.events.map(event => <div key={event.id} className={`live-event live-event-${event.kind}`}>
-              {event.kind === "danmaku" ? <><b>{event.userName}</b><span>{event.text}</span></> : event.kind === "gift" ? <><b>{event.userName}</b><span>赠送 {event.giftName} × {event.quantity}</span><small>平台礼物</small></> : <span>{event.kind === "started" ? "直播间已开播" : event.kind === "ended" ? "直播间已下播" : "官方互动连接已结束"}</span>}
-            </div>)}
-          </div> : <div className="live-empty" role="status" data-testid="live-room-status">{roomStatus}</div>}
-        </>}
-        </div>
-        </CardContent>
-      </Card>
+      <LiveConnectionPanel state={state} disabled={active || pending} />
       <Card size="sm" className="live-parameters live-panel" role="region" aria-label="直播参数">
         <CardHeader><CardTitle><h2>参数</h2></CardTitle></CardHeader>
         <CardContent className="live-settings scrollbar-hidden">

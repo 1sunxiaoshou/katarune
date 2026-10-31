@@ -3,6 +3,7 @@ import { KataruneAttachmentAdapter } from "../src/renderer/src/chat/KataruneAtta
 import type { Asset, KataruneApi } from "../src/shared/ipc";
 
 const assetId = "11111111-1111-4111-8111-111111111111";
+const characterId = "22222222-2222-4222-8222-222222222222";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -24,24 +25,20 @@ function readyAttachment(overrides: Partial<Asset> = {}): Asset {
 }
 
 describe("KataruneAttachmentAdapter", () => {
-  it("imports selected bytes through IPC and sends only a managed URL", async () => {
-    const importChatAttachment = vi.fn(async () => readyAttachment());
+  it("passes the File to preload and sends only an asset URL", async () => {
+    const importLocalChatAttachment = vi.fn(async () => readyAttachment());
     const releaseChatAttachment = vi.fn(async () => ({ success: true as const }));
     vi.stubGlobal("window", {
       katarune: {
-        importChatAttachment,
+        importLocalChatAttachment,
         releaseChatAttachment,
       } as unknown as KataruneApi,
     });
-    const adapter = new KataruneAttachmentAdapter();
+    const adapter = new KataruneAttachmentAdapter(characterId);
     const file = new File([new Uint8Array([1, 2, 3])], "数据.dat");
 
     const pending = await adapter.add({ file });
-    expect(importChatAttachment).toHaveBeenCalledWith({
-      name: "数据.dat",
-      mediaType: "application/octet-stream",
-      data: new Uint8Array([1, 2, 3]),
-    });
+    expect(importLocalChatAttachment).toHaveBeenCalledWith(characterId, file);
 
     const complete = await adapter.send(pending);
     expect(complete.content).toEqual([
@@ -59,13 +56,13 @@ describe("KataruneAttachmentAdapter", () => {
     const releaseChatAttachment = vi.fn(async () => ({ success: true as const }));
     vi.stubGlobal("window", {
       katarune: {
-        importChatAttachment: vi.fn(async () =>
+        importLocalChatAttachment: vi.fn(async () =>
           readyAttachment({ mimeType: "image/png", originalName: "截图.png" }),
         ),
         releaseChatAttachment,
       } as unknown as KataruneApi,
     });
-    const adapter = new KataruneAttachmentAdapter();
+    const adapter = new KataruneAttachmentAdapter(characterId);
     const pending = await adapter.add({
       file: new File([new Uint8Array([1, 2, 3])], "截图.png", {
         type: "image/png",
@@ -84,17 +81,17 @@ describe("KataruneAttachmentAdapter", () => {
   });
 
   it("enforces the per-file limit before invoking main", async () => {
-    const importChatAttachment = vi.fn();
+    const importLocalChatAttachment = vi.fn();
     vi.stubGlobal("window", {
-      katarune: { importChatAttachment } as unknown as KataruneApi,
+      katarune: { importLocalChatAttachment } as unknown as KataruneApi,
     });
-    const adapter = new KataruneAttachmentAdapter();
+    const adapter = new KataruneAttachmentAdapter(characterId);
     const oversized = new File(
       [new Uint8Array(25 * 1024 * 1024 + 1)],
       "oversized.bin",
     );
 
     await expect(adapter.add({ file: oversized })).rejects.toThrow("25 MiB");
-    expect(importChatAttachment).not.toHaveBeenCalled();
+    expect(importLocalChatAttachment).not.toHaveBeenCalled();
   });
 });

@@ -22,6 +22,7 @@ import { createProviderRepository } from "./providerRepository";
 import { appSettings, appState, assets, characters, threads } from "./schema";
 import { createThreadRepository } from "./threadRepository";
 import { createLiveRepository } from "./liveRepository";
+import { createAgentToolRepository } from "./agentToolRepository";
 import type {
   DatabaseRuntime,
   DatabaseConfigValidator,
@@ -256,6 +257,7 @@ export function openDatabase({
     ...assetRepository,
     ...createCharacterPackageRepository(database),
     ...createMemoryRepository(database, characterRepository.fetchCharacter),
+    ...createAgentToolRepository(database, threadRepository.fetchThread),
     close: () => sqlite.close(),
   };
 }

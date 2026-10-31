@@ -3,6 +3,7 @@
 import {
   type PropsWithChildren,
   useState,
+  useEffect,
   type FC,
   isValidElement,
 } from "react";
@@ -34,6 +35,9 @@ import {
 } from "@/components/ui/dialog";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+import { ChatFileLink, formatFileSize } from "../chat/ChatFileLink";
+import { parseAssetUrl } from "../../../shared/assets";
+import { useCharacterSession } from "../characters/CharacterSessionProvider";
 
 const useAttachmentSrc = () => {
   return useAuiState((s): string | undefined => {
@@ -48,6 +52,8 @@ type AttachmentPreviewProps = {
 
 const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (failed) return <p role="alert" className="p-4 text-sm text-muted-foreground">图片不可用，原文件可能已移动或删除，请重新添加。</p>;
   return (
     <img
       src={src}
@@ -59,6 +65,7 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
           : "aui-attachment-preview-image-loading invisible",
       )}
       onLoad={() => setIsLoaded(true)}
+      onError={() => setFailed(true)}
     />
   );
 };
@@ -89,6 +96,8 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
 
 const AttachmentThumb: FC = () => {
   const src = useAttachmentSrc();
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="flex size-full items-center justify-center p-2 text-xs text-muted-foreground">图片不可用</span>;
 
   if (src) {
     return (
@@ -96,6 +105,7 @@ const AttachmentThumb: FC = () => {
         src={src}
         alt="Attachment preview"
         className="aui-attachment-tile-image block size-full object-cover"
+        onError={() => setFailed(true)}
       />
     );
   }
@@ -110,6 +120,19 @@ const AttachmentThumb: FC = () => {
 const AttachmentUI: FC = () => {
   const aui = useAui();
   const isComposer = aui.attachment.source !== "message";
+  const attachment = useAuiState(s => s.attachment);
+  const { activeCharacter } = useCharacterSession();
+  const threadId = useAuiState(s => s.threadListItem.remoteId);
+  const filePart = attachment.content?.find(part => part.type === "file");
+  const assetId = filePart && typeof filePart.data === "string" ? parseAssetUrl(filePart.data) : null;
+  const [storedSize, setStoredSize] = useState<number | undefined>();
+  useEffect(() => {
+    setStoredSize(undefined);
+    if (isComposer || !assetId || !threadId) return;
+    let active = true;
+    void window.katarune.accessChatFile({ characterId: activeCharacter.id, threadId, source: { attachmentId: assetId }, action: "info" }).then(file => { if (active) setStoredSize(file.byteSize); }).catch(() => {});
+    return () => { active = false; };
+  }, [isComposer, assetId, threadId, activeCharacter.id]);
 
   const typeLabel = useAuiState((s) => {
     const type = s.attachment.type;
@@ -142,6 +165,18 @@ const AttachmentUI: FC = () => {
       ? (s.attachment.status.message ?? "Upload failed")
       : undefined,
   );
+
+  if (attachment.type !== "image") {
+    const byteSize = attachment.file?.size ?? storedSize;
+    const card = <><FileText className="size-5 shrink-0 text-muted-foreground" /><span className="min-w-0 text-left"><span className="block truncate text-xs font-medium">{attachment.name}</span><span className="block text-[11px] text-muted-foreground">{attachment.name.split(".").pop()?.toUpperCase() ?? "文件"}{byteSize !== undefined ? ` · ${formatFileSize(byteSize)}` : ""}</span></span></>;
+    const style = "flex w-52 max-w-full items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 pr-7";
+    return <AttachmentPrimitive.Root className="aui-attachment-root relative shrink-0">
+      {isComposer || !assetId ? <div className={style}>{card}</div> : <ChatFileLink source={{ attachmentId: assetId }} className={style}>{card}</ChatFileLink>}
+      {isUploading && <span role="status" className="text-xs">正在添加…</span>}
+      {isError && <span role="alert" className="text-xs text-destructive">{errorMessage}</span>}
+      {isComposer && <AttachmentRemove />}
+    </AttachmentPrimitive.Root>;
+  }
 
   return (
     <TooltipProvider>

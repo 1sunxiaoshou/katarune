@@ -9,6 +9,10 @@ import type { CredentialStore } from "../security/credentialStore";
 import type { AvatarService } from "../avatar/avatarService";
 import { diagnostic } from "../diagnostics/logger";
 import { BilibiliConnection } from "./bilibili";
+import { DouyinConnection } from "./douyin";
+import { LiveLoginService, storedLiveAccountSchema } from "./login";
+import type { LivePlatform } from "../../shared/live";
+import type { DouyinLoginBrowser } from "./douyinLoginProtocol";
 import type { LiveMedia } from "./media";
 import type { AiRuntime } from "../ai/runtime";
 import { resolveCharacterSpeechVoice } from "../../shared/speechSelection";
@@ -49,12 +53,17 @@ export class LiveEventBuffer {
 
 interface Options {
   database: DatabaseRuntime; credentials: CredentialStore; aiRuntime: ChatServiceAiRuntime & Pick<AiRuntime, "resolveSpeechModel">;
-  avatar: AvatarService; media: LiveMedia; connection?: BilibiliConnection;
+  avatar: AvatarService; media: LiveMedia; connection?: BilibiliConnection; douyinConnection?: DouyinConnection;
   chat?: Pick<ReturnType<typeof createChatService>, "createStream" | "generateTitle">;
+  fetcher?: typeof fetch;
+  douyinLoginBrowser?: () => DouyinLoginBrowser;
   now?: () => number;
 }
 export class LiveService {
   private readonly connection: BilibiliConnection;
+  private readonly douyin: DouyinConnection;
+  private readonly login: LiveLoginService;
+  private get selectedConnection() { return this.state.settings.platform === "douyin" ? this.douyin : this.connection; }
   private readonly chat: Pick<ReturnType<typeof createChatService>, "createStream" | "generateTitle">;
   private readonly buffer = new LiveEventBuffer();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -80,22 +89,24 @@ export class LiveService {
   constructor(private readonly options: Options) {
     this.now = options.now ?? Date.now;
     const config = options.database.getLiveConfig();
-    this.state = { settings: config.settings, credentialsConfigured: config.settings.connectionMode === "web" ? !!config.settings.webRoomId : config.credentialRef !== null,
-      officialCredentialsConfigured: config.credentialRef !== null, webCredentialsConfigured: config.webCredentialRef !== null,
+    this.state = { settings: config.settings, credentialsConfigured: (config.settings.platform === "douyin" || config.settings.connectionMode === "web") ? !!config.settings.webRoomId : config.credentialRef !== null,
+      officialCredentialsConfigured: config.credentialRef !== null, webCredentialsConfigured: (config.settings.platform === "douyin" ? config.douyinCredentialRef : config.webCredentialRef) !== null,
       phase: "stopped", connection: "disconnected", broadcast: "unknown", roomId: "", roomName: "", roomCover: "", roomDescription: "",
       threadId: null, runId: null, monitor: false, generating: false, revision: 0, events: [], error: null };
-    this.connection = options.connection ?? new BilibiliConnection();
+    this.connection = options.connection ?? new BilibiliConnection(options.fetcher);
+    this.douyin = options.douyinConnection ?? new DouyinConnection(options.fetcher);
+    this.login = new LiveLoginService(options.database, options.credentials, options.fetcher, Date.now, options.douyinLoginBrowser);
     this.chat = options.chat ?? createChatService({ database: options.database, memory: options.database, aiRuntime: options.aiRuntime,
       avatar: options.avatar, liveInstructions: () => this.roundInstructions });
     this.connection.onState = state => {
-      const ended = state.broadcast === "offline" && this.state.broadcast !== "offline";
-      this.change(state);
-      if (ended && this.active) {
-        this.round?.abort(); this.buffer.clear();
-        this.resetting = options.avatar.resetLivePresentation().catch(error => { void this.failRun("live.presentation-reset-failed", error); }).finally(() => { this.resetting = null; });
-      }
+      if (this.state.settings.platform !== "bilibili") return;
+      this.handleConnectionState(state);
     };
-    this.connection.onEvent = event => {
+    this.douyin.onState = state => { if (this.state.settings.platform === "douyin") this.handleConnectionState(state); };
+    const onEvent = (event: LiveEvent) => {
+      event.platform ??= "bilibili";
+      event.userIdKind ??= this.state.settings.connectionMode === "official" ? "open_id" : "uid";
+      if (event.platform !== this.state.settings.platform) return;
       this.state.events = [...this.state.events, event].slice(-200);
       if (this.state.phase === "running" && this.state.broadcast === "live") {
         this.buffer.add(event, this.now());
@@ -103,11 +114,22 @@ export class LiveService {
       }
       this.change({});
     };
-    this.connection.onFailure = error => { if (this.active) void this.failRun("live.connection-failed", error); else this.failure("live.connection-failed", error); };
+    this.connection.onEvent = onEvent; this.douyin.onEvent = onEvent;
+    const onFailure = (error: Error) => { this.round?.abort(); this.change({ connection: "error", broadcast: "unknown" }); this.failure("live.connection-failed", error); };
+    this.connection.onFailure = error => { if (this.state.settings.platform === "bilibili") onFailure(error); };
+    this.douyin.onFailure = error => { if (this.state.settings.platform === "douyin") onFailure(error); };
     options.media.onFailure = error => { void this.failRun("live.media-failed", error); };
     options.avatar.subscribe(status => {
       if (this.state.phase === "running" && (status.phase === "error" || status.phase === "stopped")) void this.failRun("live.avatar-failed", new Error("直播角色已断开。"));
     });
+  }
+  private handleConnectionState(state: import("./bilibili").BiliConnectionState) {
+    const ended = state.broadcast === "offline" && this.state.broadcast !== "offline";
+    this.change(state);
+    if (ended && this.active) {
+      this.round?.abort(); this.buffer.clear();
+      this.resetting = this.options.avatar.resetLivePresentation().catch(error => { void this.failRun("live.presentation-reset-failed", error); }).finally(() => { this.resetting = null; });
+    }
   }
   get status(): LiveState { return { ...this.state, settings: { ...this.state.settings }, events: [...this.state.events] }; }
   get active() { return this.state.phase === "starting" || this.state.phase === "running" || this.state.phase === "stopping"; }
@@ -129,18 +151,20 @@ export class LiveService {
   private async changeConnection(action: () => Promise<void> | void) {
     if (this.active) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接配置。");
     if (this.changingConnection) throw new OperationRejected("operation-in-progress", "连接配置正在保存，请稍候。");
+    this.login.cancel();
     this.changingConnection = true;
     try {
       this.connectAbort?.abort(); await this.connecting?.catch(() => {});
-      await this.connection.disconnect(); await action();
+      await this.connection.disconnect(); await this.douyin.disconnect(); await action();
       const config = this.options.database.getLiveConfig();
-      this.change({ credentialsConfigured: config.settings.connectionMode === "web" ? !!config.settings.webRoomId : config.credentialRef !== null,
-        officialCredentialsConfigured: config.credentialRef !== null, webCredentialsConfigured: config.webCredentialRef !== null,
+      this.change({ credentialsConfigured: (config.settings.platform === "douyin" || config.settings.connectionMode === "web") ? !!config.settings.webRoomId : config.credentialRef !== null,
+        officialCredentialsConfigured: config.credentialRef !== null, webCredentialsConfigured: (config.settings.platform === "douyin" ? config.douyinCredentialRef : config.webCredentialRef) !== null,
         events: [], roomId: "", roomName: "", roomCover: "", roomDescription: "", error: null });
     } finally { this.changingConnection = false; }
   }
   async setCredentials(value: unknown) {
-    if (this.state.credentialsConfigured) throw new OperationRejected("operation-not-allowed", "请先断开当前直播间再修改配置。");
+    if (this.state.settings.platform !== "bilibili") throw new OperationRejected("operation-not-allowed", "官方项目凭据仅用于 B 站。");
+    if (this.state.connection === "connected" || this.state.connection === "reconnecting") throw new OperationRejected("operation-not-allowed", "请先断开当前直播间再修改配置。");
     const credentials = liveCredentialsSchema.parse(value);
     await this.changeConnection(async () => {
       const previous = this.options.database.getLiveConfig().credentialRef;
@@ -151,41 +175,57 @@ export class LiveService {
     }); return this.status;
   }
   async setWebCredentials(value: unknown) {
-    if (this.state.credentialsConfigured) throw new OperationRejected("operation-not-allowed", "请先断开当前直播间再修改配置。");
-    const cookie = normalizeWebCookie(liveWebCredentialsSchema.parse(value).cookie);
+    if (this.state.connection === "connected" || this.state.connection === "reconnecting") throw new OperationRejected("operation-not-allowed", "请先断开当前直播间再修改配置。");
+    const supplied = liveWebCredentialsSchema.parse(value).cookie;
+    const cookie = this.state.settings.platform === "bilibili" ? normalizeWebCookie(supplied) : supplied;
     await this.changeConnection(async () => {
-      const previous = this.options.database.getLiveConfig().webCredentialRef;
+      const previous = this.state.settings.platform === "douyin" ? this.options.database.getLiveConfig().douyinCredentialRef : this.options.database.getLiveConfig().webCredentialRef;
       const ref = cookie ? await this.options.credentials.put(JSON.stringify({ cookie })) : null;
-      try { this.options.database.setLiveWebCredentialRef(ref); }
+      try { if (this.state.settings.platform === "douyin") this.options.database.setLiveDouyinCredentialRef(ref); else this.options.database.setLiveWebCredentialRef(ref); }
       catch (error) { if (ref) await this.options.credentials.delete(ref); throw error; }
       if (previous) await this.options.credentials.delete(previous);
-    }); return this.status;
+    }); return this.getState();
   }
   async updateSettings(value: unknown) {
     const settings = liveSettingsSchema.parse(value), previous = this.state.settings;
-    if (this.state.credentialsConfigured && (settings.connectionMode !== previous.connectionMode || settings.webRoomId !== previous.webRoomId)) throw new OperationRejected("operation-not-allowed", "请先断开当前直播间再修改配置。");
-    if (this.active && ["connectionMode", "webRoomId", "characterId", "width", "port"].some(key => Reflect.get(settings, key) !== Reflect.get(previous, key))) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接、角色或输出规格。");
+    if (settings.platform === "douyin" && settings.connectionMode !== "web") throw new OperationRejected("invalid-input", "抖音使用网页连接。");
+    // Room IDs are discovered for the selected method and must never cross platforms.
+    if (settings.platform !== previous.platform || settings.connectionMode !== previous.connectionMode) settings.webRoomId = "";
+    if (this.active && ["platform", "connectionMode", "webRoomId", "characterId", "width", "port"].some(key => Reflect.get(settings, key) !== Reflect.get(previous, key))) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接、角色或输出规格。");
     if (settings.characterId) this.options.database.fetchCharacter(settings.characterId);
     const persist = () => { this.options.database.saveLiveConfig(settings); this.change({ settings }); };
-    if (settings.connectionMode !== previous.connectionMode || settings.webRoomId !== previous.webRoomId) await this.changeConnection(persist);
+    if (settings.platform !== previous.platform || settings.connectionMode !== previous.connectionMode || settings.webRoomId !== previous.webRoomId) await this.changeConnection(persist);
     else persist();
     if (this.state.phase === "running") await this.updatePresentation();
     return this.status;
   }
   async connect(signal?: AbortSignal) {
+    this.login.cancel();
     if (this.changingConnection) throw new OperationRejected("operation-in-progress", "连接配置正在保存，请稍候。");
     if (this.state.connection === "connected") return this.status;
     if (this.connecting) { await this.connecting; signal?.throwIfAborted(); return this.status; }
-    const config = this.options.database.getLiveConfig(), web = config.settings.connectionMode === "web";
-    const reference = web ? config.webCredentialRef : config.credentialRef;
-    if (web ? !config.settings.webRoomId : !reference) throw new OperationRejected("configuration-required", "请先在弹幕区配置直播间连接。");
+    const config = this.options.database.getLiveConfig(), web = config.settings.platform === "douyin" || config.settings.connectionMode === "web";
+    const reference = config.settings.platform === "douyin" ? config.douyinCredentialRef : web ? config.webCredentialRef : config.credentialRef;
+    if (web ? !config.settings.webRoomId && !reference : !reference) throw new OperationRejected("configuration-required", "请先在弹幕区选择连接方式并登录。");
     const controller = new AbortController(); this.connectAbort = controller;
     const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
     this.change({ connection: "connecting", error: null });
     this.connecting = (async () => {
       if (web) {
-        const credentials = reference ? liveWebCredentialsSchema.parse(JSON.parse(await this.options.credentials.resolve(reference))) : { cookie: "" };
-        combined.throwIfAborted(); await this.connection.connectWeb({ roomId: config.settings.webRoomId, ...credentials }, combined);
+        const credentials = reference ? storedLiveAccountSchema.parse(JSON.parse(await this.options.credentials.resolve(reference))) : { cookie: "" };
+        if (config.settings.webRoomId && credentials.account?.platform === config.settings.platform) await this.login.refreshAccount(config.settings.platform, combined);
+        const roomId = config.settings.webRoomId || await this.login.ownRoom(config.settings.platform, combined);
+        combined.throwIfAborted();
+        this.change({ accounts: await this.login.accounts() });
+        if (roomId === null) {
+          this.change({ connection: "waiting", broadcast: "unknown", error: null, roomId: "", roomName: "", roomCover: "", roomDescription: "", events: [] });
+          return;
+        }
+        if (!config.settings.webRoomId) {
+          const settings = liveSettingsSchema.parse({ ...config.settings, webRoomId: roomId });
+          this.options.database.saveLiveConfig(settings); this.change({ settings, credentialsConfigured: true });
+        }
+        await this.selectedConnection.connectWeb({ roomId, cookie: credentials.cookie }, combined);
       } else {
         const credentials = liveCredentialsSchema.parse(JSON.parse(await this.options.credentials.resolve(reference!)));
         combined.throwIfAborted(); await this.connection.connect(credentials, combined);
@@ -194,21 +234,53 @@ export class LiveService {
     try { await this.connecting; return this.status; }
     catch (error) {
       if (combined.aborted || this.active) throw error;
+      this.change({ connection: "error", broadcast: "unknown" });
       this.failure("live.connection-failed", error); return this.status;
     }
     finally { this.connecting = undefined; if (this.connectAbort === controller) this.connectAbort = undefined; }
   }
   async disconnect() {
-    await this.changeConnection(async () => {
-      const database = this.options.database;
-      const previous = database.getLiveConfig();
-      database.clearLiveConnection();
-      this.change({ settings: database.getLiveConfig().settings });
-      const results = await Promise.allSettled([previous.credentialRef, previous.webCredentialRef]
-        .filter((reference): reference is string => reference !== null).map(reference => this.options.credentials.delete(reference)));
-      for (const result of results) if (result.status === "rejected") diagnostic("warn", "live.credential-cleanup-failed", {}, result.reason);
-    });
+    await this.changeConnection(() => {});
     return this.status;
+  }
+  async getState() {
+    const config = this.options.database.getLiveConfig();
+    this.change({ accounts: await this.login.accounts(), webCredentialsConfigured: (config.settings.platform === "douyin" ? config.douyinCredentialRef : config.webCredentialRef) !== null });
+    return this.status;
+  }
+  async startLogin(platform: LivePlatform) {
+    if (this.active || this.connecting || this.changingConnection) throw new OperationRejected("operation-not-allowed", "请先停止直播和房间连接，再登录账号。");
+    if (this.state.connection !== "disconnected" && this.state.connection !== "waiting" && this.state.connection !== "error") throw new OperationRejected("operation-not-allowed", "请先断开直播间连接，再登录账号。");
+    return this.login.start(platform);
+  }
+  async pollLogin(id: string) {
+    const previous = this.options.database.getLiveConfig();
+    const result = await this.login.poll(id);
+    if (result.status === "completed") {
+      const config = this.options.database.getLiveConfig();
+      const changedAccount = result.platform === "bilibili" ? config.webCredentialRef !== previous.webCredentialRef : config.douyinCredentialRef !== previous.douyinCredentialRef;
+      if (changedAccount && config.settings.platform === result.platform && config.settings.connectionMode === "web") {
+        const settings = { ...config.settings, webRoomId: "" };
+        this.options.database.saveLiveConfig(settings);
+        this.change({ settings, credentialsConfigured: false });
+      }
+      await this.getState();
+    }
+    return result;
+  }
+  cancelPendingLogin() { this.login.cancel(); }
+  cancelLogin(id: string) { this.login.cancel(id); }
+  showLoginVerification(id: string) { this.login.showVerification(id); }
+  async logoutAccount(platform: LivePlatform) {
+    if (this.state.settings.platform === platform && this.state.settings.connectionMode === "web") {
+      await this.changeConnection(async () => {
+        await this.login.logout(platform);
+        const settings = { ...this.state.settings, webRoomId: "" };
+        this.options.database.saveLiveConfig(settings);
+        this.change({ settings });
+      });
+    } else await this.login.logout(platform);
+    return this.getState();
   }
   async setMonitor(enabled: boolean) {
     this.change({ monitor: enabled });
@@ -240,12 +312,10 @@ export class LiveService {
       try { aiRuntime.resolveLanguageModel(model); aiRuntime.resolveSpeechModel(speech); }
       catch (cause) { throw new LiveOperationError("直播角色的对话模型或语音服务不可用，请检查供应商配置。", { cause }); }
       if (!resolveCharacterSpeechVoice(character, defaults, database.fetchModelConfig(speech))) throw new OperationRejected("configuration-required", "请先为直播角色设置语音音色。");
-      if (!this.state.credentialsConfigured) throw new OperationRejected("configuration-required", "请先配置直播间连接。");
       await media.preflight(settings, lifetime.signal); lifetime.signal.throwIfAborted();
       const threadId = randomUUID();
       this.previousMessageId = null; this.writingId = null; this.writingParent = null; this.titled = false; this.buffer.clear(); this.change({ threadId });
       await avatar.acquireLive({ characterId, threadId }); lifetime.signal.throwIfAborted();
-      await this.connect(lifetime.signal); lifetime.signal.throwIfAborted();
       const pipe = `katarune-live-${this.state.runId}`;
       try { await avatar.desktopCommand("live-start", JSON.stringify({ ...settings, fps: liveOutputProfile(settings).fps, pipe })); }
       catch (cause) {
@@ -254,6 +324,11 @@ export class LiveService {
       }
       lifetime.signal.throwIfAborted();
       await media.start(settings, pipe, lifetime.signal); lifetime.signal.throwIfAborted();
+      if (this.state.connection !== "connected" && (this.state.credentialsConfigured || this.state.webCredentialsConfigured)) {
+        void this.connect(lifetime.signal).catch(error => {
+          if (!lifetime.signal.aborted) { this.change({ connection: "error", broadcast: "unknown" }); this.failure("live.connection-failed", error); }
+        });
+      }
       this.lastTurn = this.now(); this.lastEvent = this.now();
       this.change({ phase: "running" }); diagnostic("info", "live.started");
       this.timer = setInterval(() => { void this.tick(); }, 500); this.timer.unref();
@@ -282,12 +357,13 @@ export class LiveService {
     let finishRound = () => {};
     this.roundFinished = new Promise<void>(resolve => { finishRound = resolve; });
     try {
+      const actor = (event: LiveEvent) => ({ platform: event.platform ?? settings.platform, id: event.userId && event.userId !== "0" ? `${event.platform ?? settings.platform}:${event.userIdKind ?? "uid"}:${event.userId}` : null, name: event.userName || null });
       const danmaku = events.filter(event => event.kind === "danmaku").map(event => ({
-        ...(event.userName.trim() ? { 昵称: event.userName } : {}),
+        观众: actor(event),
         ...(event.text.trim() ? { 内容: event.text } : {}),
       }));
       const gifts = events.filter(event => event.kind === "gift").map(event => ({
-        ...(event.userName.trim() ? { 赠送者: event.userName } : {}),
+        观众: actor(event),
         ...(event.giftName.trim() ? { 礼物: event.giftName } : {}),
         ...(event.quantity > 0 ? { 数量: event.quantity } : {}),
       }));
@@ -330,7 +406,7 @@ export class LiveService {
     if (this.stopping) { await this.stopping; return this.status; }
     this.lifetime?.abort(); this.round?.abort(); this.change({ phase: "stopping" });
     this.connectAbort?.abort();
-    this.connection.cancelPending();
+    this.connection.cancelPending(); this.douyin.cancelPending(); this.login.cancel();
     this.stopping = (async () => { await this.starting?.catch(() => {}); await this.cleanup(restore); this.change({ phase: "stopped", generating: false }); })();
     try { await this.stopping; } finally { this.stopping = undefined; }
     return this.status;
@@ -342,7 +418,7 @@ export class LiveService {
     await this.resetting;
     await this.options.avatar.resetLivePresentation().catch(() => {});
     if (this.options.avatar.liveActive) await this.options.avatar.desktopCommand("live-stop", "").catch(() => {});
-    await this.options.media.stop(); await this.connection.disconnect();
+    await this.options.media.stop(); await this.connection.disconnect(); await this.douyin.disconnect();
     let canRestore = restore;
     try { await this.options.avatar.releaseLive(canRestore, binding => {
       try { return this.options.database.fetchThread(binding.threadId, binding.characterId).kind === "chat"; }

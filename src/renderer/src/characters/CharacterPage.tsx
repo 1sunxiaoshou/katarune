@@ -126,7 +126,7 @@ export function CharacterPage({
         description={
           controller.deleteCandidate === null
             ? ""
-            : `该角色、${controller.deleteCandidate.threadCount} 个会话及其中的全部消息会被永久删除，此操作不可恢复。`
+            : `该角色、${controller.deleteCandidate.threadCount} 个会话及其中的全部消息会被永久删除，此操作不可恢复。工作区文件仍保留，请在删除前打开工作区整理。`
         }
         confirmLabel="删除角色"
         pendingLabel="正在删除……"

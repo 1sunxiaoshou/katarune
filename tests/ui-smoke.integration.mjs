@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, protocol, nativeImage } from "electron";
+import { randomUUID } from "node:crypto";
+import QRCode from "qrcode";
+import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
-import { DEFAULT_LIVE_SETTINGS, LIVE_CHANNELS, liveSettingsSchema, liveCredentialsSchema, liveWebCredentialsSchema } from "../src/shared/live";
+import { createAssetService } from "../src/main/assets/assetService";
+import { assetSchema, referenceChatAttachmentRequestSchema, importChatAttachmentRequestSchema } from "../src/shared/ipc";
+import { AGENT_TOOL_CHANNELS, agentAccessRequestSchema, agentCharacterRequestSchema, agentModeRequestSchema } from "../src/shared/agentTools";
+import { DEFAULT_LIVE_SETTINGS, LIVE_CHANNELS, LIVE_LOGIN_CHANNELS, livePlatformSchema, liveLoginIdSchema, liveSettingsSchema, liveCredentialsSchema, liveWebCredentialsSchema } from "../src/shared/live";
 import { Mp4Preview } from "../src/main/live/mp4Preview";
 import { registerWindowThemeHandler } from "../src/main/windowTheme";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
@@ -83,6 +88,17 @@ const importedAttachmentIds = [
 const releasedAttachmentIds = [];
 const appendedMessageRequests = [];
 let changeLiveFixture;
+let liveWebCredentialWrites = 0;
+let liveQrFailure = false;
+let liveHoldScanned = false;
+let liveLoginRequests = 0;
+let liveConnectionRequests = 0;
+let liveDisconnectRequests = 0;
+let holdLiveConnect = false;
+let releaseLiveConnect;
+let liveQrVerification = false;
+let liveVerificationOpened = 0;
+let liveRoomMissing = false;
 const livePreviewAcks = [];
 let character = {
   id: characterId,
@@ -116,6 +132,10 @@ const secondCharacter = {
 };
 let characters = [character, secondCharacter];
 let activeCharacterId = characterId;
+const agentModes = new Map();
+const openedAgentWorkspaces = [];
+let directoryApprovalResponses = 0;
+let webApprovalResponses = 0;
 let threads = [
   ...Array.from({ length: 18 }, (_, index) => ({
     remoteId: `test-thread-${index + 1}`,
@@ -185,17 +205,77 @@ function messageKey(threadId, characterId) {
   return `${characterId}:${threadId}`;
 }
 
+const deliveredFiles = [];
 function registerMockHandlers() {
+  ipcMain.handle(AGENT_TOOL_CHANNELS.file, (_event, request) => {
+    deliveredFiles.push(request);
+    assert.equal(request.characterId, characterId);
+    return { filename: 'report.txt', byteSize: 6, ...(request.action === 'preview' ? { text: '文件预览测试' } : {}) };
+  });
+  ipcMain.handle(AGENT_TOOL_CHANNELS.get, (_event, value) => {
+    const request = agentAccessRequestSchema.parse(value);
+    if (request.threadId !== undefined) assert.equal(threads.find(thread => thread.remoteId === request.threadId)?.characterId, request.characterId);
+    return { mode: agentModes.get(request.threadId) ?? "request-approval", directories: [], nativeShellAvailable: true };
+  });
+  ipcMain.handle(AGENT_TOOL_CHANNELS.setMode, (_event, value) => {
+    const request = agentModeRequestSchema.parse(value);
+    assert.equal(threads.find(thread => thread.remoteId === request.threadId)?.characterId, request.characterId);
+    agentModes.set(request.threadId, request.mode);
+    return { mode: request.mode, directories: [], nativeShellAvailable: true };
+  });
+  ipcMain.handle(AGENT_TOOL_CHANNELS.openWorkspace, (_event, value) => {
+    const request = agentCharacterRequestSchema.parse(value);
+    assert.ok(characters.some(character => character.id === request.characterId));
+    openedAgentWorkspaces.push(request.characterId);
+  });
+  protocol.handle('https', request => ['https://p3.douyinpic.com/synthetic-avatar.png', 'https://p3-webcast.douyinpic.com/synthetic-cover.png'].includes(request.url)
+    ? new Response(readFileSync(join(projectRoot, 'resources', 'katarune-logo.png')), { headers: { 'content-type': 'image/png' } })
+    : new Response(null, { status: 404 }));
   let live = { settings: { ...DEFAULT_LIVE_SETTINGS, characterId }, credentialsConfigured: false, officialCredentialsConfigured: false, webCredentialsConfigured: false, phase: "stopped", connection: "disconnected", broadcast: "unknown", roomId: "", roomName: "", threadId: null, runId: null, monitor: false, generating: false, revision: 0, events: [], error: null };
-  const changeLive = next => { live = { ...live, ...next, revision: live.revision + 1 }; live.credentialsConfigured = live.settings.connectionMode === 'web' ? !!live.settings.webRoomId : live.officialCredentialsConfigured; for (const window of BrowserWindow.getAllWindows()) window.webContents.send(LIVE_CHANNELS.changed, live); return live; };
+  const changeLive = next => { live = { ...live, ...next, revision: live.revision + 1 }; live.credentialsConfigured = live.settings.connectionMode === 'web' ? !!live.settings.webRoomId : live.officialCredentialsConfigured; live.webCredentialsConfigured = !!live.accounts?.some(account => account.platform === live.settings.platform); for (const window of BrowserWindow.getAllWindows()) window.webContents.send(LIVE_CHANNELS.changed, live); return live; };
   changeLiveFixture = changeLive;
+  let login;
+  let loginPolls = 0;
+  ipcMain.handle(LIVE_LOGIN_CHANNELS.start, async (_event, value) => {
+    liveLoginRequests++;
+    const platform = livePlatformSchema.parse(value);
+    loginPolls = 0;
+    login = { id: randomUUID(), platform, status: liveQrFailure ? 'error' : 'waiting', qrImage: liveQrFailure ? '' : await QRCode.toDataURL(`https://${platform === 'bilibili' ? 'passport.bilibili.com' : 'www.douyin.com'}/synthetic-qr`), expiresAt: Date.now() + 180000, account: null, message: liveQrFailure ? '抖音暂时阻止了此次扫码登录（4031），请稍后刷新二维码重试。' : '请使用对应平台 App 扫码。' };
+    return login;
+  });
+  ipcMain.handle(LIVE_LOGIN_CHANNELS.poll, (_event, value) => {
+    assert.equal(liveLoginIdSchema.parse(value), login.id);
+    if (login.status !== 'waiting' && login.status !== 'scanned' && login.status !== 'verification') return login;
+    if (login.platform === 'douyin' && liveQrVerification && !liveVerificationOpened) return (login = { ...login, status: 'verification', message: '需要本人完成安全验证。' });
+    if (++loginPolls === 1 || liveHoldScanned) return (login = { ...login, status: 'scanned', message: '已扫码，请在手机上确认登录。' });
+    const account = { platform: login.platform, id: login.platform === 'bilibili' ? '123' : '9007199254740997', name: `${login.platform === 'bilibili' ? 'B站' : '抖音'}合成主播`, avatarUrl: 'https://p3.douyinpic.com/synthetic-avatar.png' };
+    changeLive({ accounts: [...(live.accounts ?? []).filter(item => item.platform !== login.platform), account], webCredentialsConfigured: true });
+    return (login = { ...login, status: 'completed', qrImage: '', account, message: '登录成功。' });
+  });
+  ipcMain.handle(LIVE_LOGIN_CHANNELS.cancel, (_event, value) => { if (login?.id === liveLoginIdSchema.parse(value)) login = { ...login, status: 'cancelled', qrImage: '', message: '登录已取消。' }; });
+  ipcMain.handle(LIVE_LOGIN_CHANNELS.verification, (_event, value) => { assert.equal(liveLoginIdSchema.parse(value), login.id); liveVerificationOpened++; });
+  ipcMain.handle(LIVE_LOGIN_CHANNELS.logout, (_event, value) => changeLive({ accounts: (live.accounts ?? []).filter(account => account.platform !== livePlatformSchema.parse(value)), settings: { ...live.settings, webRoomId: '' }, connection: 'disconnected', broadcast: 'unknown', webCredentialsConfigured: false }));
   ipcMain.handle(LIVE_CHANNELS.state, () => live);
-  ipcMain.handle(LIVE_CHANNELS.settings, (_event, value) => { const settings=liveSettingsSchema.parse(value); return changeLive({settings,...(settings.connectionMode!==live.settings.connectionMode?{connection:'disconnected',broadcast:'unknown',roomId:'',roomName:''}:{})}); });
+  ipcMain.handle(LIVE_CHANNELS.settings, (_event, value) => {
+    const settings=liveSettingsSchema.parse(value);
+    const switching = settings.platform !== live.settings.platform || settings.connectionMode !== live.settings.connectionMode;
+    if (switching) settings.webRoomId = '';
+    return changeLive({settings,...(switching?{connection:'disconnected',broadcast:'unknown',roomId:'',roomName:'',roomCover:'',roomDescription:'',events:[]}:{})});
+  });
   ipcMain.handle(LIVE_CHANNELS.credentials, (_event, value) => { liveCredentialsSchema.parse(value); return changeLive({ officialCredentialsConfigured: true }); });
-  ipcMain.handle(LIVE_CHANNELS.webCredentials, (_event, value) => changeLive({ webCredentialsConfigured: !!liveWebCredentialsSchema.parse(value).cookie }));
-  ipcMain.handle(LIVE_CHANNELS.connect, () => { if(!live.credentialsConfigured)throw new Error('Missing fixture connection config'); return changeLive({connection:'connected',broadcast:'unknown',roomId:'101',roomName:'合成直播间',roomCover:'',roomDescription:'<p>欢迎来到直播间</p><p>一起聊天<br>一起玩耍</p><script>bad()</script>'}); });
-  ipcMain.handle(LIVE_CHANNELS.disconnect, () => changeLive({settings:{...live.settings,connectionMode:"official",webRoomId:""},connection:"disconnected",broadcast:"unknown",roomId:"",roomName:"",officialCredentialsConfigured:false,webCredentialsConfigured:false}));
-  ipcMain.handle(LIVE_CHANNELS.start, () => changeLive({ phase: 'error', error: '请先配置直播间连接。（故障编号：11111111-1111-4111-8111-111111111111）' }));
+  ipcMain.handle(LIVE_CHANNELS.webCredentials, (_event, value) => { liveWebCredentialWrites++; return changeLive({ webCredentialsConfigured: !!liveWebCredentialsSchema.parse(value).cookie }); });
+  ipcMain.handle(LIVE_CHANNELS.connect, async () => {
+    liveConnectionRequests++;
+    if (holdLiveConnect) await new Promise(resolve => { releaseLiveConnect = resolve; });
+    if (live.connection === 'connected') return live;
+    if (liveRoomMissing && live.settings.connectionMode === 'web') return changeLive({ connection: 'waiting', broadcast: 'unknown', roomId: '', roomName: '', roomDescription: '', error: null });
+    if (live.settings.connectionMode === 'web' && !live.settings.webRoomId && live.accounts?.some(account => account.platform === live.settings.platform)) changeLive({ settings: { ...live.settings, webRoomId: live.settings.platform === 'douyin' ? '102' : '101' } });
+    if(!live.credentialsConfigured)throw new Error('Missing fixture connection config');
+    return changeLive({connection:'connected',broadcast:live.settings.connectionMode === 'web' ? 'offline' : 'unknown',roomId:live.settings.webRoomId || '101',roomName:'合成直播间',roomCover:'',roomDescription:'<p>欢迎来到直播间</p><p>一起聊天<br>一起玩耍</p><script>bad()</script>'});
+  });
+  ipcMain.handle(LIVE_CHANNELS.disconnect, () => { liveDisconnectRequests++; return changeLive({connection:"disconnected",broadcast:"unknown",roomId:"",roomName:"",roomCover:"",roomDescription:"",events:[]}); });
+  ipcMain.handle(LIVE_CHANNELS.start, () => changeLive({ phase: 'running', error: null }));
+  ipcMain.handle(LIVE_CHANNELS.stop, () => changeLive({ phase: 'stopped', error: null }));
   ipcMain.handle(LIVE_CHANNELS.monitor, (_event, value) => changeLive({ monitor: value.enabled }));
   ipcMain.on(LIVE_CHANNELS.subscribePreview, (_event, value) => { if (typeof value === 'number') livePreviewAcks.push(value); });
   memoryDatabase = openDatabase({ userDataPath, appPath: projectRoot, configValidator: { validateModelMetadata, validateModelSettings, validateProviderSettings } });
@@ -365,6 +445,7 @@ function registerMockHandlers() {
     return { success: true };
   });
   ipcMain.handle("chat-attachments:import", (_event, request) => {
+    if (request.mediaType.startsWith('image/')) return createAssetService({ userDataPath, characterResourcesPath: join(userDataPath, 'unused') }).importChatAttachment(importChatAttachmentRequestSchema.parse(request), memoryDatabase);
     const id = importedAttachmentIds[importedAttachmentRequests.length];
     assert.ok(id, "Unexpected attachment import");
     importedAttachmentRequests.push(request);
@@ -379,6 +460,11 @@ function registerMockHandlers() {
       createdAt: now,
       updatedAt: now,
     };
+  });
+  ipcMain.handle('chat-attachments:reference-file', (_event, value) => {
+    const request = referenceChatAttachmentRequestSchema.parse(value);
+    memoryDatabase.fetchCharacter(request.characterId);
+    return createAssetService({ userDataPath, characterResourcesPath: join(userDataPath, 'unused') }).referenceChatAttachment(request.path, memoryDatabase, request.mediaType);
   });
   ipcMain.handle("chat-attachments:release", (_event, request) => {
     releasedAttachmentIds.push(request.assetId);
@@ -431,6 +517,70 @@ function registerMockHandlers() {
           return;
         }
         const serializedMessages = JSON.stringify(request.messages);
+        if (request.messages.at(-1)?.parts?.some(part => part.type === 'text' && part.text === '测试文件交付')) {
+          writer.write({ type: 'start-step' });
+          writer.write({ type: 'tool-input-available', toolCallId: 'failed-bash', toolName: 'bash', input: { command: 'cat missing.txt' } });
+          writer.write({ type: 'tool-output-available', toolCallId: 'failed-bash', output: { stdout: '', stderr: 'File missing', exitCode: 1 } });
+          writer.write({ type: 'text-start', id: 'file-delivery' });
+          writer.write({ type: 'text-delta', id: 'file-delivery', delta: '[查看报告](outputs/report.txt)' });
+          writer.write({ type: 'text-end', id: 'file-delivery' });
+          writer.write({ type: 'finish-step' }); return;
+        }
+        if (request.messages.at(-1)?.parts?.some(part => part.type === "text" && part.text.includes("测试统一看图"))) {
+          writer.write({ type: "start-step" });
+          for (const [toolCallId, input, filename] of [
+            ["image-original", { path: "/attachments/image/聊天原图.png" }, "聊天原图.png"],
+            ["image-path", { path: "edited.png" }, "工作区修改图.png"],
+          ]) {
+            writer.write({ type: "tool-input-available", toolCallId, toolName: "view_image", input });
+            writer.write({ type: "tool-output-available", toolCallId, output: { status: "loaded", filename, mediaType: "image/png", sourceByteSize: 3 } });
+          }
+          writer.write({ type: "text-start", id: "image-separator" });
+          writer.write({ type: "text-delta", id: "image-separator", delta: "图片读取完成，接下来确认时间。" });
+          writer.write({ type: "text-end", id: "image-separator" });
+          writer.write({ type: "tool-input-available", toolCallId: "image-time", toolName: "get_current_time", input: {} });
+          writer.write({ type: "tool-output-available", toolCallId: "image-time", output: { time: "12:00" } });
+          writer.write({ type: "finish-step" });
+          return;
+        }
+        if (serializedMessages.includes("测试网页批准")) {
+          const approval = request.messages.flatMap(message => message.parts ?? []).find(part => part.type === 'tool-fetch_url' && part.approval?.approved !== undefined);
+          writer.write({ type: "start-step" });
+          if (!approval) {
+            writer.write({ type: "tool-input-available", toolCallId: "web-ui", toolName: "fetch_url", input: { url: "https://example.com" } });
+            writer.write({ type: "tool-approval-request", approvalId: "web-ui-approval", toolCallId: "web-ui", signature: "synthetic-web-signature" });
+            writer.write({ type: "tool-input-available", toolCallId: "web-time", toolName: "get_current_time", input: {} });
+            writer.write({ type: "tool-output-available", toolCallId: "web-time", output: { time: "12:00" } });
+          } else {
+            webApprovalResponses++;
+            assert.equal(approval.approval.approved, true);
+            assert.equal(approval.approval.signature, 'synthetic-web-signature');
+            writer.write({ type: "tool-output-available", toolCallId: "web-ui", output: { type: "document", content: "synthetic page" } });
+            writer.write({ type: "text-start", id: "web-done" });
+            writer.write({ type: "text-delta", id: "web-done", delta: "网页批准已继续" });
+            writer.write({ type: "text-end", id: "web-done" });
+          }
+          writer.write({ type: "finish-step" });
+          return;
+        }
+        if (serializedMessages.includes("测试目录批准")) {
+          const approval = request.messages.flatMap(message => message.parts ?? []).find(part => part.type === 'tool-request_directory_access' && part.approval?.approved !== undefined);
+          writer.write({ type: "start-step" });
+          if (!approval) {
+            writer.write({ type: "tool-input-available", toolCallId: "directory-ui", toolName: "request_directory_access", input: { path: "Synthetic directory", access: "read", reason: "读取用户指定资料" } });
+            writer.write({ type: "tool-approval-request", approvalId: "directory-ui-approval", toolCallId: "directory-ui", signature: "synthetic-signature" });
+          } else {
+            directoryApprovalResponses++;
+            assert.equal(approval.approval.approved, true);
+            assert.equal(approval.approval.signature, 'synthetic-signature');
+            writer.write({ type: "tool-output-available", toolCallId: "directory-ui", output: { path: "/directories/synthetic", access: "read" } });
+            writer.write({ type: "text-start", id: "directory-done" });
+            writer.write({ type: "text-delta", id: "directory-done", delta: "目录批准已继续" });
+            writer.write({ type: "text-end", id: "directory-done" });
+          }
+          writer.write({ type: "finish-step" });
+          return;
+        }
         if (serializedMessages.includes("测试工具终态")) {
           toolOnlyRequests += 1;
           if (request.messages.at(-1)?.role === "user" && JSON.stringify(request.messages.at(-1)).includes("测试工具终态")) {
@@ -456,6 +606,7 @@ function registerMockHandlers() {
           ] } });
           writer.write({ type: "tool-input-available", toolCallId: "performance-ui-error", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
           writer.write({ type: "tool-output-error", toolCallId: "performance-ui-error", errorText: "角色编排队列已满。" });
+          writer.write({ type: "tool-input-error", toolCallId: "performance-ui-invalid", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "confused" }] }, errorText: 'AI_InvalidToolInputError: expression "confused" is not an available expression.（故障编号：synthetic-validation）' });
           writer.write({ type: "tool-input-available", toolCallId: "performance-ui-ack", toolName: "avatar_perform", input: { steps: [{ at: "start", action: "system:greet", expression: "happy" }] } });
           writer.write({ type: "tool-output-available", toolCallId: "performance-ui-ack", output: { status: "accepted", performanceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" } });
           writer.write({ type: "tool-input-available", toolCallId: "performance-ui-state-only", toolName: "avatar_perform", input: { steps: [{ at: "start", expression: "happy" }] } });
@@ -923,6 +1074,50 @@ async function waitUntil(label, predicate) {
   }
 }
 
+const latestAssistant = '[data-slot="aui_assistant-message-root"]:nth-last-child(1 of [data-role="assistant"])';
+const disableMotionCss = `*, *::before, *::after {
+  animation-delay: 0s !important;
+  animation-duration: 0s !important;
+  transition-delay: 0s !important;
+  transition-duration: 0s !important;
+}`;
+let disabledMotionStyleKey;
+
+async function expandLatestToolGroup(window) {
+  const selector = `${latestAssistant} [data-slot="tool-group-trigger"]`;
+  await waitForSelector(window, selector);
+  await window.webContents.executeJavaScript(`(() => {
+    const trigger = document.querySelector(${JSON.stringify(selector)});
+    if (trigger.getAttribute('aria-expanded') === 'false') trigger.click();
+  })()`);
+}
+
+async function checkToolDisclosureAnimation(window, selector, expectedOpen) {
+  await window.webContents.removeInsertedCSS(disabledMotionStyleKey);
+  try {
+    const result = await window.webContents.executeJavaScript(`(async () => {
+      const trigger = document.querySelector(${JSON.stringify(selector)});
+      const panelId = trigger.getAttribute('aria-controls');
+      trigger.click();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const panel = document.getElementById(panelId ?? trigger.getAttribute('aria-controls'));
+      const animation = panel?.getAnimations().find(item => item.animationName === ${JSON.stringify(expectedOpen ? 'collapsible-down' : 'collapsible-up')});
+      const mounted = panel?.isConnected;
+      const duration = animation?.effect.getTiming().duration;
+      const frames = animation?.effect.getKeyframes().map(frame => frame.height);
+      if (animation) await animation.finished;
+      return { mounted, duration, frames, open: trigger.getAttribute('aria-expanded') };
+    })()`);
+    assert.equal(result.open, String(expectedOpen));
+    assert.ok(result.duration > 0, `Tool disclosure must have a running height animation: ${JSON.stringify(result)}`);
+    assert.ok(result.mounted, 'Tool disclosure must stay mounted during the transition');
+    assert.equal(result.frames[expectedOpen ? 0 : result.frames.length - 1], '0px');
+    assert.ok(result.frames.some(height => Number.parseFloat(height) > 0), 'Tool disclosure must animate to a measured height');
+  } finally {
+    disabledMotionStyleKey = await window.webContents.insertCSS(disableMotionCss);
+  }
+}
+
 async function scrollLiveSettingIntoView(window, selector) {
   await window.webContents.executeJavaScript(`(() => {
     const panel = document.querySelector('.live-settings');
@@ -932,12 +1127,16 @@ async function scrollLiveSettingIntoView(window, selector) {
 }
 
 async function clickSelector(window, selector) {
+  await waitForSelector(window, selector);
   const point = await window.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (element === null) {
       throw new Error('Missing element: ' + ${JSON.stringify(selector)});
     }
     const rect = element.getBoundingClientRect();
+    window.testClickHandled = new Promise(resolve => {
+      document.addEventListener('mouseup', () => requestAnimationFrame(() => resolve(true)), { once: true, capture: true });
+    });
     return {
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
@@ -956,6 +1155,7 @@ async function clickSelector(window, selector) {
     clickCount: 1,
     ...point,
   });
+  await window.webContents.executeJavaScript('window.testClickHandled');
 }
 
 function createTestWindow(size = { width: 1280, height: 900 }) {
@@ -981,6 +1181,8 @@ function createTestWindow(size = { width: 1280, height: 900 }) {
 }
 
 async function runStep(label, action) {
+  const selected = process.env.KATARUNE_UI_TEST_STEPS?.split("|");
+  if (selected && !selected.includes(label) && label !== "boot renderer") return;
   const startedAt = performance.now();
   console.log(`[ui-smoke] ${label}: start`);
   await action();
@@ -998,18 +1200,98 @@ async function run() {
     await runStep("boot renderer", async () => {
       await window.loadFile(join(projectRoot, "out", "renderer", "index.html"));
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
-      await window.webContents.insertCSS(`
-        *, *::before, *::after {
-          animation-delay: 0s !important;
-          animation-duration: 0s !important;
-          transition-delay: 0s !important;
-          transition-duration: 0s !important;
-        }
-      `);
+      disabledMotionStyleKey = await window.webContents.insertCSS(disableMotionCss);
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
     });
 
+    await runStep("composer tool permissions switch directly without leaving the draft", async () => {
+      const setComposerValue = (target, value) => target.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '请求批准');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="agent-access-trigger"]').closest('.aui-composer-action-wrapper') !== null`), true);
+      await setComposerValue(window, '保留权限切换前的草稿');
+      await clickSelector(window, '[data-testid="agent-access-trigger"]');
+      await waitForSelector(window, '[data-testid="agent-access-option-full-access"]');
+      assert.equal(await window.webContents.executeJavaScript(`'addAgentDirectory' in window.katarune`), false, 'directory grants must go through the approval tool, not a renderer grant API');
+      await waitUntil('permission options loaded', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="agent-access-option-full-access"]').disabled`));
+      await clickSelector(window, '[data-testid="agent-access-option-full-access"]');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '完全访问');
+      const permissionThreadId = [...agentModes.keys()].find(id => agentModes.get(id) === 'full-access');
+      assert.ok(permissionThreadId);
+      await window.webContents.executeJavaScript(`document.querySelector('.thread-starline-item[data-active="true"]')?.setAttribute('data-permission-test-thread','true')`);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="消息输入"]').value`), '保留权限切换前的草稿');
+      await new Promise(resolve => setTimeout(resolve, 250));
+      writeFileSync(join(projectRoot, '.test-dist', 'agent-access-composer.png'), (await window.webContents.capturePage()).toPNG());
+      window.setSize(760, 520);
+      await clickSelector(window, '[data-testid="agent-access-trigger"]');
+      await waitForSelector(window, '[data-testid="agent-access-menu"]');
+      await waitUntil('compact permission menu fits', () => window.webContents.executeJavaScript(`(() => { const r=document.querySelector('[data-testid="agent-access-menu"]').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight; })()`));
+      await new Promise(resolve => setTimeout(resolve, 250));
+      writeFileSync(join(projectRoot, '.test-dist', 'agent-access-composer-menu.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '.aui-composer-input');
+      window.setSize(1280, 900);
+      await setComposerValue(window, '');
+      const savedThreadCount = threads.length;
+      await clickSelector(window, '[data-testid="thread-new"]');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '请求批准');
+      assert.equal(threads.length, savedThreadCount, 'reading permissions for a blank conversation must not persist it');
+      assert.equal(agentModes.get(permissionThreadId), 'full-access');
+      await clickSelector(window, '[data-permission-test-thread="true"] .thread-starline-row');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '完全访问权限');
+      await clickSelector(window, '[data-testid="agent-access-trigger"]');
+      await waitUntil('restored permission options loaded', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="agent-access-option-request-approval"]').disabled`));
+      await clickSelector(window, '[data-testid="agent-access-option-request-approval"]');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '请求批准');
+      assert.equal(agentModes.get(permissionThreadId), 'request-approval');
+      window.setSize(1280, 900);
+      await setComposerValue(window, '');
+      await clickSelector(window, '[data-testid="character-launcher"]');
+      await waitForSelector(window, '[data-testid="character-system-prompt"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="agent-access-menu"], [data-testid="agent-access-trigger"], [data-testid="agent-access-panel"]') === null`), true);
+      await clickSelector(window, '[data-testid="character-back"]');
+      await waitForSelector(window, '[data-testid="agent-access-trigger"]');
+    });
+    await runStep("conversation context menu opens workspace without switching the current chat", async () => {
+      const activeTitle = () => window.webContents.executeJavaScript(`document.querySelector('.thread-starline-item[data-active="true"] .thread-starline-title-text')?.textContent`);
+      const before = await activeTitle();
+      const openContextMenu = async () => {
+        const point = await window.webContents.executeJavaScript(`(() => {
+          const row = Array.from(document.querySelectorAll('[data-testid="thread-starline-item"]')).find(row => row.querySelector('.thread-starline-title-text')?.textContent.trim() === '测试会话 2');
+          row.scrollIntoView({block:'center'});
+          const r = row.getBoundingClientRect();
+          return {x:Math.round(r.left+30),y:Math.round(r.top+r.height/2)};
+        })()`);
+        window.webContents.sendInputEvent({type:'mouseMove',...point});
+        window.webContents.sendInputEvent({type:'mouseDown',button:'right',clickCount:1,...point});
+        window.webContents.sendInputEvent({type:'mouseUp',button:'right',clickCount:1,...point});
+        await waitForSelector(window, '[data-testid="thread-context-workspace"]');
+      };
+      await openContextMenu();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      writeFileSync(join(projectRoot, '.test-dist', 'thread-workspace-context-menu.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-testid="thread-context-workspace"]');
+      await waitUntil('workspace action uses the conversation character', () => openedAgentWorkspaces.length === 1);
+      assert.equal(openedAgentWorkspaces[0], characterId);
+      assert.equal(await activeTitle(), before);
+      await clickSelector(window, '[data-testid="agent-access-trigger"]');
+      await waitForSelector(window, '[data-testid="agent-access-menu"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="agent-access-menu"]').textContent.includes('打开工作区') || document.querySelector('[data-testid="agent-access-menu"]').textContent.includes('已批准目录')`), false);
+      await clickSelector(window, '.aui-composer-input');
+    });
     await runStep("livestream layout, configuration and local monitoring", async () => {
+      const captureConnectionPanel = async name => {
+        await window.webContents.executeJavaScript(`(async () => {
+          await document.fonts.ready;
+          const panel = document.querySelector('.live-events');
+          await Promise.all(panel.getAnimations({subtree:true}).filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        })()`);
+        const bounds = await window.webContents.executeJavaScript(`(() => { const r=document.querySelector('.live-events').getBoundingClientRect();return {x:Math.floor(r.x)-2,y:Math.floor(r.y)-2,width:Math.ceil(r.width)+4,height:Math.ceil(r.height)+4}; })()`);
+        writeFileSync(join(projectRoot,'.test-dist',name),(await window.webContents.capturePage(bounds)).toPNG());
+      };
       await clickSelector(window, '[data-testid="live-launcher"]');
       await waitForSelector(window, '[data-testid="live-page"]');
       await waitForText(window, '.live-output', 'rtmp://127.0.0.1:1935/katarune/live');
@@ -1018,12 +1300,10 @@ async function run() {
       await waitForSelector(window, '[data-testid="live-connect-web"]');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form')===null`),true,'Disconnected rooms show connection choices first');
       await clickSelector(window, '[data-testid="live-toggle"]');
-      await waitForText(window, '[data-testid="notification-toast"]', '请先配置直播间连接');
-      await waitUntil('failed startup has returned and enabled the start button', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-toggle"]').disabled`));
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('[data-testid="notification-toast"]').length`), 1, 'One failed launch must show one notification');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="notification-toast"]').textContent.includes('Error invoking remote method')`), false);
-      await clickSelector(window, '[data-testid="notification-toast"] [aria-label="关闭通知"]');
-      await waitUntil('startup notification dismissed', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="notification-toast"]')`));
+      await waitForText(window, '[data-testid="live-toggle"]', '停止');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.phase==='running'&&state.connection==='disconnected'&&state.error===null)`), true);
+      await clickSelector(window, '[data-testid="live-toggle"]');
+      await waitForText(window, '[data-testid="live-toggle"]', '启动');
       await clickSelector(window, '[data-testid="live-character-trigger"]');
       await waitForSelector(window, '.live-character-menu button[aria-current="true"]');
       assert.ok(await window.webContents.executeJavaScript(`(() => {
@@ -1036,7 +1316,7 @@ async function run() {
       await waitUntil('character popup dismisses and restores trigger focus', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu') && document.activeElement === document.querySelector('[data-testid="live-character-trigger"]')`));
       await clickSelector(window, '[data-testid="live-character-trigger"]');
       await waitForSelector(window, '.live-character-menu');
-      await clickSelector(window, '.live-events [data-slot="card-title"]');
+      await clickSelector(window, '.live-parameters [data-slot="card-title"]');
       await waitUntil('outside click dismisses character popup', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu')`));
       await waitForSelector(window, '[data-testid="live-connect-official"]');
       await scrollLiveSettingIntoView(window, 'label[for="live-proactive"]');
@@ -1108,49 +1388,179 @@ async function run() {
       writeFileSync(join(projectRoot,'.test-dist','live-room-information.png'),(await window.webContents.capturePage()).toPNG());
 
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form')===null`),true);
-      await clickSelector(window, '[aria-label="返回弹幕"]');
-      await waitForText(window, '[data-testid="live-room-status"]', '开播状态待确认');
+      await waitForText(window, '[data-testid="live-panel-title"]', '直播间');
       const roomEvents = [
         {id:'ui-live-danmaku',kind:'danmaku',roomId:'101',timestamp:1000,userId:'viewer',userName:'观众',text:'你好，主播',giftId:'',giftName:'',quantity:0},
         {id:'ui-live-gift',kind:'gift',roomId:'101',timestamp:1000,userId:'viewer',userName:'观众',text:'',giftId:'1',giftName:'小花',quantity:2},
       ];
       changeLiveFixture({broadcast:'offline',events:roomEvents});
       await waitForText(window, '[data-testid="live-room-status"]', '未开播');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.live-event').length`),0,'Offline room must hide old events');
-      await waitForText(window, '[aria-label="管理直播间连接"]', '已连接');
-      await new Promise(resolve=>setTimeout(resolve,100));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('.live-event').length`),0,'Offline room must show room information');
+      await waitForText(window, '[aria-label="返回连接方式"]', '返回');
       writeFileSync(join(projectRoot,'.test-dist','live-page-offline.png'),(await window.webContents.capturePage()).toPNG());
+      await captureConnectionPanel('live-connection-info-detail.png');
       changeLiveFixture({broadcast:'live'});
+      await waitForText(window, '[data-testid="live-panel-title"]', '弹幕');
       await waitForText(window, '[aria-label="直播间事件"]', '你好，主播');
       await waitForText(window, '[aria-label="直播间事件"]', '小花 × 2');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-room-status"]')===null`),true);
-      await new Promise(resolve=>setTimeout(resolve,100));
       writeFileSync(join(projectRoot,'.test-dist','live-page-onair.png'),(await window.webContents.capturePage()).toPNG());
+      await captureConnectionPanel('live-connection-danmaku-detail.png');
+      await clickSelector(window, '[aria-label="连接操作"]');
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="popover-content"] button')).find(button=>button.textContent==='直播间信息').click()`);
+      await waitForText(window, '[data-testid="live-panel-title"]', '直播间');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await clickSelector(window, '[aria-label="返回弹幕"]');
+      await waitForText(window, '[data-testid="live-panel-title"]', '弹幕');
       changeLiveFixture({connection:'reconnecting',broadcast:'unknown'});
       await waitForText(window, '[data-testid="live-room-status"]', '正在重新连接直播间');
       changeLiveFixture({connection:'connected',broadcast:'offline'});
       await waitForText(window, '[data-testid="live-room-status"]', '未开播');
-      await clickSelector(window, '[aria-label="管理直播间连接"]');
-      await waitForSelector(window, '[aria-label="直播间配置信息"]');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-access-secret')===null`),true);
-      await clickSelector(window, '[data-testid="live-disconnect"]');
+      const disconnectsBeforeReturn = liveDisconnectRequests;
+      await clickSelector(window, '[aria-label="返回连接方式"]');
       await waitForSelector(window, '[data-testid="live-connect-web"]');
+      assert.equal(liveDisconnectRequests, disconnectsBeforeReturn, 'Returning must not disconnect or discard configuration');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection==='connected'&&state.officialCredentialsConfigured)`), true);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-connect-official"]').getAttribute('aria-current')`), 'true');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-panel-title"]')===null && document.querySelector('[aria-label="管理直播间连接"]')===null`),true,'Disconnected choices have no danmaku heading or connection status');
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.live-connection-choice')).every(button=>button.getBoundingClientRect().height>=50)`),true);
+      writeFileSync(join(projectRoot,'.test-dist','live-connection-choices.png'),(await window.webContents.capturePage()).toPNG());
+      await captureConnectionPanel('live-connection-choices-detail.png');
       await clickSelector(window, '[data-testid="live-connect-web"]');
-      await waitForSelector(window, '#live-web-room-id');
-      await fillLiveConnection({'live-web-room-id':'101','live-web-cookie':'SESSDATA=synthetic-session'});
-      await clickSelector(window, '.live-connect-form button[type="submit"]');
-      await waitUntil('web configuration saved', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection==='connected'&&state.webCredentialsConfigured&&state.settings.webRoomId==='101'&&!JSON.stringify(state).includes('synthetic-session'))`));
+      await waitForSelector(window, 'img[alt="使用B 站 App 扫码登录"]');
+      window.setSize(960,680);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const panel=document.querySelector('.live-events'), refresh=panel.querySelector('[data-testid="live-login-refresh"]'), login=panel.querySelector('.live-account-login');
+        const bounds=panel.getBoundingClientRect(), button=refresh.getBoundingClientRect();
+        return !!refresh.closest('[data-slot="card-header"]') && button.top>=bounds.top && button.bottom<=bounds.bottom && button.right<=bounds.right && login.scrollHeight<=login.clientHeight+1;
+      })()`),true,'Compact QR login keeps refresh in the header and needs no scrolling');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-web-room-id')===null&&document.querySelector('#live-web-cookie')===null`),true);
+      writeFileSync(join(projectRoot,'.test-dist','live-bilibili-qr.png'),(await window.webContents.capturePage()).toPNG());
+      await captureConnectionPanel('live-connection-qr-detail.png');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      await waitForSelector(window, '[data-testid="live-connect-web"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-login-qr')===null`),true);
+      liveHoldScanned = true;
+      holdLiveConnect = true;
+      releaseLiveConnect = undefined;
+      await clickSelector(window, '[data-testid="live-connect-web"]');
+      await waitForSelector(window, '[data-testid="live-login-success"][aria-label="扫码成功"]');
+      await waitForText(window, '[aria-label="B 站账号登录"]', '请在手机上确认登录');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-login-qr')===null`),true,'Scanned QR is replaced by success feedback before phone confirmation');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.accounts?.some(account=>account.platform==='bilibili'))`),true,'Scanned does not imply authenticated');
+      await captureConnectionPanel('live-login-scanned-compact.png');
+      const loginsBeforeRefresh = liveLoginRequests;
+      await clickSelector(window, '[data-testid="live-login-refresh"]');
+      await waitUntil('header refresh starts a new login', () => liveLoginRequests === loginsBeforeRefresh + 1);
+      await waitForSelector(window, '.live-login-qr');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-login-success"]')===null`),true);
+      liveHoldScanned = false;
+      await waitUntil('confirmed login starts room detection', () => !!releaseLiveConnect);
+      await waitForSelector(window, '[data-testid="live-login-success"][aria-label="登录成功"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-login-qr')===null&&document.querySelector('[data-testid="live-login-refresh"]')===null`),true,'Confirmed login hides QR and QR refresh while room detection is pending');
+      await captureConnectionPanel('live-login-completed-compact.png');
+      releaseLiveConnect(); holdLiveConnect = false; releaseLiveConnect = undefined;
       await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      window.setSize(1280,900);
+      assert.equal(liveWebCredentialWrites,0,'QR-only connection must not overwrite account credentials');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.accounts[0].platform==='bilibili'&&state.settings.webRoomId==='101')`),true);
+      await waitForText(window, '[data-testid="live-room-status"]', '未开播');
       await clickSelector(window, '[aria-label="返回对话"]');
       changeLiveFixture({connection:'disconnected',broadcast:'unknown'});
       await waitForSelector(window, '[data-testid="live-launcher"]');
+      const connectsBeforeReopen = liveConnectionRequests;
       await clickSelector(window, '[data-testid="live-launcher"]');
-      await waitForText(window, '[aria-label="管理直播间连接"]', '已连接');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-room')===null`),true);
-      await clickSelector(window, '[aria-label="管理直播间连接"]');
+      await waitForSelector(window, '[data-testid="live-connect-web"]');
+      assert.equal(liveConnectionRequests, connectsBeforeReopen);
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection)`), 'disconnected', 'Opening the page shows the saved method without connecting');
+      const savedLoginRequests = liveLoginRequests;
+      await clickSelector(window, '[data-testid="live-connect-web"]');
       await waitForSelector(window, '[aria-label="直播间配置信息"]');
-      await clickSelector(window, '[data-testid="live-disconnect"]');
+      assert.equal(liveLoginRequests, savedLoginRequests, 'A saved account reconnects without showing another QR code');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      await waitForSelector(window, '[data-testid="live-connect-douyin"]');
+      liveQrFailure=true;
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitForText(window, '[aria-label="抖音账号登录"]', '4031');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-login-qr')===null`),true);
+      writeFileSync(join(projectRoot,'.test-dist','live-douyin-login-error.png'),(await window.webContents.capturePage()).toPNG());
+      liveQrFailure=false;
+      liveQrVerification=true;
+      liveRoomMissing=true;
+      await clickSelector(window, '[data-testid="live-login-refresh"]');
+      await waitForSelector(window, 'img[alt="使用抖音 App 扫码登录"]');
+      writeFileSync(join(projectRoot,'.test-dist','live-douyin-qr.png'),(await window.webContents.capturePage()).toPNG());
+      await waitForSelector(window, '[data-testid="live-login-verification"]');
+      assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('[aria-label="需要安全验证"]')&&!document.querySelector('[data-testid="live-login-success"]')&&!document.querySelector('.live-login-qr')`),true,'Additional verification must not look like successful authentication');
+      await clickSelector(window, '[data-testid="live-login-verification"]');
+      await waitUntil('explicit platform verification request', () => liveVerificationOpened === 1);
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await waitForText(window, '[aria-label="返回连接方式"]', '返回');
+      await waitForText(window, '[data-testid="live-account-info"]', '抖音合成主播');
+      await waitUntil('validated account avatar loads', () => window.webContents.executeJavaScript(`(()=>{const img=document.querySelector('[data-testid="live-account-info"] img');return !!img&&img.complete&&img.naturalWidth>0;})()`));
+      assert.equal(await window.webContents.executeJavaScript(`(()=>{const panel=document.querySelector('[aria-label="直播间配置信息"]');return !panel.textContent.includes('9007199254740997')&&!panel.textContent.includes('房间号')&&!panel.querySelector('[data-testid="live-room-description"]');})()`), true);
+      await captureConnectionPanel('live-account-card-detail.png');
+      await waitForText(window, '[data-testid="live-room-waiting"]', '开播后可重新检测');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="直播间配置信息"] [role="alert"]')===null`), true);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-toggle"]').disabled`), false);
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.error===null&&state.connection==='waiting')`), true);
+      liveRoomMissing=false;
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[aria-label="直播间配置信息"] button')).find(button=>button.textContent==='重新检测').click()`);
+      await waitForText(window, '[data-testid="live-room-status"]', '未开播');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state => state.accounts.length === 2 && state.settings.platform === 'douyin' && state.settings.webRoomId === '102')`),true);
+      changeLiveFixture({ broadcast: 'live', roomCover: 'https://p3-webcast.douyinpic.com/synthetic-cover.png' });
+      await waitForText(window, '[data-testid="live-panel-title"]', '弹幕');
+      await clickSelector(window, '[aria-label="连接操作"]');
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="popover-content"] button')).find(button=>button.textContent==='直播间信息').click()`);
+      await waitForSelector(window, 'img[alt="直播间封面"]');
+      await waitUntil('Douyin cover passes IPC and CSP and decodes in the room panel', () => window.webContents.executeJavaScript(`(()=>{const img=document.querySelector('img[alt="直播间封面"]');return img?.src==='https://p3-webcast.douyinpic.com/synthetic-cover.png'&&img.complete&&img.naturalWidth>0;})()`));
+      await window.webContents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+      await captureConnectionPanel('live-douyin-cover-detail.png');
+      await clickSelector(window, '[aria-label="返回弹幕"]');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
       await waitForSelector(window, '[data-testid="live-connect-official"]');
+      const loginsBeforeSwitch = liveLoginRequests;
+      await clickSelector(window, '[data-testid="live-connect-official"]');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form')===null`), true, 'Switching to saved official credentials skips the form');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      await clickSelector(window, '[data-testid="live-connect-web"]');
+      await waitForText(window, '[data-testid="live-account-info"]', 'B站合成主播');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitForText(window, '[data-testid="live-account-info"]', '抖音合成主播');
+      assert.equal(liveLoginRequests, loginsBeforeSwitch, 'All three saved methods can be selected without reauthentication');
+      await captureConnectionPanel('live-saved-account-detail.png');
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      await captureConnectionPanel('live-saved-connections.png');
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitForText(window, '[data-testid="live-account-info"]', '抖音合成主播');
+      changeLiveFixture({ phase: 'running' });
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-connect-official"]').disabled && !document.querySelector('[data-testid="live-connect-douyin"]').disabled`), true, 'An active host can reopen its details but cannot switch methods');
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      changeLiveFixture({ phase: 'stopped' });
+      await clickSelector(window, '[aria-label="连接操作"]');
+      await waitForSelector(window, '[data-testid="live-disconnect"]');
+      await clickSelector(window, '[data-testid="live-disconnect"]');
+      await waitForSelector(window, '[data-testid="live-connect-douyin"]');
+      holdLiveConnect = true;
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitUntil('pending room detection', () => !!releaseLiveConnect);
+      await clickSelector(window, '[aria-label="返回连接方式"]');
+      releaseLiveConnect(); holdLiveConnect = false;
+      await waitUntil('late room detection completes', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.connection==='connected')`));
+      await waitForSelector(window, '[data-testid="live-connect-douyin"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="直播间配置信息"]')===null`), true, 'Late detection must not navigate away from connection choices');
+      await waitUntil('room detection releases connection actions', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-connect-douyin"]').disabled`));
+      await clickSelector(window, '[data-testid="live-connect-douyin"]');
+      await waitForSelector(window, '[aria-label="直播间配置信息"]');
+      await clickSelector(window, '[aria-label="连接操作"]');
+      await waitForSelector(window, '[data-testid="live-logout"]');
+      await clickSelector(window, '[data-testid="live-logout"]');
+      await waitForSelector(window, '[data-testid="live-connect-douyin"]');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.accounts.length===1&&state.accounts[0].platform==='bilibili'&&state.officialCredentialsConfigured)`), true, 'Explicit logout only removes the chosen account');
       window.setSize(960,680);
       await new Promise(resolve => setTimeout(resolve, 100));
       writeFileSync(join(projectRoot, '.test-dist', 'live-page-compact.png'), (await window.webContents.capturePage()).toPNG());
@@ -1174,8 +1584,14 @@ async function run() {
     });
     await runStep("browse, edit and forget real SQLite memories", async () => {
       const key = async (keyCode, modifiers = []) => {
+        // sendInputEvent queues keyboard input; awaiting this helper must also
+        // wait for the renderer to handle it before insertText or assertions.
+        await window.webContents.executeJavaScript(`window.memoryKeyHandled = new Promise(resolve => {
+          document.addEventListener('keyup', () => requestAnimationFrame(() => resolve(true)), { once: true });
+        }); void 0`);
         window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+        await window.webContents.executeJavaScript('window.memoryKeyHandled');
       };
       const fill = async (selector, value, richText = false) => {
         if (richText) {
@@ -1202,7 +1618,7 @@ async function run() {
       await fill('[data-testid="memory-title-input"]', '小林');
       await fill('[data-testid="memory-body-input"]', '用户的朋友，喜欢读书。', true);
       await clickSelector(window, '.memory-user-label [role="switch"]');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-user-label [role="switch"]').getAttribute('aria-checked')`), 'true');
+      await waitUntil('person switch rendered', () => window.webContents.executeJavaScript(`document.querySelector('.memory-user-label [role="switch"]').getAttribute('aria-checked') === 'true'`));
       await clickSelector(window, '[data-testid="memory-save"]');
       await waitForText(window, '[data-testid="memory-detail"]', '用户的朋友');
       assert.equal(memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries[0].isUser, true, 'the shared person switch must persist the user flag');
@@ -1275,7 +1691,11 @@ async function run() {
       await waitForText(window, '[data-testid="memory-detail"]', '一起挑选生日礼物');
       writeFileSync(join(projectRoot, '.test-dist', 'memory-diary.png'), (await window.webContents.capturePage()).toPNG());
       const selectDiary = async (title) => {
-        await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes(${JSON.stringify(title)})).click()`);
+        await waitUntil(`diary item ${title} available`, () => window.webContents.executeJavaScript(`(() => {
+          const button = Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes(${JSON.stringify(title)}));
+          if (!button) return false;
+          button.click(); return true;
+        })()`));
         await waitForText(window, '[data-testid="memory-detail"]', title);
       };
       const diaryLayout = target => target.webContents.executeJavaScript(`(() => {
@@ -1351,7 +1771,11 @@ async function run() {
         await waitForSelector(compactDiary, '[data-testid="memory-launcher"]');
         await clickSelector(compactDiary, '[data-testid="memory-launcher"]');
         await waitForText(compactDiary, '.memory-list', '很长的一天');
-        await compactDiary.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes('很长的一天')).click()`);
+        await waitUntil('compact diary item available', () => compactDiary.webContents.executeJavaScript(`(() => {
+          const button = Array.from(document.querySelectorAll('[data-testid="memory-list-item"]')).find(button => button.textContent.includes('很长的一天'));
+          if (!button) return false;
+          button.click(); return true;
+        })()`));
         await waitForText(compactDiary, '[data-testid="memory-detail"]', '长文终点');
         assert.equal(await compactDiary.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').clientHeight > 60`), true);
         assert.equal(await compactDiary.webContents.executeJavaScript('document.documentElement.scrollWidth <= window.innerWidth'), true);
@@ -1512,7 +1936,54 @@ async function run() {
       assert.deepEqual(listRefresh, { flashes: 0, originalRowRetained: true });
     });
 
+    await runStep("render image tools for attachment and workspace paths", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试统一看图');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitForText(window, `${latestAssistant} [data-slot="tool-group-trigger"]`, '2 项工具调用');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('${latestAssistant} [data-tool-call-id="image-original"]') === null`), true);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll('${latestAssistant} [data-slot="tool-group-root"]').length`), 2, 'Assistant text must separate consecutive tool groups');
+      writeFileSync(join(projectRoot, '.test-dist', 'tool-groups-collapsed.png'), (await window.webContents.capturePage()).toPNG());
+      await checkToolDisclosureAnimation(window, `${latestAssistant} [data-slot="tool-group-trigger"]`, true);
+      await waitForText(window, '[data-tool-call-id="image-original"]', '聊天原图.png');
+      await waitForText(window, '[data-tool-call-id="image-path"]', '工作区修改图.png');
+      await checkToolDisclosureAnimation(window, '[data-tool-call-id="image-original"] [data-slot="tool-fallback-trigger"]', true);
+      await checkToolDisclosureAnimation(window, '[data-tool-call-id="image-original"] [data-slot="tool-fallback-trigger"]', false);
+      writeFileSync(join(projectRoot, '.test-dist', 'tool-groups-expanded.png'), (await window.webContents.capturePage()).toPNG());
+      await checkToolDisclosureAnimation(window, `${latestAssistant} [data-slot="tool-group-trigger"]`, false);
+    });
+
+    await runStep("preview and deliver generated files with failed command summaries", async () => {
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试文件交付');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await expandLatestToolGroup(window);
+      await waitForText(window, '[data-testid="agent-action-bash"] [data-slot="tool-fallback-trigger"]', '退出码 1');
+      await checkToolDisclosureAnimation(window, '[data-testid="agent-action-bash"] [data-slot="tool-fallback-trigger"]', true);
+      await waitForText(window, '[data-testid="agent-action-bash"]', 'File missing');
+      await checkToolDisclosureAnimation(window, '[data-testid="agent-action-bash"] [data-slot="tool-fallback-trigger"]', false);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '查看报告');
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === '查看报告').click()`);
+      await waitForText(window, '[data-testid="chat-file-preview"]', '文件预览测试');
+      assert.deepEqual(deliveredFiles.at(-1).source, { path: 'outputs/report.txt' });
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="chat-file-preview"] button')).find(button => button.textContent === '打开').click()`);
+      await waitUntil('original file open requested', () => deliveredFiles.some(request => request.action === 'open' && request.source.path === 'outputs/report.txt'));
+      await waitUntil('file action completed', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="chat-file-preview"] [role="status"]')`));
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="chat-file-preview"] button')).find(button => button.textContent === '另存为').click()`);
+      await waitUntil('file save requested', () => deliveredFiles.some(request => request.action === 'save'));
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"] [data-slot="dialog-close"]').click()`);
+      await waitUntil('file preview closed', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"]') === null`));
+    });
+
     await runStep("render private memory tool status", async () => {
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, '.aui-composer-input');
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
@@ -1522,6 +1993,7 @@ async function run() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await clickSelector(window, 'button[aria-label="发送消息"]');
+      await expandLatestToolGroup(window);
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
@@ -1540,7 +2012,9 @@ async function run() {
       await waitForText(window, '[data-slot="aui_thread-viewport"]', '已遗忘记忆');
       await waitForText(window, '[data-slot="aui_thread-viewport"]', '记忆已变化，正在等待重新读取');
       await waitForText(window, '[data-slot="aui_thread-viewport"]', '已有相关记忆，正在等待整理原条目');
+      await clickSelector(window, '[data-tool-call-id="memory-invalid-input"] [data-slot="tool-fallback-trigger"]');
       await waitForText(window, '[data-testid="memory-tool-status"] [role="alert"]', 'query: expected string');
+      await clickSelector(window, '[data-tool-call-id="memory-search-call"] [data-slot="tool-fallback-trigger"]');
       assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-tool-status"]')).some(item => item.textContent.includes('记忆搜索失败') && item.textContent.includes('query: expected string'))`), true);
       assert.equal(
         await window.webContents.executeJavaScript(`(() => {
@@ -1561,6 +2035,22 @@ async function run() {
       await waitForSelector(window, 'button[aria-label="发送消息"]');
     });
 
+    await runStep("signed directory approval resumes through the existing assistant runtime", async () => {
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, '.aui-composer-input');
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试目录批准');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitForText(window, '[data-testid="directory-access-request"]', '批准');
+      writeFileSync(join(projectRoot, '.test-dist', 'agent-directory-approval.png'), (await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="directory-access-request"] button')).find(button => button.textContent === '批准').click()`);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '目录批准已继续');
+      assert.equal(directoryApprovalResponses, 1);
+      await clickSelector(window, 'button[aria-label="新对话"]');
+    });
     await runStep("backend tool-only completion does not restart the Agent in the renderer", async () => {
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
@@ -1574,6 +2064,26 @@ async function run() {
       assert.equal(toolOnlyRequests, 1, "Backend tools must be continued only by Main's native Agent loop");
     });
 
+    await runStep("web access approval is visible and resumes the same conversation", async () => {
+      await clickSelector(window, 'button[aria-label="新对话"]');
+      await waitForSelector(window, '.aui-composer-input');
+      await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('.aui-composer-input');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试网页批准');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitForText(window, '[data-slot="tool-fallback-approval"]', '批准');
+      await waitForText(window, '[data-slot="tool-group-trigger"]', '2 项工具调用 · 等待批准');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-group-trigger"]').getAttribute('aria-expanded')`), 'true');
+      await waitForText(window, '[data-testid="agent-action-fetch"]', 'https://example.com');
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="tool-fallback-approval"] button')).find(button=>button.textContent.trim()==='批准').click()`);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '网页批准已继续');
+      assert.equal(webApprovalResponses, 1);
+      await waitUntil('settled approval removes active controls', () => window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-fallback-approval"]') === null`));
+      await clickSelector(window, 'button[aria-label="新对话"]');
+    });
+
     await runStep("render performance summary and authoritative playback state", async () => {
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
@@ -1581,8 +2091,21 @@ async function run() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await clickSelector(window, 'button[aria-label="发送消息"]');
+      await expandLatestToolGroup(window);
       await waitForText(window, '[data-testid="avatar-performance"]', '已安排');
-      await waitForText(window, '[data-tool-call-id="performance-ui-error"] [role="alert"]', '角色编排队列已满');
+      for (const [id, error] of [['performance-ui-error', '角色编排队列已满'], ['performance-ui-invalid', '故障编号：synthetic-validation']]) {
+        const selector = `[data-tool-call-id="${id}"]`;
+        await waitForText(window, selector, '表演失败');
+        assert.equal(await window.webContents.executeJavaScript(`document.querySelector('${selector} [role="alert"]')===null`), true, 'Failed tools initially show a compact summary');
+        await clickSelector(window, `${selector} button`);
+        await waitForText(window, `${selector} [role="alert"]`, error);
+        await clickSelector(window, `${selector} button`);
+        await waitUntil('failed tool details collapse', () => window.webContents.executeJavaScript(`document.querySelector('${selector} [role="alert"]')===null && document.querySelector('${selector} button').getAttribute('aria-expanded')==='false'`));
+        await waitForText(window, selector, '表演失败');
+        await clickSelector(window, `${selector} button`);
+        await waitForText(window, `${selector} [role="alert"]`, error);
+        await clickSelector(window, `${selector} button`);
+      }
       await waitForText(window, '[data-tool-call-id="performance-ui-ack"]', '已安排');
       await clickSelector(window, '[data-tool-call-id="performance-ui-ack"] button');
       await waitForText(window, '[data-tool-call-id="performance-ui-ack"]', '开心');
@@ -1604,9 +2127,18 @@ async function run() {
       writeFileSync(join(projectRoot, '.test-dist', 'avatar-performance-ui.png'), (await window.webContents.capturePage()).toPNG());
       window.webContents.send('avatar:changed', { ...avatarStatus, performances: [{ ...performance, state: 'failed', error: '测试播放失败' }] });
       await waitForText(window, '[data-testid="avatar-performance"] [role="alert"]', '测试播放失败');
+      // The status update can move the trigger while the viewport is anchoring.
+      // Activate the located trigger directly; keep the panel lifecycle checks.
+      await window.webContents.executeJavaScript(`document.querySelector('[data-tool-call-id="performance-ui"] button').click()`);
+      await waitUntil('playback failure collapses with its steps', () => window.webContents.executeJavaScript(`document.querySelector('[data-tool-call-id="performance-ui"] [role="alert"]')===null && document.querySelector('[data-tool-call-id="performance-ui"] li')===null`));
+      await waitForText(window, '[data-tool-call-id="performance-ui"]', '表演失败');
+      await clickSelector(window, '[data-tool-call-id="performance-ui"] button');
+      await waitForText(window, '[data-tool-call-id="performance-ui"] [role="alert"]', '测试播放失败');
       window.webContents.send('avatar:changed', avatarStatus);
       await waitForText(window, '[data-tool-call-id="dance-ui"]', '舞蹈已安排');
       await waitForText(window, '[data-tool-call-id="dance-ui"]', '测试舞蹈');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-tool-call-id="dance-ui"] button') === null && document.querySelector('[data-tool-call-id="dance-ui"] [data-slot="tool-fallback-content"]') === null`), true, 'Successful dance status has no empty disclosure');
+      await clickSelector(window, '[data-tool-call-id="dance-ui-error"] [data-slot="tool-fallback-trigger"]');
       await waitForText(window, '[data-tool-call-id="dance-ui-error"] [role="alert"]', '舞蹈伴奏无法加载');
       const dance = { performanceId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', toolCallId: 'dance-ui', actionId: '11111111-1111-4111-8111-111111111111', action: '测试舞蹈', state: 'started' };
       window.webContents.send('avatar:changed', { ...avatarStatus, dance: { ...dance, state: 'preparing' } });
@@ -1708,6 +2240,13 @@ async function run() {
         JSON.stringify(appendedMessageRequest.message.content),
         new RegExp(`katarune-asset://asset/${importedAttachmentIds[2]}`),
       );
+      await waitUntil('sent attachment card rendered', () => window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.aui-user-message-attachments-end button')).some(button => button.textContent.includes('粘贴文件.dat'))`));
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.aui-user-message-attachments-end button')).find(button => button.textContent.includes('粘贴文件.dat')).click()`);
+      await waitForText(window, '[data-testid="chat-file-preview"]', '文件预览测试');
+      assert.deepEqual(deliveredFiles.at(-1).source, { attachmentId: importedAttachmentIds[2] });
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="chat-file-preview"] button')).some(button => button.textContent === '打开')`), false);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"] [data-slot="dialog-close"]').click()`);
+      await waitUntil('attachment preview closed', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"]') === null`));
     });
 
     await runStep("queue avatar dialogue without interrupting or restarting the Agent", async () => {
@@ -2226,6 +2765,38 @@ async function run() {
         "false",
       );
       await clickSelector(window, '[data-slot="dialog-close"]');
+    });
+    await runStep("local file references and pasted images cross the isolated preload", async () => {
+      const imageWindow = createTestWindow();
+      const source = join(runDirectory, 'native-image.png');
+      writeFileSync(source, readFileSync(join(projectRoot, 'resources', 'katarune-logo.png')));
+      const service = createAssetService({ userDataPath, characterResourcesPath: join(userDataPath, 'unused') });
+      try {
+        await imageWindow.loadURL('about:blank');
+        await imageWindow.webContents.executeJavaScript(`document.body.innerHTML = '<input type="file" id="native-image">'`);
+        imageWindow.webContents.debugger.attach('1.3');
+        const { root } = await imageWindow.webContents.debugger.sendCommand('DOM.getDocument');
+        const { nodeId } = await imageWindow.webContents.debugger.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector: '#native-image' });
+        await imageWindow.webContents.debugger.sendCommand('DOM.setFileInputFiles', { nodeId, files: [source] });
+        const referenced = assetSchema.parse(await imageWindow.webContents.executeJavaScript(`window.katarune.importLocalChatAttachment(${JSON.stringify(characterId)}, document.querySelector('#native-image').files[0])`));
+        assert.equal(memoryDatabase.fetchAssetSourcePath(referenced.id), source);
+        assert.deepEqual(Buffer.from(service.readChatAttachment(referenced.id, memoryDatabase).data), readFileSync(source));
+        assert.equal(JSON.stringify(referenced).includes(source), false);
+        const pasted = assetSchema.parse(await imageWindow.webContents.executeJavaScript(`(async () => window.katarune.importLocalChatAttachment(${JSON.stringify(characterId)}, new File([await document.querySelector('#native-image').files[0].arrayBuffer()], 'paste.png', { type: 'image/png' })))()`));
+        assert.equal(memoryDatabase.fetchAssetSourcePath(pasted.id), null);
+        assert.deepEqual(readFileSync(service.resolveManagedPath(pasted.id)), readFileSync(source));
+        const textSource = join(runDirectory, 'native-notes.txt');
+        writeFileSync(textSource, 'attached notes');
+        await imageWindow.webContents.debugger.sendCommand('DOM.setFileInputFiles', { nodeId, files: [textSource] });
+        const textReference = assetSchema.parse(await imageWindow.webContents.executeJavaScript(`window.katarune.importLocalChatAttachment(${JSON.stringify(characterId)}, document.querySelector('#native-image').files[0])`));
+        assert.equal(memoryDatabase.fetchAssetSourcePath(textReference.id), textSource);
+        assert.equal(new TextDecoder().decode(service.readChatAttachment(textReference.id, memoryDatabase).data), 'attached notes');
+        service.releaseChatAttachment(textReference.id, memoryDatabase);
+        assert.equal(readFileSync(textSource, 'utf8'), 'attached notes');
+        service.releaseChatAttachment(referenced.id, memoryDatabase);
+        service.releaseChatAttachment(pasted.id, memoryDatabase);
+        assert.ok(readFileSync(source).byteLength > 0);
+      } finally { if (imageWindow.webContents.debugger.isAttached()) imageWindow.webContents.debugger.detach(); imageWindow.destroy(); }
     });
     await runStep("live history uses existing conversation UI without a composer or duplicate writes", async () => {
       await clickSelector(window, '[data-testid="settings-back"]');

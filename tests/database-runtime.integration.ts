@@ -1,6 +1,7 @@
 import { OperationRejected } from "../src/main/diagnostics/operationRejected";
 import { emptyAppSettings } from "./defaultSettings";
 import { runMemoryIntegration } from "./memory.integration";
+import { runAgentPermissionMigrationIntegration, runAgentToolIntegration, runImageReferenceIntegration } from "./agent-tools.integration";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -231,6 +232,7 @@ function createSpeechModelDatabaseAtMigrationEleven(): void {
 }
 
 try {
+  await runAgentPermissionMigrationIntegration(configValidator);
   runtime = openDatabase({
     userDataPath,
     appPath: process.cwd(),
@@ -238,6 +240,8 @@ try {
   });
   assert.deepEqual(runtime.getAppSettings(), emptyAppSettings);
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
+  await runAgentToolIntegration(runtime, userDataPath);
+  await runImageReferenceIntegration(configValidator);
   runtime.initializeThread(threadId, initialCharacterId);
   runtime.appendThreadMessage({
     threadId,
@@ -522,6 +526,12 @@ try {
       }),
     /同时配置或同时清空/,
   );
+  const isolatedPermissionThread = "permission-isolation-thread";
+  runtime.initializeThread(isolatedPermissionThread, defaultCharacter.id);
+  assert.deepEqual(runtime.getThreadToolAccess(threadId, defaultCharacter.id), { mode: "request-approval", directories: [] });
+  runtime.setThreadToolMode(threadId, defaultCharacter.id, "full-access");
+  const persistedDirectoryGrant = runtime.grantThreadDirectory(threadId, defaultCharacter.id, userDataPath, "read");
+  assert.deepEqual(runtime.getThreadToolAccess(isolatedPermissionThread, defaultCharacter.id), { mode: "request-approval", directories: [] });
   runtime.close();
   runtime = undefined;
 
@@ -550,6 +560,18 @@ try {
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
+  assert.deepEqual(runtime.getThreadToolAccess(threadId, restoredCharacterId), { mode: "full-access", directories: [persistedDirectoryGrant] });
+  assert.deepEqual(runtime.getThreadToolAccess(isolatedPermissionThread, restoredCharacterId), { mode: "request-approval", directories: [] });
+  assert.throws(() => runtime?.getThreadToolAccess(threadId, secondCharacterId), OperationRejected);
+  assert.throws(() => runtime?.setThreadToolMode(threadId, secondCharacterId, "full-access"), OperationRejected);
+  assert.throws(() => runtime?.grantThreadDirectory(threadId, secondCharacterId, userDataPath, "read-write"), OperationRejected);
+  assert.throws(() => runtime?.revokeThreadDirectory(threadId, secondCharacterId, persistedDirectoryGrant.id), OperationRejected);
+  runtime.revokeThreadDirectory(isolatedPermissionThread, restoredCharacterId, persistedDirectoryGrant.id);
+  assert.equal(runtime.getThreadToolAccess(threadId, restoredCharacterId).directories.length, 1);
+  runtime.revokeThreadDirectory(threadId, restoredCharacterId, persistedDirectoryGrant.id);
+  runtime.setThreadToolMode(threadId, restoredCharacterId, "request-approval");
+  assert.deepEqual(runtime.getThreadToolAccess(threadId, restoredCharacterId), { mode: "request-approval", directories: [] });
+  runtime.deleteThread(isolatedPermissionThread, restoredCharacterId);
   assert.equal(
     runtime.fetchAsset("00000000-0000-4000-8000-000000000002").kind,
     "character_portrait",
@@ -673,7 +695,11 @@ try {
   const legacyLiveSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
   try {
     legacyLiveSqlite.exec("UPDATE live_settings SET config = json_set(config, '$.fps', 30, '$.videoBitrateKbps', 3000)");
-    legacyLiveSqlite.exec("DELETE FROM __drizzle_migrations WHERE created_at = (SELECT max(created_at) FROM __drizzle_migrations)");
+    // Reconstruct the pre-0028 schema as well as its migration journal.
+    legacyLiveSqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access");
+    legacyLiveSqlite.exec("ALTER TABLE live_settings DROP COLUMN douyin_credential_ref");
+    legacyLiveSqlite.exec("ALTER TABLE assets DROP COLUMN source_path");
+    legacyLiveSqlite.exec("DELETE FROM __drizzle_migrations WHERE created_at >= 1793258398234");
   } finally { legacyLiveSqlite.close(); }
   runtime = openDatabase({
     userDataPath,
@@ -685,6 +711,21 @@ try {
   assert.equal(upgradedLiveConfig.settings.characterId, restoredCharacterId);
   assert.equal(upgradedLiveConfig.credentialRef, "synthetic-official-reference");
   assert.equal(upgradedLiveConfig.webCredentialRef, "synthetic-web-reference");
+  assert.equal(upgradedLiveConfig.douyinCredentialRef, null);
+  assert.equal(upgradedLiveConfig.settings.platform, "bilibili");
+  runtime.setLiveDouyinCredentialRef("synthetic-douyin-reference");
+  runtime.saveLiveConfig({ ...runtime.getLiveConfig().settings, connectionMode: "web", webRoomId: "101" });
+  assert.equal(runtime.getLiveConfig().credentialRef, "synthetic-official-reference");
+  assert.equal(runtime.getLiveConfig().webCredentialRef, "synthetic-web-reference");
+  assert.equal(runtime.getLiveConfig().douyinCredentialRef, "synthetic-douyin-reference");
+  runtime.saveLiveConfig({ ...runtime.getLiveConfig().settings, platform: "douyin", connectionMode: "web", webRoomId: "102" });
+  assert.equal(runtime.getLiveConfig().settings.connectionMode, "web");
+  assert.equal(runtime.getLiveConfig().settings.webRoomId, "102");
+  assert.equal(runtime.getLiveConfig().webCredentialRef, "synthetic-web-reference");
+  assert.equal(runtime.getLiveConfig().douyinCredentialRef, "synthetic-douyin-reference");
+  runtime.setLiveDouyinCredentialRef(null);
+  assert.equal(runtime.getLiveConfig().douyinCredentialRef, null);
+  assert.equal(runtime.getLiveConfig().webCredentialRef, "synthetic-web-reference");
   assert.ok(!("fps" in upgradedLiveConfig.settings) && !("videoBitrateKbps" in upgradedLiveConfig.settings));
   assert.equal(runtime.getAppState().activeCharacter.id, secondCharacterId);
   runtime.setThreadStatus(threadId, restoredCharacterId, "archived");

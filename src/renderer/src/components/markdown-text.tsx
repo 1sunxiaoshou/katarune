@@ -14,6 +14,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { cn } from "@/lib/utils";
+import { ChatFileLink, localFilePath } from "../chat/ChatFileLink";
 
 interface MarkdownTextProps {
   readonly className?: string;
@@ -25,6 +26,7 @@ const MarkdownTextImpl = ({ className }: MarkdownTextProps) => {
       remarkPlugins={[remarkGfm]}
       className={cn("aui-md", className)}
       components={defaultComponents}
+      urlTransform={(url) => localFilePath(url) !== null || /^(https?:|mailto:|#)/i.test(url) ? url : ""}
       defer
     />
   );
@@ -81,6 +83,9 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
+  img: ({ src, alt }) => typeof src === "string" && localFilePath(src) !== null
+    ? <ChatFileLink source={{ path: localFilePath(src)! }}>{alt || "查看图片"}</ChatFileLink>
+    : <img src={src} alt={alt ?? "图片"} className="max-w-full rounded-lg" />,
   h1: ({ className, ...props }) => (
     <h1
       className={cn(
@@ -144,14 +149,15 @@ const defaultComponents = memoizeMarkdownComponents({
       {...props}
     />
   ),
-  a: ({ className, ...props }) => (
+  a: ({ className, href, children, ...props }) => localFilePath(href ?? "") !== null ? <ChatFileLink source={{ path: localFilePath(href ?? "")! }}>{children}</ChatFileLink> : (
     <a
       className={cn(
         "aui-md-a text-primary hover:text-primary/80 underline underline-offset-2",
         className,
       )}
       {...props}
-    />
+      href={href} target="_blank" rel="noreferrer"
+    >{children}</a>
   ),
   blockquote: ({ className, ...props }) => (
     <blockquote

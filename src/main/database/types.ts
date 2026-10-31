@@ -49,7 +49,7 @@ export interface DatabaseConfigValidator {
   ): void;
 }
 
-export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository>, ReturnType<typeof import("./memoryRepository").createMemoryRepository>, ReturnType<typeof import("./liveRepository").createLiveRepository> {
+export interface DatabaseRuntime extends ReturnType<typeof import("./characterPackageRepository").createCharacterPackageRepository>, ReturnType<typeof import("./memoryRepository").createMemoryRepository>, ReturnType<typeof import("./liveRepository").createLiveRepository>, ReturnType<typeof import("./agentToolRepository").createAgentToolRepository> {
   getStatus(): DatabaseStatus;
   getAppState(): AppState;
   setActiveCharacter(characterId: string): AppState;
@@ -113,6 +113,7 @@ export interface DatabaseRuntime extends ReturnType<typeof import("./characterPa
   fetchCharacter(id: string): Character;
   updateCharacter(request: UpdateCharacterRequest): Character;
   fetchAsset(id: string): Asset;
+  fetchAssetSourcePath(id: string): string | null;
   listAssets(): readonly Asset[];
   markAssetReady(id: string, metadata: AssetMetadata): Asset;
   registerReadyAsset(asset: ReadyAssetRegistration): Asset;
@@ -141,6 +142,7 @@ export interface AssetMetadata {
 }
 
 export interface ReadyAssetRegistration extends AssetMetadata {
+  readonly sourcePath?: string;
   readonly id: string;
   readonly storageKey: string;
   readonly kind: AssetKind;
@@ -195,6 +197,7 @@ export type CharacterRepository = Pick<
 export type AssetRepository = Pick<
   DatabaseRuntime,
   | "fetchAsset"
+  | "fetchAssetSourcePath"
   | "listAssets"
   | "markAssetReady"
   | "registerReadyAsset"

@@ -204,6 +204,34 @@
       "when": 1793258398234,
       "tag": "0028_managed_live_output",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1793331183240,
+      "tag": "0029_live_platform_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1793437938940,
+      "tag": "0030_overjoyed_songbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1793441573888,
+      "tag": "0031_brave_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793449326423,
+      "tag": "0032_lovely_bloodstrike",
+      "breakpoints": true
     }
   ]
 }

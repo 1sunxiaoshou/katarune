@@ -79,6 +79,18 @@ void app.whenReady().then(async () => {
       if (!previewChunks.length) previewChunks.push(frame.initialization);
       if (previewChunks.length < 30) previewChunks.push(frame.fragment);
     };
+    await live.start();
+    assert.equal(live.status.phase, 'running'); assert.equal(live.status.connection, 'disconnected');
+    const previewDeadline = Date.now() + 20000;
+    while (previewTimes.length < 3) {
+      assert.ok(Date.now() < previewDeadline, 'Disconnected preview did not receive actual Player frames');
+      assert.equal(live.status.error, null); await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(generations, 0, 'Disconnected preview must not call the model');
+    const disconnectedCapture = join(output, 'unconnected-preview.mp4');
+    await writeFile(disconnectedCapture, Buffer.concat(previewChunks));
+    await promisify(execFile)(join(mediaRoot, 'ffmpeg.exe'), ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', disconnectedCapture, '-frames:v', '1', join(output, 'unconnected-preview.png')], { windowsHide: true, timeout: 10000 });
+    await live.stop(); previewTimes.length = 0; previewChunks.length = 0;
     await live.setCredentials({ appId: "123", accessKey: "synthetic", accessSecret: "synthetic", identityCode: "synthetic" });
     const desktopBinding = { characterId: owner.id, threadId: "desktop-before-live" };
     database.initializeThread(desktopBinding.threadId, owner.id);
