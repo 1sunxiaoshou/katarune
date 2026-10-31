@@ -1,5 +1,6 @@
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { APICallError, defaultSettingsMiddleware, wrapLanguageModel } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { generateDiary, diaryInstructions } from "../src/main/memory/diaryService";
@@ -7,6 +8,16 @@ import { DiaryError, diaryFailureCode } from "../src/main/memory/diaryErrors";
 
 const draft = { worthKeeping: true, title: "练习", body: "今天听到练琴的打算，我想下次再问问进展。" };
 const input = { prompt: "合成对话：计划练琴。", instructions: diaryInstructions, signal: new AbortController().signal, tools: {} };
+
+it("rejects an interrupted generation even when it contains a valid diary submission", async () => {
+  const model = new MockLanguageModelV4({ doGenerate: {
+    content: [{ type: "tool-call", toolCallId: "finish", toolName: "finish_diary", input: JSON.stringify(draft) }],
+    finishReason: { unified: "interrupted", raw: undefined }, warnings: [],
+    usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+  } });
+  await expect(generateDiary({ ...input, model })).rejects.toMatchObject({ code: "interrupted" });
+  expect(model.doGenerateCalls).toHaveLength(1);
+});
 
 describe("diary submission over the locked DeepSeek adapter", () => {
   it("submits a validated draft without JSON response format or forced tool choice, preserving thinking", async () => {

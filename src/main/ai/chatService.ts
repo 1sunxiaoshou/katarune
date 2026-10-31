@@ -409,7 +409,7 @@ export function createChatService({
           for (const result of step.toolResults) diagnostic("info", "tool.completed", { runId: avatarRunId, toolCallId: result.toolCallId });
           for (const content of step.content) if (content.type === "tool-error") diagnostic("error", "tool.failed", { runId: avatarRunId, toolCallId: content.toolCallId }, content.error);
         },
-        onFinish: ({ isAborted }) => { diagnostic("info", "ai.ended", { runId: avatarRunId, durationMs: performance.now() - diagnosticStart, outcome: isAborted ? "cancelled" : diagnosticFailed ? "failed" : "success" }); },
+        onFinish: ({ isAborted, finishReason }) => { diagnostic("info", "ai.ended", { runId: avatarRunId, durationMs: performance.now() - diagnosticStart, outcome: isAborted ? "cancelled" : diagnosticFailed ? "failed" : finishReason === "interrupted" ? "degraded" : "success" }); },
         onError: (error) => {
           diagnosticFailed = true;
           if (abortSignal.aborted) return "回复已取消。";

@@ -32,6 +32,7 @@ export const generateDiary: DiaryGenerator = async ({ model, prompt, instruction
     stopWhen: stepCountIs(8), maxOutputTokens: 6000, maxRetries: 0,
   });
   const result = await agent.generate({ prompt, abortSignal: signal, timeout: 180_000 });
+  if (result.finishReason === "interrupted") throw new DiaryError("interrupted");
   const submissions = result.toolCalls.filter(call => call.toolName === "finish_diary");
   const submission = submissions[0];
   if (result.finishReason === "length" || submissions.length !== 1 || !submission || submission.invalid) throw new DiaryError("invalid_output");

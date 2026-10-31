@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
 import type { AvatarDanceState } from "../src/shared/avatar";
 import type { MemoryToolDatabase } from "../src/main/memory/memoryTools";
+import * as diagnostics from "../src/main/diagnostics/logger";
 import {
   createChatService,
   createChatAttachmentDownload,
@@ -126,6 +127,25 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("preserves interrupted partial output without reporting a successful generation", async () => {
+    const recorded = vi.spyOn(diagnostics, "diagnostic");
+    try {
+      const model = new MockLanguageModelV4({ doStream: async () => ({ stream: new ReadableStream({ start(controller) {
+        controller.enqueue({ type: "text-start", id: "partial" });
+        controller.enqueue({ type: "text-delta", id: "partial", delta: "尚未完成的回复" });
+        controller.enqueue({ type: "text-end", id: "partial" });
+        controller.enqueue({ type: "finish", finishReason: { unified: "interrupted", raw: undefined },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
+        controller.close();
+      } }) }) });
+      const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model } });
+      const output = await (await service.createResponse(request, new AbortController().signal)).text();
+      expect(output).toContain("尚未完成的回复");
+      expect(output).toContain('"finishReason":"interrupted"');
+      expect(recorded).toHaveBeenCalledWith("info", "ai.ended", expect.objectContaining({ outcome: "degraded" }));
+      expect(model.doStreamCalls).toHaveLength(1);
+    } finally { recorded.mockRestore(); }
+  });
   it("assigns durable native message IDs when a background consumer reads the stream", async () => {
     const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => createModel(() => {}) } });
     const stream = await service.createStream(request, new AbortController().signal);
