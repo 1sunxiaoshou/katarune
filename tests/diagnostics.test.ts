@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, utimes, stat } from "
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
+import { Worker } from "node:worker_threads";
+import { once } from "node:events";
 import { APICallError, RetryError } from "ai";
 import { Diagnostics, safeContext } from "../src/main/diagnostics/logger";
 import { diagnosticRecordSchema, projectErrorChain, rendererDiagnosticSchema } from "../src/shared/diagnostics";
@@ -15,7 +17,105 @@ beforeAll(async () => {
 });
 afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
+function rotationRecord(now: number, count: number) {
+  const timestamp = new Date(now).toISOString();
+  return JSON.stringify(diagnosticRecordSchema.parse({
+    schemaVersion: 1, timestamp, observedTimestamp: timestamp, level: "info", event: "test.rotation",
+    component: "test", source: "main", bootId: "00000000-0000-4000-8000-000000000001",
+    processInstanceId: "00000000-0000-4000-8000-000000000001", sequence: count + 1, appVersion: "test", count,
+  }));
+}
+
+function rotationWriter(path: string, now: number) {
+  const clock = new BigInt64Array(new SharedArrayBuffer(8));
+  Atomics.store(clock, 0, BigInt(now));
+  const worker = new Worker(`
+    const { workerData } = require("node:worker_threads");
+    const clock = new BigInt64Array(workerData.clock);
+    Date.now = () => Number(Atomics.load(clock, 0));
+    // Reproduce Windows preserving an old creation time when events.jsonl is recreated.
+    const fs = require("node:fs"), originalStat = fs.statSync;
+    fs.statSync = (...args) => {
+      const result = originalStat(...args);
+      result.birthtimeMs = workerData.inheritedBirthtime;
+      return result;
+    };
+    require(workerData.writer);
+  `, { eval: true, workerData: { directory: path, bootId: "test", writer, clock: clock.buffer, inheritedBirthtime: now - 2 * 86400_000 } });
+  return { worker, clock };
+}
+
+async function writeRotationBatch(worker: Worker, now: number, count: number) {
+  const response = once(worker, "message");
+  worker.postMessage([rotationRecord(now, count)]);
+  const [status] = await response;
+  expect(status.failed).toBe(false);
+}
+
 describe("diagnostic privacy and resource bounds", () => {
+  it("keeps appending despite inherited old creation times, including after a worker restart", async () => {
+    const path = join(directory, "inherited-creation"), now = Date.now();
+    let { worker } = rotationWriter(path, now);
+    try {
+      for (let count = 0; count < 3; count++) await writeRotationBatch(worker, now, count);
+      expect((await readdir(path)).filter(name => name.endsWith(".jsonl"))).toEqual(["events.jsonl"]);
+      await worker.terminate();
+      ({ worker } = rotationWriter(path, now));
+      await writeRotationBatch(worker, now, 3);
+      expect((await readdir(path)).filter(name => name.endsWith(".jsonl"))).toEqual(["events.jsonl"]);
+      expect((await readFile(join(path, "events.jsonl"), "utf8")).replaceAll("\r\n", "\n")).toBe(
+        Array.from({ length: 4 }, (_, count) => rotationRecord(now, count) + "\n").join(""),
+      );
+    } finally { await worker.terminate(); }
+  });
+  it("rotates an old active file once and keeps its daily deadline across writes and restarts", async () => {
+    const path = join(directory, "daily-rotation"), now = Date.now(), day = 86400_000;
+    await mkdir(path);
+    const old = rotationRecord(now - 2 * day, 0) + "\n";
+    await writeFile(join(path, "events.jsonl"), old);
+    let { worker, clock } = rotationWriter(path, now);
+    try {
+      await writeRotationBatch(worker, now, 1);
+      Atomics.store(clock, 0, BigInt(now + day - 1));
+      await writeRotationBatch(worker, now + day - 1, 2);
+      const archives = (await readdir(path)).filter(name => name.startsWith("events-"));
+      expect(archives).toHaveLength(1);
+      expect(await readFile(join(path, archives[0]!), "utf8")).toBe(old);
+      await worker.terminate();
+      ({ worker, clock } = rotationWriter(path, now + day - 1));
+      await writeRotationBatch(worker, now + day - 1, 3);
+      expect((await readdir(path)).filter(name => name.startsWith("events-"))).toHaveLength(1);
+      Atomics.store(clock, 0, BigInt(now + day + 1));
+      await writeRotationBatch(worker, now + day + 1, 4);
+      await writeRotationBatch(worker, now + day + 1, 5);
+      expect((await readdir(path)).filter(name => name.startsWith("events-"))).toHaveLength(2);
+      const records = (await readFile(join(path, "events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+      expect(records.map(record => record.count)).toEqual([4, 5]);
+      const archivedCounts: number[] = [];
+      for (const name of (await readdir(path)).filter(name => name.startsWith("events-"))) {
+        const content = await readFile(join(path, name), "utf8");
+        archivedCounts.push(...content.trim().split("\n").map(line => diagnosticRecordSchema.parse(JSON.parse(line)).count!));
+      }
+      expect(archivedCounts.sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+    } finally { await worker.terminate(); }
+  });
+  it("still rotates at the size limit and then appends to the new active file", async () => {
+    const path = join(directory, "size-rotation"), now = Date.now();
+    await mkdir(path);
+    const line = rotationRecord(now, 0) + "\n";
+    const old = line.repeat(Math.ceil((5 * 1024 * 1024 + 1) / Buffer.byteLength(line)));
+    await writeFile(join(path, "events.jsonl"), old);
+    const { worker } = rotationWriter(path, now);
+    try {
+      await writeRotationBatch(worker, now, 1);
+      await writeRotationBatch(worker, now, 2);
+      const archives = (await readdir(path)).filter(name => name.startsWith("events-"));
+      expect(archives).toHaveLength(1);
+      expect(await readFile(join(path, archives[0]!), "utf8")).toBe(old);
+      const records = (await readFile(join(path, "events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+      expect(records.map(record => record.count)).toEqual([1, 2]);
+    } finally { await worker.terminate(); }
+  });
   it("retains only allowlisted rejection codes through export validation", () => {
     const logger = new Diagnostics(join(directory, "rejections"), "test");
     logger.record("warn", "chat.stream-rejected", { outcome: "rejected", reasonCode: "ownership-mismatch" });

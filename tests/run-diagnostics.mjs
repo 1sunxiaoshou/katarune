@@ -12,7 +12,10 @@ const entry = join(directory, "integration.mjs");
 const packageDirectory = join(directory, "asar-source");
 await mkdir(join(packageDirectory, "out", "main"), { recursive: true });
 await copyFile(join(root, "out", "main", "diagnosticWriter.js"), join(packageDirectory, "out", "main", "diagnosticWriter.js"));
-await cp(join(root, "node_modules", "electron-log"), join(packageDirectory, "node_modules", "electron-log"), { recursive: true });
+await cp(join(root, "out", "main", "chunks"), join(packageDirectory, "out", "main", "chunks"), { recursive: true });
+for (const dependency of ["electron-log", "zod"]) {
+  await cp(join(root, "node_modules", dependency), join(packageDirectory, "node_modules", dependency), { recursive: true });
+}
 await writeFile(join(packageDirectory, "package.json"), JSON.stringify({ type: "module" }));
 await createPackage(packageDirectory, join(directory, "app.asar"));
 await build({ entryPoints: [join(root, "tests", "diagnostics.integration.mjs")], outfile: entry, bundle: true, platform: "node", format: "esm", packages: "external", banner: { js: "const __dirname = import.meta.dirname;" } });
