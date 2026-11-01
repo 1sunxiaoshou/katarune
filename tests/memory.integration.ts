@@ -9,7 +9,9 @@ import { openDatabase } from "../src/main/database/database";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { createMemoryTools, createMemoryReadTools } from "../src/main/memory/memoryTools";
-import { memoryDay, memoryToolSaveSchema, type MemoryContent, type MemoryEntry, type MemoryWriteResult } from "../src/shared/memory";
+import { memoryDay, memoryToolSaveSchema, memoryToolSearchSchema, memoryBackgroundSearchInputSchema,
+  memoryReadInputSchema, memoryForgetInputSchema, memoryToolSearchResultSchema, memoryToolReadResultSchema,
+  memoryToolForgetResultSchema, memoryToolInputSchema, memoryBackgroundToolInputSchema, memoryPageResultSchema, type MemoryContent, type MemoryEntry, type MemoryWriteResult } from "../src/shared/memory";
 
 function saved(result: MemoryWriteResult): MemoryEntry {
   assert.equal(result.status, "saved");
@@ -51,16 +53,18 @@ export async function runMemoryIntegration(): Promise<void> {
     assert.throws(() => add({ kind: "person", title: "林同学", body: "重复人物。", isUser: false }));
 
     const tools = createMemoryTools(database, characterId);
-    assert.deepEqual(Object.keys(tools), ["memory_search", "memory_read", "memory_save", "memory_forget"]);
+    assert.deepEqual(Object.keys(tools), ["memory"]);
     const options = { toolCallId: "memory-tool-check", messages: [], context: {} };
-    const update = tools.memory_save.execute;
-    assert.ok(update);
+    const execute = tools.memory.execute;
+    assert.ok(execute);
+    const run = (request: z.infer<typeof memoryToolInputSchema>["request"]) => execute(memoryToolInputSchema.parse({ request }), options);
+    const update = (input: z.infer<typeof memoryToolSaveSchema>, _options: typeof options) => run({ action: "save", ...input });
     const short = database.searchMemory(characterId, { query: "生日", kind: "event" }).results[0];
     assert.ok(short);
     assert.equal(short.body, event.content.body);
     assert.equal(short.bodyTruncated, false);
     const result = await update({ id: short.id, revision: short.revision, kind: "event", title: short.title, body: "已经挑好了书。", isUser: null }, options);
-    assert.deepEqual(result, { status: "saved", id: event.id, revision: short.revision + 1 });
+    assert.deepEqual(result, { status: "saved", id: event.id, revision: short.revision + 1, title: short.title });
     assert.equal(database.readMemory(characterId, event.id).content.kind === "event" && database.readMemory(characterId, event.id).content.body, "已经挑好了书。");
 
     const stale = z.object({ status: z.literal("conflict"), message: z.string() }).parse(await update({
@@ -82,22 +86,74 @@ export async function runMemoryIntegration(): Promise<void> {
     assert.ok(long);
     assert.equal(long.bodyTruncated, true);
     assert.ok(long.body.includes("长文检索词"));
-    const read = tools.memory_read.execute;
-    const forget = tools.memory_forget.execute;
-    assert.ok(read); assert.ok(forget);
-    const full = z.object({ status: z.literal("found"), entry: z.object({ body: z.string(), bodyTruncated: z.literal(false) }) }).parse(await read({ id: temporary.id }, options));
-    assert.equal(full.entry.body, temporary.content.body);
-    assert.deepEqual(await read({ id: second.id }, options), { status: "not_found" });
-    assert.deepEqual(await read({ id: database.memoryOverview(second.id)[0]!.id }, options), { status: "not_found" }, "other characters' entries must remain inaccessible");
+    const read = (input: z.infer<typeof memoryReadInputSchema>, _options: typeof options) => run({ action: "read", ...input });
+    const forget = (input: z.infer<typeof memoryForgetInputSchema>, _options: typeof options) => run({ action: "forget", ...input });
+    const search = (input: z.infer<typeof memoryToolSearchSchema>, _options: typeof options) => run({ action: "search", ...input });
+    const queries = memoryToolSearchSchema.parse({ queries: [" 林同学 ", "长文检索词", "不存在的关键词", "林同学"], kind: null });
+    const matches = memoryToolSearchResultSchema.parse(await search(queries, options));
+    assert.deepEqual(matches.searches.map(item => item.query), ["林同学", "长文检索词", "不存在的关键词"]);
+    assert.equal(matches.searches[0]?.results[0]?.id, person.id);
+    assert.equal(matches.searches[1]?.results[0]?.bodyTruncated, true);
+    assert.deepEqual(matches.searches[2]?.results, []);
+    assert.equal(memoryToolSearchSchema.safeParse({ queries: [], kind: null }).success, false);
+    assert.equal(memoryToolSearchSchema.safeParse({ queries: Array(6).fill("关键词"), kind: null }).success, false);
+    assert.equal(memoryReadInputSchema.safeParse({ ids: [] }).success, false);
+    assert.equal(memoryReadInputSchema.safeParse({ ids: Array(11).fill(person.id) }).success, false);
+    assert.equal(memoryForgetInputSchema.safeParse({ entries: [{ id: person.id, revision: 1 }, { id: person.id, revision: 2 }] }).success, false);
+    const otherId = database.memoryOverview(second.id)[0]!.id;
+    const full = memoryToolReadResultSchema.parse(await read({ ids: [temporary.id, second.id, otherId, temporary.id] }, options));
+    assert.equal(full.results.length, 3, "duplicate IDs must be read once");
+    const first = full.results[0];
+    assert.ok(first?.status === "found");
+    assert.equal(first.entry.body, temporary.content.body);
+    assert.equal(first.entry.bodyTruncated, false);
+    assert.deepEqual(full.results.slice(1), [{ id: second.id, status: "not_found" }, { id: otherId, status: "not_found" }], "missing and other characters' entries must remain inaccessible without losing successful reads");
     const inaccessible = z.object({ status: z.literal("not_found") }).parse(await update({
       id: database.memoryOverview(second.id)[0]!.id, revision: 1, kind: "event", title: "越权更新", body: "不应写入其他角色。", isUser: null,
     }, options));
     assert.equal(inaccessible.status, "not_found");
     assert.equal(database.memoryOverview(second.id)[0]?.title, "另一个人");
-    z.object({ status: z.literal("conflict") }).parse(await forget({ id: event.id, revision: short.revision }, options));
+    const forgottenBatch = memoryToolForgetResultSchema.parse(await forget({ entries: [
+      { id: event.id, revision: short.revision }, { id: temporary.id, revision: temporary.revision },
+      { id: otherId, revision: 1 },
+    ] }, options));
+    assert.deepEqual(forgottenBatch.results.map(item => item.status), ["conflict", "forgotten", "not_found"]);
+    assert.equal(forgottenBatch.results[0]?.title, event.content.title);
+    const forgottenItem = forgottenBatch.results[1];
+    assert.ok(forgottenItem?.status === "forgotten");
+    assert.equal(forgottenItem.revision, temporary.revision + 1);
+    assert.equal(database.readMemory(second.id, otherId).forgottenAt, null, "batch forgetting must preserve other characters' memories");
     assert.equal(database.readMemory(characterId, event.id).forgottenAt, null, "a stale forget must preserve the current memory");
-    assert.deepEqual(await forget({ id: temporary.id, revision: temporary.revision }, options), { status: "forgotten", id: temporary.id, revision: temporary.revision + 1 });
-    assert.deepEqual(await read({ id: temporary.id }, options), { status: "not_found" });
+    assert.deepEqual(await read({ ids: [temporary.id] }, options), { results: [{ id: temporary.id, status: "not_found" }] });
+
+    const pagingEntries = ["Paging A", "Paging B", "Paging C"].map(title => add({ kind: "event", title, body: "分页专用正文，不应出现在目录中。" }));
+    const listRequest = { action: "list" as const, kind: "event" as const, page: 1, pageSize: 2, sortBy: "title" as const, order: "asc" as const };
+    const pageOne = memoryPageResultSchema.parse(await run(listRequest));
+    const pageTwo = memoryPageResultSchema.parse(await run({ ...listRequest, page: 2 }));
+    assert.deepEqual(pageOne.entries.map(item => item.title), ["Paging A", "Paging B"]);
+    assert.deepEqual(pageTwo.entries.map(item => item.title), ["Paging C", event.content.title]);
+    assert.equal(pageOne.total, 4, "forgotten and other characters' entries must not count towards the page");
+    assert.equal(pageOne.hasMore, true);
+    assert.equal(pageTwo.hasMore, false);
+    assert.equal(new Set([...pageOne.entries, ...pageTwo.entries].map(item => item.id)).size, 4);
+    assert.ok(pageOne.entries.every(item => item.revision > 0 && !("body" in item)), "list returns versioned summaries without bodies");
+    const emptyPage = memoryPageResultSchema.parse(await run({ ...listRequest, page: 99 }));
+    assert.deepEqual(emptyPage.entries, []);
+    assert.equal(emptyPage.total, 4);
+    assert.equal(emptyPage.hasMore, false);
+    const descending = memoryPageResultSchema.parse(await run({ ...listRequest, pageSize: 50, order: "desc" }));
+    assert.deepEqual(descending.entries.map(item => item.id), [...pageOne.entries, ...pageTwo.entries].reverse().map(item => item.id));
+    for (const entry of pagingEntries) sql.prepare("UPDATE memory_entries SET updated_at = ? WHERE id = ?").run(Date.UTC(2030, 0, 1), entry.id);
+    const tiedPages = await Promise.all([1, 2, 3].map(page => run({ ...listRequest, page, pageSize: 1, sortBy: "updatedAt", order: "desc" })));
+    assert.deepEqual(tiedPages.map(page => memoryPageResultSchema.parse(page).entries[0]?.id), pagingEntries.map(item => item.id).sort(), "equal timestamps need a stable tie-breaker");
+    const allKinds = memoryPageResultSchema.parse(await run({ ...listRequest, kind: null, pageSize: 50, sortBy: "kind" }));
+    assert.equal(allKinds.total, 6);
+    assert.deepEqual(allKinds.entries.map(item => item.kind), [...allKinds.entries.map(item => item.kind)].sort());
+    assert.ok(allKinds.entries.every(item => item.id !== otherId && item.id !== temporary.id));
+    for (const invalid of [{ ...listRequest, page: 0 }, { ...listRequest, pageSize: 51 }, { ...listRequest, sortBy: "body" }]) {
+      assert.equal(memoryToolInputSchema.safeParse({ request: invalid }).success, false);
+    }
+    assert.equal(memoryToolInputSchema.safeParse({ request: { action: "read", ids: [person.id], body: "多余字段" } }).success, false);
 
     const zone = "Asia/Shanghai";
     assert.equal(memoryDay(new Date("2026-01-01T16:00:00Z"), zone), "2026-01-02");
@@ -112,7 +168,7 @@ export async function runMemoryIntegration(): Promise<void> {
     const model = new MockLanguageModelV4({ doGenerate: async () => {
       calls++;
       return {
-        content: calls <= 2 ? [{ type: "tool-call", toolCallId: `diary-read-${calls}`, toolName: calls === 1 ? "memory_search" : "memory_read", input: JSON.stringify(calls === 1 ? { query: "林同学", kind: null } : { id: person.id }) }]
+        content: calls <= 2 ? [{ type: "tool-call", toolCallId: `diary-read-${calls}`, toolName: "memory", input: JSON.stringify({ request: calls === 1 ? { action: "search", queries: ["林同学", "生日"], kind: null } : { action: "read", ids: [person.id, event.id] } }) }]
           : [{ type: "tool-call", toolCallId: "diary-finish", toolName: "finish_diary", input: JSON.stringify({ worthKeeping: true, title: "一起挑选礼物", body: "今天我和用户聊了朋友的生日，我们一起想了想礼物。" }) }],
         finishReason: { unified: "tool-calls", raw: undefined }, warnings: [],
         usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
@@ -125,14 +181,27 @@ export async function runMemoryIntegration(): Promise<void> {
     await service.runOnce();
     assert.equal(calls, 3, "one daily agent run may use several model/tool steps but must not run twice");
     assert.ok(JSON.stringify(model.doGenerateCalls[0]?.prompt).includes(database.fetchCharacter(characterId).systemPrompt));
-    assert.deepEqual(model.doGenerateCalls[0]?.tools?.map(item => item.name).sort(), ["finish_diary", "memory_read", "memory_search"]);
+    assert.deepEqual(model.doGenerateCalls[0]?.tools?.map(item => item.name).sort(), ["finish_diary", "memory"]);
     const diary = database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries[0];
     assert.ok(diary);
     assert.equal(diary.day, day);
     const backgroundTools = createMemoryReadTools(database, characterId, { includeDiaries: false });
-    assert.deepEqual(Object.keys(backgroundTools), ["memory_search", "memory_read"]);
-    assert.ok(backgroundTools.memory_read.execute);
-    assert.deepEqual(await backgroundTools.memory_read.execute({ id: diary.id }, options), { status: "not_found" });
+    assert.deepEqual(Object.keys(backgroundTools), ["memory"]);
+    assert.ok(backgroundTools.memory.execute);
+    const backgroundRead = memoryToolReadResultSchema.parse(await backgroundTools.memory.execute({ request: { action: "read", ids: [diary.id, person.id] } }, options));
+    assert.deepEqual(backgroundRead.results.map(item => item.status), ["not_found", "found"]);
+    assert.equal(memoryBackgroundSearchInputSchema.safeParse({ queries: ["礼物"], kind: "diary" }).success, false);
+    const backgroundSearch = memoryToolSearchResultSchema.parse(await backgroundTools.memory.execute({ request: { action: "search", queries: ["一起挑选礼物", "林同学"], kind: null } }, options));
+    assert.deepEqual(backgroundSearch.searches[0]?.results, [], "background batch queries must exclude diaries");
+    assert.ok(backgroundSearch.searches[1]?.results.some(item => item.id === person.id));
+    const backgroundList = memoryPageResultSchema.parse(await backgroundTools.memory.execute({ request: { ...listRequest, kind: null, pageSize: 50 } }, options));
+    assert.ok(backgroundList.entries.every(item => item.kind !== "diary"));
+    const dialogueList = memoryPageResultSchema.parse(await run({ ...listRequest, kind: null, pageSize: 50 }));
+    assert.ok(dialogueList.entries.some(item => item.id === diary.id), "dialogue may list diaries");
+    for (const request of [{ ...listRequest, kind: "diary" }, { action: "forget", entries: [{ id: person.id, revision: 1 }] },
+      { action: "save", id: null, revision: null, kind: "event", title: "越权", body: "不应写入", isUser: null }]) {
+      assert.equal(memoryBackgroundToolInputSchema.safeParse({ request }).success, false, "background memory remains read-only and excludes diaries");
+    }
     assert.equal(database.searchMemory(characterId, { query: "一起挑选礼物", kind: null }, false).results.length, 0);
     assert.equal(database.searchMemory(characterId, { query: "一起挑选礼物", kind: null }).results[0]?.id, diary.id);
     for (const definition of model.doGenerateCalls[0]?.tools ?? []) {
@@ -148,7 +217,7 @@ export async function runMemoryIntegration(): Promise<void> {
     assert.ok(forgotten.forgottenAt);
     assert.ok(!database.listMemory({ characterId, kind: "person", query: "", offset: 0 }).entries.some(item => item.id === person.id));
     assert.equal(database.saveMemory(characterId, { id: person.id, revision: forgotten.revision, content: person.content }).status, "conflict", "a background save must not revive forgotten memory");
-    assert.deepEqual(await read({ id: person.id }, options), { status: "not_found" });
+    assert.deepEqual(await read({ ids: [person.id] }, options), { results: [{ id: person.id, status: "not_found" }] });
     saved(database.forgetMemory(characterId, diary.id, database.readMemory(characterId, diary.id).revision));
     assert.equal(database.claimMemoryDiaryJob(new Date(today.getTime() + 86_400_000)), null, "forgotten diaries must not regenerate");
     database.setMemoryDiaryEnabled(characterId, false);

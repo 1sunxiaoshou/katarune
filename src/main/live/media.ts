@@ -4,7 +4,7 @@ import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { LiveSettings, LivePreview } from "../../shared/live";
-import { LiveOperationError } from "./errors";
+import { LiveOperationError, LivePortInUseError } from "./errors";
 import { liveOutputProfile } from "./outputProfile";
 import { Mp4Preview } from "./mp4Preview";
 
@@ -22,7 +22,7 @@ export class LiveMedia {
     catch (cause) { throw new LiveOperationError("直播媒体资源不完整，请准备媒体资源或重新安装应用。", { cause }); }
     await new Promise<void>((resolve, reject) => {
       const server = createServer();
-      server.once("error", () => reject(new LiveOperationError("直播本地端口已被占用，请在输出设置中修改。")));
+      server.once("error", error => reject("code" in error && error.code === "EADDRINUSE" ? new LivePortInUseError({ cause: error }) : error));
       server.listen(settings.port, "127.0.0.1", () => server.close(error => error ? reject(error) : resolve()));
     });
     this.encoder = undefined;

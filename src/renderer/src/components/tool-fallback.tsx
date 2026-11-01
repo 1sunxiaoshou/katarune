@@ -128,6 +128,7 @@ function ToolFallbackTrigger({
   toolName,
   status,
   label: customLabel,
+  labelClassName,
   target,
   targetClassName,
   hasDetails = true,
@@ -139,6 +140,7 @@ function ToolFallbackTrigger({
   toolName: string;
   status?: ToolCallMessagePartStatus;
   label?: string | undefined;
+  labelClassName?: string | undefined;
   target?: string | undefined;
   targetClassName?: string | undefined;
   hasDetails?: boolean | undefined;
@@ -178,6 +180,7 @@ function ToolFallbackTrigger({
         className={cn(
           "aui-tool-fallback-trigger-label-wrapper relative max-w-[70%] shrink-0 truncate text-start leading-5",
           isCancelled && "text-muted-foreground line-through",
+          labelClassName,
         )}
       >
         <span>
@@ -549,6 +552,7 @@ function ToolFallbackApproval({
 
 type ToolCallDetailsProps = ToolCallMessagePartProps & {
   label?: string | undefined;
+  labelClassName?: string | undefined;
   target?: string | undefined;
   targetClassName?: string | undefined;
   hasDetails?: boolean | undefined;
@@ -561,6 +565,7 @@ type ToolCallDetailsProps = ToolCallMessagePartProps & {
 // All tool renderers share the same disclosure and approval lifecycle.
 function ToolCallDetails({
   label,
+  labelClassName,
   target,
   targetClassName,
   hasDetails = true,
@@ -586,7 +591,7 @@ function ToolCallDetails({
 
   return (
     <ToolFallbackRoot open={open} onOpenChange={setOpen} data-testid={testId} data-tool-call-id={toolCallId}>
-      <ToolFallbackTrigger toolName={toolName} status={status} label={label} target={target} targetClassName={targetClassName} hasDetails={showDetails} failed={failed ?? (props.isError ? true : undefined)} active={active} />
+      <ToolFallbackTrigger toolName={toolName} status={status} label={label} labelClassName={labelClassName} target={target} targetClassName={targetClassName} hasDetails={showDetails} failed={failed ?? (props.isError ? true : undefined)} active={active} />
       {showDetails && <ToolFallbackContent>
         {children ?? <>
           <ToolFallbackError status={status} />

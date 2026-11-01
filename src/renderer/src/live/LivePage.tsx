@@ -2,13 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronUpIcon, CopyIcon, Volume2Icon, VolumeXIcon, LoaderCircleIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleIndicator, CollapsibleTrigger } from "../components/ui/collapsible";
+import { Card, CardContent } from "../components/ui/card";
+import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { OptionSelect } from "../components/ui/option-select";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Switch } from "../components/ui/switch";
+import { Slider } from "../components/ui/slider";
+import { Tabs, TabsContent, TabsIndicator, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Textarea } from "../components/ui/textarea";
 import { TooltipIconButton } from "../components/tooltip-icon-button";
 import { PageHeader } from "../components/page-header";
@@ -23,6 +25,8 @@ import { LivePreviewPlayer } from "./livePreviewPlayer";
 import "./live.css";
 
 const report = (error: unknown) => notify({ level: "error", message: error instanceof Error ? error.message : "直播操作失败。" });
+const SEGMENTED_LIST_CLASS = "relative isolate grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground dark:bg-muted dark:text-muted-foreground";
+const SEGMENTED_TAB_CLASS = "z-[1] w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:shadow-none! data-active:hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground dark:data-active:border-transparent! dark:data-active:bg-transparent! dark:data-active:text-background dark:data-active:hover:text-background";
 function Field({ id, label, stacked = false, children }: { id: string; label: string; stacked?: boolean; children: ReactNode }) {
   return <div className={`live-field${stacked ? " live-field-stacked" : ""}`}>
     <Label htmlFor={id}>{label}</Label>
@@ -30,13 +34,25 @@ function Field({ id, label, stacked = false, children }: { id: string; label: st
   </div>;
 }
 
-function SettingsSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return <Collapsible className="border-t pt-3">
-    <CollapsibleTrigger id={id} render={<Button variant="ghost" className="w-full justify-between" />}>
-      {title}<CollapsibleIndicator />
-    </CollapsibleTrigger>
-    <CollapsibleContent><div className="grid gap-4 pt-4">{children}</div></CollapsibleContent>
-  </Collapsible>;
+function VolumeField({ id, label, value, onValueChange, onValueCommitted }: {
+  id: string; label: string; value: number;
+  onValueChange: (value: number) => void; onValueCommitted: (value: number) => void;
+}) {
+  const percent = Math.round(value * 100);
+  return <div className="live-volume-field">
+    <Label htmlFor={id}>{label}</Label>
+    <Slider id={`${id}-slider`} aria-label={`${label}音量`} min={0} max={100} step={1} value={percent}
+      onValueChange={next => onValueChange(next / 100)} onValueCommitted={next => onValueCommitted(next / 100)} />
+    <span className="live-volume-value">
+      <Input id={id} aria-label={`${label}音量（百分比）`} type="number" min={0} max={100} step={1} value={percent}
+        className="live-volume-number"
+        onChange={event => {
+          const next = event.currentTarget.valueAsNumber;
+          if (Number.isFinite(next)) onValueChange(Math.min(100, Math.max(0, next)) / 100);
+        }} onBlur={() => onValueCommitted(value)} />
+      <span aria-hidden="true">%</span>
+    </span>
+  </div>;
 }
 
 export function LivePage({ onClose }: { onClose: () => void }) {
@@ -97,7 +113,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   return <main className="live-page page-frame" data-testid="live-page">
     <PageHeader title="直播" onBack={onClose} backLabel="返回对话" />
     <div className="live-workspace">
-      <section className="live-preview dark bg-background text-muted-foreground" aria-label="直播画面预览">
+      <section className={`live-preview text-muted-foreground${previewReady ? " is-ready dark" : ""}`} aria-label="直播画面预览">
         <video ref={video} aria-label="当前直播画面" playsInline disablePictureInPicture
           onPlaying={() => setPreviewReady(true)} className={`live-preview-frame${previewReady ? " is-ready" : ""}`} />
         {!previewReady && <div className="live-preview-placeholder">
@@ -111,30 +127,52 @@ export function LivePage({ onClose }: { onClose: () => void }) {
       </section>
       <LiveConnectionPanel state={state} disabled={active || pending} />
       <Card size="sm" className="live-parameters live-panel" role="region" aria-label="直播参数">
-        <CardHeader><CardTitle><h2>参数</h2></CardTitle></CardHeader>
-        <CardContent className="live-settings scrollbar-hidden">
-          <Field id="live-instructions" label="直播说明" stacked><Textarea id="live-instructions" rows={3} maxLength={8000} placeholder="这场直播想聊什么、如何与观众互动……" value={draft.instructions} onChange={event => change("instructions", event.target.value)} onBlur={() => void save()} /></Field>
-          <Field id="live-reply-interval" label="回复间隔（秒）"><Input id="live-reply-interval" type="number" min={5} max={300} value={draft.replyIntervalSeconds} onChange={event => change("replyIntervalSeconds", Number(event.target.value))} onBlur={() => void save()} /></Field>
-          <Collapsible open={draft.proactive}>
-            <Field id="live-proactive" label="空闲主动聊天"><Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} /></Field>
-            <CollapsibleContent><div className="pt-4"><Field id="live-idle-seconds" label="空闲时间（秒）"><Input id="live-idle-seconds" type="number" min={15} max={1800} value={draft.idleSeconds} onChange={event => change("idleSeconds", Number(event.target.value))} onBlur={() => void save()} /></Field></div></CollapsibleContent>
-          </Collapsible>
-          <Field id="live-thank-gifts" label="感谢礼物"><Switch id="live-thank-gifts" checked={draft.thankGifts} onCheckedChange={checked => change("thankGifts", checked, true)} /></Field>
-          <SettingsSection id="live-presentation-settings" title="画面与声音">
-            <Collapsible open={draft.background === "solid"}>
-              <Field id="live-background" label="背景"><OptionSelect<LiveSettings["background"]> id="live-background" label="背景" value={draft.background} options={[{ value: "immersive", label: "沉浸背景" }, { value: "solid", label: "纯色" }]} onValueChange={value => change("background", value, true)} /></Field>
-              <CollapsibleContent><div className="pt-4"><Field id="live-background-color" label="背景颜色"><Input id="live-background-color" type="color" className="p-1" value={draft.backgroundColor} onChange={event => change("backgroundColor", event.target.value, true)} /></Field></div></CollapsibleContent>
-            </Collapsible>
-            <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={[{ value: "overhead", label: "俯视" }, { value: "center", label: "居中" }, { value: "closeup", label: "近景" }]} onValueChange={value => change("camera", value, true)} /></Field>
-            <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
-            <Field id="live-voice-volume" label="语音音量（%）"><Input id="live-voice-volume" type="number" min={0} max={100} step={5} value={Math.round(draft.voiceVolume * 100)} onChange={event => change("voiceVolume", Number(event.target.value) / 100)} onBlur={() => void save()} /></Field>
-            <Field id="live-music-volume" label="配乐音量（%）"><Input id="live-music-volume" type="number" min={0} max={100} step={5} value={Math.round(draft.musicVolume * 100)} onChange={event => change("musicVolume", Number(event.target.value) / 100)} onBlur={() => void save()} /></Field>
-          </SettingsSection>
-          <SettingsSection id="live-output-settings" title="输出设置">
-            <Field id="live-resolution" label="分辨率"><OptionSelect<LiveSettings["width"]> id="live-resolution" label="分辨率" title={`${draft.width} × ${draft.width * 9 / 16}`} disabled={active} value={draft.width} options={[{ value: 1280, label: "720p" }, { value: 1920, label: "1080p · 推荐" }, { value: 2560, label: "1440p" }]} onValueChange={value => change("width", value, true)} /></Field>
-            <Field id="live-port" label="本地端口"><Input id="live-port" disabled={active} type="number" min={1024} max={65535} value={draft.port} onChange={event => change("port", Number(event.target.value))} onBlur={() => void save()} /></Field>
-          </SettingsSection>
-          <div className="live-output"><span>RTMP 拉流地址</span><div><code>{`rtmp://127.0.0.1:${state.settings.port}/katarune/live`}</code><TooltipIconButton tooltip="复制拉流地址" onClick={() => { void navigator.clipboard.writeText(`rtmp://127.0.0.1:${state.settings.port}/katarune/live`).catch(report); }}><CopyIcon size={16} /></TooltipIconButton></div></div>
+        <CardContent className="live-parameter-content">
+          <Tabs defaultValue="interaction" className="live-settings-tabs" onValueChange={() => {
+            if (JSON.stringify(draft) !== JSON.stringify(state.settings)) void save();
+          }}>
+            <TabsList aria-label="直播参数分类" className={`${SEGMENTED_LIST_CLASS} w-full shrink-0 grid-cols-4`}>
+              <TabsIndicator className="model-category-indicator" />
+              {([
+                ["interaction", "互动"], ["picture", "画面"], ["sound", "声音"], ["output", "输出"],
+              ] as const).map(([value, label]) => <TabsTrigger key={value} id={`live-tab-${value}`} value={value}
+                className={SEGMENTED_TAB_CLASS}>
+                {label}
+              </TabsTrigger>)}
+            </TabsList>
+            <TabsContent value="interaction" className="live-settings scrollbar-hidden">
+              <Field id="live-instructions" label="直播说明" stacked><Textarea id="live-instructions" rows={3} maxLength={8000} placeholder="这场直播想聊什么、如何与观众互动……" value={draft.instructions} onChange={event => change("instructions", event.target.value)} onBlur={() => void save()} /></Field>
+              <Field id="live-proactive" label="主动聊天"><Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} /></Field>
+            </TabsContent>
+            <TabsContent value="picture" className="live-settings scrollbar-hidden">
+              <Collapsible open={draft.background === "solid"}>
+                <Field id="live-background" label="背景"><OptionSelect<LiveSettings["background"]> id="live-background" label="背景" value={draft.background} options={[{ value: "immersive", label: "沉浸背景" }, { value: "solid", label: "纯色" }]} onValueChange={value => change("background", value, true)} /></Field>
+                <CollapsibleContent><div className="pt-4"><Field id="live-background-color" label="背景颜色"><Input id="live-background-color" type="color" className="p-1" value={draft.backgroundColor} onChange={event => change("backgroundColor", event.target.value, true)} /></Field></div></CollapsibleContent>
+              </Collapsible>
+              <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={[{ value: "overhead", label: "俯视" }, { value: "center", label: "居中" }, { value: "closeup", label: "近景" }]} onValueChange={value => change("camera", value, true)} /></Field>
+              <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
+            </TabsContent>
+            <TabsContent value="sound" className="live-settings scrollbar-hidden">
+              <VolumeField id="live-voice-volume" label="语音" value={draft.voiceVolume} onValueChange={value => change("voiceVolume", value)} onValueCommitted={value => change("voiceVolume", value, true)} />
+              <VolumeField id="live-music-volume" label="配乐" value={draft.musicVolume} onValueChange={value => change("musicVolume", value)} onValueCommitted={value => change("musicVolume", value, true)} />
+            </TabsContent>
+            <TabsContent value="output" className="live-settings scrollbar-hidden">
+              <div className="live-field">
+                <Label id="live-resolution-label">分辨率</Label>
+                <Tabs value={String(draft.width)} className="gap-0" onValueChange={value => {
+                  if (value === "1920" || value === "2560") change("width", value === "1920" ? 1920 : 2560, true);
+                }}>
+                  <TabsList id="live-resolution" aria-labelledby="live-resolution-label" className={`${SEGMENTED_LIST_CLASS} w-full grid-cols-2`}>
+                    <TabsIndicator className="model-category-indicator" />
+                    <TabsTrigger id="live-resolution-1k" value="1920" title="1920 × 1080" disabled={active} className={SEGMENTED_TAB_CLASS}>1K</TabsTrigger>
+                    <TabsTrigger id="live-resolution-2k" value="2560" title="2560 × 1440" disabled={active} className={SEGMENTED_TAB_CLASS}>2K</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              {state.errorCode === "port-in-use" && <Field id="live-port" label="本地端口"><Input id="live-port" disabled={active} type="number" min={1024} max={65535} value={draft.port} onChange={event => change("port", Number(event.target.value))} onBlur={() => void save()} /></Field>}
+              <div className="live-output"><span>RTMP 拉流地址</span><div><code>{`rtmp://127.0.0.1:${state.settings.port}/katarune/live`}</code><TooltipIconButton tooltip="复制拉流地址" onClick={() => { void navigator.clipboard.writeText(`rtmp://127.0.0.1:${state.settings.port}/katarune/live`).catch(report); }}><CopyIcon size={16} /></TooltipIconButton></div></div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

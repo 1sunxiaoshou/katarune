@@ -13,7 +13,7 @@ import { CharacterPackageService } from "../src/main/characters/characterPackage
 import { AvatarService } from "../src/main/avatar/avatarService";
 import { BilibiliConnection } from "../src/main/live/bilibili";
 import { DouyinConnection } from "../src/main/live/douyin";
-import { LiveOperationError } from "../src/main/live/errors";
+import { LiveOperationError, LivePortInUseError } from "../src/main/live/errors";
 import { LiveMedia } from "../src/main/live/media";
 import { LiveService } from "../src/main/live/liveService";
 import { DEFAULT_LIVE_SETTINGS, type LiveEvent } from "../src/shared/live";
@@ -46,7 +46,9 @@ class TestConnection extends BilibiliConnection {
 }
 class TestMedia extends LiveMedia {
   blockPreflight = false;
+  portInUse = false;
   override async preflight(_settings: unknown, signal: AbortSignal) {
+    if (this.portInUse) throw new LivePortInUseError();
     if (this.blockPreflight) await new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
   }
   override async start() { operations.push("media-start"); }
@@ -74,7 +76,7 @@ try {
   const model = database.createModelConfig({ providerConfigId: provider.id, modelType: "languageModel", modelId: "test-chat", displayName: null, metadata: null, settings: {}, enabled: true });
   const speech = database.createModelConfig({ providerConfigId: provider.id, modelType: "speechModel", modelId: "test-speech", displayName: null, metadata: null, settings: { defaultVoiceId: "test-voice" }, enabled: true });
   database.updateCharacter({ id: character.id, modelConfigId: model.id, speechModelConfigId: speech.id, speechVoice: "test-voice" });
-  database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: character.id, replyIntervalSeconds: 5, idleSeconds: 15, proactive: false });
+  database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: character.id, width: 1280, replyIntervalSeconds: 5, idleSeconds: 15, thankGifts: false, proactive: false });
   let now = 100_000;
   let failNextRound = false;
   const calls: { text: string; signal: AbortSignal; controller: ReadableStreamDefaultController<UIMessageChunk> }[] = [];
@@ -114,6 +116,22 @@ try {
       } }), generateTitle: async () => ({ title: "沿用会话标题机制" }),
     },
   });
+  assert.equal(service.status.settings.replyIntervalSeconds, 15);
+  assert.equal(service.status.settings.idleSeconds, 60);
+  assert.equal(service.status.settings.thankGifts, true);
+  assert.equal(service.status.settings.width, 1920, "The retired 720p option uses the default 1K output");
+  await service.updateSettings({ ...service.status.settings, instructions: "合成直播说明", replyIntervalSeconds: 5, idleSeconds: 15, thankGifts: false });
+  assert.equal(database.getLiveConfig().settings.replyIntervalSeconds, 15);
+  assert.equal(database.getLiveConfig().settings.idleSeconds, 60);
+  assert.equal(database.getLiveConfig().settings.thankGifts, true);
+  assert.equal(service.status.settings.instructions, "合成直播说明");
+  assert.equal(service.status.settings.proactive, false);
+  media.portInUse = true;
+  assert.equal((await service.start()).errorCode, "port-in-use");
+  assert.equal(service.status.phase, "error");
+  assert.ok(!avatar.liveActive);
+  await service.updateSettings({ ...service.status.settings, port: 19445 });
+  media.portInUse = false;
   const emit = (id: string, kind: "danmaku" | "gift" = "danmaku", fields: Partial<LiveEvent> = {}) => connection.onEvent({ id, kind, roomId: "101", timestamp: now, userId: "viewer", userName: "观众", text: id, giftId: kind === "gift" ? "1" : "", giftName: kind === "gift" ? "合成礼物" : "", quantity: kind === "gift" ? 1 : 0, ...fields } satisfies LiveEvent);
   const interactions = (index: number) => {
     const message = JSON.parse(calls[index]!.text);
@@ -126,6 +144,7 @@ try {
   const beforeMissingConnection = database.listThreads(character.id).threads.length;
   const disconnectedPreview = await service.start();
   assert.equal(disconnectedPreview.phase, "running");
+  assert.equal(disconnectedPreview.errorCode, null);
   assert.equal(disconnectedPreview.connection, "disconnected"); assert.equal(disconnectedPreview.error, null);
   assert.ok(avatar.liveActive); assert.ok(operations.includes('media-start'));
   now += 60000; await delay(650);
@@ -160,7 +179,7 @@ try {
   assert.ok(!calls[0]!.text.includes("未确认开播"));
   now += 60_000; emit("忙时收到", "danmaku", { id: "web:danmaku:synthetic", userId: "0", userName: "" }); await delay(650); assert.equal(calls.length, 1);
   avatar.playbackBusy = true; finish(); await until(() => !service!.status.generating);
-  now += 6000; await delay(650); assert.equal(calls.length, 1, "Playback completion must gate the next round");
+  now += 16000; await delay(650); assert.equal(calls.length, 1, "Playback completion must gate the next round");
   avatar.playbackBusy = false; await until(() => calls.length === 2); assert.ok(calls[1]!.text.includes("忙时收到"));
   assert.deepEqual(interactions(1), { 弹幕: [{ 观众: { platform: "bilibili", id: null, name: null }, 内容: "忙时收到" }] });
   const rows = database.loadThreadMessages(first, character.id).messages;
@@ -176,7 +195,7 @@ try {
   await service.updateSettings({ ...service.status.settings, proactive: true });
   await until(() => calls.length === 3); assert.ok(calls[2]!.text.includes("暂时没有"));
   connection.broadcast("offline"); await until(() => !service!.status.generating); assert.ok(calls[2]!.signal.aborted); assert.ok(avatar.resets > 0);
-  connection.broadcast("live"); emit("停止前"); now += 6000; await until(() => calls.length === 4);
+  connection.broadcast("live"); emit("停止前"); now += 16000; await until(() => calls.length === 4);
   await Promise.all([service.stop(), service.stop()]); assert.ok(calls[3]!.signal.aborted); assert.equal(service.status.phase, "stopped"); assert.ok(avatar.restored);
   assert.ok(operations.indexOf("live-stop") < operations.indexOf("media-stop"));
   const savedThreads = database.listThreads(character.id).threads.length;
@@ -189,7 +208,9 @@ try {
   }
   await service.start();
   const proactiveThread = service.status.threadId!;
-  failNextRound = true; connection.broadcast("live"); now += 16_000;
+  failNextRound = true; connection.broadcast("live"); now += 59_000;
+  await delay(650); assert.equal(calls.length, 4, "Proactive hosting must wait for the default idle threshold");
+  now += 1_000;
   await until(() => calls.length === 5 && !service!.status.generating);
   assert.ok(calls[4]!.text.includes("暂时没有"));
   await service.stop();
@@ -283,7 +304,9 @@ try {
   await assert.rejects(service.updateSettings({ ...service.status.settings, platform: 'bilibili', connectionMode: 'official' }), /停止直播/);
   douyin.onState({ connection: 'connected', broadcast: 'live', roomId: '102', roomName: '合成抖音房间', roomCover: '', roomDescription: '' });
   douyin.onEvent({ platform: 'douyin', userIdKind: 'uid', id: 'douyin:chat:1', kind: 'danmaku', roomId: '102', timestamp: now, userId: 'viewer', userName: '观众', text: '抖音合成弹幕', giftId: '', giftName: '', quantity: 0 });
-  now += 6000;
+  now += 14000; await delay(650);
+  assert.equal(calls.length, 5, "Viewer replies must honor the default minimum interval");
+  now += 1000;
   await until(() => calls.length === 6);
   assert.deepEqual(interactions(5), { 弹幕: [{ 观众: { platform: 'douyin', id: 'douyin:uid:viewer', name: '观众' }, 内容: '抖音合成弹幕' }] });
   await service.stop(); await service.disconnect();

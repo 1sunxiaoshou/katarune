@@ -1,7 +1,7 @@
 import { OperationRejected } from "../diagnostics/operationRejected";
 import { randomUUID } from "node:crypto";
 import { readUIMessageStream, validateUIMessages, type UIMessage } from "ai";
-import { liveCredentialsSchema, liveWebCredentialsSchema, liveSettingsSchema, type LiveEvent, type LiveState } from "../../shared/live";
+import { DEFAULT_LIVE_SETTINGS, liveCredentialsSchema, liveWebCredentialsSchema, liveSettingsSchema, type LiveEvent, type LiveState } from "../../shared/live";
 import { normalizeWebCookie } from "./bilibiliWeb";
 import { createChatService, type ChatServiceAiRuntime } from "../ai/chatService";
 import type { DatabaseRuntime } from "../database/database";
@@ -16,8 +16,16 @@ import type { DouyinLoginBrowser } from "./douyinLoginProtocol";
 import type { LiveMedia } from "./media";
 import type { AiRuntime } from "../ai/runtime";
 import { resolveCharacterSpeechVoice } from "../../shared/speechSelection";
-import { LiveOperationError } from "./errors";
+import { LiveOperationError, LivePortInUseError } from "./errors";
 import { liveOutputProfile } from "./outputProfile";
+
+function parseLiveSettings(value: unknown) {
+  const settings = liveSettingsSchema.parse(value);
+  // These policies use product defaults now; keep the stored shape without a data migration.
+  return { ...settings, width: settings.width === 1280 ? DEFAULT_LIVE_SETTINGS.width : settings.width,
+    replyIntervalSeconds: DEFAULT_LIVE_SETTINGS.replyIntervalSeconds,
+    idleSeconds: DEFAULT_LIVE_SETTINGS.idleSeconds, thankGifts: DEFAULT_LIVE_SETTINGS.thankGifts };
+}
 
 export function clipLiveHistory(messages: UIMessage[], limit = 24_000): UIMessage[] {
   let start = messages.length, size = 0;
@@ -89,10 +97,10 @@ export class LiveService {
   constructor(private readonly options: Options) {
     this.now = options.now ?? Date.now;
     const config = options.database.getLiveConfig();
-    this.state = { settings: config.settings, credentialsConfigured: (config.settings.platform === "douyin" || config.settings.connectionMode === "web") ? !!config.settings.webRoomId : config.credentialRef !== null,
+    this.state = { settings: parseLiveSettings(config.settings), credentialsConfigured: (config.settings.platform === "douyin" || config.settings.connectionMode === "web") ? !!config.settings.webRoomId : config.credentialRef !== null,
       officialCredentialsConfigured: config.credentialRef !== null, webCredentialsConfigured: (config.settings.platform === "douyin" ? config.douyinCredentialRef : config.webCredentialRef) !== null,
       phase: "stopped", connection: "disconnected", broadcast: "unknown", roomId: "", roomName: "", roomCover: "", roomDescription: "",
-      threadId: null, runId: null, monitor: false, generating: false, revision: 0, events: [], error: null };
+      threadId: null, runId: null, monitor: false, generating: false, revision: 0, events: [], error: null, errorCode: null };
     this.connection = options.connection ?? new BilibiliConnection(options.fetcher);
     this.douyin = options.douyinConnection ?? new DouyinConnection(options.fetcher);
     this.login = new LiveLoginService(options.database, options.credentials, options.fetcher, Date.now, options.douyinLoginBrowser);
@@ -135,18 +143,18 @@ export class LiveService {
   get active() { return this.state.phase === "starting" || this.state.phase === "running" || this.state.phase === "stopping"; }
   subscribe(listener: (state: LiveState) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private change(patch: Partial<LiveState>) {
-    this.state = { ...this.state, ...patch, revision: this.state.revision + 1 };
+    this.state = { ...this.state, ...patch, ...(patch.error === null ? { errorCode: null } : {}), revision: this.state.revision + 1 };
     for (const listener of this.listeners) listener(this.status);
   }
   private failure(event: string, error: unknown) {
     if (error instanceof OperationRejected) {
       diagnostic("warn", event.replace(/-failed$/, "-rejected"), { outcome: "rejected", reasonCode: error.reasonCode });
-      this.change({ error: `${error.message}（原因码：${error.reasonCode}）` });
+      this.change({ error: `${error.message}（原因码：${error.reasonCode}）`, errorCode: null });
       return;
     }
     const incident = diagnostic("error", event, {}, error);
     const message = error instanceof LiveOperationError ? error.message : "直播操作失败，请检查配置或重新启动。";
-    this.change({ error: `${message}${incident ? `（故障编号：${incident}）` : ""}` });
+    this.change({ error: `${message}${incident ? `（故障编号：${incident}）` : ""}`, errorCode: error instanceof LivePortInUseError ? "port-in-use" : null });
   }
   private async changeConnection(action: () => Promise<void> | void) {
     if (this.active) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接配置。");
@@ -187,7 +195,7 @@ export class LiveService {
     }); return this.getState();
   }
   async updateSettings(value: unknown) {
-    const settings = liveSettingsSchema.parse(value), previous = this.state.settings;
+    const settings = parseLiveSettings(value), previous = this.state.settings;
     if (settings.platform === "douyin" && settings.connectionMode !== "web") throw new OperationRejected("invalid-input", "抖音使用网页连接。");
     // Room IDs are discovered for the selected method and must never cross platforms.
     if (settings.platform !== previous.platform || settings.connectionMode !== previous.connectionMode) settings.webRoomId = "";
@@ -222,7 +230,7 @@ export class LiveService {
           return;
         }
         if (!config.settings.webRoomId) {
-          const settings = liveSettingsSchema.parse({ ...config.settings, webRoomId: roomId });
+          const settings = parseLiveSettings({ ...config.settings, webRoomId: roomId });
           this.options.database.saveLiveConfig(settings); this.change({ settings, credentialsConfigured: true });
         }
         await this.selectedConnection.connectWeb({ roomId, cookie: credentials.cookie }, combined);
@@ -260,7 +268,7 @@ export class LiveService {
       const config = this.options.database.getLiveConfig();
       const changedAccount = result.platform === "bilibili" ? config.webCredentialRef !== previous.webCredentialRef : config.douyinCredentialRef !== previous.douyinCredentialRef;
       if (changedAccount && config.settings.platform === result.platform && config.settings.connectionMode === "web") {
-        const settings = { ...config.settings, webRoomId: "" };
+        const settings = parseLiveSettings({ ...config.settings, webRoomId: "" });
         this.options.database.saveLiveConfig(settings);
         this.change({ settings, credentialsConfigured: false });
       }

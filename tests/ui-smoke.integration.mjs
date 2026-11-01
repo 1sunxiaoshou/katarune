@@ -161,6 +161,7 @@ let threads = [
 ];
 const storedMessages = new Map();
 let toolOnlyRequests = 0;
+let memoryToolRequests = 0;
 let activeChatStreamCount = 0;
 let maximumConcurrentChatStreams = 0;
 let maximumConcurrentChatCharacters = 0;
@@ -585,8 +586,8 @@ function registerMockHandlers() {
           toolOnlyRequests += 1;
           if (request.messages.at(-1)?.role === "user" && JSON.stringify(request.messages.at(-1)).includes("测试工具终态")) {
             writer.write({ type: "start-step" });
-            writer.write({ type: "tool-input-available", toolCallId: "terminal-memory", toolName: "memory_search", input: { query: "终态测试" } });
-            writer.write({ type: "tool-output-available", toolCallId: "terminal-memory", output: { status: "ok", results: [] } });
+            writer.write({ type: "tool-input-available", toolCallId: "terminal-memory", toolName: "memory", input: { request: { action: "search", queries: ["终态测试"], kind: null } } });
+            writer.write({ type: "tool-output-available", toolCallId: "terminal-memory", output: { status: "ok", searches: [{ query: "终态测试", results: [], truncated: false }] } });
             writer.write({ type: "finish-step" });
             return;
           }
@@ -619,73 +620,86 @@ function registerMockHandlers() {
         }
         const shouldRenderMemoryTool =
           serializedMessages.includes("测试记忆工具") &&
-          !serializedMessages.includes("memory_search");
+          !serializedMessages.includes('"memory"') && !serializedMessages.includes('"tool-memory"');
         if (shouldRenderMemoryTool) {
+          memoryToolRequests += 1;
           writer.write({ type: "start-step" });
           const toolCalls = [
+            { id: "memory-list-call", action: "list",
+              input: { kind: null, page: 2, pageSize: 2, sortBy: "updatedAt", order: "desc" },
+              output: { page: 2, pageSize: 2, total: 42, hasMore: true, entries: [
+                { id: "00000000-0000-4000-8000-000000000011", kind: "person", title: "示例人物", day: null, isUser: true, updatedAt: "2026-10-30T12:00:00.000Z", revision: 1 },
+                { id: "00000000-0000-4000-8000-000000000012", kind: "event", title: "示例纪事", day: null, isUser: false, updatedAt: "2026-10-29T12:00:00.000Z", revision: 2 },
+              ] } },
+            { id: "memory-empty-list-call", action: "list",
+              input: { kind: null, page: 99, pageSize: 2, sortBy: "updatedAt", order: "desc" },
+              output: { page: 99, pageSize: 2, total: 42, hasMore: false, entries: [] } },
             {
               id: "memory-search-call",
-              name: "memory_search",
-              input: { query: "不应显示的搜索词", kind: null },
+              action: "search",
+              input: { queries: ["不应显示的搜索词", "另一个不应显示的搜索词"], kind: null },
               output: {
                 status: "ok",
-                results: [
+                searches: [{ query: "不应显示的搜索词", results: [
                   {
                     id: "00000000-0000-4000-8000-000000000011", kind: "person", title: "示例人物", isUser: true,
                     body: "不应显示的记忆正文", revision: 1, bodyTruncated: false,
                   },
-                ],
-                truncated: false,
+                ], truncated: true }, { query: "另一个不应显示的搜索词", results: [], truncated: false }],
               },
             },
             {
               id: "memory-get-call",
-              name: "memory_read",
-              input: { id: "00000000-0000-4000-8000-000000000011" },
+              action: "read",
+              input: { ids: ["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"] },
               output: {
-                status: "found",
+                results: [{ id: "00000000-0000-4000-8000-000000000011", status: "found",
                 entry: { id: "00000000-0000-4000-8000-000000000011", kind: "person", title: "示例人物", isUser: true,
                   body: "不应显示的读取正文", revision: 1, bodyTruncated: false },
+                }, { id: "00000000-0000-4000-8000-000000000012", status: "not_found" }],
               },
             },
             {
               id: "memory-save-call",
-              name: "memory_save",
+              action: "save",
               input: {
                 id: "00000000-0000-4000-8000-000000000011", revision: 1,
                 kind: "person", title: "示例人物", body: "不应显示的保存正文", isUser: true,
               },
               output: {
                 status: "saved",
-                id: "00000000-0000-4000-8000-000000000011", revision: 2,
+                id: "00000000-0000-4000-8000-000000000011", revision: 2, title: "示例人物",
               },
             },
-            { id: "memory-forget-call", name: "memory_forget",
-              input: { id: "00000000-0000-4000-8000-000000000011", revision: 2 },
-              output: { status: "forgotten", id: "00000000-0000-4000-8000-000000000011", revision: 3 } },
-            { id: "memory-conflict-call", name: "memory_save",
+            { id: "memory-forget-call", action: "forget",
+              input: { entries: [{ id: "00000000-0000-4000-8000-000000000011", revision: 2 },
+                { id: "00000000-0000-4000-8000-000000000012", revision: 1 }] },
+              output: { results: [{ status: "forgotten", id: "00000000-0000-4000-8000-000000000011", revision: 3, title: "示例人物" },
+                { status: "conflict", id: "00000000-0000-4000-8000-000000000012", title: "示例纪事", message: "请重新读取。" }] } },
+            { id: "memory-conflict-call", action: "save",
               input: { id: "00000000-0000-4000-8000-000000000011", revision: 1, kind: "person", title: "示例人物", body: "过时正文", isUser: true },
               output: { status: "conflict", message: "请重新读取。" } },
-            { id: "memory-duplicate-call", name: "memory_save",
+            { id: "memory-duplicate-call", action: "save",
               input: { id: null, revision: null, kind: "person", title: "示例人物", body: "重复正文", isUser: true },
               output: { status: "duplicate", existing: { id: "00000000-0000-4000-8000-000000000011", title: "示例人物" }, message: "请先读取。" } },
           ];
           for (const toolCall of toolCalls) {
+            const input = { request: { action: toolCall.action, ...toolCall.input } };
             writer.write({
               type: "tool-input-start",
               toolCallId: toolCall.id,
-              toolName: toolCall.name,
+              toolName: "memory",
             });
             writer.write({
               type: "tool-input-delta",
               toolCallId: toolCall.id,
-              inputTextDelta: JSON.stringify(toolCall.input),
+              inputTextDelta: JSON.stringify(input),
             });
             writer.write({
               type: "tool-input-available",
               toolCallId: toolCall.id,
-              toolName: toolCall.name,
-              input: toolCall.input,
+              toolName: "memory",
+              input,
             });
             writer.write({
               type: "tool-output-available",
@@ -693,8 +707,8 @@ function registerMockHandlers() {
               output: toolCall.output,
             });
           }
-          writer.write({ type: "tool-input-error", toolCallId: "memory-invalid-input", toolName: "memory_search", input: { query: 42 }, errorText: "Invalid input for tool memory_search: query: expected string" });
-          writer.write({ type: "tool-output-error", toolCallId: "memory-invalid-input", errorText: "Invalid input for tool memory_search: query: expected string" });
+          writer.write({ type: "tool-input-error", toolCallId: "memory-invalid-input", toolName: "memory", input: { request: { action: "search", queries: 42 } }, errorText: "Invalid input for tool memory: 不应显示的错误参数正文" });
+          writer.write({ type: "tool-output-error", toolCallId: "memory-invalid-input", errorText: "Invalid input for tool memory: 不应显示的错误参数正文" });
           writer.write({ type: "finish-step" });
           writer.write({ type: "start-step" });
         }
@@ -1128,20 +1142,30 @@ async function scrollLiveSettingIntoView(window, selector) {
 
 async function clickSelector(window, selector) {
   await waitForSelector(window, selector);
-  const point = await window.webContents.executeJavaScript(`(() => {
-    const element = document.querySelector(${JSON.stringify(selector)});
-    if (element === null) {
-      throw new Error('Missing element: ' + ${JSON.stringify(selector)});
-    }
-    const rect = element.getBoundingClientRect();
-    window.testClickHandled = new Promise(resolve => {
-      document.addEventListener('mouseup', () => requestAnimationFrame(() => resolve(true)), { once: true, capture: true });
-    });
-    return {
-      x: Math.round(rect.left + rect.width / 2),
-      y: Math.round(rect.top + rect.height / 2),
+  // A new conversation moves the composer from the docked footer to the
+  // welcome layout. DOM presence alone does not make its coordinates stable.
+  const point = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + ${UI_WAIT_TIMEOUT_MS};
+    let previousElement, previousBounds, stableFrames = 0;
+    const check = () => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      const rect = element?.getBoundingClientRect();
+      const bounds = rect && [rect.x, rect.y, rect.width, rect.height];
+      const stable = element === previousElement && bounds && previousBounds && bounds.every((value, index) => Math.abs(value - previousBounds[index]) < 0.5);
+      stableFrames = stable ? stableFrames + 1 : 0;
+      if (rect?.width > 0 && rect.height > 0 && stableFrames >= 2) {
+        window.testClickHandled = new Promise(resolveClick => {
+          document.addEventListener('mouseup', () => requestAnimationFrame(() => resolveClick(true)), { once: true, capture: true });
+        });
+        resolve({x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)});
+        return;
+      }
+      if (Date.now() > deadline) { reject(new Error('Click target did not settle: ' + ${JSON.stringify(selector)})); return; }
+      previousElement = element; previousBounds = bounds;
+      requestAnimationFrame(check);
     };
-  })()`);
+    requestAnimationFrame(check);
+  })`);
   window.webContents.sendInputEvent({ type: "mouseMove", ...point });
   window.webContents.sendInputEvent({
     type: "mouseDown",
@@ -1156,6 +1180,12 @@ async function clickSelector(window, selector) {
     ...point,
   });
   await window.webContents.executeJavaScript('window.testClickHandled');
+}
+
+async function openNewConversation(window) {
+  await clickSelector(window, 'button[aria-label="新对话"]');
+  await waitForSelector(window, '.aui-thread-welcome-root');
+  await waitForSelector(window, '.aui-composer-input:not(:disabled)');
 }
 
 function createTestWindow(size = { width: 1280, height: 900 }) {
@@ -1294,7 +1324,7 @@ async function run() {
       };
       await clickSelector(window, '[data-testid="live-launcher"]');
       await waitForSelector(window, '[data-testid="live-page"]');
-      await waitForText(window, '.live-output', 'rtmp://127.0.0.1:1935/katarune/live');
+      await waitForSelector(window, '#live-instructions');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="live-character-name"]')?.textContent`), character.name);
       await waitForSelector(window, '[data-testid="live-connect-official"]');
       await waitForSelector(window, '[data-testid="live-connect-web"]');
@@ -1316,48 +1346,92 @@ async function run() {
       await waitUntil('character popup dismisses and restores trigger focus', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu') && document.activeElement === document.querySelector('[data-testid="live-character-trigger"]')`));
       await clickSelector(window, '[data-testid="live-character-trigger"]');
       await waitForSelector(window, '.live-character-menu');
-      await clickSelector(window, '.live-parameters [data-slot="card-title"]');
+      await clickSelector(window, '#live-tab-interaction');
       await waitUntil('outside click dismisses character popup', () => window.webContents.executeJavaScript(`!document.querySelector('.live-character-menu')`));
       await waitForSelector(window, '[data-testid="live-connect-official"]');
       await scrollLiveSettingIntoView(window, 'label[for="live-proactive"]');
       await clickSelector(window, 'label[for="live-proactive"]');
-      await waitUntil('proactive switch hides idle setting', () => window.webContents.executeJavaScript(`!document.querySelector('#live-idle-seconds')`));
+      await waitUntil('proactive switch persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.proactive)`));
       await clickSelector(window, 'label[for="live-proactive"]');
-      await waitForSelector(window, '#live-idle-seconds');
-      await scrollLiveSettingIntoView(window, '#live-output-settings');
-      await clickSelector(window, '#live-output-settings');
-      await waitForSelector(window, '#live-resolution');
-      assert.ok(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution').textContent.includes('1080p')`));
-      writeFileSync(join(projectRoot, '.test-dist', 'live-page-output.png'), (await window.webContents.capturePage()).toPNG());
-      await scrollLiveSettingIntoView(window, '#live-resolution');
-      await clickSelector(window, '#live-resolution');
-      await waitForSelector(window, '[data-testid="live-resolution-option-1920"]');
-      await new Promise(resolve=>setTimeout(resolve,150));
-      writeFileSync(join(projectRoot, '.test-dist', 'live-resolution-menu.png'), (await window.webContents.capturePage()).toPNG());
-      const resolutionMenuBounds = await window.webContents.executeJavaScript(`(() => {
-        const trigger=document.querySelector('#live-resolution').getBoundingClientRect();
-        const popup=document.querySelector('[data-testid="live-resolution-option-1920"]').closest('[data-slot="popover-content"]').getBoundingClientRect();
-        const x=Math.max(0,Math.floor(Math.min(trigger.left,popup.left)-4)), y=Math.max(0,Math.floor(Math.min(trigger.top,popup.top)-4));
-        return {x,y,width:Math.ceil(Math.max(trigger.right,popup.right)-x+4),height:Math.ceil(Math.max(trigger.bottom,popup.bottom)-y+4)};
+      await waitUntil('proactive switch re-enables', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.proactive)`));
+      await window.webContents.executeJavaScript(`(() => {
+        const input=document.querySelector('#live-instructions');input.focus();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'本场聊游戏，礼物集中感谢。');
+        input.dispatchEvent(new Event('input',{bubbles:true}));
       })()`);
-      writeFileSync(join(projectRoot, '.test-dist', 'live-resolution-menu-detail.png'), (await window.webContents.capturePage(resolutionMenuBounds)).toPNG());
-      await clickSelector(window, '[data-testid="live-resolution-option-1920"]');
-      await waitUntil('resolution selection persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===1920)`));
-      await waitUntil('resolution menu closes after selection', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-resolution-option-2560"]')`));
-      await window.webContents.executeJavaScript(`document.querySelector('#live-resolution').focus()`);
-      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Down'});
-      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Down'});
-      await waitForSelector(window, '[data-testid="live-resolution-option-2560"]');
-      await waitUntil('resolution list receives keyboard focus', () => window.webContents.executeJavaScript(`document.activeElement===document.querySelector('[aria-label="分辨率选项"]')`));
-      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Down'});
-      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Down'});
+      await clickSelector(window, '#live-tab-picture');
+      await waitUntil('instructions save on leaving the tab', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.instructions==='本场聊游戏，礼物集中感谢。')`));
+      await waitForSelector(window, '#live-background');
+      await clickSelector(window, 'label[for="live-subtitles"]');
+      await waitUntil('subtitles setting persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.subtitles)`));
+      await clickSelector(window, '#live-tab-sound');
+      await waitForSelector(window, '#live-voice-volume');
+      await window.webContents.executeJavaScript(`(() => {
+        const input=document.querySelector('#live-voice-volume');input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'65');
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      await waitUntil('numeric volume updates the slider', () => window.webContents.executeJavaScript(`document.querySelector('#live-voice-volume-slider input[type="range"]').value==='65'`));
+      await window.webContents.executeJavaScript(`document.querySelector('#live-music-volume-slider input[type="range"]').focus()`);
+      for (const [keyCode,expected] of [['Home',0],['End',100]]) {
+        window.webContents.sendInputEvent({type:'keyDown',keyCode});
+        window.webContents.sendInputEvent({type:'keyUp',keyCode});
+        await waitUntil('keyboard volume reaches its boundary',()=>window.webContents.executeJavaScript(`document.querySelector('#live-music-volume').value==='${expected}' && window.katarune.getLiveState().then(state=>state.settings.musicVolume===${expected / 100})`));
+      }
+      const volumeDrag = await window.webContents.executeJavaScript(`(() => {
+        const control=document.querySelector('#live-music-volume-slider [data-slot="slider-control"]').getBoundingClientRect();
+        const thumb=document.querySelector('#live-music-volume-slider [data-slot="slider-thumb"]').getBoundingClientRect();
+        return {from:{x:Math.round(thumb.left+thumb.width/2),y:Math.round(thumb.top+thumb.height/2)},to:{x:Math.round(control.left+thumb.width/2+(control.width-thumb.width)*0.35),y:Math.round(control.top+control.height/2)}};
+      })()`);
+      window.webContents.sendInputEvent({type:'mouseMove',...volumeDrag.from});
+      window.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...volumeDrag.from});
+      window.webContents.sendInputEvent({type:'mouseMove',modifiers:['leftButtonDown'],...volumeDrag.to});
+      await waitUntil('drag updates the percentage readout',()=>window.webContents.executeJavaScript(`document.querySelector('#live-music-volume').value==='35'`));
+      window.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...volumeDrag.to});
+      await waitUntil('drag release saves the volume',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.musicVolume===0.35&&state.settings.voiceVolume===0.65)`));
+      await new Promise(resolve=>setTimeout(resolve,250));
+      writeFileSync(join(projectRoot,'.test-dist','live-sound-sliders.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.documentElement.classList.add('dark')`);
+      await new Promise(resolve=>setTimeout(resolve,250));
+      writeFileSync(join(projectRoot,'.test-dist','live-sound-sliders-dark.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.documentElement.classList.remove('dark')`);
+      await clickSelector(window, '#live-tab-output');
+      await waitUntil('volume saves on leaving the tab', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.voiceVolume===0.65)`));
+      await waitForSelector(window, '#live-resolution');
+      await waitForText(window, '.live-output', 'rtmp://127.0.0.1:1935/katarune/live');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-port')===null`),true);
+      changeLiveFixture({phase:'error',error:'直播本地端口已被占用，请在输出 Tab 中修改本地端口。',errorCode:'port-in-use'});
+      await waitForSelector(window, '#live-port');
+      await scrollLiveSettingIntoView(window, '#live-port');
+      await window.webContents.executeJavaScript(`(() => {
+        const input=document.querySelector('#live-port');input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'19445');
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      await clickSelector(window, '#live-tab-interaction');
+      await waitUntil('port conflict can be corrected', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.port===19445)`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-instructions').value`),'本场聊游戏，礼物集中感谢。');
+      changeLiveFixture({phase:'stopped',error:null,errorCode:null});
+      await clickSelector(window, '[aria-label="关闭通知"]');
+      await clickSelector(window, '#live-tab-output');
+      await waitForText(window, '.live-output code', '19445');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-port')===null`),true);
+      await waitUntil('default resolution is selected',()=>window.webContents.executeJavaScript(`document.querySelector('#live-resolution-1k').getAttribute('aria-selected')==='true'`));
+      await clickSelector(window, '#live-resolution-2k');
+      await waitUntil('2K resolution persists',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`));
+      await clickSelector(window, '#live-resolution-1k');
+      await waitUntil('1K resolution persists',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===1920)`));
+      await window.webContents.executeJavaScript(`document.querySelector('#live-resolution-1k').focus()`);
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});
+      await waitUntil('resolution keyboard focus moves',()=>window.webContents.executeJavaScript(`document.activeElement===document.querySelector('#live-resolution-2k')`));
       window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      window.webContents.sendInputEvent({type:'char',keyCode:'\r'});
       window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
-      await waitUntil('keyboard resolution selection persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`));
-      await waitUntil('keyboard selection closes the menu', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="live-resolution-option-2560"]')`));
-      await scrollLiveSettingIntoView(window, '#live-output-settings');
-      await clickSelector(window, '#live-output-settings');
-      await window.webContents.executeJavaScript(`document.querySelector('.live-settings').scrollTop=0`);
+      await waitUntil('keyboard resolution selection persists',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`));
+      await new Promise(resolve=>setTimeout(resolve,250));
+      writeFileSync(join(projectRoot,'.test-dist','live-page-output.png'),(await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '#live-tab-interaction');
       await clickSelector(window, '.live-monitor');
       await waitUntil('local monitoring toggled', () => window.webContents.executeJavaScript(`document.querySelector('.live-monitor')?.getAttribute('aria-pressed') === 'true'`));
       await window.webContents.executeJavaScript(`document.querySelector('.live-settings textarea').value`);
@@ -1579,6 +1653,32 @@ async function run() {
       // A missing segment must rejoin at the next independently decodable fragment.
       const rejoined={...fragments[0],sequence:200};window.webContents.send(LIVE_CHANNELS.preview,rejoined);
       await waitUntil('preview rejoins after backpressure',()=>livePreviewAcks.includes(200));
+      await window.webContents.executeJavaScript(`window.liveVideoBeforeTabSwitch=document.querySelector('.live-preview-frame');void 0`);
+      window.setSize(760,520);
+      for (const [tab,control] of [['interaction','#live-instructions'],['picture','#live-background'],['sound','#live-voice-volume'],['output','#live-resolution']]) {
+        await clickSelector(window, `#live-tab-${tab}`);
+        await waitForSelector(window, control);
+        assert.equal(await window.webContents.executeJavaScript(`(() => {
+          const tabs=[...document.querySelectorAll('[aria-label="直播参数分类"] [role="tab"]')];
+          return tabs.length===4 && tabs.every(tab=>{const r=tab.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}) && document.querySelector('.live-preview-frame')===window.liveVideoBeforeTabSwitch;
+        })()`),true,'Tabs must remain visible and preserve the running preview');
+        await new Promise(resolve=>setTimeout(resolve,100));
+        writeFileSync(join(projectRoot,'.test-dist',`live-tab-${tab}-compact.png`),(await window.webContents.capturePage()).toPNG());
+      }
+      assert.equal(await window.webContents.executeJavaScript(`[...document.querySelectorAll('#live-resolution [role=\"tab\"]')].every(tab=>tab.getAttribute('aria-disabled')==='true')`),true,'Running output resolution stays locked');
+      await clickSelector(window, '#live-resolution-1k');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`),true,'A disabled resolution tab must not change the running output');
+      await clickSelector(window, '#live-tab-interaction');
+      await window.webContents.executeJavaScript(`document.querySelector('#live-tab-interaction').focus()`);
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});
+      await waitUntil('keyboard focuses the next parameter tab',()=>window.webContents.executeJavaScript(`document.activeElement===document.querySelector('#live-tab-picture')`));
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      window.webContents.sendInputEvent({type:'char',keyCode:'\r'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+      await waitUntil('keyboard switches parameter tabs',()=>window.webContents.executeJavaScript(`document.querySelector('#live-tab-picture').getAttribute('aria-selected')==='true'`));
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.voiceVolume===0.65&&!state.settings.subtitles&&state.settings.instructions==='本场聊游戏，礼物集中感谢。')`),true);
+      window.setSize(1280,900);
       await clickSelector(window, '[aria-label="返回对话"]');
       await waitForSelector(window, '[data-testid="memory-launcher"]');
     });
@@ -1982,8 +2082,8 @@ async function run() {
     });
 
     await runStep("render private memory tool status", async () => {
-      await clickSelector(window, 'button[aria-label="新对话"]');
-      await waitForSelector(window, '.aui-composer-input');
+      const requestsBefore = memoryToolRequests;
+      await openNewConversation(window);
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(
@@ -1993,29 +2093,46 @@ async function run() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitUntil('memory request reaches the stream', () => memoryToolRequests === requestsBefore + 1);
       await expandLatestToolGroup(window);
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
-        "已搜索记忆",
+        "搜索记忆 · 1 条",
       );
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
-        "已读取记忆",
+        "读取记忆 · 2 条",
       );
       await waitForText(
         window,
         '[data-slot="aui_thread-viewport"]',
-        "已保存记忆",
+        "保存记忆 · 1 条",
       );
-      await waitForText(window, '[data-slot="aui_thread-viewport"]', '已遗忘记忆');
-      await waitForText(window, '[data-slot="aui_thread-viewport"]', '记忆已变化，正在等待重新读取');
-      await waitForText(window, '[data-slot="aui_thread-viewport"]', '已有相关记忆，正在等待整理原条目');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '遗忘记忆 · 2 条');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '版本冲突');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '已有相关记忆');
+      await waitForText(window, '[data-tool-call-id="memory-get-call"]', '2 条 · 1 条未找到');
+      await waitForText(window, '[data-tool-call-id="memory-forget-call"]', '2 条 · 1 条未完成');
+      await waitForText(window, '[data-tool-call-id="memory-list-call"]', '查看记忆 · 2 条');
+      await waitForText(window, '[data-tool-call-id="memory-empty-list-call"]', '查看记忆 · 0 条');
+      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-tool-status"] [data-slot="tool-fallback-trigger-label"]')).every(label => label.scrollWidth <= label.clientWidth + 1 && label.scrollHeight <= label.clientHeight + 1)`), true, 'Memory summaries must display counts and results without clipping');
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-tools-collapsed.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '[data-tool-call-id="memory-invalid-input"] [data-slot="tool-fallback-trigger"]');
-      await waitForText(window, '[data-testid="memory-tool-status"] [role="alert"]', 'query: expected string');
-      await clickSelector(window, '[data-tool-call-id="memory-search-call"] [data-slot="tool-fallback-trigger"]');
-      assert.equal(await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="memory-tool-status"]')).some(item => item.textContent.includes('记忆搜索失败') && item.textContent.includes('query: expected string'))`), true);
+      await waitForText(window, '[data-testid="memory-tool-status"] [role="alert"]', '记忆操作未完成');
+      for (const id of ['memory-list-call', 'memory-search-call', 'memory-get-call', 'memory-save-call', 'memory-forget-call', 'memory-conflict-call', 'memory-duplicate-call']) {
+        await clickSelector(window, `[data-tool-call-id="${id}"] [data-slot="tool-fallback-trigger"]`);
+        await waitForText(window, `[data-tool-call-id="${id}"] [aria-label="记忆操作明细"]`, '示例人物');
+      }
+      await waitForText(window, '[data-tool-call-id="memory-search-call"]', '还有更多匹配');
+      await waitForText(window, '[data-tool-call-id="memory-list-call"]', '第 2 页 · 共 42 条 · 还有下一页');
+      await clickSelector(window, '[data-tool-call-id="memory-empty-list-call"] [data-slot="tool-fallback-trigger"]');
+      await waitForText(window, '[data-tool-call-id="memory-empty-list-call"]', '第 99 页 · 共 42 条');
+      await waitForText(window, '[data-tool-call-id="memory-forget-call"] [aria-label="记忆操作明细"]', '示例纪事');
+      await waitForText(window, '[data-tool-call-id="memory-get-call"] [aria-label="记忆操作明细"]', '未找到');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-tool-call-id="memory-search-call"]').scrollIntoView({block:'start'})`);
+      writeFileSync(join(projectRoot, '.test-dist', 'memory-tools-expanded.png'), (await window.webContents.capturePage()).toPNG());
       assert.equal(
         await window.webContents.executeJavaScript(`(() => {
           const text = document.querySelector('[data-slot="aui_thread-viewport"]')?.textContent ?? '';
@@ -2024,6 +2141,7 @@ async function run() {
             '不应显示的记忆正文',
             '不应显示的读取正文',
             '不应显示的保存正文',
+            '不应显示的错误参数正文',
           ].some((secret) => text.includes(secret));
         })()`),
         false,
@@ -2032,11 +2150,12 @@ async function run() {
         "memory response stream completion",
         () => activeChatStreamCount === 0,
       );
+      assert.equal(memoryToolRequests, requestsBefore + 1, 'Memory UI checks must send exactly one request');
       await waitForSelector(window, 'button[aria-label="发送消息"]');
     });
 
     await runStep("signed directory approval resumes through the existing assistant runtime", async () => {
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
       await waitForSelector(window, '.aui-composer-input');
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
@@ -2049,7 +2168,7 @@ async function run() {
       await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-testid="directory-access-request"] button')).find(button => button.textContent === '批准').click()`);
       await waitForText(window, '[data-slot="aui_thread-viewport"]', '目录批准已继续');
       assert.equal(directoryApprovalResponses, 1);
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
     });
     await runStep("backend tool-only completion does not restart the Agent in the renderer", async () => {
       await window.webContents.executeJavaScript(`(() => {
@@ -2065,7 +2184,7 @@ async function run() {
     });
 
     await runStep("web access approval is visible and resumes the same conversation", async () => {
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
       await waitForSelector(window, '.aui-composer-input');
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
@@ -2081,7 +2200,7 @@ async function run() {
       await waitForText(window, '[data-slot="aui_thread-viewport"]', '网页批准已继续');
       assert.equal(webApprovalResponses, 1);
       await waitUntil('settled approval removes active controls', () => window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-fallback-approval"]') === null`));
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
     });
 
     await runStep("render performance summary and authoritative playback state", async () => {
@@ -2252,7 +2371,7 @@ async function run() {
     await runStep("queue avatar dialogue without interrupting or restarting the Agent", async () => {
       const subtitleStart = avatarUserSubtitles.length;
       await waitUntil("previous chat complete", () => activeChatStreamCount === 0);
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
       await waitForSelector(window, ".aui-thread-welcome-root");
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       await waitForText(window, '[data-testid="avatar-toggle"]', "停止桌宠");
@@ -2310,7 +2429,7 @@ async function run() {
       await waitUntil("native text history persisted", () => JSON.stringify([...storedMessages.values()]).includes("字幕对白第3句"));
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       await waitForText(window, '[data-testid="avatar-toggle"]', "开启桌宠");
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
       await waitForSelector(window, ".aui-thread-welcome-root");
       await sendText("普通新会话标题");
       await waitUntil("ordinary thread title generated", () => titleRequests.some(r => r.messages[0]?.text === "普通新会话标题"));
@@ -2604,7 +2723,7 @@ async function run() {
       await waitUntil('microphone restarts from HUD intent', () => realtimePrepareCount >= 2);
       assert.equal(realtimePrepareCount, 2); assert.equal(ordinaryPrepareCount, beforeOrdinary);
       await clickSelector(window, '[data-testid="avatar-toggle"]');
-      await clickSelector(window, 'button[aria-label="新对话"]');
+      await openNewConversation(window);
       await waitForSelector(window, '.aui-thread-welcome-root');
       await clickSelector(window, '[data-testid="avatar-toggle"]');
       await waitUntil('new connection automatically starts microphone', () => realtimePrepareCount >= 3);

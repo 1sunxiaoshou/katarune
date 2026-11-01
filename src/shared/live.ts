@@ -63,6 +63,7 @@ export const liveStateSchema = z.strictObject({
   roomCover: z._default(liveRoomCoverSchema, ""), roomDescription: z._default(text(8000), ""),
   threadId: z.nullable(text(128)), runId: z.nullable(z.uuid()), monitor: z.boolean(),
   generating: z.boolean(), revision: z.int(), events: z.array(liveEventSchema).check(z.maxLength(200)), error: z.nullable(text(1000)),
+  errorCode: z._default(z.nullable(z.literal("port-in-use")), null),
 });
 export type LiveState = z.infer<typeof liveStateSchema>;
 export const liveMonitorSchema = z.strictObject({ enabled: z.boolean() });

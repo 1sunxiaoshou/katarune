@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   memoryContentSchema, memoryDay, memoryEntrySchema, memoryListSchema, diaryFailureCodeSchema, memoryDiaryStateSchema,
   memorySaveInputSchema, memorySearchInputSchema, memorySummarySchema,
+  memoryPageInputSchema, memoryPageResultSchema, type MemoryPageInput,
   type DiaryDraft, type ListMemoryRequest, type MemoryEntry, type MemorySaveInput, type MemoryWriteResult,
 } from "../../shared/memory";
 import { memoryDiaryJobs, memoryDiaryMessages, memoryEntries, memoryPreferences, messages, threads } from "./schema";
@@ -119,6 +120,24 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
       return memoryListSchema.parse({
         entries: database.select().from(memoryEntries).where(where).orderBy(desc(memoryEntries.day), desc(memoryEntries.updatedAt), asc(memoryEntries.id)).limit(100).offset(request.offset).all().map(summary),
         total: database.select({ value: count() }).from(memoryEntries).where(where).get()?.value ?? 0,
+      });
+    },
+    listMemoryPage: (characterId: string, input: MemoryPageInput, includeDiaries = true) => {
+      const request = memoryPageInputSchema.parse(input);
+      assertCharacter(characterId);
+      const where = and(eq(memoryEntries.characterId, characterId), isNull(memoryEntries.forgottenAt),
+        includeDiaries ? undefined : ne(memoryEntries.kind, "diary"),
+        request.kind ? eq(memoryEntries.kind, request.kind) : undefined);
+      const column = memoryEntries[request.sortBy];
+      const offset = (request.page - 1) * request.pageSize;
+      // A stable ID tie-breaker keeps equal titles/timestamps consistent across pages.
+      const rows = database.select().from(memoryEntries).where(where)
+        .orderBy(request.order === "asc" ? asc(column) : desc(column), asc(memoryEntries.id))
+        .limit(request.pageSize).offset(offset).all();
+      const total = database.select({ value: count() }).from(memoryEntries).where(where).get()?.value ?? 0;
+      return memoryPageResultSchema.parse({
+        entries: rows.map(row => ({ ...summary(row), revision: row.revision, updatedAt: row.updatedAt.toISOString() })),
+        total, page: request.page, pageSize: request.pageSize, hasMore: offset + rows.length < total,
       });
     },
     searchMemory: (characterId: string, value: z.input<typeof memorySearchInputSchema>, includeDiaries = true) => {

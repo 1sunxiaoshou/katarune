@@ -49,14 +49,21 @@ export const memorySearchInputSchema = z.strictObject({
   query: z.string().trim().min(1).max(200).describe("标题或正文中的字面关键词，例如小林、生日。"),
   kind: memoryKindSchema.nullable().describe("限定分类；null 表示所有可读取的分类。"),
 });
-export const memoryBackgroundSearchInputSchema = memorySearchInputSchema.extend({
+export const memoryToolSearchSchema = z.strictObject({
+  queries: z.array(memorySearchInputSchema.shape.query).min(1).max(5)
+    .describe("1 至 5 个字面关键词，逐个搜索；不要重复填写。"),
+  kind: memorySearchInputSchema.shape.kind,
+});
+export const memoryBackgroundSearchInputSchema = memoryToolSearchSchema.extend({
   kind: z.enum(["person", "event"]).nullable().describe("只允许人物或纪事；null 表示两类都搜索。"),
 });
 export const memoryReadInputSchema = z.strictObject({
-  id: z.uuid().describe("搜索或目录返回的记忆标识，不能自行编造。"),
+  ids: z.array(z.uuid()).min(1).max(10).describe("1 至 10 个搜索或目录返回的记忆标识，不能自行编造。"),
 });
-export const memoryForgetInputSchema = memoryReadInputSchema.extend({
-  revision: z.int().positive().describe("搜索或读取返回的当前版本。"),
+export const memoryForgetInputSchema = z.strictObject({
+  entries: z.array(z.strictObject({
+    id: z.uuid(), revision: z.int().positive().describe("该条记忆搜索或读取返回的当前版本。"),
+  })).min(1).max(10).refine(entries => new Set(entries.map(entry => entry.id)).size === entries.length, "不能重复遗忘同一条记忆。"),
 });
 export const memoryToolSaveSchema = z.strictObject({
   id: z.uuid().nullable().describe("新增填 null；更新使用已有记忆标识。"),
@@ -67,6 +74,63 @@ export const memoryToolSaveSchema = z.strictObject({
   isUser: z.boolean().nullable().describe("人物填是否为与你交谈的用户；纪事填 null。"),
 }).refine(value => (value.id === null) === (value.revision === null), "新增时 id/revision 均为 null，更新时两者都需要。")
   .refine(value => value.kind === "person" ? value.isUser !== null : value.isUser === null, "人物需要 isUser 布尔值，纪事的 isUser 应为 null。");
+
+export const memoryPageInputSchema = z.strictObject({
+  kind: memoryKindSchema.nullable().describe("null 列出所有可读取的分类。"),
+  page: z.int().min(1).max(1_000_000).describe("页码，从 1 开始。"),
+  pageSize: z.int().min(1).max(50).describe("每页条数，建议 20，最多 50。"),
+  sortBy: z.enum(["updatedAt", "title", "kind"]).describe("按更新时间、标题或分类排序。"),
+  order: z.enum(["asc", "desc"]).describe("asc 升序，desc 降序；浏览最近记忆使用 updatedAt/desc。"),
+});
+const searchOperation = memoryToolSearchSchema.extend({ action: z.literal("search") });
+const readOperation = memoryReadInputSchema.extend({ action: z.literal("read") });
+const listOperation = memoryPageInputSchema.extend({ action: z.literal("list") });
+export const memoryToolActionSchema = z.enum(["search", "read", "list", "save", "forget"]);
+export const memoryReadOperationSchema = z.discriminatedUnion("action", [searchOperation, readOperation, listOperation]);
+// Keep the provider-facing root an object; the selected operation has only its own fields.
+export const memoryToolInputSchema = z.strictObject({
+  request: z.discriminatedUnion("action", [
+    searchOperation, readOperation, listOperation,
+    memoryToolSaveSchema.safeExtend({ action: z.literal("save") }),
+    memoryForgetInputSchema.extend({ action: z.literal("forget") }),
+  ]),
+});
+export const memoryReadToolInputSchema = z.strictObject({ request: memoryReadOperationSchema });
+export const memoryBackgroundToolInputSchema = z.strictObject({
+  request: z.discriminatedUnion("action", [
+    memoryBackgroundSearchInputSchema.extend({ action: z.literal("search") }), readOperation,
+    listOperation.extend({ kind: z.enum(["person", "event"]).nullable() }),
+  ]),
+});
+export const memoryPageResultSchema = z.strictObject({
+  entries: z.array(memorySummarySchema.extend({ updatedAt: z.iso.datetime(), revision: z.int().positive() })),
+  total: z.int().nonnegative(), page: z.int().positive(), pageSize: z.int().positive(), hasMore: z.boolean(),
+});
+export type MemoryPageInput = z.infer<typeof memoryPageInputSchema>;
+export type MemoryReadOperation = z.infer<typeof memoryReadOperationSchema>;
+
+const memoryToolEntrySchema = memoryContentSchema.and(z.object({
+  id: z.uuid(), revision: z.int().positive(), bodyTruncated: z.boolean(),
+}));
+export const memoryToolSearchResultSchema = z.object({
+  status: z.literal("ok"), searches: z.array(z.object({
+    query: z.string(), truncated: z.boolean(), results: z.array(memoryToolEntrySchema),
+  })),
+});
+export const memoryToolReadResultSchema = z.object({
+  results: z.array(z.discriminatedUnion("status", [
+    z.object({ id: z.uuid(), status: z.literal("found"), entry: memoryToolEntrySchema }),
+    z.object({ id: z.uuid(), status: z.literal("not_found") }),
+  ])),
+});
+export const memoryToolWriteResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.enum(["saved", "forgotten"]), id: z.uuid(), revision: z.int().positive(), title: titleSchema }),
+  z.object({ status: z.enum(["conflict", "not_found"]), message: z.string() }),
+  z.object({ status: z.literal("duplicate"), existing: z.object({ id: z.uuid(), title: titleSchema }), message: z.string() }),
+]);
+export const memoryToolForgetResultSchema = z.object({
+  results: z.array(z.object({ id: z.uuid(), title: titleSchema.optional() }).and(memoryToolWriteResultSchema)),
+});
 export const diaryFailureCodeSchema = z.enum(["configuration", "invalid_output", "context_changed", "timeout", "interrupted", "authentication", "rate_limit", "provider", "request_rejected", "network", "unknown"]);
 export type DiaryFailureCode = z.infer<typeof diaryFailureCodeSchema>;
 export function diaryFailureMessage(code: DiaryFailureCode | null): string {
