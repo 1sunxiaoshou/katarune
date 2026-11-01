@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ function fixture() {
   for (const file of ["characters/default-package/portrait.png", "asr/sensevoice-int8/model.int8.onnx",
     "asr/sensevoice-int8/tokens.txt", "asr/sensevoice-int8/LICENSE", "asr/silero-vad/model.onnx",
     "asr/silero-vad/LICENSE", "asr-worker.cjs", "vad-segmenter.cjs", "avatar/KataruneAvatar.exe",
-    "avatar/UnityPlayer.dll", "avatar/KataruneAvatar_Data/KataruneLocal/avatar/model.vrm"]) {
+    "avatar/UnityPlayer.dll", "characters/default-package/avatar/model.vrm"]) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
     writeFileSync(join(root, file), "fixture");
   }
@@ -22,9 +22,9 @@ function fixture() {
   writeFileSync(join(root, "live-media/checksums.json"), JSON.stringify(Object.fromEntries(mediaFiles.map(file => [file, createHash("sha256").update("fixture").digest("hex")]))));
   writeFileSync(join(root, "live-media/manifest.json"), JSON.stringify({ ffmpeg: { sha256: "fixture" }, mediamtx: { sha256: "fixture" } }));
   mkdirSync(join(root, "avatar/MonoBleedingEdge"));
+  mkdirSync(join(root, "avatar/KataruneAvatar_Data"));
   const manifest = JSON.stringify({ formatVersion: 3, model: "avatar/model.vrm", portrait: "portrait.png", actions: [] });
   writeFileSync(join(root, "characters/default-package/manifest.json"), manifest);
-  writeFileSync(join(root, "avatar/KataruneAvatar_Data/KataruneLocal/manifest.json"), manifest);
   return root;
 }
 function verify(root: string) {
@@ -44,9 +44,25 @@ describe("Windows packaged resources", () => {
   it("accepts a complete bundle and rejects a missing VRM", () => {
     const root = fixture();
     expect(verify(root).status).toBe(0);
-    rmSync(join(root, "avatar/KataruneAvatar_Data/KataruneLocal/avatar/model.vrm"));
+    rmSync(join(root, "characters/default-package/avatar/model.vrm"));
     expect(verify(root).stderr).toContain("model.vrm");
     expect(verify(root).status).not.toBe(0);
+  });
+  it("checks the source package without a built Player and rejects an old Unity-only model", () => {
+    const resources = fixture();
+    const root = mkdtempSync(join(tmpdir(), "katarune-source-"));
+    roots.push(root);
+    renameSync(resources, join(root, "resources"));
+    rmSync(join(root, "resources/avatar"), { recursive: true });
+    const check = () => spawnSync(process.execPath, ["--input-type=module", "-e",
+      "import { verifyWindowsResources } from './scripts/verify-windows-resources.mjs'; await verifyWindowsResources(process.argv[1]);", root], { encoding: "utf8" });
+    expect(check().status).toBe(0);
+    const oldModel = join(root, "unity/KataruneAvatar/Assets/KataruneLocal/Models/default-avatar.vrm");
+    mkdirSync(dirname(oldModel), { recursive: true });
+    renameSync(join(root, "resources/characters/default-package/avatar/model.vrm"), oldModel);
+    const result = check();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("model.vrm");
   });
   it("rejects missing Unity runtime dependencies", () => {
     const root = fixture();
@@ -65,7 +81,7 @@ describe("Windows packaged resources", () => {
   });
   it("requires the subtitles referenced by a packaged dance", () => {
     const root = fixture();
-    const runtime = join(root, "avatar/KataruneAvatar_Data/KataruneLocal");
+    const runtime = join(root, "characters/default-package");
     mkdirSync(join(runtime, "Dances"));
     for (const file of ["dance.vrma", "music.wav", "lyrics.srt", "camera.glb"]) writeFileSync(join(runtime, "Dances", file), "fixture");
     writeFileSync(join(root, "characters/default-package/manifest.json"), JSON.stringify({

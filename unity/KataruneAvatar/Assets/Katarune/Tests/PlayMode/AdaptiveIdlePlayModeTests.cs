@@ -14,7 +14,7 @@ namespace Katarune.Avatar.Tests
         [UnityTest]
         public IEnumerator GazeOverlaysAuthoredHeadWithoutReplacingAnimationOrAccumulating()
         {
-            var path = AvatarDefaultAssets.ModelPath(Application.dataPath);
+            var path = AvatarDefaultAssets.EditorModelPath(Application.dataPath);
             if (!File.Exists(path)) Assert.Ignore("Default local VRM required.");
             var loading = Vrm10.LoadBytesAsync(File.ReadAllBytes(path), canLoadVrm0X: false, showMeshes: false,
                 awaitCaller: new RuntimeOnlyAwaitCaller(), materialGenerator: new UrpVrm10MaterialDescriptorGenerator());

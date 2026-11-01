@@ -6,7 +6,7 @@
 
 ## Build
 
-以下 Unity 命令在本目录执行。先准备许可允许使用的 VRM 1.0 模型：`Assets/KataruneLocal/Models/default-avatar.vrm`。素材与构建产物处于 Git 忽略目录；本机测试许可不等于分发许可。
+以下 Unity 命令在本目录执行。默认 VRM 1.0 模型随仓库保存在 `../../resources/characters/default-package/avatar/model.vrm`，Editor 预览和构建前待机烘焙直接读取该文件。Player 不复制默认包；Electron 从角色包目录提供资源，发行时由 Electron 携带。独立 Player 需显式传入 `--vrm` 或由宿主提供角色包描述。第三方素材仍遵循各自许可。
 
 ```powershell
 unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Editor.AvatarBuilder.BuildWindows --editor-version 6000.3.27f2 --allow-dirty-build

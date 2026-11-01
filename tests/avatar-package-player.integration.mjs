@@ -13,10 +13,8 @@ const executable = resolve(
   process.argv.slice(2).find(arg => !arg.startsWith("--")) ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe",
 );
 const withAudio = process.argv.includes("--audio");
-const model = join(
-  dirname(executable),
-  "KataruneAvatar_Data/KataruneLocal/avatar/model.vrm",
-);
+const builtinRoot = resolve("resources/characters/default-package");
+const model = join(builtinRoot, "avatar/model.vrm");
 const fixture = join(output, "fixture.vrma"),
   unsupported = join(output, "unsupported.vrma");
 await writePackageVrmaFixture(model, fixture);
@@ -27,7 +25,6 @@ const base = {
   formatVersion: 3, id: "builtin:default", version: "1.0.0", model,
   idle: { variations: [] }, actions: [], bindings: [],
 };
-const builtinRoot = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
 const builtinManifest = JSON.parse(await readFile(join(builtinRoot, "manifest.json"), "utf8"));
 const builtinIds = JSON.parse(await readFile(join(builtinRoot, "action-ids.json"), "utf8"));
 function phaseEndpoints(raw) {

@@ -68,7 +68,7 @@ const connection = new TestConnection(), douyin = new TestDouyin(), media = new 
 let service: LiveService | undefined;
 try {
   const assets = createAssetService({ userDataPath: directory, characterResourcesPath: resolve("resources/characters") });
-  await new CharacterPackageService(database, assets, directory, resolve("resources/characters/default-package"), resolve("resources/characters"), async () => {}).initialize();
+  await new CharacterPackageService(database, assets, directory, resolve("resources/characters/default-package"), async () => {}).initialize();
   const character = database.listCharacters().characters[0]!;
   const provider = database.createProviderConfig({ displayName: "合成服务", providerType: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", settings: null, enabled: true });
   const model = database.createModelConfig({ providerConfigId: provider.id, modelType: "languageModel", modelId: "test-chat", displayName: null, metadata: null, settings: {}, enabled: true });

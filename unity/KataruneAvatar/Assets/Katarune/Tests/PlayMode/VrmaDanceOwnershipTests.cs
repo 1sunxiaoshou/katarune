@@ -19,7 +19,7 @@ namespace Katarune.Avatar.Tests
         [UnityTest]
         public IEnumerator DanceOwnsFaceAndGazeReleasesGeneratedIdleAndRestoresOrdinaryBehavior()
         {
-            var modelPath = AvatarDefaultAssets.ModelPath(Application.dataPath);
+            var modelPath = AvatarDefaultAssets.EditorModelPath(Application.dataPath);
             var bodyPath = Path.GetFullPath(Path.Combine(Application.dataPath, "../../..", "resources", "characters", "default-package", "actions", "idle", "motion.vrma"));
             if (!File.Exists(modelPath) || !File.Exists(bodyPath)) Assert.Ignore("Default local VRM and idle VRMA required.");
             var bytes = File.ReadAllBytes(modelPath);

@@ -14,7 +14,7 @@ const fixtureRoot = resolve(process.argv[2] ?? ".test-dist/fish-streaming-live")
 const output = resolve(".test-dist/speech-jitter-player", String(Date.now()));
 await mkdir(output, { recursive: true });
 const executable = resolve("unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
-const assets = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
+const assets = resolve("resources/characters/default-package");
 const manifest = JSON.parse(await readFile(join(assets, "manifest.json"), "utf8"));
 const packageFile = join(output, "package.json");
 const ids = JSON.parse(await readFile(join(assets, "action-ids.json"), "utf8"));

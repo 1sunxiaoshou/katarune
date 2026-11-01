@@ -48,7 +48,6 @@ void app
       assets,
       directory,
       join(images, "default-package"),
-      images,
       async (_pack, signal) => {
         if (deletionDuringValidation)
           assert.throws(
@@ -59,6 +58,10 @@ void app
         if (cancelValidation) {
           service.cancel(currentRequest);
           signal.throwIfAborted();
+        }
+        for (const id of _pack.idle.variations) {
+          const fallback = service.runtime(DEFAULT_PACKAGE_ID).actions.find(action => action.id === id);
+          if (fallback) assert.deepEqual(_pack.actions.find(action => action.id === id)?.playback, fallback.playback);
         }
         await validateAudio?.(_pack);
       },
@@ -71,19 +74,20 @@ void app
       assert.equal(builtin.actions.length, 26);
       assert.equal(builtin.manifest.formatVersion, 3);
       const builtinRuntime = service.runtime(DEFAULT_PACKAGE_ID);
-      assert.equal(builtinRuntime.actions.find(a => a.id === builtinRuntime.idle.base)?.playback.motion, join(images, "actions/idle/motion.vrma"));
+      assert.equal(builtinRuntime.model, join(images, "default-package/avatar/model.vrm"));
+      assert.equal(builtinRuntime.actions.find(a => a.id === builtinRuntime.idle.base)?.playback.motion, join(images, "default-package/actions/idle/motion.vrma"));
       assert.deepEqual(builtinRuntime.idle.variations.map(id => builtinRuntime.actions.find(a => a.id === id)?.key), ["idle-variation-01", "idle-variation-02"]);
       assert.equal(builtinRuntime.bindings.length, 19);
       const builtinDance = builtinRuntime.actions.find(action => action.key === "sad-water");
       assert.ok(builtinDance?.playback.kind === "performance");
-      assert.equal(builtinDance.playback.motion, join(images, "actions/sad-water/motion.vrma"));
-      assert.equal(builtinDance.playback.audio, join(images, "actions/sad-water/audio.mp3"));
-      assert.equal(builtinDance.playback.subtitles, join(images, "actions/sad-water/subtitles.srt"));
-      assert.deepEqual(builtinDance.playback.camera, { kind: "track", file: join(images, "actions/sad-water/camera.glb"), referenceHeight: 1.7653304392347835 });
+      assert.equal(builtinDance.playback.motion, join(images, "default-package/actions/sad-water/motion.vrma"));
+      assert.equal(builtinDance.playback.audio, join(images, "default-package/actions/sad-water/audio.mp3"));
+      assert.equal(builtinDance.playback.subtitles, join(images, "default-package/actions/sad-water/subtitles.srt"));
+      assert.deepEqual(builtinDance.playback.camera, { kind: "track", file: join(images, "default-package/actions/sad-water/camera.glb"), referenceHeight: 1.7653304392347835 });
       const angelDance = builtinRuntime.actions.find(action => action.key === "redreaming-angel");
       assert.ok(angelDance?.playback.kind === "performance");
-      assert.deepEqual(angelDance.playback.camera, { kind: "track", file: join(images, "actions/redreaming-angel/camera.glb"), referenceHeight: 1.6553590819239616 });
-      assert.equal(angelDance.playback.audio, join(images, "actions/redreaming-angel/audio.wav"));
+      assert.deepEqual(angelDance.playback.camera, { kind: "track", file: join(images, "default-package/actions/redreaming-angel/camera.glb"), referenceHeight: 1.6553590819239616 });
+      assert.equal(angelDance.playback.audio, join(images, "default-package/actions/redreaming-angel/audio.wav"));
       assert.ok(!builtinRuntime.bindings.some(binding => binding.role === "thinkGesture"));
       assert.equal(builtinRuntime.actions.find(a => a.key === "nod")?.playback.layer, "head");
       assert.equal(builtinRuntime.actions.find(a => a.key === "greet")?.playback.layer, "upperBody");

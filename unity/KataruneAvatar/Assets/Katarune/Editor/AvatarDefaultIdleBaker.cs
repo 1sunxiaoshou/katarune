@@ -13,7 +13,7 @@ namespace Katarune.Avatar.Editor
         [MenuItem("Katarune/Avatar/Bake Default Secondary Idle")]
         public static void Bake()
         {
-            var bytes = File.ReadAllBytes(AvatarDefaultAssets.ModelPath(Application.dataPath));
+            var bytes = File.ReadAllBytes(AvatarDefaultAssets.EditorModelPath(Application.dataPath));
             var model = Vrm10.LoadBytesAsync(bytes, canLoadVrm0X: false, showMeshes: false,
                 awaitCaller: new ImmediateCaller(), materialGenerator: new UrpVrm10MaterialDescriptorGenerator()).GetAwaiter().GetResult();
             try

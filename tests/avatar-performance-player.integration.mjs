@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 const executable = resolve(process.argv[2] ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
 const output = resolve(".test-dist/avatar-performance", String(Date.now()));
 await mkdir(output, { recursive: true });
-const root = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal");
+const root = resolve("resources/characters/default-package");
 const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
 const ids = JSON.parse(await readFile(join(root, "action-ids.json"), "utf8"));
 const pack = runtimePackage(manifest, ids, root);

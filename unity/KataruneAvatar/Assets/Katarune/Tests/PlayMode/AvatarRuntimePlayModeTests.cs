@@ -16,7 +16,7 @@ namespace Katarune.Avatar.Tests
             var modelPath = AvatarBootstrap.ResolveInitialModelPath(null, Application.dataPath);
             if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
             {
-                Assert.Ignore("Place a local default-avatar.vrm to run the default model smoke test.");
+                Assert.Ignore("Restore avatar/model.vrm in the default character package to run the default model smoke test.");
             }
 
             var facade = CreateLocalRuntime("Local Default Model Smoke", out var gameObject);
@@ -26,7 +26,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(load.Result.Outcome, Is.EqualTo(AvatarLoadOutcome.Loaded), load.Result.Error);
             Assert.That(facade.Snapshot.RuntimeState, Is.EqualTo(AvatarRuntimeState.Ready));
             Assert.That(facade.Snapshot.Model?.Path, Is.EqualTo(Path.GetFullPath(modelPath)));
-            Assert.That(facade.Snapshot.Model?.Name, Is.EqualTo("default-avatar"));
+            Assert.That(facade.Snapshot.Model?.Name, Is.EqualTo("model"));
             Assert.That(facade.Snapshot.Model?.Height, Is.GreaterThan(0f));
             if (Resources.Load<AvatarMotionLibrary>("AvatarMotionLibrary") != null)
             {

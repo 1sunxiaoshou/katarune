@@ -66,7 +66,6 @@ namespace Katarune.Avatar.Editor
             {
                 throw new InvalidOperationException($"Avatar build failed with result {report.summary.result} and {report.summary.totalErrors} errors.");
             }
-            CopyLocalDefaultAssets(outputPath);
             CopyLocalMotionPacks(outputDirectory);
             Debug.Log($"KATARUNE_AVATAR_BUILD_READY path={outputPath} bytes={report.summary.totalSize}");
         }
@@ -78,35 +77,6 @@ namespace Katarune.Avatar.Editor
             if (!Directory.Exists(AvatarMotionPacks.DefaultDirectory)) return;
             foreach (var pack in Directory.GetFiles(AvatarMotionPacks.DefaultDirectory, "*" + AvatarMotionPacks.Extension))
                 File.Copy(pack, Path.Combine(destination, Path.GetFileName(pack)), true);
-        }
-
-        private static void CopyLocalDefaultAssets(string playerPath)
-        {
-            var playerDirectory = Path.GetDirectoryName(playerPath)
-                ?? throw new InvalidOperationException("The player directory could not be resolved.");
-            var dataDirectory = Path.Combine(
-                playerDirectory,
-                Path.GetFileNameWithoutExtension(playerPath) + "_Data");
-            CopyLocalAsset(AvatarDefaultAssets.ModelPath(Application.dataPath), AvatarDefaultAssets.ModelPath(dataDirectory));
-            CopyLocalAsset(AvatarDefaultAssets.ModelPath(Application.dataPath), Path.Combine(dataDirectory, "KataruneLocal", "avatar", "model.vrm"));
-            var packageRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "resources", "characters", "default-package"));
-            foreach (var source in Directory.GetFiles(packageRoot, "*", SearchOption.AllDirectories))
-                CopyLocalAsset(source, Path.Combine(dataDirectory, "KataruneLocal", Path.GetRelativePath(packageRoot, source)));
-            var motions = Path.Combine(Application.dataPath, "KataruneLocal", "Motions");
-            if (Directory.Exists(motions)) foreach (var source in Directory.GetFiles(motions, "*.vrma"))
-                CopyLocalAsset(source, Path.Combine(dataDirectory, "KataruneLocal", "Motions", Path.GetFileName(source)));
-        }
-
-        private static void CopyLocalAsset(string sourcePath, string destinationPath)
-        {
-            if (!File.Exists(sourcePath))
-            {
-                Debug.LogWarning($"KATARUNE_LOCAL_DEFAULT_ASSET_MISSING path={sourcePath}");
-                return;
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
-            File.Copy(sourcePath, destinationPath, overwrite: true);
-            Debug.Log($"KATARUNE_LOCAL_DEFAULT_ASSET_COPIED path={destinationPath}");
         }
 
         [MenuItem("Katarune/配置角色渲染")]

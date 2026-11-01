@@ -178,7 +178,7 @@ namespace Katarune.Avatar
                     || _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Empty))
             {
                 var error = _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Empty
-                    ? "未找到默认角色模型，请配置 default-avatar.vrm 后重新连接桌宠。"
+                    ? "未提供角色模型，请检查角色包后重新连接桌宠。"
                     : _runtime.Snapshot.LastError;
                 if (string.IsNullOrWhiteSpace(error)) error = "角色模型加载失败。";
                 Send(JsonUtility.ToJson(new StartupError { error = error.Length > 4000 ? error.Substring(0, 4000) : error }));

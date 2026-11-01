@@ -195,8 +195,12 @@ namespace Katarune.Avatar
             if (!string.IsNullOrWhiteSpace(requestedPath)) return requestedPath;
             if (string.IsNullOrWhiteSpace(assetsPath)) return null;
 
-            var localDefaultPath = AvatarDefaultAssets.ModelPath(assetsPath);
+#if UNITY_EDITOR
+            var localDefaultPath = AvatarDefaultAssets.EditorModelPath(assetsPath);
             return File.Exists(localDefaultPath) ? localDefaultPath : null;
+#else
+            return null;
+#endif
         }
 
         private void OnDestroy()

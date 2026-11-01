@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve, join, dirname } from "node:path";
+import { resolve, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { app } from "electron";
@@ -41,7 +41,7 @@ void app.whenReady().then(async () => {
   let live: LiveService | undefined;
   try {
     const assets = createAssetService({ userDataPath: directory, characterResourcesPath: resolve("resources/characters") });
-    const packages = new CharacterPackageService(database, assets, directory, resolve("resources/characters/default-package"), join(dirname(executable), "KataruneAvatar_Data/KataruneLocal"), async () => {});
+    const packages = new CharacterPackageService(database, assets, directory, resolve("resources/characters/default-package"), async () => {});
     await packages.initialize();
     avatar.configurePackages(id => packages.runtime(database.fetchCharacter(id).packageId!));
     const owner = database.listCharacters().characters[0]!;

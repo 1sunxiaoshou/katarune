@@ -19,8 +19,6 @@ export async function verifyWindowsResources(root, packaged = false) {
   const resources = packaged ? root : join(root, "resources");
   const builtin = join(resources, "characters", "default-package");
   const avatar = join(resources, "avatar");
-  const runtime = packaged ? join(avatar, "KataruneAvatar_Data", "KataruneLocal")
-    : join(root, "unity", "KataruneAvatar", "Assets", "KataruneLocal");
   const mediaFiles = ["ffmpeg.exe", "ffprobe.exe", "mediamtx.exe", "media-supervisor.exe", "avcodec-62.dll", "avdevice-62.dll", "avfilter-11.dll", "avformat-62.dll", "avutil-60.dll", "swresample-6.dll", "swscale-9.dll"];
   for (const file of [...mediaFiles, "manifest.json", "checksums.json", "ffmpeg-LICENSE.txt", "mediamtx-LICENSE", "SOURCES.md", "media-supervisor.cs"]) await requireFile(join(resources, "live-media", file));
   const liveManifest = JSON.parse(await readFile(join(resources, "live-media", "manifest.json"), "utf8"));
@@ -36,11 +34,7 @@ export async function verifyWindowsResources(root, packaged = false) {
   const runtimeFiles = [manifest.model, ...(manifest.actions ?? []).flatMap(action => playbackFiles(action.playback))];
   if (!manifest.model) throw new Error("Default character manifest must reference a VRM model.");
   for (const file of runtimeFiles) {
-    const local = resourcePath(runtime, file);
-    // AvatarBuilder also copies animations/assets supplied in the builtin package.
-    const source = !packaged && (await stat(resourcePath(builtin, file)).catch(() => null))?.isFile()
-      ? resourcePath(builtin, file) : !packaged && file === "avatar/model.vrm" ? join(runtime, "Models", "default-avatar.vrm") : local;
-    await requireFile(source);
+    await requireFile(resourcePath(builtin, file));
   }
   for (const file of ["asr/sensevoice-int8/model.int8.onnx", "asr/sensevoice-int8/tokens.txt",
     "asr/sensevoice-int8/LICENSE", "asr/silero-vad/model.onnx", "asr/silero-vad/LICENSE",
@@ -52,7 +46,6 @@ export async function verifyWindowsResources(root, packaged = false) {
         throw new Error(`Required Unity directory missing: ${directory}`);
       }
     }
-    await requireFile(join(runtime, "manifest.json"));
   }
 }
 

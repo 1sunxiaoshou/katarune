@@ -49,7 +49,6 @@ export class CharacterPackageService {
     private readonly assets: AssetService,
     private readonly userData: string,
     private readonly builtinResources: string,
-    private readonly runtimeResources: string,
     private readonly validate: (
       pack: RuntimeCharacterPackage,
       signal: AbortSignal,
@@ -130,7 +129,7 @@ export class CharacterPackageService {
     const pack = this.db.fetchCharacterPackage(id);
     const fallback = this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID);
     const resolve = (owner: StoredCharacterPackage, path: string): string => {
-      if (owner.builtin) return join(this.runtimeResources, path);
+      if (owner.builtin) return join(this.builtinResources, path);
       const resource = owner.resources.find((r) => r.path === path);
       if (!resource) throw new Error("角色包资源引用已损坏。");
       return this.assets.resolveManagedPath(resource.assetId);
@@ -373,7 +372,7 @@ export class CharacterPackageService {
         this.descriptor(
           { id, manifest, actions },
           (file) => join(stage!, file),
-          (file) => join(this.runtimeResources, file),
+          (file) => join(this.builtinResources, file),
         ),
         signal,
       );

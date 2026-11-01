@@ -4,7 +4,6 @@ namespace Katarune.Avatar
 {
     public static class AvatarDefaultAssets
     {
-        public const string ModelFileName = "default-avatar.vrm";
         public const string IdleMotionFileName = "idle-standing-breathing.vrma";
         public const int IdleVariationCount = 4;
 
@@ -17,8 +16,10 @@ namespace Katarune.Avatar
         public static string IdleVariationPath(string dataPath, int number) =>
             Path.GetFullPath(Path.Combine(dataPath, "KataruneLocal", "Motions", IdleVariationFileName(number)));
 
-        public static string ModelPath(string dataPath) =>
-            Path.GetFullPath(Path.Combine(dataPath, "KataruneLocal", "Models", ModelFileName));
+        // Only Editor previews and baking resolve repository resources themselves.
+        // The standalone Player receives a package descriptor or an explicit --vrm path.
+        public static string EditorModelPath(string assetsPath) =>
+            Path.GetFullPath(Path.Combine(assetsPath, "..", "..", "..", "resources", "characters", "default-package", "avatar", "model.vrm"));
 
         public static string IdleMotionPath(string dataPath) =>
             Path.GetFullPath(Path.Combine(dataPath, "KataruneLocal", "Motions", IdleMotionFileName));

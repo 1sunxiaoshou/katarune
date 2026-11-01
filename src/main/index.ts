@@ -191,9 +191,8 @@ void app.whenReady().then(async () => {
       : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows", "KataruneAvatar.exe"),
     join(app.getPath("userData"), "avatar-runtime"),
   );
-  const avatarData = join(app.isPackaged ? join(process.resourcesPath, "avatar") : join(app.getAppPath(), "unity", "KataruneAvatar", "Builds", "Windows"), "KataruneAvatar_Data", "KataruneLocal");
   characterPackageService = new CharacterPackageService(databaseRuntime, assetService, app.getPath("userData"),
-    join(app.isPackaged ? join(process.resourcesPath, "characters") : join(app.getAppPath(), "resources", "characters"), "default-package"), avatarData,
+    join(app.isPackaged ? join(process.resourcesPath, "characters") : join(app.getAppPath(), "resources", "characters"), "default-package"),
     (pack, signal) => avatarService!.validatePackage(pack, signal));
   await characterPackageService.initialize();
   avatarService.configurePackages(characterId => characterPackageService!.runtime(databaseRuntime!.fetchCharacter(characterId).packageId!));

@@ -10,7 +10,7 @@ import { writePackageVrmaFixture } from "./packageVrmaFixture.mjs";
 const output = resolve(".test-dist/dance-player", String(Date.now()));
 await mkdir(output, { recursive: true });
 const executable = resolve(process.argv[2] ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
-const model = join(dirname(executable), "KataruneAvatar_Data/KataruneLocal/Models/default-avatar.vrm");
+const model = resolve("resources/characters/default-package/avatar/model.vrm");
 const motion = join(output, "three-second.vrma");
 await writePackageVrmaFixture(model, motion, false, [{ bone: "rightUpperArm", axis: [0, 0, 1], amplitude: .5 }]);
 function silentWav(seconds) {

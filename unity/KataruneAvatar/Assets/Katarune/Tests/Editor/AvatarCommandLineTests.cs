@@ -97,18 +97,15 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void DefaultModelResolutionUsesTheLocalIgnoredModelWhenPresent()
+        public void DefaultModelResolutionUsesTheCharacterPackageModelWhenPresent()
         {
             var assetsPath = Path.Combine(
                 Path.GetTempPath(),
                 "katarune-avatar-tests",
                 Guid.NewGuid().ToString("N"),
-                "Assets");
-            var modelPath = Path.Combine(
-                assetsPath,
-                "KataruneLocal",
-                "Models",
-                AvatarDefaultAssets.ModelFileName);
+                "unity", "KataruneAvatar", "Assets");
+            var modelPath = Path.GetFullPath(Path.Combine(
+                assetsPath, "..", "..", "..", "resources", "characters", "default-package", "avatar", "model.vrm"));
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(modelPath)!);
@@ -120,7 +117,7 @@ namespace Katarune.Avatar.Tests
             }
             finally
             {
-                var testRoot = Directory.GetParent(assetsPath)?.FullName;
+                var testRoot = Path.GetFullPath(Path.Combine(assetsPath, "..", "..", ".."));
                 if (!string.IsNullOrWhiteSpace(testRoot) && Directory.Exists(testRoot))
                 {
                     Directory.Delete(testRoot, recursive: true);
@@ -129,13 +126,13 @@ namespace Katarune.Avatar.Tests
         }
 
         [Test]
-        public void DefaultModelResolutionLeavesTheRuntimeEmptyWhenNoLocalModelExists()
+        public void DefaultModelResolutionLeavesTheRuntimeEmptyWhenNoPackageModelExists()
         {
             var assetsPath = Path.Combine(
                 Path.GetTempPath(),
                 "katarune-avatar-tests",
                 Guid.NewGuid().ToString("N"),
-                "Assets");
+                "unity", "KataruneAvatar", "Assets");
 
             Assert.That(AvatarBootstrap.ResolveInitialModelPath(null, assetsPath), Is.Null);
         }
