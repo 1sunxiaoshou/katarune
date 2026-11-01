@@ -1,0 +1,22 @@
+diff --git a/node_modules/node-liblzma/binding.gyp b/node_modules/node-liblzma/binding.gyp
+index 050cd4b..4862401 100644
+--- a/node_modules/node-liblzma/binding.gyp
++++ b/node_modules/node-liblzma/binding.gyp
+@@ -51,7 +51,7 @@
+                 "AdditionalOptions": [
+                   "/EHsc",
+                   "/utf-8",
+-                  "/std:c++latest"
++                  "/std:c++20"
+                 ]
+               },
+               "VCLibrarianTool": {
+@@ -77,7 +77,7 @@
+                 "AdditionalOptions": [
+                   "/EHsc",
+                   "/utf-8",
+-                  "/std:c++latest"
++                  "/std:c++20"
+                 ],
+                 "RuntimeLibrary": 1, # static debug
+               },

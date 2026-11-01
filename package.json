@@ -47,7 +47,7 @@
     "release:win": "npm test && npm run test:database && npm run test:credentials && npm run test:electron-shutdown && npm run test:live && npm run test:live:cleanup && npm run package:win:dir && npm run test:ui:run && npm run test:live:packaged && node tests/run-packaged-asset-verification.mjs dist/win-unpacked/Katarune.exe && npm run build:installer",
     "package:mac": "npm run build && electron-builder --mac dmg zip --x64 --arm64",
     "package:linux": "npm run build && electron-builder --linux AppImage deb --x64",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "patch-package --error-on-fail && electron-builder install-app-deps",
     "build:installer": "node scripts/build-nsis-installer.mjs",
     "preview:installer": "node scripts/preview-nsis-installer.mjs"
   },
@@ -124,6 +124,7 @@
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "lucide-react": "1.25.0",
+    "patch-package": "8.0.1",
     "pinyin-pro": "3.28.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",

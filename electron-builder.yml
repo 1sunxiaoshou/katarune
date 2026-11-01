@@ -33,6 +33,13 @@ files:
   - "!node_modules/better-sqlite3/build/Release/sqlite3.lib"
   - "!node_modules/better-sqlite3/build/Release/test_extension.*"
   - "!node_modules/better-sqlite3/build/*.{gypi,sln,vcxproj,filters}"
+  - "!node_modules/node-liblzma/deps/xz/build-cmake/**/*"
+  - "!node_modules/node-liblzma/deps/*.tar.*"
+  - "!node_modules/node-liblzma/node-addon-api/**/*"
+  - "!node_modules/node-liblzma/build/liblzma/{include,lib}/**/*"
+  - "!node_modules/node-liblzma/build/Release/obj/**/*"
+  - "!node_modules/node-liblzma/build/Release/*.{exp,iobj,ipdb,lib,pdb}"
+  - "!node_modules/node-liblzma/build/*.{gypi,sln,vcxproj,filters}"
   - drizzle/**/*
   - package.json
 extraResources:

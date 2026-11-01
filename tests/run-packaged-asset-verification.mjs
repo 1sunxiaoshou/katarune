@@ -151,6 +151,9 @@ try {
   assert.ok(livePage.address.includes('rtmp://127.0.0.1:1935/katarune/live'));
   console.log('Packaged live IPC and page load with no credentials exposed.');
   const failedStart = await evaluate(page.webSocketDebuggerUrl, `(async()=>{
+    const settings = (await window.katarune.getLiveState()).settings;
+    const character = (await window.katarune.getAppState()).activeCharacter;
+    await window.katarune.updateLiveSettings({...settings,characterId:character.id});
     const state=await window.katarune.startLive();
     const end=Date.now()+10000;
     while(!document.querySelector('[data-testid="notification-toast"]')) {
@@ -158,15 +161,17 @@ try {
       await new Promise(resolve=>setTimeout(resolve,30));
     }
     const toasts=[...document.querySelectorAll('[data-testid="notification-toast"]')];
-    return {phase:state.phase,count:toasts.length,hasIncident:!!state.error?.includes('故障编号：'),ipcError:toasts.some(toast=>toast.textContent.includes('Error invoking remote method'))};
+    return {phase:state.phase,error:state.error,notification:toasts[0]?.textContent,count:toasts.length,hasIncident:!!state.error?.includes('故障编号：'),ipcError:toasts.some(toast=>toast.textContent.includes('Error invoking remote method'))};
   })()`);
   assert.equal(failedStart.phase,'error'); assert.equal(failedStart.count,1);
-  assert.equal(failedStart.hasIncident,true); assert.equal(failedStart.ipcError,false);
+  assert.equal(failedStart.error,'请先配置角色包、对话模型与语音服务。（原因码：configuration-required）');
+  assert.ok(failedStart.notification.includes(failedStart.error));
+  assert.equal(failedStart.hasIncident,false); assert.equal(failedStart.ipcError,false);
   await evaluate(page.webSocketDebuggerUrl, `(async()=>{
     document.querySelector('[data-testid="notification-toast"] [aria-label="关闭通知"]').click();
     const end=Date.now()+10000;while(document.querySelector('[data-testid="notification-toast"]')){if(Date.now()>end)throw new Error('Startup notification did not close');await new Promise(resolve=>setTimeout(resolve,30));}
   })()`);
-  console.log('Packaged failed startup returns its state and shows exactly one incident notification.');
+  console.log('Packaged configuration rejection returns its reason code and shows exactly one notification without an incident.');
   writeFileSync(resolve('.test-dist/live-page-packaged.png'), await capturePage(page.webSocketDebuggerUrl));
   const characterMenuBounds = await evaluate(page.webSocketDebuggerUrl, `(async()=>{
     document.querySelector('[data-testid="live-character-trigger"]').click();
