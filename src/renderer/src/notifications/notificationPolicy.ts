@@ -1,8 +1,4 @@
-import type {
-  NotificationChannel,
-  NotificationInput,
-  NotificationLevel,
-} from "./types";
+import type { NotificationLevel } from "./types";
 
 const DEFAULT_DURATIONS: Readonly<Record<NotificationLevel, number>> = {
   success: 3_000,
@@ -11,19 +7,6 @@ const DEFAULT_DURATIONS: Readonly<Record<NotificationLevel, number>> = {
   error: 0,
   loading: 0,
 };
-
-export function resolveNotificationChannel(
-  input: NotificationInput,
-): Exclude<NotificationChannel, "auto"> {
-  if (input.channel === "inline" || input.channel === "toast") return input.channel;
-  if (
-    input.scope !== undefined &&
-    (input.level === "warning" || input.level === "error" || input.level === "loading")
-  ) {
-    return "inline";
-  }
-  return "toast";
-}
 
 export function notificationDuration(
   level: NotificationLevel,

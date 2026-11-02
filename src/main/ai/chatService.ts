@@ -1,5 +1,6 @@
 import { diagnostic } from "../diagnostics/logger";
 import type { AgentToolRun, AgentToolsService } from "./agentTools";
+import type { McpService } from "../mcp/mcpService";
 import type { AvatarService } from "../avatar/avatarService";
 import { randomUUID } from "node:crypto";
 import {
@@ -72,7 +73,8 @@ export interface ChatService {
 }
 
 interface CreateChatServiceOptions {
-  readonly agentTools?: AgentToolsService;
+  readonly mcp?: Pick<McpService, "tools">;
+  readonly agentTools?: Pick<AgentToolsService, "prepare">;
   readonly liveInstructions?: () => string;
   readonly avatar?: Pick<AvatarService, "captureBinding" | "createTools" | "relay"> & Partial<Pick<AvatarService, "getDanceFeedback">>;
   readonly database: ChatServiceDatabase;
@@ -309,6 +311,7 @@ export function createChatService({
   attachmentSupport,
   memory,
   agentTools,
+  mcp,
 }: CreateChatServiceOptions): ChatService & { createStream(request: ChatStreamRequest, abortSignal: AbortSignal): Promise<ReadableStream<UIMessageChunk>> } {
   const createStream = async (request: ChatStreamRequest, abortSignal: AbortSignal): Promise<ReadableStream<UIMessageChunk>> => {
       const avatarEpoch = avatar?.captureBinding(request);
@@ -400,6 +403,13 @@ export function createChatService({
       if (agentRun) for (const [name, value] of Object.entries(agentRun.tools)) {
         if (name in tools) throw new Error(`Duplicate tool: ${name}`);
         tools[name] = value;
+      }
+      if (mcp && thread.kind === "chat") {
+        const externalTools = await mcp.tools(request.threadId, abortSignal);
+        for (const [name, value] of Object.entries(externalTools)) {
+          if (name in tools) throw new Error("MCP 工具名称与现有工具冲突。");
+          tools[name] = value;
+        }
       }
       const projected = projectChatAttachmentMessages(
         validatedMessages,

@@ -34,6 +34,7 @@ import { DouyinBrowserLogin } from "./live/douyinBrowserLogin";
 import { LiveMedia } from "./live/media";
 import { registerLiveHandlers } from "./ipc/liveHandlers";
 import { AgentToolsService } from "./ai/agentTools";
+import { McpService } from "./mcp/mcpService";
 import { registerAgentToolHandlers } from "./ipc/agentToolHandlers";
 
 let mainWindow: BrowserWindow | undefined;
@@ -43,6 +44,9 @@ let characterPackageService: CharacterPackageService | undefined;
 let asrService: AsrService | undefined;
 let liveService: LiveService | undefined;
 let agentToolsService: AgentToolsService | undefined;
+let mcpService: McpService | undefined;
+let mcpShutdown: Promise<void> | undefined;
+let mcpShutdownDone = false;
 let liveShutdownDone = false;
 
 if (!app.isPackaged) {
@@ -206,6 +210,7 @@ void app.whenReady().then(async () => {
     douyinLoginBrowser: () => new DouyinBrowserLogin(),
     fetcher: (input, init) => net.fetch(typeof input === "string" || input instanceof URL ? String(input) : input.url, { ...init, credentials: "omit" }) });
   agentToolsService = new AgentToolsService(join(app.getPath("userData"), "workspaces"), databaseRuntime, assetService);
+  mcpService = new McpService(databaseRuntime, credentialStore);
   speechRequests = registerIpcHandlers(
     databaseRuntime,
     aiRuntime,
@@ -216,6 +221,7 @@ void app.whenReady().then(async () => {
     () => { void diaryService?.runPending(); },
     liveService,
     agentToolsService,
+    mcpService,
   );
   registerAgentToolHandlers(agentToolsService);
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
@@ -234,6 +240,11 @@ void app.whenReady().then(async () => {
 });
 
 app.on("before-quit", event => {
+  if (mcpService && !mcpShutdownDone) {
+    event.preventDefault();
+    mcpShutdown ??= mcpService.close().finally(() => { mcpShutdownDone = true; app.quit(); });
+    return;
+  }
   if (liveService && !liveShutdownDone) {
     event.preventDefault();
     void liveService.stop(false).finally(() => { liveShutdownDone = true; app.quit(); });

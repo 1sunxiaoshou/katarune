@@ -368,7 +368,7 @@ namespace Katarune.Avatar
                     foreach (var cue in playback.camera?.keys ?? Array.Empty<AvatarDanceCameraCue>())
                     {
                         if (cue == null || !float.IsFinite(cue.at) || cue.at < 0 || cue.at <= previous || cue.at > clips.Main.Duration
-                            || (cue.view != "overhead" && cue.view != "center" && cue.view != "closeup"))
+                            || !AvatarCameraViews.IsSupported(cue.view))
                             throw new InvalidDataException("舞蹈镜头提示无效。");
                         previous = cue.at;
                     }

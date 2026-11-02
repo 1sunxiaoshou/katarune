@@ -305,7 +305,7 @@ app.once("browser-window-created", async (_event, window) => {
     await new Promise(resolve => setTimeout(resolve, 1200));
     const immersive = await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`);
     assert.equal(immersive.status.phase, "ready");
-    assert.equal(immersive.cameraView, "overhead");
+    assert.equal(immersive.cameraView, "center");
     assert.equal(immersive.adjusting, false);
     // Windows may keep the Electron panel focused when foreground activation
     // of Unity is denied. Reuse an open panel; clicking More would close it.

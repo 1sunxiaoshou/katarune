@@ -1,3 +1,4 @@
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -6,6 +7,69 @@ namespace Katarune.Avatar.Tests
 {
     public sealed class AvatarImmersiveTests
     {
+        [TestCase(1920, 1080)]
+        [TestCase(1080, 1920)]
+        public void OutputProjectionPreservesSquarePixelGeometry(int width, int height)
+        {
+            var cameraObject = new GameObject("Output projection test camera");
+            try
+            {
+                var camera = cameraObject.AddComponent<Camera>();
+                AvatarSceneRig.ConfigurePhysicalProjection(camera, width / (float)height);
+                camera.fieldOfView = 30f;
+                var left = camera.WorldToViewportPoint(new Vector3(-.5f, 0f, 5f));
+                var right = camera.WorldToViewportPoint(new Vector3(.5f, 0f, 5f));
+                var bottom = camera.WorldToViewportPoint(new Vector3(0f, -.5f, 5f));
+                var top = camera.WorldToViewportPoint(new Vector3(0f, .5f, 5f));
+                var pixelWidth = (right.x - left.x) * width;
+                var pixelHeight = (top.y - bottom.y) * height;
+                Assert.That(pixelWidth / pixelHeight, Is.EqualTo(1f).Within(.001f),
+                    "A world-space square must remain square in either output orientation.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        [Test]
+        public void ScreenSizeRefreshPreservesLiveProjectionAndResumesDesktopProjectionAfterStop()
+        {
+            var cameraObject = new GameObject("Live resize test camera");
+            var camera = cameraObject.AddComponent<Camera>();
+            var rig = cameraObject.AddComponent<AvatarSceneRig>();
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                rig.Configure(true);
+                rig.Frame(avatar);
+                var screenAspect = Screen.width / Mathf.Max(1f, Screen.height);
+                var outputAspect = screenAspect < 1f ? 16f / 9f : 9f / 16f;
+                AvatarSceneRig.ConfigurePhysicalProjection(camera, outputAspect);
+                var outputSensor = camera.sensorSize;
+                var previousScreenSize = typeof(AvatarSceneRig).GetField("_lastScreenSize", BindingFlags.Instance | BindingFlags.NonPublic);
+                var lateUpdate = typeof(AvatarSceneRig).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(previousScreenSize, Is.Not.Null);
+                Assert.That(lateUpdate, Is.Not.Null);
+                rig.LiveOutputActive = true;
+                // Simulate a pending native-window size change without changing the Editor's own resolution.
+                previousScreenSize.SetValue(rig, new Vector2Int(-1, -1));
+                lateUpdate.Invoke(rig, null);
+                Assert.That(camera.aspect, Is.EqualTo(outputAspect).Within(.001f));
+                Assert.That(camera.sensorSize, Is.EqualTo(outputSensor));
+                rig.LiveOutputActive = false;
+                previousScreenSize.SetValue(rig, new Vector2Int(-1, -1));
+                lateUpdate.Invoke(rig, null);
+                Assert.That(camera.aspect, Is.EqualTo(screenAspect).Within(.001f),
+                    "The desktop camera must follow its window again once live output stops.");
+            }
+            finally
+            {
+                Object.DestroyImmediate(cameraObject);
+                Object.DestroyImmediate(avatar);
+            }
+        }
+
         [Test]
         public void PresetsBlendFromCurrentCameraAndRestoreDesktopComposition()
         {
@@ -32,7 +96,7 @@ namespace Katarune.Avatar.Tests
                 Assert.That(overhead.y, Is.GreaterThan(bounds.center.y));
                 var center = camera.WorldToViewportPoint(bounds.center);
                 Assert.That(center.x, Is.EqualTo(.5f).Within(.01f));
-                Assert.That(center.y, Is.EqualTo(.5f).Within(.04f));
+                Assert.That(center.y, Is.GreaterThan(.25f).And.LessThan(.5f));
                 rig.SetPresentationMode(true, "closeup");
                 rig.AdvancePresentation(.2f);
                 var interrupted = camera.transform.position;
@@ -89,6 +153,62 @@ namespace Katarune.Avatar.Tests
                 Object.DestroyImmediate(avatar);
                 Object.DestroyImmediate(replacement);
             }
+        }
+
+        [TestCase("fullbody", 3f, 28f, 0f)]
+        [TestCase("center", 3f, 26f, 0f)]
+        [TestCase("closeup", 4f, 20f, 0f)]
+        [TestCase("overhead", 16f, 28f, 0f)]
+        [TestCase("side", 3f, 26f, 20f)]
+        public void CameraPresetsKeepTheirLensAndViewingAngleAcrossOutputOrientations(string view, float pitch, float fieldOfView, float yaw)
+        {
+            var cameraObject = new GameObject("Preset geometry camera");
+            var camera = cameraObject.AddComponent<Camera>();
+            var rig = cameraObject.AddComponent<AvatarSceneRig>();
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            avatar.transform.localScale = new Vector3(.8f, 2f, .3f);
+            try
+            {
+                rig.Configure(true);
+                rig.Frame(avatar);
+                foreach (var aspect in new[] { 16f / 9f, 9f / 16f })
+                {
+                    AvatarSceneRig.ConfigurePhysicalProjection(camera, aspect);
+                    rig.SetPresentationMode(true, view);
+                    rig.AdvancePresentation(1f);
+                    var expected = Quaternion.Euler(pitch, 180f + yaw, 0f);
+                    Assert.That(Quaternion.Angle(camera.transform.rotation, expected), Is.LessThan(.01f));
+                    Assert.That(camera.fieldOfView, Is.EqualTo(fieldOfView).Within(.001f));
+                    Assert.That(camera.lensShift, Is.EqualTo(Vector2.zero));
+                    Assert.That(camera.orthographic, Is.False);
+                }
+            }
+            finally { Object.DestroyImmediate(cameraObject); Object.DestroyImmediate(avatar); }
+        }
+
+        [Test]
+        public void PortraitCloseupFramesTheFaceInsteadOfFittingTheFullArmSpan()
+        {
+            var cameraObject = new GameObject("Portrait crop camera");
+            var camera = cameraObject.AddComponent<Camera>();
+            var rig = cameraObject.AddComponent<AvatarSceneRig>();
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            avatar.transform.localScale = new Vector3(2f, 2f, .1f);
+            try
+            {
+                rig.Configure(true);
+                var bounds = rig.Frame(avatar);
+                AvatarSceneRig.ConfigurePhysicalProjection(camera, 9f / 16f);
+                rig.SetPresentationMode(true, "fullbody"); rig.AdvancePresentation(1f);
+                var fullbodyDistance = Vector3.Distance(camera.transform.position, bounds.center);
+                rig.SetPresentationMode(true, "closeup"); rig.AdvancePresentation(1f);
+                Assert.That(Vector3.Distance(camera.transform.position, bounds.center), Is.LessThan(fullbodyDistance * .5f));
+                var eye = bounds.min + new Vector3(bounds.extents.x, bounds.size.y * .73f, bounds.extents.z);
+                var eyeInFrame = camera.WorldToViewportPoint(eye);
+                Assert.That(eyeInFrame.x, Is.EqualTo(.5f).Within(.01f));
+                Assert.That(eyeInFrame.y, Is.InRange(.5f, .85f));
+            }
+            finally { Object.DestroyImmediate(cameraObject); Object.DestroyImmediate(avatar); }
         }
 
         [Test]

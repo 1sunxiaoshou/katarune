@@ -6,17 +6,23 @@ import { promisify } from "node:util";
 import { mkdir, stat, writeFile, readFile } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { runtimePackage } from "./runtimePackage.mjs";
 
 // Real visible Player, default local model; no provider calls or personal data.
 const executable = resolve("unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
 const output = resolve(".test-dist/immersive-player");
 await mkdir(output, { recursive: true });
+const packageRoot = resolve("resources/characters/default-package");
+const manifest = JSON.parse(await readFile(join(packageRoot, "manifest.json"), "utf8"));
+const packageFile = join(output, "package.json");
+const ids = Object.fromEntries(manifest.actions.map(action => [action.key, randomUUID()]));
+await writeFile(packageFile, JSON.stringify(runtimePackage(manifest, ids, packageRoot)));
 const native = async (processId = 0) => JSON.parse((await promisify(execFile)("pwsh", [
   "-NoProfile", "-File", resolve("tests/native-avatar-window.ps1"), "-AvatarProcessId", String(processId),
 ], { windowsHide: true, timeout: 10_000 })).stdout);
 const rect = await native();
 const results = [];
-for (const cameraView of ["overhead", "center", "closeup"]) {
+for (const cameraView of ["fullbody", "center", "closeup", "overhead", "side"]) {
   const pipe = `katarune-immersive-test-${randomUUID()}`;
   const capture = join(output, `${cameraView}.png`);
   const log = join(output, `${cameraView}.log`);
@@ -49,7 +55,7 @@ for (const cameraView of ["overhead", "center", "closeup"]) {
     child = spawn(executable, ["-force-d3d11", "-force-d3d11-bitblt-model", "-screen-fullscreen", "1",
       "-window-mode", "borderless", "-logFile", log, "--screenshot", capture, "--capture-delay", "5", "--exit-on-error"], {
       cwd: dirname(executable), windowsHide: true, stdio: "ignore",
-      env: { ...process.env, KATARUNE_AVATAR_PIPE: pipe },
+      env: { ...process.env, KATARUNE_AVATAR_PIPE: pipe, KATARUNE_CHARACTER_PACKAGE: packageFile },
     });
     child.on("error", error => { failure = error; });
     child.on("exit", code => { failure = new Error(`Player exited early: ${code}`); });
@@ -98,4 +104,4 @@ for (const cameraView of ["overhead", "center", "closeup"]) {
   }
 }
 await writeFile(join(output, "result.json"), JSON.stringify(results, null, 2));
-console.log("[immersive] Three real Player presets, native window policies, screenshots and desktop restoration passed.");
+console.log("[immersive] Five real Player presets, native window policies, screenshots and desktop restoration passed.");

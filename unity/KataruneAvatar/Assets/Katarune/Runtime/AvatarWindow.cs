@@ -101,7 +101,7 @@ namespace Katarune.Avatar
             var layout = JsonUtility.FromJson<Layout>(json);
             if (layout == null) return;
             if (layout.mode != null && layout.mode != "desktop" && layout.mode != "immersive") return;
-            if (layout.cameraView != null && layout.cameraView != "overhead" && layout.cameraView != "center" && layout.cameraView != "closeup") return;
+            if (layout.cameraView != null && !AvatarCameraViews.IsSupported(layout.cameraView)) return;
             if (layout.applyGeometry && (layout.rect == null || layout.rect.width <= 0 || layout.rect.height <= 0)) return;
             _layoutId = layout.requestId;
             _dragging = _rotating = _userChanged = false;
@@ -116,7 +116,7 @@ namespace Katarune.Avatar
                 _rig?.SetDesktopPose(layout.yaw, layout.pitch);
                 _rig?.SetDesktopPlacement(layout.x, layout.y, layout.height);
             }
-            _rig?.SetPresentationMode(_immersive, layout.cameraView ?? "overhead");
+            _rig?.SetPresentationMode(_immersive, layout.cameraView ?? "center");
             _reportedYaw = _rig?.DesktopYaw ?? 0;
             _reportedPitch = _rig?.DesktopPitch ?? 4;
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
@@ -238,7 +238,7 @@ namespace Katarune.Avatar
             // rotation includes its inertial tail, which changes the target pose.
             var changed = _userChanged || (_adjusting && (yaw != _reportedYaw || pitch != _reportedPitch));
             var center = _rig?.DesktopCenter ?? new Vector2(.78f, .5f);
-            var json = JsonUtility.ToJson(new Report { requestId=requestId ?? "", layoutId=_layoutId, mode=_immersive ? "immersive" : "desktop", cameraView=_rig?.CameraView ?? "overhead", userChanged=changed, rect=ReadRect(), yaw=yaw, pitch=pitch, x=center.x, y=center.y, height=_rig?.DesktopHeight ?? .65f, adjusting=_adjusting, moving=moving, restored=_policyRestored });
+            var json = JsonUtility.ToJson(new Report { requestId=requestId ?? "", layoutId=_layoutId, mode=_immersive ? "immersive" : "desktop", cameraView=_rig?.CameraView ?? "center", userChanged=changed, rect=ReadRect(), yaw=yaw, pitch=pitch, x=center.x, y=center.y, height=_rig?.DesktopHeight ?? .65f, adjusting=_adjusting, moving=moving, restored=_policyRestored });
             _reportedYaw=yaw; _reportedPitch=pitch;
             _policyRestored=_userChanged=false;
             if (json == _lastReport) return; _lastReport=json; StateChanged?.Invoke(json);

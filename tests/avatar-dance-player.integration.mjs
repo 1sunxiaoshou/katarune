@@ -236,7 +236,8 @@ try {
     && Math.abs(frame.subtitleColor.g - 143 / 255) < .005 && Math.abs(frame.subtitleColor.b - 179 / 255) < .005), "Only music lyrics use the specified pink");
   const angle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w)));
   assert.ok(rotations.some(rotation => angle(rotation, rotations[0]) > .1), "The dance must actually animate the avatar");
-  const baseline = frames.find(frame => frame.dancing && frame.actionId === silentId)?.cameraPosition;
+  assert.ok(frames.some(frame => frame.dancing && frame.actionId === silentId && frame.cameraView === "fullbody"), "Dance without authored cameras must use the fullbody preset");
+  const baseline = frames.find(frame => !frame.dancing)?.cameraPosition;
   const final = frames.at(-1);
   const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   const tracked = frames.filter(frame => frame.dancing && frame.actionId === trackId && frame.dancePosition > .05 && frame.dancePosition < 2.9);

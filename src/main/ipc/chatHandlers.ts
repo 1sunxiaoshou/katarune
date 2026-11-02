@@ -28,6 +28,7 @@ import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
 import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
 import type { AgentToolsService } from "../ai/agentTools";
+import type { McpService } from "../mcp/mcpService";
 
 export function registerChatHandlers(
   database: DatabaseRuntime,
@@ -37,12 +38,14 @@ export function registerChatHandlers(
   avatar?: AvatarService,
   live?: LiveService,
   agentTools?: AgentToolsService,
+  mcp?: McpService,
 ): void {
   const chatService = createChatService({
     database,
     aiRuntime,
     memory: database,
     ...(agentTools ? { agentTools } : {}),
+    ...(mcp ? { mcp } : {}),
     ...(avatar ? { avatar } : {}),
     attachmentSupport: {
       assetService,
@@ -104,6 +107,7 @@ export function registerChatHandlers(
     database.fetchThread(threadId, characterId);
     if (live?.active && live.status.threadId === threadId) await live.stop();
     chatStreams.cancelThread(characterId, threadId);
+    await mcp?.closeThread(threadId);
     const candidateAssetIds = database.deleteThread(threadId, characterId);
     for (const assetId of candidateAssetIds) {
       assetService.releaseChatAttachment(assetId, database);

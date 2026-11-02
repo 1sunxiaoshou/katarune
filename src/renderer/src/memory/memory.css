@@ -107,7 +107,6 @@
 .memory-body-editor { outline: none; min-height: 8rem; }
 .memory-body-editor[contenteditable=true] > p:only-child:has(> br:only-child)::before { content: "写下值得记住的内容…"; float: left; height: 0; color: var(--muted-foreground); opacity: .6; pointer-events: none; }
 .memory-user-label { gap: .5rem; font-size: .75rem; line-height: 1.5; color: var(--foreground-secondary); }
-.memory-save-error { flex-shrink: 0; margin-bottom: .75rem; }
 .memory-body ul[data-type=taskList] { list-style: none; padding-left: 0; }
 .memory-body ul[data-type=taskList] > li { display: flex; align-items: flex-start; gap: .4rem; }
 .memory-body ul[data-type=taskList] > li > div { flex: 1; min-width: 0; }

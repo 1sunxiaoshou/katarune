@@ -4,12 +4,35 @@ import { brotliCompressSync } from "node:zlib";
 import type { UIMessage } from "ai";
 import { biliHeaders, biliPacket, decodeBiliPackets, parseBiliEvent } from "../src/main/live/bilibili";
 import { clipLiveHistory, LiveEventBuffer } from "../src/main/live/liveService";
-import { DEFAULT_LIVE_SETTINGS, liveSettingsSchema, type LiveEvent } from "../src/shared/live";
+import { liveOutputProfile } from "../src/main/live/outputProfile";
+import { DEFAULT_LIVE_SETTINGS, liveOutputDimensions, liveSettingsSchema, type LiveEvent } from "../src/shared/live";
 import { threadIdRequestSchema } from "../src/shared/ipc";
 
 const credentials = { appId: "12345", accessKey: "synthetic-public", accessSecret: "synthetic-secret", identityCode: "synthetic-code" };
 const event = (index: number, kind: "danmaku" | "gift" = "danmaku"): LiveEvent => ({
   id: String(index), kind, roomId: "101", timestamp: 1000, userId: "viewer", userName: "观众", text: `消息${index}`, giftId: "1", giftName: "花", quantity: 1,
+});
+describe("livestream output shape", () => {
+  it("keeps existing settings landscape and rejects unsupported aspect ratios", () => {
+    const { aspectRatio: _aspectRatio, ...existing } = DEFAULT_LIVE_SETTINGS;
+    expect(liveSettingsSchema.parse(existing).aspectRatio).toBe("16:9");
+    expect(liveSettingsSchema.parse({ ...existing, aspectRatio: "9:16" }).aspectRatio).toBe("9:16");
+    expect(liveSettingsSchema.safeParse({ ...existing, aspectRatio: "1:1" }).success).toBe(false);
+    expect(liveSettingsSchema.safeParse({ ...existing, aspectRatio: null }).success).toBe(false);
+  });
+  it.each([
+    [1280, "16:9", 1280, 720], [1280, "9:16", 720, 1280],
+    [1920, "16:9", 1920, 1080], [1920, "9:16", 1080, 1920],
+    [2560, "16:9", 2560, 1440], [2560, "9:16", 1440, 2560],
+  ] as const)("resolves %i at %s to %i × %i", (width, aspectRatio, expectedWidth, expectedHeight) => {
+    expect(liveOutputDimensions({ width, aspectRatio })).toEqual({ width: expectedWidth, height: expectedHeight });
+  });
+  it.each([[1280, 6000], [1920, 12000], [2560, 24000]] as const)("retains the %i source quality in either orientation", (width, videoBitrateKbps) => {
+    for (const aspectRatio of ["16:9", "9:16"] as const) {
+      const settings = { ...DEFAULT_LIVE_SETTINGS, width, aspectRatio };
+      expect(liveOutputProfile(settings)).toMatchObject({ fps: 60, videoBitrateKbps });
+    }
+  });
 });
 describe("Bilibili official event boundary", () => {
   it("signs the exact request bytes using sorted official headers", () => {

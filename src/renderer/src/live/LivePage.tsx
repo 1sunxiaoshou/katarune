@@ -18,7 +18,8 @@ import { PageLoading } from "../components/page-loading";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { notify } from "../notifications";
 import { assetUrl, type Character } from "../../../shared/ipc";
-import { DEFAULT_LIVE_SETTINGS, type LiveSettings } from "../../../shared/live";
+import { DEFAULT_LIVE_SETTINGS, liveOutputDimensions, type LiveSettings } from "../../../shared/live";
+import { AVATAR_CAMERA_OPTIONS } from "../../../shared/avatarCamera";
 import { useLiveState } from "./liveState";
 import { LiveConnectionPanel } from "./LiveConnectionPanel";
 import { LivePreviewPlayer } from "./livePreviewPlayer";
@@ -99,6 +100,10 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   const transitioning = state.phase === "starting" || state.phase === "stopping";
   const character = characters.find(item => item.id === state.settings.characterId) ?? activeCharacter;
   const portraitId = character.packageThumbnailAssetId ?? character.packagePortraitAssetId;
+  const resolutionTitle = (width: LiveSettings["width"]) => {
+    const size = liveOutputDimensions({ width, aspectRatio: draft.aspectRatio });
+    return `${size.width} × ${size.height}`;
+  };
   const save = async (next = draft) => {
     try { useLiveState.getState().setState(await window.katarune.updateLiveSettings(next)); }
     catch (error) { setDraft(state.settings); report(error); }
@@ -149,7 +154,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
                 <Field id="live-background" label="背景"><OptionSelect<LiveSettings["background"]> id="live-background" label="背景" value={draft.background} options={[{ value: "immersive", label: "沉浸背景" }, { value: "solid", label: "纯色" }]} onValueChange={value => change("background", value, true)} /></Field>
                 <CollapsibleContent><div className="pt-4"><Field id="live-background-color" label="背景颜色"><Input id="live-background-color" type="color" className="p-1" value={draft.backgroundColor} onChange={event => change("backgroundColor", event.target.value, true)} /></Field></div></CollapsibleContent>
               </Collapsible>
-              <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={[{ value: "overhead", label: "俯视" }, { value: "center", label: "居中" }, { value: "closeup", label: "近景" }]} onValueChange={value => change("camera", value, true)} /></Field>
+              <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={AVATAR_CAMERA_OPTIONS} onValueChange={value => change("camera", value, true)} /></Field>
               <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
             </TabsContent>
             <TabsContent value="sound" className="live-settings scrollbar-hidden">
@@ -158,14 +163,26 @@ export function LivePage({ onClose }: { onClose: () => void }) {
             </TabsContent>
             <TabsContent value="output" className="live-settings scrollbar-hidden">
               <div className="live-field">
+                <Label id="live-aspect-ratio-label">输出比例</Label>
+                <Tabs value={draft.aspectRatio} className="gap-0" onValueChange={value => {
+                  if (value === "16:9" || value === "9:16") change("aspectRatio", value, true);
+                }}>
+                  <TabsList id="live-aspect-ratio" aria-labelledby="live-aspect-ratio-label" className={`${SEGMENTED_LIST_CLASS} w-full grid-cols-2`}>
+                    <TabsIndicator className="model-category-indicator" />
+                    <TabsTrigger id="live-aspect-landscape" value="16:9" disabled={active} className={SEGMENTED_TAB_CLASS}>横屏 16:9</TabsTrigger>
+                    <TabsTrigger id="live-aspect-portrait" value="9:16" disabled={active} className={SEGMENTED_TAB_CLASS}>竖屏 9:16</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              <div className="live-field">
                 <Label id="live-resolution-label">分辨率</Label>
                 <Tabs value={String(draft.width)} className="gap-0" onValueChange={value => {
                   if (value === "1920" || value === "2560") change("width", value === "1920" ? 1920 : 2560, true);
                 }}>
                   <TabsList id="live-resolution" aria-labelledby="live-resolution-label" className={`${SEGMENTED_LIST_CLASS} w-full grid-cols-2`}>
                     <TabsIndicator className="model-category-indicator" />
-                    <TabsTrigger id="live-resolution-1k" value="1920" title="1920 × 1080" disabled={active} className={SEGMENTED_TAB_CLASS}>1K</TabsTrigger>
-                    <TabsTrigger id="live-resolution-2k" value="2560" title="2560 × 1440" disabled={active} className={SEGMENTED_TAB_CLASS}>2K</TabsTrigger>
+                    <TabsTrigger id="live-resolution-1k" value="1920" title={resolutionTitle(1920)} disabled={active} className={SEGMENTED_TAB_CLASS}>1K</TabsTrigger>
+                    <TabsTrigger id="live-resolution-2k" value="2560" title={resolutionTitle(2560)} disabled={active} className={SEGMENTED_TAB_CLASS}>2K</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>

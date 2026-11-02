@@ -1,12 +1,12 @@
 import type { DiagnosticsApi } from "./diagnostics";
 import * as z from "zod/mini";
 import type { AvatarStatus, AvatarCapabilities } from "./avatar";
+import { avatarCameraViewSchema, type AvatarCameraView } from "./avatarCamera";
+export { avatarCameraViewSchema, type AvatarCameraView } from "./avatarCamera";
 
 const number = z.number();
 export const avatarDisplayModeSchema = z.enum(["desktop", "immersive"]);
-export const avatarCameraViewSchema = z.enum(["overhead", "center", "closeup"]);
 export type AvatarDisplayMode = z.infer<typeof avatarDisplayModeSchema>;
-export type AvatarCameraView = z.infer<typeof avatarCameraViewSchema>;
 export const desktopRectSchema = z.object({
   x: number,
   y: number,

@@ -140,6 +140,11 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Borderless fields show the same error edge without adding layout space or an outer ring. */
+.field-error-frame[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--destructive);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -628,7 +633,6 @@
   letter-spacing: 0.04em;
 }
 
-.character-save-state[data-state="error"] { color: var(--destructive); }
 .character-save-state[data-state="saving"] span { animation: spin 1s linear infinite; }
 
 .character-art-panel {

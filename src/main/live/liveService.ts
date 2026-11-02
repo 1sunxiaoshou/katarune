@@ -199,7 +199,7 @@ export class LiveService {
     if (settings.platform === "douyin" && settings.connectionMode !== "web") throw new OperationRejected("invalid-input", "抖音使用网页连接。");
     // Room IDs are discovered for the selected method and must never cross platforms.
     if (settings.platform !== previous.platform || settings.connectionMode !== previous.connectionMode) settings.webRoomId = "";
-    if (this.active && ["platform", "connectionMode", "webRoomId", "characterId", "width", "port"].some(key => Reflect.get(settings, key) !== Reflect.get(previous, key))) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接、角色或输出规格。");
+    if (this.active && ["platform", "connectionMode", "webRoomId", "characterId", "aspectRatio", "width", "port"].some(key => Reflect.get(settings, key) !== Reflect.get(previous, key))) throw new OperationRejected("operation-not-allowed", "请先停止直播再修改连接、角色或输出规格。");
     if (settings.characterId) this.options.database.fetchCharacter(settings.characterId);
     const persist = () => { this.options.database.saveLiveConfig(settings); this.change({ settings }); };
     if (settings.platform !== previous.platform || settings.connectionMode !== previous.connectionMode || settings.webRoomId !== previous.webRoomId) await this.changeConnection(persist);

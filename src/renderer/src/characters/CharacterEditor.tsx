@@ -34,6 +34,7 @@ import { useApplicationSettings } from "../settings/ApplicationSettingsProvider"
 import { defaultVoiceForModel } from "../../../shared/speechSelection";
 import { SpeechVoicePicker } from "../speech/SpeechVoicePicker";
 import { CharacterPortraitPanel } from "./CharacterPortraitPanel";
+import { notify } from "../notifications";
 
 const NO_MODEL_ID = "__katarune_no_model__";
 const DEFAULT_SPEECH_ID = "__default_speech__";
@@ -232,6 +233,7 @@ export function CharacterEditor({
         setSaveState({ status: "saved", message: "" });
       } catch (error) {
         saveFailed.current = true;
+        notify({ level: "error", message: error instanceof Error ? error.message : "保存失败，请重试。", dedupeKey: `character-save:${character.id}` });
         setSaveState({
           status: "error",
           message:
@@ -241,7 +243,7 @@ export function CharacterEditor({
         pendingSaves.current.delete(saving);
       }
     },
-    [draft, onCharacterUpdated, onDraftUpdated],
+    [draft, onCharacterUpdated, onDraftUpdated, character.id],
   );
 
   const saveName = (event: FocusEvent<HTMLInputElement>): void => {
@@ -251,6 +253,7 @@ export function CharacterEditor({
       setName(fallbackName);
       if (draft) onDraftUpdated({ name: fallbackName });
       setSaveState({ status: "error", message: "角色名称不能为空。" });
+      notify({ level: "error", message: "角色名称不能为空，已恢复原名称。", dedupeKey: `character-name:${character.id}` });
       return;
     }
     if (normalized === character.name) {
@@ -543,10 +546,10 @@ export function CharacterEditor({
           />
         </div>
 
-        {(draft || saveState.status === "saving" || saveState.status === "error") && (
-          <p className="character-save-state" data-state={saveState.status} role={saveState.status === "error" ? "alert" : "status"}>
+        {((draft && saveState.status !== "error") || saveState.status === "saving") && (
+          <p className="character-save-state" data-state={saveState.status} role="status">
             <span aria-hidden="true">
-              {saveState.status === "saving" ? "◇" : saveState.status === "error" ? "!" : "✦"}
+              {saveState.status === "saving" ? "◇" : "✦"}
             </span>
             {saveState.message}
           </p>

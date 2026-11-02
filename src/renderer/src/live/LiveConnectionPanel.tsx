@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Input } from "../components/ui/input";
+import { Form, FormInput } from "../components/form";
 import { Label } from "../components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { notify } from "../notifications";
@@ -137,7 +137,7 @@ export function LiveConnectionPanel({ state, disabled }: { state: LiveState; dis
               <PlatformIcon platform={option.platform} /><span className="min-w-0 flex-1 text-left"><span className="block">{option.label}</span>{account && <span className="block truncate text-xs font-normal text-muted-foreground">{account.name}</span>}</span>{current && configured && <span className="text-xs font-normal text-muted-foreground">当前</span>}<ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden="true" />
             </Button>;
           })}
-        </div> : panel === "official" ? <form className="live-connect-form scrollbar-hidden" onSubmit={event => { event.preventDefault(); void perform(async () => {
+        </div> : panel === "official" ? <Form className="live-connect-form scrollbar-hidden" onSubmit={event => { event.preventDefault(); void perform(async () => {
           const revision = navigation.current;
           useLiveState.getState().setState(await window.katarune.setLiveCredentials(credentials));
           setCredentials({ appId: "", accessKey: "", accessSecret: "", identityCode: "" });
@@ -145,9 +145,9 @@ export function LiveConnectionPanel({ state, disabled }: { state: LiveState; dis
           useLiveState.getState().setState(await window.katarune.connectLiveRoom());
         }); }}>
           {([{ id: "app-id", key: "appId", label: "项目 ID" }, { id: "access-key", key: "accessKey", label: "Access Key" }, { id: "access-secret", key: "accessSecret", label: "Access Secret" }, { id: "identity-code", key: "identityCode", label: "主播身份码" }] as const).map(field =>
-            <div className="live-field live-field-stacked" key={field.id}><Label htmlFor={`live-${field.id}`}>{field.label}</Label><Input id={`live-${field.id}`} required disabled={disabled || pending} type={field.key === "appId" ? "text" : "password"} autoComplete={field.key === "appId" ? "off" : "new-password"} value={credentials[field.key]} onChange={event => setCredentials({ ...credentials, [field.key]: event.target.value })} /></div>)}
+            <div className="live-field live-field-stacked" key={field.id}><Label htmlFor={`live-${field.id}`}>{field.label}</Label><FormInput label={field.label} id={`live-${field.id}`} required disabled={disabled || pending} type={field.key === "appId" ? "text" : "password"} autoComplete={field.key === "appId" ? "off" : "new-password"} value={credentials[field.key]} onChange={event => setCredentials({ ...credentials, [field.key]: event.target.value })} /></div>)}
           <div className="live-connect-actions"><Button type="submit" size="sm" disabled={disabled || pending}>连接</Button></div>
-        </form> : panel === "info" ? <RoomInfo state={state} /> : <div ref={events} className="live-event-list scrollbar-hidden" role="log" aria-label="直播间事件" aria-live="off">
+        </Form> : panel === "info" ? <RoomInfo state={state} /> : <div ref={events} className="live-event-list scrollbar-hidden" role="log" aria-label="直播间事件" aria-live="off">
           {!state.events.length && <div className="live-empty">等待观众互动</div>}
           {state.events.map(event => <div key={event.id} className={`live-event live-event-${event.kind}`}>
             {event.kind === "danmaku" || event.kind === "gift" ? <><b title={event.userId && event.userId !== "0" ? `用户标识：${event.userId}` : "用户身份未知"}>{event.userName || "匿名观众"}</b><span>{event.kind === "danmaku" ? event.text : `赠送 ${event.giftName} × ${event.quantity}`}</span>{event.kind === "gift" && <small>平台礼物</small>}</> : <span>{event.kind === "started" ? "直播间已开播" : event.kind === "ended" ? "直播间已下播" : "官方互动连接已结束"}</span>}

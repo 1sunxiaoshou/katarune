@@ -69,6 +69,12 @@ namespace Katarune.Avatar
         public float at;
         public string view;
     }
+    public static class AvatarCameraViews
+    {
+        public static bool IsSupported(string view) =>
+            view == "fullbody" || view == "center" || view == "closeup" ||
+            view == "overhead" || view == "side";
+    }
     public interface IAvatarDanceRuntime
     {
         bool DanceActive { get; }

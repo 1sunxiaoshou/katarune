@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import type { McpServer } from "../../../shared/mcp";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -564,6 +565,7 @@ type ToolCallDetailsProps = ToolCallMessagePartProps & {
 
 // All tool renderers share the same disclosure and approval lifecycle.
 function ToolCallDetails({
+  displayName,
   label,
   labelClassName,
   target,
@@ -574,7 +576,7 @@ function ToolCallDetails({
   children,
   "data-testid": testId,
   ...props
-}: ToolCallDetailsProps) {
+}: ToolCallDetailsProps & { displayName?: string }) {
   const { toolName, toolCallId, status } = props;
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
@@ -591,7 +593,7 @@ function ToolCallDetails({
 
   return (
     <ToolFallbackRoot open={open} onOpenChange={setOpen} data-testid={testId} data-tool-call-id={toolCallId}>
-      <ToolFallbackTrigger toolName={toolName} status={status} label={label} labelClassName={labelClassName} target={target} targetClassName={targetClassName} hasDetails={showDetails} failed={failed ?? (props.isError ? true : undefined)} active={active} />
+      <ToolFallbackTrigger toolName={displayName ?? toolName} status={status} label={label} labelClassName={labelClassName} target={target} targetClassName={targetClassName} hasDetails={showDetails} failed={failed ?? (props.isError ? true : undefined)} active={active} />
       {showDetails && <ToolFallbackContent>
         {children ?? <>
           <ToolFallbackError status={status} />
@@ -612,7 +614,23 @@ function ToolCallDetails({
   );
 }
 
-const ToolFallbackImpl: ToolCallMessagePartComponent = props => <ToolCallDetails {...props} />;
+let mcpNamesRequest: Promise<McpServer[]> | undefined;
+function McpToolFallback(props: ToolCallMessagePartProps) {
+  const [displayName, setDisplayName] = useState("MCP 工具");
+  useEffect(() => {
+    let active = true;
+    mcpNamesRequest ??= window.katarune.listMcpServers().finally(() => { mcpNamesRequest = undefined; });
+    void mcpNamesRequest.then(servers => {
+      const server = servers.find(candidate => candidate.tools.some(tool => tool.modelName === props.toolName));
+      const tool = server?.tools.find(candidate => candidate.modelName === props.toolName);
+      if (active && server && tool) setDisplayName(`${server.name} · ${tool.name}`);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [props.toolName]);
+  const failed = props.isError || (typeof props.result === "object" && props.result !== null && "isError" in props.result && props.result.isError === true);
+  return <ToolCallDetails {...props} displayName={displayName} failed={failed || undefined} />;
+}
+const ToolFallbackImpl: ToolCallMessagePartComponent = props => props.toolName.startsWith("mcp_") ? <McpToolFallback {...props} /> : <ToolCallDetails {...props} />;
 
 const ToolFallback = memo(
   ToolFallbackImpl,

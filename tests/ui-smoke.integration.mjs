@@ -4,7 +4,10 @@ import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import QRCode from "qrcode";
-import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, safeStorage } from "electron";
+import { createCredentialStore } from "../src/main/security/credentialStore";
+import { McpService } from "../src/main/mcp/mcpService";
+import { registerMcpHandlers } from "../src/main/ipc/mcpHandlers";
 import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
@@ -63,6 +66,7 @@ let realtimeFrameCount = 0;
 let realtimeText = '';
 let testingRealtime = false;
 let createdProviderRequest = null;
+let failProviderSave = false;
 let automaticDiscoveryRequests = 0;
 let createdProvider = null;
 let replacedCredentialRequest = null;
@@ -177,6 +181,7 @@ let canceledAvatarStreams = 0;
 let pendingThreadListLoads = 0;
 let completedThreadListLoads = 0;
 let memoryDatabase;
+let mcpService;
 
 function silentWav(durationMs = 2_000) {
   const sampleRate = 8_000;
@@ -814,6 +819,7 @@ function registerMockHandlers() {
     ],
   }));
   ipcMain.handle("provider-configs:create", (_event, request) => {
+    if (failProviderSave) throw new Error("合成保存失败，请稍后重试。");
     createdProviderRequest = request;
     createdProvider = {
       id: "5df8d817-cb76-4b8d-b16d-ea53b5d68457",
@@ -1223,6 +1229,13 @@ let exitCode = 0;
 
 async function run() {
   registerMockHandlers();
+  const mcpCredentials = await createCredentialStore({ userDataPath, cipher: {
+    isEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
+    encryptString: value => safeStorage.encryptStringAsync(value),
+    decryptString: value => safeStorage.decryptStringAsync(value),
+  } });
+  mcpService = new McpService(memoryDatabase, mcpCredentials);
+  registerMcpHandlers(mcpService);
   registerWindowThemeHandler(sender => BrowserWindow.fromWebContents(sender) ?? undefined);
   const window = createTestWindow();
 
@@ -1234,6 +1247,231 @@ async function run() {
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
     });
 
+    await runStep("form validation floats without changing layout", async () => {
+      const activeToast = '[data-testid="notification-toast"][data-anchored="true"]:not([data-ending-style])';
+      const fill = async (selector, value) => {
+        await waitForSelector(window, selector);
+        await window.webContents.executeJavaScript(`(() => {
+          const input = document.querySelector(${JSON.stringify(selector)});
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+      };
+      const layout = selector => window.webContents.executeJavaScript(`(() => {
+        const form = document.querySelector(${JSON.stringify(selector)});
+        const bounds = form.getBoundingClientRect();
+        const button = form.querySelector('button[type="submit"]').getBoundingClientRect();
+        return { height: bounds.height, width: bounds.width, buttonTop: button.top - bounds.top };
+      })()`);
+      const waitForNoError = () => waitUntil('field error dismissed', () => window.webContents.executeJavaScript(`!document.querySelector(${JSON.stringify(activeToast)})`));
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await clickSelector(window, '[data-testid="theme-light"]');
+      await clickSelector(window, '[data-testid="settings-tab-models"]');
+      await clickSelector(window, '[data-testid="add-provider"]');
+      await waitForSelector(window, '#provider-secret');
+      const providerLayout = await layout('[role="dialog"] form');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitForText(window, activeToast, '请填写API Key。');
+      console.log('[forms] first field feedback ready');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id === 'provider-secret' && document.querySelector('#provider-secret').getAttribute('aria-invalid') === 'true' && document.querySelector('[role="dialog"] form').noValidate`), true);
+      assert.equal(createdProviderRequest, null, 'invalid forms must not reach persistence');
+      assert.deepEqual(await layout('[role="dialog"] form'), providerLayout, 'field errors must not move the dialog or submit button');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelectorAll(${JSON.stringify(activeToast)}).length`), 1);
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('#provider-secret');
+        return (input.getAttribute('aria-describedby') ?? '').split(' ').some(id => document.getElementById(id)?.textContent.includes('请填写API Key。'));
+      })()`), true, 'field errors must also be accessible without the popup');
+      writeFileSync(join(projectRoot, '.test-dist', 'field-error-provider-light.png'), (await window.webContents.capturePage()).toPNG());
+      const feedbackBounds = await window.webContents.executeJavaScript(`(() => {
+        const input = document.querySelector('#provider-secret').getBoundingClientRect();
+        const tip = document.querySelector(${JSON.stringify(activeToast)}).getBoundingClientRect();
+        const x = Math.max(0, Math.floor(input.left) - 8), y = Math.max(0, Math.floor(input.top) - 8);
+        return { x, y, width: Math.ceil(Math.max(input.right, tip.right)) + 8 - x, height: Math.ceil(Math.max(input.bottom, tip.bottom)) + 8 - y };
+      })()`);
+      writeFileSync(join(projectRoot, '.test-dist', 'field-error-detail.png'), (await window.webContents.capturePage(feedbackBounds)).toPNG());
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'ESC' });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'ESC' });
+      await waitForNoError();
+      assert.equal(await window.webContents.executeJavaScript(`!!document.querySelector('[role="dialog"]')`), true, 'Escape must dismiss the field popup before the dialog');
+      // Offscreen Chromium updates activeElement without dispatching native focus events.
+      // Dispatch the focus transition explicitly when testing a refocused existing error.
+      await window.webContents.executeJavaScript(`document.querySelector('#provider-name').focus(); document.querySelector('#provider-name').dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'provider-name');
+      await window.webContents.executeJavaScript(`document.querySelector('#provider-secret').focus(); document.querySelector('#provider-secret').dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      await waitForText(window, activeToast, '请填写API Key。');
+      console.log('[forms] refocused field feedback ready');
+      await fill('#provider-secret', 'synthetic-key');
+      await waitForNoError();
+      await waitUntil('valid field cleared', () => window.webContents.executeJavaScript(`document.querySelector('#provider-secret').getAttribute('aria-invalid') !== 'true'`));
+      await fill('#provider-url', 'not-a-url');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await window.webContents.executeJavaScript(`document.activeElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      await waitForText(window, activeToast, 'Base URL');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'provider-url');
+      await fill('#provider-url', '');
+      await waitForNoError();
+      failProviderSave = true;
+      try {
+        await clickSelector(window, '[role="dialog"] button[type="submit"]');
+        await waitForText(window, '[data-testid="notification-toast"]:not([data-anchored])', '合成保存失败');
+        assert.deepEqual(await layout('[role="dialog"] form'), providerLayout, 'save failures must not occupy form layout');
+        await clickSelector(window, '[data-testid="notification-toast"]:not([data-anchored]) button[aria-label="关闭通知"]');
+      } finally { failProviderSave = false; }
+      await clickSelector(window, '[data-slot="dialog-close"]');
+      await clickSelector(window, '[data-testid="settings-tab-general"]');
+      await clickSelector(window, '[data-testid="theme-dark"]');
+      console.log('[forms] checking dark compact feedback');
+      await clickSelector(window, '[data-testid="settings-tab-models"]');
+      await clickSelector(window, '[data-testid="add-provider"]');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitForText(window, activeToast, '请填写API Key。');
+      window.setSize(760, 520);
+      await new Promise(resolveFrame => setTimeout(resolveFrame, 180));
+      assert.equal(await window.webContents.executeJavaScript(`(() => { const rect = document.querySelector(${JSON.stringify(activeToast)}).getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight; })()`), true, 'anchored feedback must fit the compact viewport');
+      writeFileSync(join(projectRoot, '.test-dist', 'field-error-provider-dark-compact.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[data-slot="dialog-close"]');
+      await waitForNoError();
+      window.setSize(1280, 900);
+      await clickSelector(window, '[data-testid="settings-tab-general"]');
+      await clickSelector(window, '[data-testid="theme-light"]');
+      await clickSelector(window, '[data-testid="settings-tab-models"]');
+      await clickSelector(window, '[data-testid="add-model"]');
+      await waitForSelector(window, '#model-id');
+      const modelLayout = await layout('[role="dialog"] form');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitForText(window, activeToast, '模型 ID');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'model-id');
+      assert.deepEqual(await layout('[role="dialog"] form'), modelLayout);
+      await fill('#model-id', 'synthetic-model');
+      await clickSelector(window, '[role="dialog"] button[type="submit"]');
+      await waitForText(window, activeToast, '请选择模型类别');
+      assert.equal(createdModelRequest, null);
+      await clickSelector(window, '[data-slot="dialog-close"]');
+      await waitForNoError();
+      await clickSelector(window, '[data-testid="settings-tab-mcp"]');
+      await clickSelector(window, '[data-testid="mcp-add"]');
+      const mcpLayout = await layout('[data-testid="mcp-form"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-save"]').scrollIntoView({ block: 'center' })`);
+      await clickSelector(window, '[data-testid="mcp-save"]');
+      await waitForText(window, activeToast, '请填写名称');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'mcp-name');
+      assert.deepEqual(await layout('[data-testid="mcp-form"]'), mcpLayout);
+      await fill('#mcp-name', '未保存的服务');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-save"]').scrollIntoView({ block: 'center' })`);
+      await clickSelector(window, '[data-testid="mcp-save"]');
+      await window.webContents.executeJavaScript(`document.activeElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      await waitForText(window, activeToast, '启动命令');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'mcp-command');
+      assert.equal(mcpService.list().length, 0);
+      await fill('#mcp-command', 'node');
+      for (let index = 0; index < 2; index++) {
+        await window.webContents.executeJavaScript(`document.querySelector('button[aria-label="添加环境变量"]').scrollIntoView({ block: 'center' })`);
+        await clickSelector(window, 'button[aria-label="添加环境变量"]');
+      }
+      await fill('input[name="transport.env.0.key"]', 'SAME_KEY');
+      await fill('input[name="transport.env.1.key"]', 'SAME_KEY');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-save"]').scrollIntoView({ block: 'center' })`);
+      await clickSelector(window, '[data-testid="mcp-save"]');
+      await waitUntil('schema error focuses the first duplicate key', () => window.webContents.executeJavaScript(`document.activeElement.name === 'transport.env.0.key'`));
+      await window.webContents.executeJavaScript(`document.activeElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      await waitForText(window, activeToast, '名称不能重复');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.name`), 'transport.env.0.key');
+      await fill('input[name="transport.env.1.key"]', 'OTHER_KEY');
+      await waitForNoError();
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[name="transport.env.0.key"]').getAttribute('aria-invalid') !== 'true'`), true, 'correcting a sibling field must clear stale schema errors');
+      assert.equal(mcpService.list().length, 0);
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForNoError();
+    });
+    await runStep("MCP settings manage global services and protect credentials", async () => {
+      const click = async selector => {
+        await waitUntil('MCP action is ready', () => window.webContents.executeJavaScript(`(() => {
+          const element = document.querySelector(${JSON.stringify(selector)});
+          return !!element && !element.disabled && element.getAttribute('aria-disabled') !== 'true';
+        })()`));
+        await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: 'center' })`);
+        await clickSelector(window, selector);
+      };
+      const fill = async values => {
+        for (const [selector] of values) await waitForSelector(window, selector);
+        await window.webContents.executeJavaScript(`(() => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          for (const [selector, value] of ${JSON.stringify(values)}) {
+            const input = document.querySelector(selector);
+            if (!input) throw new Error('Missing MCP field ' + selector);
+            setter.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        })()`);
+      };
+      await click('[data-testid="settings-launcher"]');
+      await click('[data-testid="theme-light"]');
+      await click('[data-testid="settings-tab-mcp"]');
+      await waitForText(window, '[data-testid="mcp-settings"]', '还没有 MCP 服务');
+      await click('[data-testid="mcp-add"]');
+      await click('button[aria-label="添加参数"]');
+      await click('button[aria-label="添加环境变量"]');
+      await fill([
+        ['#mcp-name', '本地工具测试'], ['#mcp-command', 'node'],
+        ['input[aria-label="参数 1"]', join(projectRoot, 'tests', 'fixtures', 'mcp-server.mjs')],
+        ['input[aria-label="环境变量键 1"]', 'MCP_FIXTURE_TOKEN'], ['input[aria-label="环境变量值 1"]', 'synthetic-token'],
+      ]);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-content"]').scrollTop = 0; document.querySelector('[data-testid="settings-page"]').scrollTop = 0`);
+      writeFileSync(join(projectRoot, '.test-dist', 'mcp-form-light.png'), (await window.webContents.capturePage()).toPNG());
+      await click('[data-testid="mcp-save"]');
+      await waitForText(window, '[data-testid="mcp-server"]', '已连接');
+      const saved = mcpService.list()[0];
+      assert.ok(saved && saved.tools.length === 3);
+      const stored = memoryDatabase.fetchMcpConfig(saved.id);
+      assert.ok(stored.credentialRef);
+      assert.equal(JSON.stringify(stored).includes('synthetic-token'), false);
+      await click('[data-testid="mcp-server"] button[aria-expanded]');
+      await waitForText(window, '[data-testid="mcp-tools"]', 'increment');
+      writeFileSync(join(projectRoot, '.test-dist', 'mcp-list-light.png'), (await window.webContents.capturePage()).toPNG());
+      await click('[data-testid="mcp-edit"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[aria-label="环境变量值 1"]').value`), '');
+      await fill([['#mcp-name', '已编辑本地工具']]);
+      await click('[data-testid="mcp-save"]');
+      await waitForText(window, '[data-testid="mcp-server"]', '已编辑本地工具');
+      await click('[role="switch"][aria-label="启用 已编辑本地工具"]');
+      await waitForText(window, '[data-testid="mcp-server"]', '已停用');
+      await click('[data-testid="mcp-edit"]');
+      await fill([['#mcp-command', 'katarune-fixture-missing-program']]);
+      await click('[data-testid="mcp-save"]');
+      await waitForText(window, '[data-testid="mcp-server"]', '已停用');
+      await click('[role="switch"][aria-label="启用 已编辑本地工具"]');
+      await waitForText(window, '[data-testid="mcp-server"]', '找不到');
+      await click('[data-testid="mcp-edit"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-form"] [role="tab"]:last-child').click()`);
+      await waitForSelector(window, '#mcp-url');
+      await fill([['#mcp-url', 'https://example.invalid/mcp'], ['#mcp-token', 'synthetic-http-token']]);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-form"] [role="tab"]').click()`);
+      await waitForSelector(window, '#mcp-command');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('input[aria-label="环境变量值 1"]').placeholder`), '已保存，留空保持');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="mcp-form"] [role="tab"]:last-child').click()`);
+      await waitForSelector(window, '#mcp-token');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#mcp-token').value`), 'synthetic-http-token');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-content"]').scrollTop = 0; document.querySelector('[data-testid="settings-page"]').scrollTop = 0`);
+      writeFileSync(join(projectRoot, '.test-dist', 'mcp-http-form-light.png'), (await window.webContents.capturePage()).toPNG());
+      // Stop before saving: no external service is contacted by this HTTP form check.
+      await click('[data-testid="settings-tab-general"]');
+      await click('[data-testid="theme-dark"]');
+      await click('[data-testid="settings-tab-mcp"]');
+      await click('[data-testid="mcp-edit"]');
+      window.setSize(760, 520);
+      await new Promise(resolveFrame => setTimeout(resolveFrame, 150));
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-content"]').scrollTop = 0; document.querySelector('[data-testid="settings-page"]').scrollTop = 0`);
+      writeFileSync(join(projectRoot, '.test-dist', 'mcp-form-dark-compact.png'), (await window.webContents.capturePage()).toPNG());
+      assert.equal(await window.webContents.executeJavaScript(`document.documentElement.scrollWidth > innerWidth`), false);
+      await click('[data-testid="settings-tab-general"]');
+      await click('[data-testid="theme-light"]');
+      window.setSize(1280, 900);
+      await click('[data-testid="settings-tab-mcp"]');
+      await click('[data-testid="mcp-delete"]');
+      await click('[data-testid="confirm-dialog-confirm"]');
+      await waitForText(window, '[data-testid="mcp-settings"]', '还没有 MCP 服务');
+      assert.equal(memoryDatabase.listMcpConfigs().length, 0);
+      await click('[data-testid="settings-back"]');
+    });
     await runStep("composer tool permissions switch directly without leaving the draft", async () => {
       const setComposerValue = (target, value) => target.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
@@ -1362,6 +1600,14 @@ async function run() {
       await clickSelector(window, '#live-tab-picture');
       await waitUntil('instructions save on leaving the tab', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.instructions==='本场聊游戏，礼物集中感谢。')`));
       await waitForSelector(window, '#live-background');
+      await scrollLiveSettingIntoView(window, '#live-camera');
+      for (const [view,label] of [['fullbody','全身'],['closeup','特写'],['overhead','俯视'],['side','侧拍'],['center','对话']]) {
+        await clickSelector(window, '#live-camera');
+        await waitForSelector(window, `[data-testid="live-camera-option-${view}"]`);
+        await clickSelector(window, `[data-testid="live-camera-option-${view}"]`);
+        await waitUntil(`camera ${view} persists`, () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.camera===${JSON.stringify(view)})`));
+        await waitForText(window, '#live-camera', label);
+      }
       await clickSelector(window, 'label[for="live-subtitles"]');
       await waitUntil('subtitles setting persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.subtitles)`));
       await clickSelector(window, '#live-tab-sound');
@@ -1417,6 +1663,28 @@ async function run() {
       await waitForText(window, '.live-output code', '19445');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-port')===null`),true);
       await waitUntil('default resolution is selected',()=>window.webContents.executeJavaScript(`document.querySelector('#live-resolution-1k').getAttribute('aria-selected')==='true'`));
+      await waitUntil('default landscape is selected',()=>window.webContents.executeJavaScript(`document.querySelector('#live-aspect-landscape').getAttribute('aria-selected')==='true'`));
+      await clickSelector(window, '#live-aspect-portrait');
+      await waitUntil('portrait output persists without changing quality',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.aspectRatio==='9:16'&&state.settings.width===1920)`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution-1k').title`),'1080 × 1920');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution-2k').title`),'1440 × 2560');
+      await new Promise(resolve=>setTimeout(resolve,100));
+      writeFileSync(join(projectRoot,'.test-dist','live-page-output-portrait.png'),(await window.webContents.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.querySelector('#live-aspect-portrait').focus()`);
+      // The hidden offscreen window does not emit native focus events. Use End
+      // to establish the last tab as the keyboard navigation origin.
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'End'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'End'});
+      await waitUntil('End focuses the last aspect ratio',()=>window.webContents.executeJavaScript(`document.activeElement===document.querySelector('#live-aspect-portrait')&&document.activeElement.tabIndex===0`));
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Left'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Left'});
+      await waitUntil('aspect ratio keyboard focus moves',()=>window.webContents.executeJavaScript(`document.activeElement===document.querySelector('#live-aspect-landscape')`));
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      window.webContents.sendInputEvent({type:'char',keyCode:'\r'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+      await waitUntil('keyboard landscape selection persists',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.aspectRatio==='16:9')`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution-1k').title`),'1920 × 1080');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('#live-resolution-2k').title`),'2560 × 1440');
       await clickSelector(window, '#live-resolution-2k');
       await waitUntil('2K resolution persists',()=>window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`));
       await clickSelector(window, '#live-resolution-1k');
@@ -1444,6 +1712,12 @@ async function run() {
       await window.webContents.executeJavaScript(`document.documentElement.classList.remove('dark')`);
       await clickSelector(window, '[data-testid="live-connect-official"]');
       await waitForSelector(window, '#live-app-id');
+      const credentialsBeforeValidation = await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state => state.officialCredentialsConfigured)`);
+      await window.webContents.executeJavaScript(`document.querySelector('.live-connect-form button[type="submit"]').scrollIntoView({ block: 'center' })`);
+      await clickSelector(window, '.live-connect-form button[type="submit"]');
+      await waitForText(window, '[data-testid="notification-toast"][data-anchored="true"]', '项目 ID');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.id`), 'live-app-id');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state => state.officialCredentialsConfigured)`), credentialsBeforeValidation);
       writeFileSync(join(projectRoot, '.test-dist', 'live-page-connection.png'), (await window.webContents.capturePage()).toPNG());
       const fillLiveConnection = values => window.webContents.executeJavaScript(`(() => {
         for (const [id,value] of Object.entries(${JSON.stringify(values)})) {
@@ -1666,6 +1940,11 @@ async function run() {
         writeFileSync(join(projectRoot,'.test-dist',`live-tab-${tab}-compact.png`),(await window.webContents.capturePage()).toPNG());
       }
       assert.equal(await window.webContents.executeJavaScript(`[...document.querySelectorAll('#live-resolution [role=\"tab\"]')].every(tab=>tab.getAttribute('aria-disabled')==='true')`),true,'Running output resolution stays locked');
+      assert.equal(await window.webContents.executeJavaScript(`[...document.querySelectorAll('#live-aspect-ratio [role=\"tab\"]')].every(tab=>tab.getAttribute('aria-disabled')==='true')`),true,'Running output aspect ratio stays locked');
+      await scrollLiveSettingIntoView(window, '#live-aspect-portrait');
+      await clickSelector(window, '#live-aspect-portrait');
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.aspectRatio==='16:9')`),true,'A disabled aspect ratio tab must preserve the running output');
+      await scrollLiveSettingIntoView(window, '#live-resolution-1k');
       await clickSelector(window, '#live-resolution-1k');
       assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.width===2560)`),true,'A disabled resolution tab must not change the running output');
       await clickSelector(window, '#live-tab-interaction');
@@ -1715,7 +1994,18 @@ async function run() {
       await clickSelector(window, '[data-testid="memory-add"]');
       await waitForSelector(window, '[data-testid="memory-editor"]');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null && document.querySelector('.memory-reading > [data-testid="memory-editor"]') !== null`), true, 'editing must remain in the original reading area');
+      const memoryCountBeforeValidation = memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries.length;
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitForText(window, '[data-testid="notification-toast"][data-anchored="true"]', '请填写标题');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.dataset.testid`), 'memory-title-input');
+      assert.equal(memoryDatabase.listMemory({ characterId, kind: 'person', query: '', offset: 0 }).entries.length, memoryCountBeforeValidation);
       await fill('[data-testid="memory-title-input"]', '小林');
+      await clickSelector(window, '[data-testid="memory-save"]');
+      await waitUntil('empty memory body receives focus', () => window.webContents.executeJavaScript(`document.activeElement.dataset.testid === 'memory-body-input'`));
+      // Tiptap focuses on the next frame; offscreen Chromium needs the focus event explicitly.
+      await window.webContents.executeJavaScript(`document.activeElement.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))`);
+      await waitForText(window, '[data-testid="notification-toast"][data-anchored="true"]', '请填写正文');
+      assert.equal(await window.webContents.executeJavaScript(`document.activeElement.dataset.testid`), 'memory-body-input');
       await fill('[data-testid="memory-body-input"]', '用户的朋友，喜欢读书。', true);
       await clickSelector(window, '.memory-user-label [role="switch"]');
       await waitUntil('person switch rendered', () => window.webContents.executeJavaScript(`document.querySelector('.memory-user-label [role="switch"]').getAttribute('aria-checked') === 'true'`));
@@ -1762,8 +2052,10 @@ async function run() {
       memoryDatabase.saveMemory(characterId, { id: latestProfile.id, revision: latestProfile.revision, content: { kind: 'person', title: '小林', isUser: false, body: '后台更新的画像。' } });
       await waitForText(window, '[data-testid="memory-body-input"]', '喜欢科幻小说');
       await clickSelector(window, '[data-testid="memory-save"]');
-      await waitForText(window, '[data-testid="memory-editor"] [role="alert"]', '这条记忆已被更新');
+      await waitForText(window, '[data-testid="notification-toast"]:not([data-anchored])', '这条记忆已被更新');
+      await waitForText(window, '[data-testid="memory-body-input"]', '喜欢科幻小说');
       assert.equal(memoryDatabase.readMemory(characterId, currentProfile.id).content.body, '后台更新的画像。');
+      await clickSelector(window, '[data-testid="notification-toast"][data-level="error"] [aria-label="关闭通知"]');
       await clickSelector(window, '[data-testid="memory-cancel"]');
       await waitForText(window, '[data-testid="memory-detail"]', '后台更新的画像');
       await clickSelector(window, '[data-testid="memory-edit"]');
@@ -2949,6 +3241,7 @@ async function run() {
     }
     throw error;
   } finally {
+    await mcpService?.close();
     if (!window.isDestroyed()) window.destroy();
   }
 }
@@ -2960,7 +3253,8 @@ void app.whenReady()
     exitCode = 1;
     console.error(error);
   })
-  .finally(() => {
+  .finally(async () => {
+    await mcpService?.close();
     memoryDatabase?.close();
     if (exitCode) app.exit(exitCode);
     else app.quit();

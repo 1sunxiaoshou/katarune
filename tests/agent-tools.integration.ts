@@ -141,7 +141,7 @@ export async function runAgentPermissionMigrationIntegration(configValidator: Da
     // Reconstruct the exact 0030 permissions schema in this temporary database.
     const sqlite = new BetterSqlite3(join(directory, "katarune.sqlite"));
     try {
-      sqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access");
+      sqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access; DROP TABLE mcp_servers");
       sqlite.exec(await readFile(join(process.cwd(), "drizzle", "0030_overjoyed_songbird.sql"), "utf8"));
       sqlite.prepare("INSERT INTO character_tool_access (character_id, mode) VALUES (?, 'full-access')").run(characterId);
       sqlite.prepare("INSERT INTO character_directory_grants (id, character_id, path, access) VALUES (?, ?, ?, 'read-write')")

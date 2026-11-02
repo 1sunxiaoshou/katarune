@@ -15,6 +15,15 @@ import { PROVIDER_TYPES } from "../../shared/providers";
 import { ASSET_KINDS } from "../../shared/assets";
 import type { DiaryFailureCode } from "../../shared/memory";
 import type { AgentAccessMode, DirectoryAccess } from "../../shared/agentTools";
+import type { McpServerConfig } from "../../shared/mcp";
+
+export const mcpServers = sqliteTable("mcp_servers", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull(),
+  transport: text("transport", { mode: "json" }).$type<McpServerConfig["transport"]>().notNull(),
+  credentialRef: text("credential_ref"),
+});
 
 export const assets = sqliteTable(
   "assets",

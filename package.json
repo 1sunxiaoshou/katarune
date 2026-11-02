@@ -75,6 +75,7 @@
     "@ai-sdk/tool-bash": "1.0.13",
     "@ai-sdk/tool-web-fetch": "1.0.9",
     "@ai-sdk/xai": "5.0.35",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "ai": "7.0.159",
     "assistant-stream": "0.3.26",
     "better-sqlite3": "13.0.3",

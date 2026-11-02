@@ -1,5 +1,6 @@
 import { diagnosticsApi } from "./diagnostics";
 import { agentToolsApi } from "./agentTools";
+import { mcpApi } from "./mcp";
 import { liveApi } from "./live";
 import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
@@ -120,6 +121,7 @@ function closeChatStreamPort(requestId: string): void {
 
 const api: KataruneApi = Object.freeze({
   ...agentToolsApi,
+  ...mcpApi,
   ...liveApi,
   ...diagnosticsApi,
   retryMemoryDiaries: (request: { id: string }) => invokeValidated(MEMORY_CHANNELS.retryDiary, memoryDiaryStateSchema, characterIdRequestSchema.parse(request)),

@@ -27,12 +27,13 @@ async function until(predicate: () => boolean) {
 const operations: string[] = [];
 class TestAvatar extends AvatarService {
   owned = false; playbackBusy = false; resets = 0; restored = false; rejectLiveConfig = false;
+  lastLiveStart = "";
   override get liveActive() { return this.owned; }
   override get livePlaybackBusy() { return this.playbackBusy; }
   override async acquireLive(_binding: AvatarBinding) { this.owned = true; }
   override async releaseLive(restore: boolean) { this.owned = false; this.restored = restore; operations.push("release"); }
   override async resetLivePresentation() { this.resets++; }
-  override async desktopCommand(operation: string) { operations.push(operation); if (operation === "live-start" && this.rejectLiveConfig) throw new Error("直播输出配置无效。"); return ""; }
+  override async desktopCommand(operation: string, value = "") { operations.push(operation); if (operation === "live-start") this.lastLiveStart = value; if (operation === "live-start" && this.rejectLiveConfig) throw new Error("直播输出配置无效。"); return ""; }
 }
 class TestConnection extends BilibiliConnection {
   connects = 0; ends = 0;
@@ -120,6 +121,7 @@ try {
   assert.equal(service.status.settings.idleSeconds, 60);
   assert.equal(service.status.settings.thankGifts, true);
   assert.equal(service.status.settings.width, 1920, "The retired 720p option uses the default 1K output");
+  assert.equal(service.status.settings.aspectRatio, "16:9");
   await service.updateSettings({ ...service.status.settings, instructions: "合成直播说明", replyIntervalSeconds: 5, idleSeconds: 15, thankGifts: false });
   assert.equal(database.getLiveConfig().settings.replyIntervalSeconds, 15);
   assert.equal(database.getLiveConfig().settings.idleSeconds, 60);
@@ -142,17 +144,27 @@ try {
   };
   const finish = () => { const current = calls.at(-1)!; current.controller.enqueue({ type: "text-end", id: "text" }); current.controller.enqueue({ type: "finish", finishReason: "stop" }); current.controller.close(); };
   const beforeMissingConnection = database.listThreads(character.id).threads.length;
+  await service.updateSettings({ ...service.status.settings, aspectRatio: "9:16" });
+  assert.equal(database.getLiveConfig().settings.aspectRatio, "9:16", "Portrait selection must persist with the source resolution");
+  assert.equal(database.getLiveConfig().settings.width, 1920);
   const disconnectedPreview = await service.start();
   assert.equal(disconnectedPreview.phase, "running");
   assert.equal(disconnectedPreview.errorCode, null);
   assert.equal(disconnectedPreview.connection, "disconnected"); assert.equal(disconnectedPreview.error, null);
   assert.ok(avatar.liveActive); assert.ok(operations.includes('media-start'));
+  assert.equal(JSON.parse(avatar.lastLiveStart).aspectRatio, "9:16", "The Player must receive the selected output aspect ratio");
+  await assert.rejects(service.updateSettings({ ...service.status.settings, aspectRatio: "16:9" }), /停止直播/);
+  assert.equal(service.status.settings.aspectRatio, "9:16");
+  assert.equal(database.getLiveConfig().settings.aspectRatio, "9:16", "A rejected output change must preserve the saved selection");
   now += 60000; await delay(650);
   assert.equal(calls.length, 0, 'Disconnected preview must not invoke the AI');
   await service.stop();
   assert.equal(database.listThreads(character.id).threads.length, beforeMissingConnection);
   assert.equal(calls.length, 0);
   assert.ok(!avatar.liveActive);
+  assert.equal(service.status.settings.aspectRatio, "9:16");
+  await service.updateSettings({ ...service.status.settings, aspectRatio: "16:9" });
+  assert.equal(database.getLiveConfig().settings.aspectRatio, "16:9", "A stopped output can switch back to landscape");
   operations.length = 0; avatar.resets = 0;
   await service.setCredentials({ appId: "123", accessKey: "synthetic", accessSecret: "synthetic", identityCode: "synthetic" });
   avatar.rejectLiveConfig = true;

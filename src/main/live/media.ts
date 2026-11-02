@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { LiveSettings, LivePreview } from "../../shared/live";
+import { liveOutputDimensions, type LiveSettings, type LivePreview } from "../../shared/live";
 import { LiveOperationError, LivePortInUseError } from "./errors";
 import { liveOutputProfile } from "./outputProfile";
 import { Mp4Preview } from "./mp4Preview";
@@ -17,6 +17,7 @@ export class LiveMedia {
   constructor(private readonly resources: string, private readonly work: string, private readonly acceptanceOutput?: (value: string) => void) {}
   async preflight(settings: LiveSettings, signal: AbortSignal) {
     const { fps } = liveOutputProfile(settings);
+    const { width, height } = liveOutputDimensions(settings);
     if (process.platform !== "win32") throw new Error("直播输出目前仅支持 Windows。");
     try { for (const name of ["ffmpeg.exe", "mediamtx.exe", "media-supervisor.exe", "manifest.json"]) await access(join(this.resources, name)); }
     catch (cause) { throw new LiveOperationError("直播媒体资源不完整，请准备媒体资源或重新安装应用。", { cause }); }
@@ -30,7 +31,7 @@ export class LiveMedia {
     for (const encoder of ["h264_nvenc", "h264_mf"] as const) {
       signal.throwIfAborted();
       try {
-        await promisify(execFile)(join(this.resources, "ffmpeg.exe"), ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `color=size=${settings.width}x${settings.width * 9 / 16}:rate=${fps}`, "-frames:v", "12", "-an", ...this.encoding(settings, encoder), "-f", "null", "-"], { windowsHide: true, signal, timeout: 10_000, maxBuffer: 64 * 1024 });
+        await promisify(execFile)(join(this.resources, "ffmpeg.exe"), ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `color=size=${width}x${height}:rate=${fps}`, "-frames:v", "12", "-an", ...this.encoding(settings, encoder), "-f", "null", "-"], { windowsHide: true, signal, timeout: 10_000, maxBuffer: 64 * 1024 });
         this.encoder = encoder; return;
       } catch (cause) { failure = cause; }
     }
@@ -48,6 +49,7 @@ export class LiveMedia {
   }
   async start(settings: LiveSettings, pipe: string, signal: AbortSignal) {
     const { fps } = liveOutputProfile(settings);
+    const { width, height } = liveOutputDimensions(settings);
     if (!this.encoder) throw new Error("直播硬件编码器尚未预检。");
     signal.throwIfAborted(); await mkdir(this.work, { recursive: true });
     const config = join(this.work, "mediamtx.yml");
@@ -55,7 +57,7 @@ export class LiveMedia {
     signal.throwIfAborted();
     const args = [join(this.resources, "mediamtx.exe"), config, join(this.resources, "ffmpeg.exe"),
       "-hide_banner", "-nostdin", "-loglevel", this.acceptanceOutput ? "info" : "error", "-nostats", "-stats_period", "0.25", "-progress", "pipe:2",
-      "-thread_queue_size", "4", "-probesize", "32", "-analyzeduration", "0", "-fpsprobesize", "0", "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${settings.width}x${settings.width * 9 / 16}`, "-framerate", String(fps), "-i", `\\\\.\\pipe\\${pipe}-video`,
+      "-thread_queue_size", "4", "-probesize", "32", "-analyzeduration", "0", "-fpsprobesize", "0", "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${width}x${height}`, "-framerate", String(fps), "-i", `\\\\.\\pipe\\${pipe}-video`,
       "-thread_queue_size", "64", "-probesize", "32", "-analyzeduration", "0", "-f", "wav", "-ignore_length", "1", "-i", `\\\\.\\pipe\\${pipe}-audio`,
       "-map", "0:v:0", "-map", "1:a:0", ...this.encoding(settings, this.encoder),
       "-vf", "vflip,scale=in_range=full:out_range=limited:out_color_matrix=bt709,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",

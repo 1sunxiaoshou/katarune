@@ -3,6 +3,7 @@ import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
   BotIcon,
   SlidersHorizontalIcon,
+  PlugIcon,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
@@ -16,6 +17,7 @@ import { PageHeader } from "@/components/page-header";
 import { ModelManagement } from "./ModelSettings";
 import { ProviderDialog } from "./ProviderDialog";
 import { GeneralSettings } from "./GeneralSettings";
+import { McpSettings } from "./McpSettings";
 import { useSettingsController } from "./useSettingsController";
 import { useApplicationSettings } from "./ApplicationSettingsProvider";
 
@@ -76,6 +78,14 @@ export function SettingsPage({
               <BotIcon aria-hidden="true" />
               模型
             </TabsTrigger>
+            <TabsTrigger
+              className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              data-testid="settings-tab-mcp"
+              value="mcp"
+            >
+              <PlugIcon aria-hidden="true" />
+              MCP
+            </TabsTrigger>
           </TabsList>
         </aside>
 
@@ -102,6 +112,7 @@ export function SettingsPage({
               onSelectProvider={controller.selectProvider}
             />
           </TabsContent>
+          <TabsContent className="settings-tab-panel h-full" value="mcp"><McpSettings /></TabsContent>
         </div>
       </Tabs>
 

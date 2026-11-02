@@ -36,6 +36,7 @@ namespace Katarune.Avatar
         private GameObject _floor;
         private Material _floorMaterial;
         private Bounds _framedBounds;
+        private Vector3 _portraitTarget;
         private bool _hasFramedBounds;
         private Vector2Int _lastScreenSize;
         private Transform _showcaseAvatar;
@@ -60,7 +61,7 @@ namespace Katarune.Avatar
         private Vector2 _desktopCenter = new Vector2(0.78f, 0.5f);
         private float _desktopHeight = 0.65f;
         private bool _immersive, _cameraTransition;
-        private string _cameraView = "overhead";
+        private string _cameraView = "center";
         private string _danceCameraView;
         private AvatarDanceCameraTrack _danceCameraTrack;
         private float _danceCameraTime;
@@ -80,9 +81,22 @@ namespace Katarune.Avatar
         private AvatarFramingState _danceRestoreTarget;
         internal bool DanceCameraRestoring => _danceCameraRestoring;
 
+        private static (float Pitch, float FieldOfView, float TargetHeight, float VisibleHeight, float Yaw, float PortraitWidth) CameraPreset(string view)
+        {
+            switch (view)
+            {
+                case "fullbody": return (3f, 28f, .52f, 1.18f, 0f, 0f);
+                case "center": return (3f, 26f, .68f, .62f, 0f, .36f);
+                case "closeup": return (4f, 20f, .68f, .34f, 0f, .22f);
+                case "overhead": return (16f, 28f, .64f, .90f, 0f, 0f);
+                case "side": return (3f, 26f, .68f, .62f, 20f, .36f);
+                default: throw new ArgumentException("Unknown camera view.", nameof(view));
+            }
+        }
+
         internal void SetPresentationMode(bool immersive, string cameraView)
         {
-            if (cameraView != "overhead" && cameraView != "center" && cameraView != "closeup")
+            if (!AvatarCameraViews.IsSupported(cameraView))
                 throw new ArgumentException("Unknown camera view.", nameof(cameraView));
             if (_immersive == immersive && _cameraView == cameraView) return;
             _immersive = immersive;
@@ -99,7 +113,7 @@ namespace Katarune.Avatar
         }
         internal void SetDanceCamera(string view)
         {
-            if (view != null && view != "overhead" && view != "center" && view != "closeup") throw new ArgumentException("舞蹈镜头无效。");
+            if (view != null && !AvatarCameraViews.IsSupported(view)) throw new ArgumentException("舞蹈镜头无效。");
             if (_danceCameraView == view) return;
             _danceCameraView = view;
             if (_camera == null || !_hasFramedBounds) return;
@@ -279,7 +293,8 @@ namespace Katarune.Avatar
                 _camera != null && _camera.orthographic,
                 _camera != null ? _camera.orthographicSize : 5f,
                 _camera != null ? _camera.nearClipPlane : .1f,
-                _camera != null ? _camera.farClipPlane : 1000f);
+                _camera != null ? _camera.farClipPlane : 1000f,
+                _portraitTarget);
         }
 
         internal void RestoreFraming(AvatarFramingState state)
@@ -288,6 +303,7 @@ namespace Katarune.Avatar
             ReferenceWindowSize = state.ReferenceWindowSize;
             _hasFramedBounds = state.HasBounds;
             _framedBounds = state.Bounds;
+            _portraitTarget = state.PortraitTarget;
             CharacterShowcaseControlEnabled = state.CharacterShowcaseControlEnabled;
             _showcaseAvatar = state.ShowcaseAvatar;
             _showcaseBasePosition = state.ShowcaseBasePosition;
@@ -335,6 +351,7 @@ namespace Katarune.Avatar
             _showcaseBaseRotation = avatar.rotation;
             avatar.SetPositionAndRotation(_showcaseBasePosition, _showcaseBaseRotation);
             _framedBounds = bounds;
+            _portraitTarget = PortraitTarget(avatar, bounds);
             _hasFramedBounds = true;
             ApplyFraming(bounds, resetAvatar: true);
             if (_immersive) SetPresentationModeAfterFraming();
@@ -352,6 +369,24 @@ namespace Katarune.Avatar
             _showcaseAvatar = null;
             EndShowcaseDrag(preserveInertia: false);
             if (_floor != null) _floor.SetActive(false);
+        }
+
+        private static Vector3 PortraitTarget(Transform avatar, Bounds bounds)
+        {
+            var height = Mathf.Max(.1f, bounds.size.y);
+            foreach (var animator in avatar.GetComponentsInChildren<Animator>(true))
+            {
+                if (animator.avatar == null || !animator.isHuman) continue;
+                var left = animator.GetBoneTransform(HumanBodyBones.LeftEye);
+                var right = animator.GetBoneTransform(HumanBodyBones.RightEye);
+                if (left == null && right == null) continue;
+                var eyes = left != null && right != null ? (left.position + right.position) * .5f
+                    : (left != null ? left.position : right.position);
+                // Cache the resting eye position: idle motion must not make the camera chase the head.
+                eyes.y = Mathf.Clamp(eyes.y - height * .05f, bounds.min.y + height * .4f, bounds.max.y);
+                return eyes;
+            }
+            return new Vector3(bounds.center.x, bounds.min.y + height * .68f, bounds.center.z);
         }
 
         internal static void ConfigurePhysicalProjection(
@@ -394,8 +429,11 @@ namespace Katarune.Avatar
             var screenSize = new Vector2Int(Screen.width, Screen.height);
             if (screenSize != _lastScreenSize)
             {
-                if (_desktopWindow != null) ApplyDesktopProjection();
-                else ApplyFixedCompositionAndCameraPose();
+                if (!LiveOutputActive)
+                {
+                    if (_desktopWindow != null) ApplyDesktopProjection();
+                    else ApplyFixedCompositionAndCameraPose();
+                }
                 _lastScreenSize = screenSize;
             }
             AdvancePresentation(Time.unscaledDeltaTime);
@@ -436,17 +474,19 @@ namespace Katarune.Avatar
             {
                 var height = Mathf.Max(0.1f, _framedBounds.size.y);
                 var view = _danceCameraView ?? _cameraView;
-                var closeup = view == "closeup";
-                var target = _framedBounds.center;
-                target.y = _framedBounds.min.y + height * (closeup ? .68f : .52f);
-                var pitch = view == "overhead" ? 28f : closeup ? 7f : 10f;
-                fieldOfView = 30f;
-                var visibleHeight = height * (closeup ? .56f : 1.13f);
+                var preset = CameraPreset(view);
+                var target = preset.PortraitWidth > 0f
+                    ? _showcaseBasePosition + Quaternion.AngleAxis(_showcaseYaw, Vector3.up) * (_portraitTarget - _showcaseBasePosition)
+                    : new Vector3(_framedBounds.center.x, _framedBounds.min.y + height * preset.TargetHeight, _framedBounds.center.z);
+                var pitch = preset.Pitch;
+                fieldOfView = preset.FieldOfView;
+                var visibleHeight = height * preset.VisibleHeight;
                 var distance = visibleHeight * .5f / Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad);
-                // Fit the horizontal extent on portrait/narrow displays as well.
-                distance = Mathf.Max(distance, _framedBounds.size.x * .6f /
+                // Portrait shots frame the upper body, rather than fitting outstretched arms or long hair.
+                var width = preset.PortraitWidth > 0f ? Mathf.Min(_framedBounds.size.x, height * preset.PortraitWidth) : _framedBounds.size.x;
+                distance = Mathf.Max(distance, width * .6f /
                     (Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad) * _camera.aspect));
-                var front = Quaternion.AngleAxis(_showcaseYaw, Vector3.up) * Vector3.forward;
+                var front = Quaternion.AngleAxis(_showcaseYaw + preset.Yaw, Vector3.up) * Vector3.forward;
                 position = target + (front * Mathf.Cos(pitch * Mathf.Deg2Rad) + Vector3.up * Mathf.Sin(pitch * Mathf.Deg2Rad)) * distance;
                 rotation = Quaternion.LookRotation(target - position, Vector3.up);
                 lensShift = Vector2.zero;
@@ -817,7 +857,8 @@ namespace Katarune.Avatar
                 bool cameraOrthographic = false,
                 float cameraOrthographicSize = 5f,
                 float cameraNearClip = .1f,
-                float cameraFarClip = 1000f)
+                float cameraFarClip = 1000f,
+                Vector3 portraitTarget = default)
             {
                 HasBounds = hasBounds;
                 Bounds = bounds;
@@ -849,6 +890,7 @@ namespace Katarune.Avatar
                 FloorScale = floorScale;
                 CameraOrthographic = cameraOrthographic; CameraOrthographicSize = cameraOrthographicSize;
                 CameraNearClip = cameraNearClip; CameraFarClip = cameraFarClip;
+                PortraitTarget = portraitTarget;
             }
 
             public bool HasBounds { get; }
@@ -883,6 +925,7 @@ namespace Katarune.Avatar
             public float CameraOrthographicSize { get; }
             public float CameraNearClip { get; }
             public float CameraFarClip { get; }
+            public Vector3 PortraitTarget { get; }
         }
     }
 }

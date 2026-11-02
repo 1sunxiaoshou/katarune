@@ -53,7 +53,7 @@ export class AvatarDesktopWindows {
   private initialized = false;
   private adjusting = false;
   private mode: DesktopSnapshot["mode"] = "desktop";
-  private cameraView: DesktopSnapshot["cameraView"] = "overhead";
+  private cameraView: DesktopSnapshot["cameraView"] = "center";
   private compact = false;
   private inputOpen = false;
   private textSessionId: string | null = null;

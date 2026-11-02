@@ -1,6 +1,6 @@
 import { emptyAppSettings } from "./defaultSettings";
 import { MockLanguageModelV4 } from "ai/test";
-import { APICallError, UnsupportedFunctionalityError, tool, readUIMessageStream, validateUIMessages, type UIMessage } from "ai";
+import { APICallError, UnsupportedFunctionalityError, dynamicTool, tool, readUIMessageStream, validateUIMessages, type UIMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ChatStreamRequest } from "../src/shared/ipc";
@@ -128,6 +128,37 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it.each(["user-approval", "approved"] as const)("executes MCP through the native Agent independently of local tool approval (%s)", async approval => {
+    const execute = vi.fn(async () => ({ content: [{ type: "text", text: "fixture MCP result" }] }));
+    const mcp = { tools: vi.fn(async () => ({ mcp_fixture: dynamicTool({ inputSchema: z.object({}), description: "Fixture MCP", execute }) })) };
+    let step = 0;
+    const model = new MockLanguageModelV4({ doStream: async () => ({ stream: new ReadableStream({ start(controller) {
+      if (++step === 1) controller.enqueue({ type: "tool-call", toolCallId: "mcp-native-call", toolName: "mcp_fixture", input: "{}" });
+      controller.enqueue({ type: "finish", finishReason: { unified: step === 1 ? "tool-calls" : "stop", raw: undefined },
+        usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
+      controller.close();
+    } }) }) });
+    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, mcp,
+      attachmentSupport: { assetService: { readChatAttachment: () => { throw new Error("unused"); } }, imageProcessor: { prepare: (data, mediaType) => ({ data, mediaType }) } },
+      agentTools: { prepare: async () => ({ tools: {}, attachmentPaths: new Map(), instructions: "Fixture local tools", approvalSecret: "synthetic-approval-secret",
+        toolApproval: { request_directory_access: approval, fetch_url: approval } }) },
+    });
+    const signal = new AbortController().signal;
+    const output = await (await service.createResponse(request, signal)).text();
+    expect(mcp.tools).toHaveBeenCalledWith(request.threadId, signal);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(output).toContain("fixture MCP result");
+    expect(output).not.toContain("tool-approval-request");
+  });
+
+  it("does not expose global MCP tools to live conversations", async () => {
+    const database = createDatabase();
+    database.fetchThread = () => ({ remoteId: request.threadId, kind: "live", status: "regular", title: "Live", lastMessageAt: new Date(), characterId });
+    const mcp = { tools: vi.fn(async () => ({})) };
+    const service = createChatService({ database, aiRuntime: { resolveLanguageModel: () => createModel(() => undefined) }, mcp });
+    await (await service.createResponse(request, new AbortController().signal)).text();
+    expect(mcp.tools).not.toHaveBeenCalled();
+  });
   it("does not replay image bytes from completed tool results in conversation history", async () => {
     const model = createModel(() => undefined);
     const readChatAttachment = vi.fn(() => ({ data: new Uint8Array([1, 2, 3]), mediaType: "image/png", filename: "old.png" }));

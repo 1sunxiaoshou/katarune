@@ -1,17 +1,7 @@
 import { Toast } from "@base-ui/react/toast";
 
-import {
-  clearInlineNotificationScope,
-  dismissInlineNotification,
-  inlineNotificationStore,
-  setInlineNotification,
-} from "./inlineNotificationStore";
-import {
-  notificationDuration,
-  resolveNotificationChannel,
-} from "./notificationPolicy";
+import { notificationDuration } from "./notificationPolicy";
 import type {
-  InlineNotification,
   NotificationInput,
   NotificationLevel,
 } from "./types";
@@ -22,34 +12,17 @@ export interface ToastNotificationData {
 
 export const toastManager = Toast.createToastManager<ToastNotificationData>();
 
-const notificationChannels = new Map<string, "toast" | "inline">();
+let activeFieldNotification: string | null = null;
 
 function notificationId(input: NotificationInput): string {
   return input.dedupeKey ?? globalThis.crypto.randomUUID();
 }
 
 export function notify(input: NotificationInput): string {
-  const channel = resolveNotificationChannel(input);
   const id = notificationId(input);
-
-  if (channel === "inline") {
-    const scope = input.scope;
-    if (scope === undefined || scope.length === 0) {
-      throw new Error("Inline notifications require a non-empty scope.");
-    }
-    const previous = inlineNotificationStore.getState().byScope[scope];
-    if (previous !== undefined) notificationChannels.delete(previous.id);
-    const notification: InlineNotification = {
-      id,
-      level: input.level,
-      message: input.message,
-      title: input.title ?? null,
-      scope,
-      action: input.action ?? null,
-    };
-    setInlineNotification(notification);
-    notificationChannels.set(id, "inline");
-    return id;
+  if (input.anchor) {
+    if (activeFieldNotification && activeFieldNotification !== id) toastManager.close(activeFieldNotification);
+    activeFieldNotification = id;
   }
 
   let toastId = id;
@@ -71,28 +44,19 @@ export function notify(input: NotificationInput): string {
     timeout: notificationDuration(input.level, input.durationMs),
     priority: input.level === "error" ? "high" : "low",
     data: { level: input.level },
+    ...(input.anchor ? { positionerProps: { anchor: input.anchor, side: "bottom", align: "center", sideOffset: 4, positionMethod: "fixed" } } : {}),
     ...(actionProps === undefined
       ? incidentId ? { actionProps: { children: "复制故障编号", onClick: () => { void navigator.clipboard.writeText(incidentId).catch(() => {}); } } } : {}
       : { actionProps }),
-    onRemove: () => {
-      notificationChannels.delete(toastId);
+    onClose: () => {
+      if (activeFieldNotification === toastId) activeFieldNotification = null;
+      input.onClose?.();
     },
   });
-  notificationChannels.set(toastId, "toast");
   return toastId;
 }
 
 export function dismissNotification(id: string): void {
-  if (notificationChannels.get(id) === "inline") {
-    dismissInlineNotification(id);
-  } else {
-    toastManager.close(id);
-  }
-  notificationChannels.delete(id);
-}
-
-export function clearNotificationScope(scope: string): void {
-  const notification = inlineNotificationStore.getState().byScope[scope];
-  if (notification !== undefined) notificationChannels.delete(notification.id);
-  clearInlineNotificationScope(scope);
+  toastManager.close(id);
+  if (activeFieldNotification === id) activeFieldNotification = null;
 }

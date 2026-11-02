@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { AVATAR_CAMERA_OPTIONS } from "../../../shared/avatarCamera";
 import { initializeRendererDiagnostics } from "../diagnostics";
 import {
   ArrowLeft,
@@ -412,7 +413,7 @@ function Desktop() {
             <span>视角</span>
             <Choice label="视角" active={state.panelPhase === "open"}
               value={state.cameraView}
-              options={[{ id: "overhead", name: "俯视" }, { id: "center", name: "居中" }, { id: "closeup", name: "近景" }]}
+              options={AVATAR_CAMERA_OPTIONS.map(option => ({ id: option.value, name: option.label }))}
               onChange={(value) => command("camera-view", value)} />
           </div>}
           <Tabs

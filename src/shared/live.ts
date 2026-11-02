@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { avatarCameraViewSchema } from "./avatarCamera";
 
 const text = (max: number) => z.string().check(z.maxLength(max));
 const integer = (min: number, max: number) => z.int().check(z.gte(min), z.lte(max));
@@ -21,17 +22,23 @@ export const liveSettingsSchema = z.strictObject({
   characterId: z.nullable(z.uuid()), instructions: text(8000), replyIntervalSeconds: integer(5, 300),
   proactive: z.boolean(), idleSeconds: integer(15, 1800), thankGifts: z.boolean(),
   background: z.enum(["immersive", "solid"]), backgroundColor: z.string().check(z.regex(/^#[0-9a-fA-F]{6}$/)),
-  camera: z.enum(["overhead", "center", "closeup"]), subtitles: z.boolean(),
+  camera: avatarCameraViewSchema, subtitles: z.boolean(),
   voiceVolume: z.number().check(z.gte(0), z.lte(1)), musicVolume: z.number().check(z.gte(0), z.lte(1)),
+  aspectRatio: z._default(z.enum(["16:9", "9:16"]), "16:9"),
   width: z.union([z.literal(1280), z.literal(1920), z.literal(2560)]), port: integer(1024, 65535),
 });
 export type LiveSettings = z.infer<typeof liveSettingsSchema>;
+// The stored width selects the resolution's long edge in either orientation.
+export function liveOutputDimensions(settings: Pick<LiveSettings, "width" | "aspectRatio">) {
+  const shortEdge = settings.width * 9 / 16;
+  return settings.aspectRatio === "9:16" ? { width: shortEdge, height: settings.width } : { width: settings.width, height: shortEdge };
+}
 export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   platform: "bilibili",
   connectionMode: "official", webRoomId: "",
   characterId: null, instructions: "", replyIntervalSeconds: 15, proactive: true, idleSeconds: 60,
   thankGifts: true, background: "immersive", backgroundColor: "#202020", camera: "center", subtitles: true,
-  voiceVolume: 1, musicVolume: 1, width: 1920, port: 1935,
+  voiceVolume: 1, musicVolume: 1, aspectRatio: "16:9", width: 1920, port: 1935,
 };
 export const liveCredentialsSchema = z.strictObject({
   appId: z.string().check(z.refine(value => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n)),

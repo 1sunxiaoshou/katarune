@@ -17,7 +17,7 @@ import {
   Volume2Icon,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Form, FormInput, useFieldError } from "@/components/form";
 import { SearchInput } from "@/components/search-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -48,11 +48,7 @@ import {
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProviderLogo } from "@/components/provider-logo";
-import {
-  clearNotificationScope,
-  InlineNotificationOutlet,
-  notify,
-} from "../notifications";
+import { notify } from "../notifications";
 import {
   parseSpeechModelSettings,
   speechModelSettingsSchema,
@@ -189,8 +185,6 @@ function ModelCategoryList({
   );
 }
 
-const MODEL_DIALOG_NOTIFICATION_SCOPE = "settings.model-dialog";
-
 interface ModelSettingsProps {
   readonly discovery: DiscoveredModelList | null;
   readonly provider: ProviderConfig;
@@ -220,24 +214,18 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
       : "",
   );
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => () => {
-    clearNotificationScope(MODEL_DIALOG_NOTIFICATION_SCOPE);
-  }, []);
+  const typeAnchor = useRef<HTMLDivElement>(null);
+  const [typeError, setTypeError] = useState(false);
+  useFieldError(typeAnchor, typeError ? "请选择模型类别。" : null);
 
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (modelType === null) {
-      notify({
-        channel: "inline",
-        scope: MODEL_DIALOG_NOTIFICATION_SCOPE,
-        level: "error",
-        message: "请选择模型类别。",
-      });
+      setTypeError(true);
+      typeAnchor.current?.querySelector<HTMLElement>('[role="tab"]')?.focus();
       return;
     }
     setSubmitting(true);
-    clearNotificationScope(MODEL_DIALOG_NOTIFICATION_SCOPE);
     try {
       if (editing) {
         await window.katarune.updateModelConfig({
@@ -286,8 +274,6 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
       onOpenChange(false);
     } catch (error) {
       notify({
-        channel: "inline",
-        scope: MODEL_DIALOG_NOTIFICATION_SCOPE,
         level: "error",
         message: errorMessage(error, editing ? "无法保存模型。" : "无法添加模型。"),
       });
@@ -299,13 +285,14 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <form className="grid gap-5" onSubmit={(event) => void submit(event)}>
+        <Form className="grid gap-5" onSubmit={(event) => void submit(event)}>
           <DialogHeader>
             <DialogTitle>{editing ? "编辑模型" : "添加模型"}</DialogTitle>
             <DialogDescription className="sr-only">填写模型信息</DialogDescription>
           </DialogHeader>
 
-          <div className="grid min-w-0 gap-2" role="group" aria-labelledby="model-type-label">
+          <div ref={typeAnchor} className="grid min-w-0 gap-2 rounded-lg field-error-frame" role="group" aria-labelledby="model-type-label" aria-invalid={typeError || undefined} aria-describedby={typeError ? "model-type-error" : undefined}>
+            {typeError && <span className="sr-only" id="model-type-error">请选择模型类别。</span>}
             <p className="text-sm leading-none font-medium" id="model-type-label">
               模型类别 <span className="text-destructive" aria-hidden="true">*</span>
             </p>
@@ -314,7 +301,7 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
               value={modelType ?? ""}
               onValueChange={(value) => {
                 const nextType = findModelType(value);
-                if (nextType !== undefined) setModelType(nextType);
+                if (nextType !== undefined) { setModelType(nextType); setTypeError(false); }
               }}
             >
               <ModelCategoryList
@@ -327,12 +314,12 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
 
           <div className="grid gap-2">
             <Label htmlFor="model-id">模型 ID <span className="text-destructive" aria-hidden="true">*</span></Label>
-            <Input id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} />
+            <FormInput label="模型 ID" id="model-id" required maxLength={500} value={modelId} onChange={(event) => setModelId(event.target.value)} spellCheck={false} />
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="model-name">显示名称</Label>
-            <Input id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            <FormInput label="显示名称" id="model-name" maxLength={200} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
           </div>
 
           {modelType === "speechModel" && (
@@ -352,12 +339,11 @@ function ModelDialog({ provider, model, initialType, initialModelId = "", initia
             </div>
           )}
 
-          <InlineNotificationOutlet scope={MODEL_DIALOG_NOTIFICATION_SCOPE} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>取消</Button>
             <Button type="submit" disabled={submitting}>{submitting ? "保存中……" : (editing ? "保存" : "添加")}</Button>
           </DialogFooter>
-        </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

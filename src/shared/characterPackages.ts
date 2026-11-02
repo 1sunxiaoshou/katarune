@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AVATAR_CAMERA_VIEWS } from "./avatarCamera";
 
 export const DEFAULT_PACKAGE_ID = "builtin:default";
 export const packageIdSchema = z.union([
@@ -44,7 +45,7 @@ const playbackLayer = {
 const oneShotPlaybackSchema = z.strictObject({ ...playbackLayer, kind: z.literal("oneShot"), motion: path, blendSeconds: z.number().min(0).max(2).optional() });
 const loopPlaybackSchema = z.strictObject({ ...playbackLayer, kind: z.literal("loop"), enter: path.optional(), motion: path, exit: path.optional(), blendSeconds: z.number().min(0).max(2).optional() });
 export const danceCameraKeySchema = z.strictObject({
-  at: z.number().min(0).max(3600), view: z.enum(["overhead", "center", "closeup"]),
+  at: z.number().min(0).max(3600), view: z.enum(AVATAR_CAMERA_VIEWS),
 });
 export type DanceCameraKey = z.infer<typeof danceCameraKeySchema>;
 const cameraSchema = z.discriminatedUnion("kind", [

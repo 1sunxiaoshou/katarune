@@ -11,6 +11,8 @@ import {
 
 import { toastManager, type ToastNotificationData } from "./notificationCenter";
 import type { NotificationLevel } from "./types";
+import { tooltipSurfaceClassName, tooltipArrowClassName } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const LEVEL_ICONS: Readonly<Record<NotificationLevel, LucideIcon>> = {
   success: CheckCircle2Icon,
@@ -30,6 +32,15 @@ function NotificationViewport(): React.JSX.Element {
       >
         {toasts.map((toast) => {
           const level = toast.data?.level ?? "info";
+          if (toast.positionerProps?.anchor) {
+            return <Toast.Positioner key={toast.id} toast={toast} className="z-110 w-max max-w-[min(20rem,calc(100vw-2rem))] data-anchor-hidden:hidden">
+              <Toast.Root toast={toast} data-testid="notification-toast" data-anchored="true" data-level={level}
+                className={cn(tooltipSurfaceClassName, "max-w-full bg-destructive text-white shadow-sm transition-opacity duration-100 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[limited]:hidden motion-reduce:transition-none dark:text-zinc-950")}>
+                <Toast.Content><Toast.Description className="whitespace-pre-wrap wrap-anywhere" /></Toast.Content>
+                <Toast.Arrow className={cn(tooltipArrowClassName, "bg-destructive fill-destructive")} />
+              </Toast.Root>
+            </Toast.Positioner>;
+          }
           const Icon = LEVEL_ICONS[level];
           return (
             <Toast.Root

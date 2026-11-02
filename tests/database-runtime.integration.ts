@@ -531,6 +531,12 @@ try {
   assert.deepEqual(runtime.getThreadToolAccess(threadId, defaultCharacter.id), { mode: "request-approval", directories: [] });
   runtime.setThreadToolMode(threadId, defaultCharacter.id, "full-access");
   const persistedDirectoryGrant = runtime.grantThreadDirectory(threadId, defaultCharacter.id, userDataPath, "read");
+  const mcpConfig = {
+    id: "00000000-0000-4000-8000-000000000081", name: "MCP 重启保持", enabled: true,
+    transport: { type: "http" as const, url: "https://example.invalid/mcp", headerKeys: ["X-Fixture"], hasBearerToken: true },
+    credentialRef: "safe-storage/00000000-0000-4000-8000-000000000082",
+  };
+  runtime.saveMcpConfig(mcpConfig);
   assert.deepEqual(runtime.getThreadToolAccess(isolatedPermissionThread, defaultCharacter.id), { mode: "request-approval", directories: [] });
   runtime.close();
   runtime = undefined;
@@ -560,6 +566,11 @@ try {
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
+  assert.deepEqual(runtime.fetchMcpConfig(mcpConfig.id), mcpConfig, "MCP 配置和不透明凭据引用需要跨重启保持");
+  runtime.saveMcpConfig({ ...mcpConfig, enabled: false });
+  assert.equal(runtime.fetchMcpConfig(mcpConfig.id).enabled, false);
+  runtime.deleteMcpConfig(mcpConfig.id);
+  assert.deepEqual(runtime.listMcpConfigs(), []);
   assert.deepEqual(runtime.getThreadToolAccess(threadId, restoredCharacterId), { mode: "full-access", directories: [persistedDirectoryGrant] });
   assert.deepEqual(runtime.getThreadToolAccess(isolatedPermissionThread, restoredCharacterId), { mode: "request-approval", directories: [] });
   assert.throws(() => runtime?.getThreadToolAccess(threadId, secondCharacterId), OperationRejected);
@@ -696,7 +707,7 @@ try {
   try {
     legacyLiveSqlite.exec("UPDATE live_settings SET config = json_set(config, '$.fps', 30, '$.videoBitrateKbps', 3000)");
     // Reconstruct the pre-0028 schema as well as its migration journal.
-    legacyLiveSqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access");
+    legacyLiveSqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access; DROP TABLE mcp_servers");
     legacyLiveSqlite.exec("ALTER TABLE live_settings DROP COLUMN douyin_credential_ref");
     legacyLiveSqlite.exec("ALTER TABLE assets DROP COLUMN source_path");
     legacyLiveSqlite.exec("DELETE FROM __drizzle_migrations WHERE created_at >= 1793258398234");

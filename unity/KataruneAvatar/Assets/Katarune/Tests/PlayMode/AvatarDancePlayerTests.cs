@@ -32,15 +32,43 @@ namespace Katarune.Avatar.Tests
             });
             yield return null; yield return null;
             Assert.That(events, Is.EqualTo(new[] { "started" }));
-            Assert.That(rig.Immersive, Is.False); Assert.That(rig.CameraView, Is.EqualTo("overhead"));
+            Assert.That(rig.Immersive, Is.False); Assert.That(rig.CameraView, Is.EqualTo("center"));
             Assert.That(rig.CharacterShowcaseControlEnabled, Is.False);
             Assert.Throws<InvalidOperationException>(() => player.Play("dance", null));
             var deadline = Time.realtimeSinceStartup + 3f;
             while (player.Active && Time.realtimeSinceStartup < deadline) yield return null;
             Assert.That(events, Is.EqualTo(new[] { "started", "completed" })); Assert.That(restoredAtCompletion, Is.True);
-            Assert.That(rig.EffectiveCameraView, Is.EqualTo("overhead")); Assert.That(rig.Immersive, Is.False);
+            Assert.That(rig.EffectiveCameraView, Is.EqualTo("center")); Assert.That(rig.Immersive, Is.False);
             Assert.That(rig.CharacterShowcaseControlEnabled, Is.True);
             Object.Destroy(playerObject); Object.Destroy(avatar); Object.Destroy(cameraObject); yield return null;
+        }
+
+        [UnityTest] public IEnumerator DanceWithoutCameraUsesFullbodyAndRestoresTheSelectedViewOnCancel()
+        {
+            var cameraObject = new GameObject("Default dance camera"); cameraObject.AddComponent<Camera>();
+            var rig = cameraObject.AddComponent<AvatarSceneRig>(); rig.Configure(true);
+            var avatar = GameObject.CreatePrimitive(PrimitiveType.Cube); rig.Frame(avatar);
+            rig.SetPresentationMode(true, "side"); rig.AdvancePresentation(1f);
+            var before = rig.CaptureFraming();
+            var playerObject = new GameObject("Default fullbody player");
+            var player = playerObject.AddComponent<AvatarDancePlayer>(); player.Configure(new FakeDanceRuntime(5f, null), rig);
+            try
+            {
+                player.Play("dance", null);
+                yield return null; yield return null;
+                Assert.That(player.Started, Is.True);
+                Assert.That(rig.EffectiveCameraView, Is.EqualTo("fullbody"));
+                Assert.That(rig.CameraView, Is.EqualTo("side"));
+                player.Cancel("test");
+                Assert.That(rig.EffectiveCameraView, Is.EqualTo("side"));
+                Assert.That(Vector3.Distance(cameraObject.transform.position, before.CameraPosition), Is.LessThan(.0001f));
+                Assert.That(cameraObject.GetComponent<Camera>().fieldOfView, Is.EqualTo(before.CameraFieldOfView).Within(.001f));
+            }
+            finally
+            {
+                Object.Destroy(playerObject); Object.Destroy(avatar); Object.Destroy(cameraObject);
+            }
+            yield return null;
         }
 
         [UnityTest] public IEnumerator AccompanimentHasIndependentSourceAndNeverWritesVisemes()

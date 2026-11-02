@@ -55,6 +55,7 @@ namespace Katarune.Avatar
         private IEnumerator PlayRoutine(AvatarPackagePlayback playback, int generation)
         {
             string error = null;
+            var cues = playback.camera?.keys ?? Array.Empty<AvatarDanceCameraCue>();
             var loadingSubtitles = string.IsNullOrEmpty(playback.subtitles) ? null : Task.Run(() => AvatarDanceSubtitles.Read(playback.subtitles));
             var loadingCamera = playback.camera?.kind != "track" ? null : Task.Run(() => AvatarDanceCameraTrack.Read(playback.camera.file, playback.camera));
             if (!string.IsNullOrEmpty(playback.audio))
@@ -105,6 +106,7 @@ namespace Katarune.Avatar
                 if (_rig != null) { _framing = _rig.CaptureFraming(); _hasFraming = true; _rig.DancePresentationActive = true; _rig.SetCharacterShowcaseControlEnabled(false); }
                 _motion.BeginDance(_action); _motion.SampleDance(_action, 0f);
                 if (_cameraTrack != null) _rig?.SetDanceCameraTrack(_cameraTrack, 0f);
+                else _rig?.SetDanceCamera(cues.Length > 0 && cues[0].at == 0f ? cues[0].view : "fullbody");
                 if (_audio != null) _source.Play();
             }
             catch (Exception problem) { error = problem.Message; }
@@ -118,7 +120,6 @@ namespace Katarune.Avatar
             var began = Time.realtimeSinceStartupAsDouble;
             var previousPosition = 0f;
             var cueIndex = 0;
-            var cues = playback.camera?.keys ?? Array.Empty<AvatarDanceCameraCue>();
             while (Active && generation == _generation)
             {
                 try
@@ -157,7 +158,7 @@ namespace Katarune.Avatar
                 if (_motion.DanceError != null) { Complete("failed", _motion.DanceError); yield break; }
                 yield return null;
             }
-            if (Active && generation == _generation && _hasFraming && (cues.Length > 0 || _cameraTrack != null) && _rig != null)
+            if (Active && generation == _generation && _hasFraming && _rig != null)
             {
                 _rig.BeginDanceCameraRestore(_framing);
                 while (Active && generation == _generation && _rig.DanceCameraRestoring) yield return null;

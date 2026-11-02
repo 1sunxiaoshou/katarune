@@ -11,6 +11,8 @@ import {
 } from "../src/main/characters/packageArchive";
 import { isPackagePath, packageAnimationFiles, packageAudioFiles, packageSubtitleFiles, packageCameraFiles, primaryPlaybackFile } from "../src/shared/characterPackages";
 import { packageZip } from "./packageZip";
+import { AVATAR_CAMERA_VIEWS, avatarCameraViewSchema } from "../src/shared/avatarCamera";
+import { DEFAULT_LIVE_SETTINGS, liveSettingsSchema } from "../src/shared/live";
 
 const manifest = {
   formatVersion: 3,
@@ -42,6 +44,17 @@ async function extract(
 }
 describe("character package import boundary", () => {
   const action = (key: string, kind = "oneShot", extra = {}) => ({ key, name: key, description: "测试动作", playback: { kind, motion: `${key}.vrma`, ...extra } });
+  it("accepts the same five camera presets at desktop, livestream and package boundaries", () => {
+    for (const view of AVATAR_CAMERA_VIEWS) {
+      expect(avatarCameraViewSchema.parse(view)).toBe(view);
+      expect(liveSettingsSchema.parse({ ...DEFAULT_LIVE_SETTINGS, camera: view }).camera).toBe(view);
+      expect(() => parsePackageManifest(JSON.stringify({ ...manifest, actions: [action("show", "performance", {
+        camera: { kind: "presets", keys: [{ at: 0, view }] },
+      })] }))).not.toThrow();
+    }
+    expect(avatarCameraViewSchema.safeParse("unknown").success).toBe(false);
+    expect(liveSettingsSchema.safeParse({ ...DEFAULT_LIVE_SETTINGS, camera: "unknown" }).success).toBe(false);
+  });
   it("uses one catalog for idle, bindings and actions, with stable keys independent of labels", () => {
     const pack = parsePackageManifest(JSON.stringify({ ...manifest,
       actions: [action("idle", "loop"), action("shift"), action("wave"), action("think", "loop", { enter: "enter.vrma", exit: "exit.vrma" })],

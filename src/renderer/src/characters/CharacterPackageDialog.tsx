@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { assetUrl } from "../../../shared/assets";
+import { notify } from "../notifications";
 import {
   DEFAULT_PACKAGE_ID,
   type CharacterPackage,
@@ -34,7 +35,6 @@ export function CharacterPackageDialog({
   const [packages, setPackages] = useState<CharacterPackage[]>([]);
   const [selectedId, setSelectedId] = useState(packageId || DEFAULT_PACKAGE_ID);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<PackageProgress | null>(null);
   const request = useRef<string | null>(null);
   const mounted = useRef(true);
@@ -45,7 +45,7 @@ export function CharacterPackageDialog({
   useEffect(() => {
     mounted.current = true;
     void refresh().catch((error) => {
-      if (mounted.current) setError(String(error));
+      if (mounted.current) notify({ level: "error", message: error instanceof Error ? error.message : "无法读取角色包。", dedupeKey: "character-packages" });
     });
     const unsubscribe = window.katarune.onCharacterPackageProgress((value) => {
       if (value.requestId === request.current) setProgress(value);
@@ -62,12 +62,11 @@ export function CharacterPackageDialog({
   const selected = packages.find((p) => p.id === selectedId);
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true);
-    setError(null);
     try {
       await operation();
     } catch (error) {
       if (mounted.current)
-        setError(error instanceof Error ? error.message : "操作失败，请重试。");
+        notify({ level: "error", message: error instanceof Error ? error.message : "操作失败，请重试。", dedupeKey: "character-packages" });
     } finally {
       if (mounted.current) {
         setBusy(false);
@@ -196,11 +195,6 @@ export function CharacterPackageDialog({
                 ? "正在准备角色和动作……"
                 : "正在保存形象资源……"}
           </div>
-        )}
-        {error && (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
         )}
         <div className="character-package-footer">
           <Button

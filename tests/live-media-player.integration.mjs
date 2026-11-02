@@ -7,15 +7,24 @@ import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
+import { runtimePackage } from './runtimePackage.mjs';
 
-const output=resolve('.test-dist/live-media-optimized'); await mkdir(output,{recursive:true});
+const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
+assert.ok(aspectRatio==='16:9'||aspectRatio==='9:16','Unsupported live output aspect ratio');
+const output=resolve(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized'); await mkdir(output,{recursive:true});
 await build({configFile:false,logLevel:'error',build:{ssr:resolve('src/main/live/media.ts'),outDir:join(output,'module'),emptyOutDir:false,rollupOptions:{output:{entryFileNames:'media.mjs'}}}});
 const {LiveMedia}=await import(pathToFileURL(join(output,'module/media.mjs')).href);
 const tools=resolve('resources/live-media'), ffmpeg=join(tools,'ffmpeg.exe'), ffprobe=join(tools,'ffprobe.exe');
 const executable=resolve('unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe');
 const control=`katarune-live-control-${randomUUID()}`, pipe=`katarune-live-${randomUUID()}`;
 const width=Number(process.env.KATARUNE_LIVE_WIDTH??1920);
-const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,background:'immersive',backgroundColor:'#202020',camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,width,port:19435,pipe};
+assert.ok([1280,1920,2560].includes(width),'Unsupported live output resolution');
+const outputWidth=aspectRatio==='9:16'?width*9/16:width, outputHeight=aspectRatio==='9:16'?width:width*9/16;
+const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,background:'immersive',backgroundColor:'#202020',camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe};
+const characterRoot=resolve('resources/characters/default-package'), packageFile=join(output,'avatar-package.json');
+await writeFile(packageFile,JSON.stringify(runtimePackage(
+  JSON.parse(await readFile(join(characterRoot,'manifest.json'),'utf8')),
+  JSON.parse(await readFile(join(characterRoot,'action-ids.json'),'utf8')),characterRoot)));
 const messages=[]; let socket, child, playerFailure; let previews=0;
 const server=createServer(connection=>{
   socket=connection; connection.setEncoding('utf8'); let buffer='';
@@ -51,14 +60,18 @@ async function measureCapture(capture, name) {
 try {
   await media.preflight(settings,lifetime.signal);
   await new Promise(resolve=>server.listen(`\\\\.\\pipe\\${control}`,resolve));
-  child=spawn(executable,['-force-d3d11','-force-d3d11-bitblt-model','-screen-fullscreen','1','-window-mode','borderless','-logFile',join(output,'player.log'),'--exit-on-error'],{cwd:dirname(executable),windowsHide:true,stdio:'ignore',env:{...process.env,KATARUNE_AVATAR_PIPE:control,KATARUNE_LIVE_ACCEPTANCE:'1'}});
+  child=spawn(executable,['-force-d3d11','-force-d3d11-bitblt-model','-screen-fullscreen','1','-window-mode','borderless','-logFile',join(output,'player.log'),'--exit-on-error'],{cwd:dirname(executable),windowsHide:true,stdio:'ignore',env:{...process.env,KATARUNE_AVATAR_PIPE:control,KATARUNE_CHARACTER_PACKAGE:packageFile,KATARUNE_LIVE_ACCEPTANCE:'1'}});
   child.on('error',error=>{playerFailure=error;}); child.on('exit',code=>{playerFailure=new Error(`Player exited (${code})`);});
   await until(()=>messages.some(message=>message.type==='ready'),'Player readiness',60000);
   await command('live-start',JSON.stringify({...settings,fps:60}));
   await media.start(settings,pipe,lifetime.signal);
+  for(const camera of ['fullbody','closeup','overhead','side','center']) {
+    await command('live-update',JSON.stringify({...settings,camera}));
+    await delay(1000);
+  }
   const url=`rtmp://127.0.0.1:${settings.port}/katarune/live`;
   const streams=JSON.parse((await promisify(execFile)(ffprobe,['-v','error','-show_streams','-of','json',url],{timeout:15000,windowsHide:true,maxBuffer:1024*1024})).stdout).streams;
-  assert.ok(streams.some(stream=>stream.codec_name==='h264'&&stream.width===width&&stream.height===width*9/16&&stream.r_frame_rate==='60/1'));
+  assert.ok(streams.some(stream=>stream.codec_name==='h264'&&stream.width===outputWidth&&stream.height===outputHeight&&stream.r_frame_rate==='60/1'));
   assert.ok(streams.some(stream=>stream.codec_name==='h264'&&stream.color_space==='bt709'&&stream.color_primaries==='bt709'&&stream.color_transfer==='bt709'&&stream.color_range==='tv'),'Missing BT.709 video color metadata');
   assert.ok(streams.some(stream=>stream.codec_name==='aac'&&stream.sample_rate==='48000'&&stream.channels===2));
   const wav=Buffer.alloc(44+48000*2*12); wav.write('RIFF');wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(48000,24);wav.writeUInt32LE(96000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(wav.length-44,40);
@@ -71,6 +84,9 @@ try {
   const sync=[{stage:'initial',...await measureCapture(join(output,'capture.flv'),'initial')}];
   assert.ok(previews>5,'Preview segments missing');
   await writeFile(join(output,'preview.mp4'),Buffer.concat(previewChunks));
+  const previewStreams=JSON.parse((await promisify(execFile)(ffprobe,['-v','error','-show_streams','-of','json',join(output,'preview.mp4')],{timeout:10000,windowsHide:true})).stdout).streams;
+  assert.ok(previewStreams.some(stream=>stream.codec_name==='h264'&&stream.width===outputWidth&&stream.height===outputHeight),'Preview dimensions differ from RTMP output');
+  assert.ok(previewStreams.some(stream=>stream.codec_name==='aac'),'Preview audio is missing');
   const duration=Number(process.env.KATARUNE_LIVE_SOAK_SECONDS??0), started=Date.now();
   const memory=[];
   const memorySample=async()=>{
@@ -101,7 +117,7 @@ try {
   const first=steady[0],last=steady.at(-1),seconds=(last.samples-first.samples)/sampleRate;
   const written=last.written-first.written,repeated=last.repeated-first.repeated;
   const frames={seconds:Math.round(seconds),freshFps:Number(((written-repeated)/seconds).toFixed(2)),outputFps:Number((written/seconds).toFixed(2)),repeated,repeatedPercent:Number((repeated/written*100).toFixed(2)),dropped:last.dropped-first.dropped};
-  const report={video:`h264 ${width}x${width*9/16} 60fps`,audio:'aac 48k stereo',monitor:false,syncMaxMs:Math.max(...sync.map(sample=>sample.syncMaxMs)),sync,frames,previews,soakSeconds:duration,diagnostics};
+  const report={video:`h264 ${outputWidth}x${outputHeight} 60fps`,aspectRatio,audio:'aac 48k stereo',monitor:false,syncMaxMs:Math.max(...sync.map(sample=>sample.syncMaxMs)),sync,frames,previews,soakSeconds:duration,diagnostics};
   await writeFile(join(output,'report.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify({...report,diagnostics:undefined}));
   assert.ok(frames.freshFps>=58&&frames.repeatedPercent<=3,`Steady frame delivery below target: ${JSON.stringify(frames)}`);
