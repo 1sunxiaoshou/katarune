@@ -23,19 +23,9 @@ Katarune，创造与你共同生活的数字世界。
 
 ## 下载与使用
 
-目前项目处于 Alpha 阶段，主要支持 Windows x64。开发进度见[路线图](docs/03-规划/路线图.md)。
+目前为 Alpha 版本，支持 Windows x64。下载安装后，在设置中配置模型供应商和 API Key 即可使用。
 
-在 [Releases](https://github.com/1sunxiaoshou/katarune/releases) 下载 `Katarune-Setup-<版本号>.exe` 并安装。Windows 安装包包含默认角色、桌宠运行环境和离线语音识别资源，无需安装 Node.js 或 Unity。首版安装包未签名，Windows 可能显示发布者未知或 SmartScreen 提示。
-
-1. 启动后进入「设置 → 模型」，添加供应商、API Key 和需要的模型，再在「常规」中选择默认对话模型。
-2. 返回聊天页面发送消息。需要语音回复时，在设置中选择语音模型和音色；使用麦克风前，允许 Windows 的麦克风访问。
-3. 在聊天页面开启桌宠，与当前角色交谈；从桌宠的更多面板查看操作说明或进入沉浸模式。
-
-应用不附带 API Key，在线模型与语音服务的用量和费用由你选择的供应商决定。聊天记录与角色记忆保存在本机；使用在线服务时，必要内容会发送到相应供应商。
-
-目前通过下载新版完整安装包并覆盖安装来更新；卸载默认保留个人数据，可在卸载时选择全部删除。完全访问模式下的本机命令执行额外需要 [Git for Windows](https://git-scm.com/downloads/win)，其 Bash 不包含在安装包内；自行配置的 MCP 服务也需要相应程序和运行环境。
-
-遇到问题可在「设置 → 常规」打开日志目录，并通过 [Issues](https://github.com/1sunxiaoshou/katarune/issues) 提供版本、复现步骤和故障编号；请勿提交 API Key、Cookie 或聊天隐私。
+[下载 Windows 安装包](https://github.com/1sunxiaoshou/katarune/releases/download/v0.1.0/Katarune-Setup-0.1.0.exe)
 
 ## 从源码开始
 
