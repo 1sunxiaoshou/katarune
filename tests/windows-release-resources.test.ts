@@ -9,7 +9,7 @@ const roots: string[] = [];
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "katarune-release-"));
   roots.push(root);
-  for (const file of ["characters/default-package/portrait.png", "asr/sensevoice-int8/model.int8.onnx",
+  for (const file of ["LICENSE.txt", "characters/default-package/portrait.png", "asr/sensevoice-int8/model.int8.onnx",
     "asr/sensevoice-int8/tokens.txt", "asr/sensevoice-int8/LICENSE", "asr/silero-vad/model.onnx",
     "asr/silero-vad/LICENSE", "asr-worker.cjs", "vad-segmenter.cjs", "avatar/KataruneAvatar.exe",
     "avatar/UnityPlayer.dll", "characters/default-package/avatar/model.vrm"]) {
@@ -52,6 +52,7 @@ describe("Windows packaged resources", () => {
     const resources = fixture();
     const root = mkdtempSync(join(tmpdir(), "katarune-source-"));
     roots.push(root);
+    writeFileSync(join(root, "LICENSE"), "fixture");
     renameSync(resources, join(root, "resources"));
     rmSync(join(root, "resources/avatar"), { recursive: true });
     const check = () => spawnSync(process.execPath, ["--input-type=module", "-e",

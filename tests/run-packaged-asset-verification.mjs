@@ -90,7 +90,7 @@ async function capturePage(url, clip) {
 }
 
 const port = await availablePort();
-const child = spawn(
+const launchApp = () => spawn(
   executablePath,
   [
     `--remote-debugging-port=${port}`,
@@ -106,6 +106,13 @@ const child = spawn(
     windowsHide: true,
   },
 );
+let child = launchApp();
+
+async function stopApp() {
+  if (child.exitCode !== null) return;
+  child.kill();
+  await new Promise(resolveExit => child.once("exit", resolveExit));
+}
 
 try {
   const page = await waitForPage(port);
@@ -143,6 +150,11 @@ try {
     while (!document.querySelector('[data-testid="live-page"] .live-character button')) {
       if (Date.now() > end) throw new Error('Packaged live page did not load');
       await new Promise(resolve=>setTimeout(resolve,30));
+    }
+    document.querySelector('#live-tab-output').click();
+    while (!document.querySelector('.live-output')) {
+      if (Date.now() > end) throw new Error('Packaged output tab did not load');
+      await new Promise(resolve => setTimeout(resolve, 30));
     }
     const address = document.querySelector('.live-output').textContent;
     return { phase:state.phase, credentialsConfigured:state.credentialsConfigured, address };
@@ -229,11 +241,30 @@ try {
   }
   assert.equal(playback.stopped.phase, "stopped");
   console.log("Packaged default Player starts, passes main-process validation, and stops.");
+  const savedThread = await evaluate(page.webSocketDebuggerUrl, `(async () => {
+    const state = await window.katarune.getAppState();
+    const request = { threadId: crypto.randomUUID(), characterId: state.activeCharacter.id };
+    await window.katarune.initializeThread(request);
+    await window.katarune.renameThread({ ...request, title: "Release restart check" });
+    const { settings } = await window.katarune.getLiveState();
+    await window.katarune.updateLiveSettings({ ...settings, aspectRatio: "9:16" });
+    return request;
+  })()`);
+  await stopApp();
+  child = launchApp();
+  const restartedPage = await waitForPage(port);
+  const restored = await evaluate(restartedPage.webSocketDebuggerUrl, `(async () => ({
+    thread: await window.katarune.fetchThread(${JSON.stringify(savedThread)}),
+    live: await window.katarune.getLiveState(),
+    state: await window.katarune.getAppState()
+  }))()`);
+  assert.equal(restored.thread.title, "Release restart check");
+  assert.equal(restored.thread.characterId, savedThread.characterId);
+  assert.equal(restored.state.activeCharacter.id, savedThread.characterId);
+  assert.equal(restored.live.settings.aspectRatio, "9:16");
+  assert.equal(restored.live.phase, "stopped");
+  console.log("Packaged restart restores character, thread and output settings without starting live output.");
 } finally {
-  child.kill();
-  await new Promise((resolveExit) => {
-    if (child.exitCode !== null) resolveExit();
-    else child.once("exit", resolveExit);
-  });
+  await stopApp();
   rmSync(isolatedDataRoot, { recursive: true, force: true });
 }

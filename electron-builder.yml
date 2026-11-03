@@ -43,6 +43,8 @@ files:
   - drizzle/**/*
   - package.json
 extraResources:
+  - from: LICENSE
+    to: LICENSE.txt
   - from: resources/vad-segmenter.cjs
     to: vad-segmenter.cjs
   - from: resources/asr/silero-vad

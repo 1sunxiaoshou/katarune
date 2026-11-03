@@ -1,4 +1,6 @@
 # Actual electron-builder/NSIS engine with unique disposable identities.
+param([switch]$FullPayload)
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $root
@@ -10,7 +12,8 @@ $work = Join-Path $root ".test-dist/nsis-uninstall-$runId"
 $fixture = Join-Path $work 'payload'
 $installed = Join-Path $work '安装目录 with spaces'
 $output = Join-Path $work 'output'
-$installer = Join-Path $output "$product-Setup-0.1.0.exe"
+$version = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+$installer = Join-Path $output "$product-Setup-$version.exe"
 $uninstaller = Join-Path $installed "Uninstall $product.exe"
 $data = Join-Path $env:APPDATA $dataName
 $cache = Join-Path $env:LOCALAPPDATA "$dataName-updater"
@@ -106,15 +109,26 @@ function Invoke-Gui([string]$file, [string]$mode, [string]$selection) {
     }
 }
 try {
-    Write-Fixture (Join-Path $fixture "$product.exe")
-    Write-Fixture (Join-Path $fixture 'resources/fixture.txt')
-    # A compressible payload makes extraction last long enough to observe the
-    # real plugin's byte details; a tiny text fixture skips that entire window.
-    $progressPayload = [IO.File]::Create((Join-Path $fixture 'resources/progress-fixture.bin'))
-    try {
-        $block = [byte[]]::new(1MB)
-        for ($index = 0; $index -lt 128; $index++) { $progressPayload.Write($block, 0, $block.Length) }
-    } finally { $progressPayload.Dispose() }
+    if ($FullPayload) {
+        $source = Join-Path $root 'dist/win-unpacked'
+        & node scripts/verify-windows-resources.mjs (Join-Path $source 'resources')
+        Assert-Test ($LASTEXITCODE -eq 0) 'Full Windows payload is incomplete'
+        Assert-Test (Test-Path -LiteralPath (Join-Path $source 'Katarune.exe')) 'Full Windows executable missing'
+        New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+        Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $fixture -Recurse
+        }
+        Move-Item -LiteralPath (Join-Path $fixture 'Katarune.exe') -Destination (Join-Path $fixture "$product.exe")
+    } else {
+        Write-Fixture (Join-Path $fixture "$product.exe")
+        Write-Fixture (Join-Path $fixture 'resources/fixture.txt')
+        # Keep extraction observable even with a small synthetic payload.
+        $progressPayload = [IO.File]::Create((Join-Path $fixture 'resources/progress-fixture.bin'))
+        try {
+            $block = [byte[]]::new(1MB)
+            for ($index = 0; $index -lt 128; $index++) { $progressPayload.Write($block, 0, $block.Length) }
+        } finally { $progressPayload.Dispose() }
+    }
     Write-Fixture (Join-Path $fixture 'obsolete.txt')
     Write-Fixture (Join-Path $devData 'development.txt')
     New-Item -Path $devRegistry -Force | Out-Null
@@ -127,6 +141,10 @@ try {
     Assert-Test ($entries.Count -eq 1) 'Unexpected test uninstall registry identity'
     $uninstallKey = $entries[0].PSPath
     $installKey = "HKCU:\Software\$($entries[0].PSChildName)"
+    if ($FullPayload) {
+        & node tests/run-packaged-asset-verification.mjs (Join-Path $installed "$product.exe")
+        Assert-Test ($LASTEXITCODE -eq 0) 'Installed full application verification failed'
+    }
     Seed-Data
     Remove-Item -LiteralPath (Join-Path $fixture 'obsolete.txt')
     Build-Fixture

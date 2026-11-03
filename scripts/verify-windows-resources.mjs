@@ -17,6 +17,7 @@ function resourcePath(root, file) {
 
 export async function verifyWindowsResources(root, packaged = false) {
   const resources = packaged ? root : join(root, "resources");
+  await requireFile(packaged ? join(resources, "LICENSE.txt") : join(root, "LICENSE"));
   const builtin = join(resources, "characters", "default-package");
   const avatar = join(resources, "avatar");
   const mediaFiles = ["ffmpeg.exe", "ffprobe.exe", "mediamtx.exe", "media-supervisor.exe", "avcodec-62.dll", "avdevice-62.dll", "avfilter-11.dll", "avformat-62.dll", "avutil-60.dll", "swresample-6.dll", "swscale-9.dll"];
