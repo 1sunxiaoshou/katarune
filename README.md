@@ -6,7 +6,7 @@
 
 > 新一代的数字伙伴~
 
-Katarune 想创造能与你共同生活的数字生命。
+Katarune，创造与你共同生活的数字世界。
 
 互发消息、一起游戏，在虚拟世界中玩耍；未来，拥有自己的躯体，能够观察、移动，探索现实世界。这是我们希望一步步实现的愿景。
 
@@ -46,8 +46,18 @@ npm run dev
 
 开发前请阅读[文档导航](docs/README.md)与[工程规范](docs/04-开发/工程规范.md)；使用编码 Agent 时，遵循 [AGENTS.md](AGENTS.md)。
 
-## 致谢与许可
+## 致谢
 
-Katarune 基于 Electron、React、AI SDK、assistant-ui 与 Unity 等项目构建。
+感谢开源社区的分享与贡献，以下项目为 Katarune 的开发提供了技术支持与启发：
 
-项目许可证与开源边界尚未确定。第三方代码、模型、角色和动画资产遵循各自的授权条款；正式许可证发布前，请勿将仓库可见视为复制或再分发授权。
+- [AI SDK](https://github.com/vercel/ai)
+- [assistant-ui](https://github.com/assistant-ui/assistant-ui)
+- [UniVRM](https://github.com/vrm-c/UniVRM)
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+- [Codex](https://github.com/openai/codex)
+
+## 免责声明
+
+本项目使用了部分第三方代码及角色、模型、动画、音乐等资产，相关权利归各自权利人所有，使用与传播须遵循其授权条款。
+
+如您认为本项目中的内容侵犯了您的合法权益，请通过 [Issues](https://github.com/1sunxiaoshou/katarune/issues) 联系我们，并提供相关权属说明及内容位置。我们将在核实后及时删除或作相应处理。
