@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { build, Platform, Arch } from "electron-builder";
+import { extractFile } from "@electron/asar";
 import { verifyWindowsResources } from "./verify-windows-resources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -11,7 +12,18 @@ const options = Object.fromEntries(process.argv.slice(2).map((arg) => {
   return [match[1], match[2]];
 }));
 const payload = resolve(options.payload ?? join(root, "dist/win-unpacked"));
-if (!options.payload) await verifyWindowsResources(join(payload, "resources"), true);
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+if (!options.product) {
+  const resources = join(payload, "resources");
+  await verifyWindowsResources(resources, true);
+  const packed = JSON.parse(extractFile(join(resources, "app.asar"), "package.json").toString("utf8"));
+  if (packed.version !== pkg.version) throw new Error("The Windows payload version is stale. Rebuild win-unpacked first.");
+  const configPath = join(resources, "app-update.yml");
+  const feed = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : null;
+  if (feed?.provider !== "github" || feed.updaterCacheDirName !== `${pkg.name}-updater`) {
+    throw new Error("The Windows payload has an invalid update configuration. Rebuild win-unpacked first.");
+  }
+}
 for (const key of ["product", "data-name", "unity-product"]) {
   if (options[key] && !/^[A-Za-z0-9 ._-]+$/.test(options[key])) throw new Error(`Invalid ${key}`);
 }
@@ -52,7 +64,6 @@ adapt("uninstaller.nsh", [
 ]);
 // NSIS resolves includes in the current directory before include search paths.
 writeFileSync(wrapper, `\uFEFF!cd "${stage}"\n!define KATARUNE_HELPER_DIR "${stage}"\n!define KATARUNE_DATA_NAME "${options["data-name"] ?? "katarune"}"\n!define KATARUNE_UNITY_PRODUCT "${options["unity-product"] ?? "Katarune Avatar Desktop"}"\n!include "${join(stage, "katarune.nsh")}"\n`);
-const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 await build({
   targets: Platform.WINDOWS.createTarget(["nsis"], Arch.x64),
   prepackaged: payload,

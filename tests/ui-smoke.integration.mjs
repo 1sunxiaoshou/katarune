@@ -329,6 +329,22 @@ function registerMockHandlers() {
     electronVersion: process.versions.electron,
     nodeVersion: process.versions.node,
   }));
+  let appUpdateState = { status: "idle" };
+  let updateChecks = 0;
+  const publishUpdate = (event, state) => {
+    appUpdateState = state;
+    event.sender.send("app-update:changed", state);
+  };
+  ipcMain.handle("app-update:open", (event) => {
+    if (appUpdateState.status === "idle") publishUpdate(event, { status: "latest" });
+    return appUpdateState;
+  });
+  ipcMain.handle("app-update:check", (event) => {
+    updateChecks += 1;
+    if (updateChecks === 1) publishUpdate(event, { status: "check-failed" });
+    else publishUpdate(event, { status: "available", version: "0.2.0" });
+  });
+  ipcMain.handle("app-update:apply", (event) => publishUpdate(event, { status: "installing", version: "0.2.0" }));
   ipcMain.handle("database:get-status", () => ({
     ready: true,
     journalMode: "wal",
@@ -1245,6 +1261,41 @@ async function run() {
       await waitForSelector(window, '[data-slot="aui_thread-viewport"]');
       disabledMotionStyleKey = await window.webContents.insertCSS(disableMotionCss);
       await waitForSelector(window, '[data-testid="thread-starline-item"]');
+    });
+
+    await runStep("about settings reflect update actions", async () => {
+      const action = '[data-testid="about-update-action"]:not(:disabled)';
+      const status = '[data-testid="about-update-status"]';
+      await clickSelector(window, '[data-testid="settings-launcher"]');
+      await clickSelector(window, '[data-testid="settings-tab-about"]');
+      await waitForText(window, '[data-testid="about-version"]', "v0.1.0");
+      await waitForText(window, '[data-testid="about-settings"] a', "GitHub");
+      const chromeInteraction = await window.webContents.executeJavaScript(`(() => {
+        const panel = document.querySelector('[data-testid="about-settings"]');
+        return {
+          headingSelection: getComputedStyle(panel.querySelector('h2')).userSelect,
+          linkDrag: getComputedStyle(panel.querySelector('a')).webkitUserDrag,
+          imageDrag: getComputedStyle(panel.querySelector('img')).webkitUserDrag,
+        };
+      })()`);
+      assert.deepEqual(chromeInteraction, { headingSelection: "none", linkDrag: "none", imageDrag: "none" });
+      await waitForText(window, action, "检查更新");
+      await waitForText(window, status, "当前已是最新版本");
+      await waitUntil("latest version message clears", () => window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(status)}).textContent.trim() === ''`));
+      writeFileSync(join(projectRoot, ".test-dist", "about-settings.png"), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, action);
+      await waitForText(window, status, "无法检查更新");
+      await clickSelector(window, action);
+      await waitForText(window, status, "发现新版本 v0.2.0");
+      await clickSelector(window, '[data-testid="settings-tab-general"]');
+      await clickSelector(window, '[data-testid="settings-tab-about"]');
+      await waitForText(window, status, "发现新版本 v0.2.0");
+      await waitForText(window, action, "更新");
+      await clickSelector(window, action);
+      await waitForText(window, status, "正在准备安装");
+      await clickSelector(window, '[data-testid="settings-back"]');
+      await waitForSelector(window, '[data-testid="settings-launcher"]');
+      assert.equal(await window.webContents.executeJavaScript(`getComputedStyle(document.querySelector('.aui-composer-input')).userSelect`), "text");
     });
 
     await runStep("form validation floats without changing layout", async () => {

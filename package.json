@@ -82,6 +82,7 @@
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.2",
     "electron-log": "5.4.4",
+    "electron-updater": "6.8.12",
     "just-bash": "3.6.0",
     "protobufjs": "8.8.1",
     "qrcode": "1.5.4",

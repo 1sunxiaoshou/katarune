@@ -14,6 +14,7 @@ import { MODEL_TYPES } from "./models";
 import type { LiveApi } from "./live";
 import type { AgentToolsApi } from "./agentTools";
 import type { McpApi } from "./mcp";
+import type { AppUpdatesApi } from "./appUpdates";
 import { PROVIDER_TYPES } from "./providers";
 import {
   speechVoiceSchema,
@@ -646,7 +647,7 @@ export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateReques
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
-export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, McpApi {
+export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, McpApi, AppUpdatesApi {
   listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
   readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
   saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;

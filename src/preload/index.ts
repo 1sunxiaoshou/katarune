@@ -2,6 +2,7 @@ import { diagnosticsApi } from "./diagnostics";
 import { agentToolsApi } from "./agentTools";
 import { mcpApi } from "./mcp";
 import { liveApi } from "./live";
+import { APP_UPDATE_CHANNELS, appUpdateStateSchema, type AppUpdateState } from "../shared/appUpdates";
 import { PACKAGE_CHANNELS, packageListSchema, packageIdRequestSchema, characterPackageSchema, packageBindSchema, packageImportRequestSchema, packageImportResultSchema, packageProgressSchema, type PackageProgress } from "../shared/characterPackages";
 import { AVATAR_CHANNELS, avatarBindingSchema, avatarStatusSchema, avatarVoiceStateSchema, avatarPlaybackControlSchema, avatarUserSubtitleSchema, type AvatarBinding } from "../shared/avatar";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
@@ -188,6 +189,17 @@ const api: KataruneApi = Object.freeze({
   controlAvatarPlayback: (request: import('../shared/avatar').AvatarPlaybackControlRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.playbackControl, avatarPlaybackControlSchema.parse(request)),
   showAvatarUserSubtitle: (request: import('../shared/avatar').AvatarUserSubtitleRequest) => ipcRenderer.invoke(AVATAR_CHANNELS.userSubtitle, avatarUserSubtitleSchema.parse(request)),
   getAppInfo: () => invokeValidated(IPC_CHANNELS.getAppInfo, appInfoSchema),
+  openAppUpdatePage: () => invokeValidated(APP_UPDATE_CHANNELS.open, appUpdateStateSchema),
+  checkAppUpdate: async () => { await ipcRenderer.invoke(APP_UPDATE_CHANNELS.check); },
+  applyAppUpdate: async () => { await ipcRenderer.invoke(APP_UPDATE_CHANNELS.apply); },
+  onAppUpdateChanged: (listener: (state: AppUpdateState) => void) => {
+    const callback = (_: Electron.IpcRendererEvent, value: unknown) => {
+      const state = appUpdateStateSchema.safeParse(value);
+      if (state.success) listener(state.data);
+    };
+    ipcRenderer.on(APP_UPDATE_CHANNELS.changed, callback);
+    return () => { ipcRenderer.removeListener(APP_UPDATE_CHANNELS.changed, callback); };
+  },
   setWindowTheme: async (theme: WindowTheme) => {
     await invokeValidated(IPC_CHANNELS.setWindowTheme, operationSuccessSchema, windowThemeSchema.parse(theme));
   },

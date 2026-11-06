@@ -64,6 +64,10 @@ extraResources:
     to: fonts/Yellowtail-LICENSE.txt
 win:
   icon: katarune-logo.ico
+  publish:
+    provider: github
+    owner: 1sunxiaoshou
+    repo: katarune
   extraResources:
     - from: resources/live-media
       to: live-media
@@ -108,10 +112,11 @@ nsis:
   createStartMenuShortcut: true
   runAfterFinish: false
   deleteAppDataOnUninstall: false
-  differentialPackage: false
+  differentialPackage: true
   unicode: true
   installerLanguages:
     - zh_CN
   displayLanguageSelector: false
   uninstallDisplayName: "${productName}"
   include: installer/installer.nsh
+afterPack: scripts/write-windows-update-config.mjs

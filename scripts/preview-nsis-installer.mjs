@@ -19,6 +19,7 @@ const script = `Unicode true
 RequestExecutionLevel user
 Name "Katarune界面预览"
 OutFile "${output}"
+Icon "${join(root, "resources/katarune-logo.ico")}"
 !include "nsDialogs.nsh"
 !include "FileFunc.nsh"
 Var Dialog

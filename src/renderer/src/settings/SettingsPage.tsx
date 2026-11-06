@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { DiscoveredModelList } from "../../../shared/ipc";
 import {
   BotIcon,
+  InfoIcon,
   SlidersHorizontalIcon,
   PlugIcon,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { ModelManagement } from "./ModelSettings";
 import { ProviderDialog } from "./ProviderDialog";
 import { GeneralSettings } from "./GeneralSettings";
 import { McpSettings } from "./McpSettings";
+import { AboutSettings } from "./AboutSettings";
 import { useSettingsController } from "./useSettingsController";
 import { useApplicationSettings } from "./ApplicationSettingsProvider";
 
@@ -86,6 +88,14 @@ export function SettingsPage({
               <PlugIcon aria-hidden="true" />
               MCP
             </TabsTrigger>
+            <TabsTrigger
+              className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              data-testid="settings-tab-about"
+              value="about"
+            >
+              <InfoIcon aria-hidden="true" />
+              关于
+            </TabsTrigger>
           </TabsList>
         </aside>
 
@@ -113,6 +123,7 @@ export function SettingsPage({
             />
           </TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="mcp"><McpSettings /></TabsContent>
+          <TabsContent className="settings-tab-panel h-full" value="about"><AboutSettings /></TabsContent>
         </div>
       </Tabs>
 

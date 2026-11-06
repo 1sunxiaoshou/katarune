@@ -36,6 +36,10 @@ import { registerLiveHandlers } from "./ipc/liveHandlers";
 import { AgentToolsService } from "./ai/agentTools";
 import { McpService } from "./mcp/mcpService";
 import { registerAgentToolHandlers } from "./ipc/agentToolHandlers";
+import { APP_UPDATE_CHANNELS, appUpdateStateSchema } from "../shared/appUpdates";
+import { registerAppUpdateHandlers } from "./ipc/appUpdateHandlers";
+import { AppUpdateService } from "./updates/appUpdateService";
+import { createWindowsUpdater } from "./updates/windowsUpdater";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
@@ -52,6 +56,23 @@ let liveShutdownDone = false;
 if (!app.isPackaged) {
   app.setPath("userData", `${app.getPath("userData")}-development`);
 }
+
+const windowsUpdater = createWindowsUpdater();
+if (windowsUpdater) {
+  // An installed copy owns a single installer cache and update lifecycle.
+  if (!app.requestSingleInstanceLock()) app.exit(0);
+  app.on("second-instance", () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+}
+
+const appUpdates = new AppUpdateService(windowsUpdater, state => {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send(APP_UPDATE_CHANNELS.changed, appUpdateStateSchema.parse(state));
+  }
+}, (operation, error) => { diagnostic("warn", `app-update.${operation}.failed`, {}, error); }, () => app.quit());
 
 const diagnostics = initializeDiagnostics(join(app.getPath("userData"), "logs", "diagnostics"), app.getVersion());
 registerDiagnosticsHandlers(diagnostics);
@@ -224,6 +245,7 @@ void app.whenReady().then(async () => {
     mcpService,
   );
   registerAgentToolHandlers(agentToolsService);
+  registerAppUpdateHandlers(appUpdates, () => mainWindow);
   asrService = registerAsrHandlers(databaseRuntime, avatarService);
   createMainWindow();
   registerLiveHandlers(liveService, liveMedia, mainWindow!);
@@ -267,10 +289,18 @@ app.on("before-quit", event => {
 });
 
 app.on("will-quit", event => {
+  event.preventDefault();
   if (exiting) return;
-  event.preventDefault(); exiting = true;
-  void diagnostics.close(true).finally(() => app.exit(0));
-  setTimeout(() => app.exit(0), 1800).unref();
+  exiting = true;
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    try { appUpdates.installOnQuit(); }
+    finally { setImmediate(() => app.exit(0)); }
+  };
+  void diagnostics.close(true).finally(finish);
+  setTimeout(finish, 1800).unref();
 });
 
 app.on("window-all-closed", () => {
