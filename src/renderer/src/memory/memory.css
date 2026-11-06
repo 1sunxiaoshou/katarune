@@ -104,7 +104,7 @@
 
 .memory-title-input { display: block; width: 100%; min-width: 0; field-sizing: content; resize: none; overflow: hidden; padding: 0; border: 0; outline: none; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; overflow-wrap: anywhere; }
 .memory-title-input::placeholder { color: var(--muted-foreground); opacity: .6; }
-.memory-body-editor { outline: none; min-height: 8rem; }
+.memory-body-editor { outline: none; min-height: 8rem; user-select: text; }
 .memory-body-editor[contenteditable=true] > p:only-child:has(> br:only-child)::before { content: "写下值得记住的内容…"; float: left; height: 0; color: var(--muted-foreground); opacity: .6; pointer-events: none; }
 .memory-user-label { gap: .5rem; font-size: .75rem; line-height: 1.5; color: var(--foreground-secondary); }
 .memory-body ul[data-type=taskList] { list-style: none; padding-left: 0; }

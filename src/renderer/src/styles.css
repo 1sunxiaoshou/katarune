@@ -161,6 +161,15 @@
 
   body {
     @apply m-0 bg-background font-sans text-foreground;
+    user-select: none;
+  }
+
+  :where(input, textarea, [contenteditable]:not([contenteditable="false"]), pre, code) {
+    user-select: text;
+  }
+
+  :where(img, a[href]):not([draggable="true"]) {
+    -webkit-user-drag: none;
   }
 
   ::-webkit-scrollbar {
@@ -1237,6 +1246,10 @@
   outline: none;
   box-shadow: none;
   appearance: none;
+}
+
+:where(.chat-message-body, .aui-reasoning-text-content) {
+  user-select: text;
 }
 
 .chat-message-body {

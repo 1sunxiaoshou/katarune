@@ -57,6 +57,7 @@
 .live-room-description p { color: var(--foreground-secondary); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .live-event-list { display: flex; flex-direction: column; flex: 1; overflow: auto; min-height: 0; }
 .live-event { flex: none; font-size: 13px; line-height: 1.7; padding: 4px 0; overflow-wrap: anywhere; }
+:where(.live-room-description p, .live-event-danmaku > span) { user-select: text; }
 .live-event b { font-weight: 500; color: var(--muted-foreground); margin-right: 8px; }
 .live-event-gift { color: var(--warning); }
 .live-event small { font-size: 11px; margin-left: 6px; color: var(--muted-foreground); }
