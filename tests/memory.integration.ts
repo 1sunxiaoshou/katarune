@@ -8,10 +8,10 @@ import { z } from "zod";
 import { openDatabase } from "../src/main/database/database";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
 import { createDiaryService } from "../src/main/memory/diaryService";
-import { createMemoryTools, createMemoryReadTools } from "../src/main/memory/memoryTools";
-import { memoryDay, memoryToolSaveSchema, memoryToolSearchSchema, memoryBackgroundSearchInputSchema,
+import { createMemoryTools } from "../src/main/memory/memoryTools";
+import { memoryDay, memoryToolSaveSchema, memoryToolSearchSchema,
   memoryReadInputSchema, memoryForgetInputSchema, memoryToolSearchResultSchema, memoryToolReadResultSchema,
-  memoryToolForgetResultSchema, memoryToolInputSchema, memoryBackgroundToolInputSchema, memoryPageResultSchema, type MemoryContent, type MemoryEntry, type MemoryWriteResult } from "../src/shared/memory";
+  memoryToolForgetResultSchema, memoryToolInputSchema, memoryPageResultSchema, type MemoryContent, type MemoryEntry, type MemoryWriteResult } from "../src/shared/memory";
 
 function saved(result: MemoryWriteResult): MemoryEntry {
   assert.equal(result.status, "saved");
@@ -164,12 +164,21 @@ export async function runMemoryIntegration(): Promise<void> {
     const day = memoryDay(past, zone);
     sql.prepare("UPDATE memory_diary_jobs SET day = ?, retry_at = ?").run(day, past.getTime());
     sql.prepare("UPDATE messages SET created_at = ? WHERE id = 'memory-source'").run(past.getTime());
+    const previousDiary = add({ kind: "diary", day: memoryDay(new Date(past.getTime() - 86_400_000), zone), title: "昨天的念头", body: "我还惦记着挑礼物的事情。" });
+    const personBeforeReview = database.readMemory(characterId, person.id);
+    const eventBeforeReview = database.readMemory(characterId, event.id);
+    const reviewRequests: z.infer<typeof memoryToolInputSchema>["request"][] = [
+      { action: "search", queries: ["林同学", "昨天的念头"], kind: null },
+      { action: "read", ids: [person.id, event.id, previousDiary.id, otherId] },
+      { action: "save", id: person.id, revision: personBeforeReview.revision, kind: "person", title: "林同学", body: "用户的朋友，称呼已更正。下周过生日。", isUser: false },
+      { action: "save", id: event.id, revision: eventBeforeReview.revision, kind: "event", title: event.content.title, body: "已经挑好了书，准备下周送给林同学。", isUser: null },
+    ];
     let calls = 0;
     const model = new MockLanguageModelV4({ doGenerate: async () => {
       calls++;
       return {
-        content: calls <= 2 ? [{ type: "tool-call", toolCallId: `diary-read-${calls}`, toolName: "memory", input: JSON.stringify({ request: calls === 1 ? { action: "search", queries: ["林同学", "生日"], kind: null } : { action: "read", ids: [person.id, event.id] } }) }]
-          : [{ type: "tool-call", toolCallId: "diary-finish", toolName: "finish_diary", input: JSON.stringify({ worthKeeping: true, title: "一起挑选礼物", body: "今天我和用户聊了朋友的生日，我们一起想了想礼物。" }) }],
+        content: calls <= reviewRequests.length ? [{ type: "tool-call", toolCallId: `diary-memory-${calls}`, toolName: "memory", input: JSON.stringify({ request: reviewRequests[calls - 1] }) }]
+          : [{ type: "tool-call", toolCallId: "diary-finish", toolName: "finish_diary", input: JSON.stringify({ worthKeeping: true, title: "一起挑选礼物", body: "那本书已经挑好了。不知道林同学收到时会是什么反应。" }) }],
         finishReason: { unified: "tool-calls", raw: undefined }, warnings: [],
         usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
       };
@@ -179,30 +188,20 @@ export async function runMemoryIntegration(): Promise<void> {
       aiRuntime: { resolveLanguageModel: () => model }, now: () => today });
     await service.runOnce();
     await service.runOnce();
-    assert.equal(calls, 3, "one daily agent run may use several model/tool steps but must not run twice");
+    assert.equal(calls, 5, "one daily agent run may use several model/tool steps but must not run twice");
     assert.ok(JSON.stringify(model.doGenerateCalls[0]?.prompt).includes(database.fetchCharacter(characterId).systemPrompt));
     assert.deepEqual(model.doGenerateCalls[0]?.tools?.map(item => item.name).sort(), ["finish_diary", "memory"]);
-    const diary = database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries[0];
+    const diary = database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries.find(entry => entry.day === day);
     assert.ok(diary);
     assert.equal(diary.day, day);
-    const backgroundTools = createMemoryReadTools(database, characterId, { includeDiaries: false });
-    assert.deepEqual(Object.keys(backgroundTools), ["memory"]);
-    assert.ok(backgroundTools.memory.execute);
-    const backgroundRead = memoryToolReadResultSchema.parse(await backgroundTools.memory.execute({ request: { action: "read", ids: [diary.id, person.id] } }, options));
-    assert.deepEqual(backgroundRead.results.map(item => item.status), ["not_found", "found"]);
-    assert.equal(memoryBackgroundSearchInputSchema.safeParse({ queries: ["礼物"], kind: "diary" }).success, false);
-    const backgroundSearch = memoryToolSearchResultSchema.parse(await backgroundTools.memory.execute({ request: { action: "search", queries: ["一起挑选礼物", "林同学"], kind: null } }, options));
-    assert.deepEqual(backgroundSearch.searches[0]?.results, [], "background batch queries must exclude diaries");
-    assert.ok(backgroundSearch.searches[1]?.results.some(item => item.id === person.id));
-    const backgroundList = memoryPageResultSchema.parse(await backgroundTools.memory.execute({ request: { ...listRequest, kind: null, pageSize: 50 } }, options));
-    assert.ok(backgroundList.entries.every(item => item.kind !== "diary"));
-    const dialogueList = memoryPageResultSchema.parse(await run({ ...listRequest, kind: null, pageSize: 50 }));
-    assert.ok(dialogueList.entries.some(item => item.id === diary.id), "dialogue may list diaries");
-    for (const request of [{ ...listRequest, kind: "diary" }, { action: "forget", entries: [{ id: person.id, revision: 1 }] },
-      { action: "save", id: null, revision: null, kind: "event", title: "越权", body: "不应写入", isUser: null }]) {
-      assert.equal(memoryBackgroundToolInputSchema.safeParse({ request }).success, false, "background memory remains read-only and excludes diaries");
-    }
-    assert.equal(database.searchMemory(characterId, { query: "一起挑选礼物", kind: null }, false).results.length, 0);
+    assert.equal(database.readMemory(characterId, person.id).content.body, "用户的朋友，称呼已更正。下周过生日。");
+    assert.equal(database.readMemory(characterId, person.id).revision, personBeforeReview.revision + 1);
+    assert.equal(database.readMemory(characterId, event.id).content.body, "已经挑好了书，准备下周送给林同学。");
+    const readStep = model.doGenerateCalls[2]?.prompt.flatMap(message => message.role === "tool" ? message.content : []).find(part => part.type === "tool-result" && part.toolCallId === "diary-memory-2");
+    assert.ok(readStep?.type === "tool-result" && readStep.output.type === "json");
+    const reviewRead = memoryToolReadResultSchema.parse(readStep.output.value);
+    assert.deepEqual(reviewRead.results.map(item => item.status), ["found", "found", "found", "not_found"], "daily review can read past diaries but not other characters' memories");
+    assert.equal(database.readMemory(second.id, otherId).content.title, "另一个人");
     assert.equal(database.searchMemory(characterId, { query: "一起挑选礼物", kind: null }).results[0]?.id, diary.id);
     for (const definition of model.doGenerateCalls[0]?.tools ?? []) {
       if (definition.type !== "function") continue;
@@ -212,12 +211,13 @@ export async function runMemoryIntegration(): Promise<void> {
     service.dispose();
 
     const forgotten = saved(database.forgetMemory(characterId, person.id, database.readMemory(characterId, person.id).revision));
-    assert.equal(database.searchMemory(characterId, { query: "林同学", kind: null }).results.length, 0);
+    assert.equal(database.searchMemory(characterId, { query: "林同学", kind: "person" }).results.length, 0);
     assert.ok(!database.memoryOverview(characterId).some(item => item.id === person.id));
     assert.ok(forgotten.forgottenAt);
     assert.ok(!database.listMemory({ characterId, kind: "person", query: "", offset: 0 }).entries.some(item => item.id === person.id));
     assert.equal(database.saveMemory(characterId, { id: person.id, revision: forgotten.revision, content: person.content }).status, "conflict", "a background save must not revive forgotten memory");
     assert.deepEqual(await read({ ids: [person.id] }, options), { results: [{ id: person.id, status: "not_found" }] });
+    saved(database.forgetMemory(characterId, previousDiary.id, previousDiary.revision));
     saved(database.forgetMemory(characterId, diary.id, database.readMemory(characterId, diary.id).revision));
     assert.equal(database.claimMemoryDiaryJob(new Date(today.getTime() + 86_400_000)), null, "forgotten diaries must not regenerate");
     database.setMemoryDiaryEnabled(characterId, false);
@@ -236,10 +236,13 @@ export async function runMemoryIntegration(): Promise<void> {
     let retryCalls = 0;
     const retry = createDiaryService({ database: { ...database, getAppSettings: () => ({ ...database.getAppSettings(), defaultLanguageModelConfigId: modelConfig }) },
       aiRuntime: { resolveLanguageModel: () => model }, now: () => clock,
-      generate: async () => {
+      generate: async ({ tools: dailyTools }) => {
         retryCalls++;
         if (!editDuringGeneration) throw new Error("synthetic provider failure");
         append("retry-source", "更正：只是打算练习，还没有开始。");
+        const executeDaily = dailyTools.memory?.execute;
+        assert.ok(executeDaily);
+        await assert.rejects(async () => executeDaily({ request: { action: "save", id: null, revision: null, kind: "person", title: "不应保存的人物", body: "过时资料。", isUser: false } }, options), { code: "context_changed" });
         return { worthKeeping: true, title: "不应保存的草稿", body: "过时资料。" };
       } });
     await retry.runOnce();
@@ -272,13 +275,62 @@ export async function runMemoryIntegration(): Promise<void> {
     assert.equal(database.claimMemoryDiaryJob(today), null, "today must not be written as a finished daily diary");
     const skip = createDiaryService({ database: { ...database, getAppSettings: () => ({ ...database.getAppSettings(), defaultLanguageModelConfigId: modelConfig }) },
       aiRuntime: { resolveLanguageModel: () => model }, now: () => nextDay,
-      generate: async () => ({ worthKeeping: false, title: "", body: "" }) });
+      generate: async ({ tools: dailyTools }) => {
+        const executeDaily = dailyTools.memory?.execute;
+        assert.ok(executeDaily);
+        const profile = database.memoryOverview(characterId).find(entry => entry.isUser);
+        assert.ok(profile);
+        const current = database.readMemory(characterId, profile.id);
+        const request = { action: "save", id: current.id, revision: current.revision, kind: "person", title: current.content.title, body: "喜欢简洁的回答。最近打算练习钢琴。", isUser: true };
+        assert.equal(z.object({ status: z.string() }).parse(await executeDaily({ request }, options)).status, "saved");
+        assert.equal(z.object({ status: z.string() }).parse(await executeDaily({ request }, options)).status, "conflict", "daily review uses the same version checks as chat");
+        assert.equal(z.object({ status: z.string() }).parse(await executeDaily({ request: { ...request, id: otherId, revision: 1 } }, options)).status, "not_found");
+        return { worthKeeping: false, title: "", body: "" };
+      } });
     database.retryMemoryDiaryJobs(characterId);
     await skip.runOnce();
     await skip.runOnce();
     skip.dispose();
     assert.equal(database.getMemoryDiaryState(characterId).pending, 0);
     assert.equal(database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries.length, 0, "a day without useful content must not create an empty diary");
+    assert.equal(database.memoryOverview(characterId).find(entry => entry.isUser)?.profile, "喜欢简洁的回答。最近打算练习钢琴。", "memory updates persist even without a diary");
+
+    // Daily writes use the shared executor, but cannot outlive their source or enabled task.
+    for (const [index, action] of ["disable", "dispose", "delete-source", "fail-after-save"].entries()) {
+      const sourceId = `daily-lifecycle-${action}`;
+      append(sourceId, "请记住我喜欢蓝色。忘掉临时称呼。");
+      const sourceDate = new Date(past.getTime() - (index + 10) * 86_400_000);
+      sql.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(sourceDate.getTime(), sourceId);
+      database.queueMemoryDiaryMessage(characterId, sourceId, zone);
+      const removable = add({ kind: "person", title: `临时称呼-${action}`, body: "需要遗忘的合成信息。", isUser: false });
+      const lifecycle = createDiaryService({ database: { ...database, getAppSettings: () => ({ ...database.getAppSettings(), defaultLanguageModelConfigId: modelConfig }) },
+        aiRuntime: { resolveLanguageModel: () => model }, now: () => new Date(),
+        generate: async ({ tools: dailyTools }) => {
+          const executeDaily = dailyTools.memory?.execute;
+          assert.ok(executeDaily);
+          const save = { request: { action: "save", id: null, revision: null, kind: "person", title: `新增人物-${action}`, body: "喜欢蓝色。", isUser: false } };
+          const forget = { request: { action: "forget", entries: [{ id: removable.id, revision: removable.revision }] } };
+          if (action === "fail-after-save") {
+            assert.equal(z.object({ status: z.string() }).parse(await executeDaily(save, options)).status, "saved");
+            assert.equal(memoryToolForgetResultSchema.parse(await executeDaily(forget, options)).results[0]?.status, "forgotten");
+            throw new Error("synthetic failure after memory operations");
+          }
+          if (action === "disable") database.setMemoryDiaryEnabled(characterId, false);
+          if (action === "dispose") lifecycle.dispose();
+          if (action === "delete-source") sql.prepare("DELETE FROM messages WHERE id = ?").run(sourceId);
+          const code = action === "delete-source" ? "context_changed" : "interrupted";
+          await assert.rejects(async () => executeDaily(save, options), { code });
+          await assert.rejects(async () => executeDaily(forget, options), { code });
+          return { worthKeeping: false, title: "", body: "" };
+        } });
+      assert.equal(await lifecycle.runOnce(), true, `${action} must claim its queued daily task`);
+      lifecycle.dispose();
+      const persisted = action === "fail-after-save";
+      assert.equal(database.searchMemory(characterId, { query: `新增人物-${action}`, kind: "person" }).results.length, persisted ? 1 : 0);
+      assert.equal(database.readMemory(characterId, removable.id).forgottenAt !== null, persisted);
+      assert.equal(database.listMemory({ characterId, kind: "diary", query: "", offset: 0 }).entries.length, 0);
+      database.setMemoryDiaryEnabled(characterId, true);
+    }
 
     // Restart preserves entries, revisions and pending daily work.
     const expectedRevision = database.readMemory(characterId, event.id).revision;
@@ -286,10 +338,10 @@ export async function runMemoryIntegration(): Promise<void> {
     database = openDatabase({ userDataPath: directory, appPath: process.cwd(), configValidator });
     assert.equal(database.readMemory(characterId, event.id).revision, expectedRevision);
     assert.ok(database.readMemory(characterId, person.id).forgottenAt, "forgetting must survive a restart");
-    assert.equal(database.searchMemory(characterId, { query: "林同学", kind: null }).results.length, 0);
-    assert.equal(database.getMemoryDiaryState(characterId).failed, 0);
+    assert.equal(database.searchMemory(characterId, { query: "林同学", kind: "person" }).results.length, 0);
+    assert.equal(database.getMemoryDiaryState(characterId).failed, 2, "source changes and failures after successful writes remain retryable across restart");
     database.deleteThread(threadId, characterId);
-    assert.equal(database.readMemory(characterId, event.id).content.body, "已经挑好了书。");
+    assert.equal(database.readMemory(characterId, event.id).content.body, "已经挑好了书，准备下周送给林同学。");
     database.deleteCharacter(characterId);
     assert.deepEqual(sql.prepare("SELECT count(*) AS n FROM memory_entries WHERE character_id = ?").get(characterId), { n: 0 });
     assert.equal(database.searchMemory(second.id, { query: "已经挑好", kind: null }).results.length, 0);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, ne, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   memoryContentSchema, memoryDay, memoryEntrySchema, memoryListSchema, diaryFailureCodeSchema, memoryDiaryStateSchema,
@@ -122,11 +122,10 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
         total: database.select({ value: count() }).from(memoryEntries).where(where).get()?.value ?? 0,
       });
     },
-    listMemoryPage: (characterId: string, input: MemoryPageInput, includeDiaries = true) => {
+    listMemoryPage: (characterId: string, input: MemoryPageInput) => {
       const request = memoryPageInputSchema.parse(input);
       assertCharacter(characterId);
       const where = and(eq(memoryEntries.characterId, characterId), isNull(memoryEntries.forgottenAt),
-        includeDiaries ? undefined : ne(memoryEntries.kind, "diary"),
         request.kind ? eq(memoryEntries.kind, request.kind) : undefined);
       const column = memoryEntries[request.sortBy];
       const offset = (request.page - 1) * request.pageSize;
@@ -140,12 +139,11 @@ export function createMemoryRepository(database: KataruneDatabase, assertCharact
         total, page: request.page, pageSize: request.pageSize, hasMore: offset + rows.length < total,
       });
     },
-    searchMemory: (characterId: string, value: z.input<typeof memorySearchInputSchema>, includeDiaries = true) => {
+    searchMemory: (characterId: string, value: z.input<typeof memorySearchInputSchema>) => {
       const request = memorySearchInputSchema.parse(value);
       assertCharacter(characterId);
       const pattern = searchPattern(request.query);
       const rows = database.select().from(memoryEntries).where(and(eq(memoryEntries.characterId, characterId), isNull(memoryEntries.forgottenAt),
-        includeDiaries ? undefined : ne(memoryEntries.kind, "diary"),
         request.kind ? eq(memoryEntries.kind, request.kind) : undefined,
         sql`(${memoryEntries.title} like ${pattern} escape '!' or ${memoryEntries.body} like ${pattern} escape '!')`))
         .orderBy(desc(memoryEntries.isUser), desc(memoryEntries.updatedAt)).limit(searchLimit + 1).all();

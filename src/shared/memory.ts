@@ -54,9 +54,6 @@ export const memoryToolSearchSchema = z.strictObject({
     .describe("1 至 5 个字面关键词，逐个搜索；不要重复填写。"),
   kind: memorySearchInputSchema.shape.kind,
 });
-export const memoryBackgroundSearchInputSchema = memoryToolSearchSchema.extend({
-  kind: z.enum(["person", "event"]).nullable().describe("只允许人物或纪事；null 表示两类都搜索。"),
-});
 export const memoryReadInputSchema = z.strictObject({
   ids: z.array(z.uuid()).min(1).max(10).describe("1 至 10 个搜索或目录返回的记忆标识，不能自行编造。"),
 });
@@ -93,13 +90,6 @@ export const memoryToolInputSchema = z.strictObject({
     searchOperation, readOperation, listOperation,
     memoryToolSaveSchema.safeExtend({ action: z.literal("save") }),
     memoryForgetInputSchema.extend({ action: z.literal("forget") }),
-  ]),
-});
-export const memoryReadToolInputSchema = z.strictObject({ request: memoryReadOperationSchema });
-export const memoryBackgroundToolInputSchema = z.strictObject({
-  request: z.discriminatedUnion("action", [
-    memoryBackgroundSearchInputSchema.extend({ action: z.literal("search") }), readOperation,
-    listOperation.extend({ kind: z.enum(["person", "event"]).nullable() }),
   ]),
 });
 export const memoryPageResultSchema = z.strictObject({
