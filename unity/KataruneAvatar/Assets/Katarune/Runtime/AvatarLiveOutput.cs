@@ -36,6 +36,8 @@ namespace Katarune.Avatar
         private GameObject _ui;
         private Label _label;
         private Font _font;
+        private int _subtitleWarmFrame, _subtitleClearFrame;
+        private bool _subtitlesReady;
         private AvatarLiveAudioTap _audio;
         private NamedPipeServerStream _videoPipe, _audioPipe;
         private BlockingCollection<Frame> _frames;
@@ -104,7 +106,9 @@ namespace Katarune.Avatar
                 var scale=settings.width/1280f;
                 root.style.paddingBottom=AvatarSpeechSubtitles.Layout.BottomMargin(height,scale);
                 _font=Font.CreateDynamicFontFromOSFont(AvatarSpeechSubtitles.Layout.FontFamilies,AvatarSpeechSubtitles.Layout.FontSize(scale));
-                _label=new Label { enableRichText=false };
+                _subtitleWarmFrame=_subtitleClearFrame=-1; _subtitlesReady=false;
+                _label=new Label("你好，世界！正在准备直播字幕。Aa 0123456789") { enableRichText=false };
+                _label.generateVisualContent+=_=> { if(!_subtitlesReady && _subtitleWarmFrame<0) _subtitleWarmFrame=Time.frameCount; };
                 _label.style.unityFontDefinition=FontDefinition.FromFont(_font);
                 _label.style.fontSize=AvatarSpeechSubtitles.Layout.FontSize(scale); _label.style.whiteSpace=WhiteSpace.Normal;
                 _label.style.unityTextAlign=TextAnchor.MiddleCenter; _label.style.maxWidth=AvatarSpeechSubtitles.Layout.MaxWidth(width,scale,true);
@@ -162,16 +166,29 @@ namespace Katarune.Avatar
             if(!_active) return;
             if(_acceptance && Time.realtimeSinceStartup>_nextDiagnostic) { _nextDiagnostic=Time.realtimeSinceStartup+2; Debug.Log($"LIVE_ACCEPTANCE samples={_audio.Samples} frames={_submitted} updates={_updates} captured={_captured} written={Interlocked.Read(ref _written)} repeated={Interlocked.Read(ref _repeated)} dropped={Interlocked.Read(ref _dropped)} queued={_frames.Count} gpuPending={_readbacks} readbackMs={_readbackMilliseconds/Math.Max(1,_captured):F2} videoConnected={_videoPipe.IsConnected} audioConnected={_audioPipe.IsConnected}"); }
             if(_audio.Overflow) _failure="直播音频输出缓冲已满。";
+            if(_audio.ClockStalled) _failure="直播音频时钟已中断，请重新启动直播。";
             if(_audio.FormatChanged || AudioSettings.outputSampleRate!=_audio.SampleRate) _failure="直播期间音频设备格式发生变化，请重新启动直播。";
             if(_failure!=null) { var message=_failure; End(); Debug.LogError(message); return; }
+            if(!_subtitlesReady) {
+                if(_subtitleWarmFrame<0 || Time.frameCount<=_subtitleWarmFrame) return;
+                if(_subtitleClearFrame<0) {
+                    _label.text=""; _label.style.display=DisplayStyle.None;
+                    _subtitleClearFrame=Time.frameCount; return;
+                }
+                if(Time.frameCount<=_subtitleClearFrame) return;
+                _subtitlesReady=true;
+            }
             var text=_settings.subtitles?_connection.CurrentSubtitle:"";
-            _label.text=text; _label.style.color=_connection.CurrentSubtitleColor;
-            _label.style.backgroundColor=_connection.CurrentSubtitleBackground;
-            _label.style.display=string.IsNullOrEmpty(text)?DisplayStyle.None:DisplayStyle.Flex;
+            if(_label.text!=text) _label.text=text;
+            var color=_connection.CurrentSubtitleColor; var background=_connection.CurrentSubtitleBackground;
+            if(_label.style.color.value!=color) _label.style.color=color;
+            if(_label.style.backgroundColor.value!=background) _label.style.backgroundColor=background;
+            var display=string.IsNullOrEmpty(text)?DisplayStyle.None:DisplayStyle.Flex;
+            if(_label.style.display.value!=display) _label.style.display=display;
         }
         private void LateUpdate()
         {
-            if(!_active || _audio.Samples==0) return;
+            if(!_active || !_subtitlesReady || _audio.Samples==0) return;
             _updates++;
             var clockIndex=(long)(_audio.TimeSeconds*_settings.fps);
             // The render loop and audio device are not phase locked. Allow one

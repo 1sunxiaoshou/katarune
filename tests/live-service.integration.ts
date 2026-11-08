@@ -48,12 +48,14 @@ class TestConnection extends BilibiliConnection {
 class TestMedia extends LiveMedia {
   blockPreflight = false;
   portInUse = false;
+  stopGate: Promise<void> | undefined;
+  failStop = false;
   override async preflight(_settings: unknown, signal: AbortSignal) {
     if (this.portInUse) throw new LivePortInUseError();
     if (this.blockPreflight) await new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
   }
   override async start() { operations.push("media-start"); }
-  override async stop() { operations.push("media-stop"); }
+  override async stop() { operations.push("media-stop"); await this.stopGate; if (this.failStop) throw new LiveOperationError("合成媒体清理失败"); }
 }
 class TestDouyin extends DouyinConnection {
   connects = 0; cookie = "";
@@ -209,7 +211,7 @@ try {
   connection.broadcast("offline"); await until(() => !service!.status.generating); assert.ok(calls[2]!.signal.aborted); assert.ok(avatar.resets > 0);
   connection.broadcast("live"); emit("停止前"); now += 16000; await until(() => calls.length === 4);
   await Promise.all([service.stop(), service.stop()]); assert.ok(calls[3]!.signal.aborted); assert.equal(service.status.phase, "stopped"); assert.ok(avatar.restored);
-  assert.ok(operations.indexOf("live-stop") < operations.indexOf("media-stop"));
+  assert.ok(operations.lastIndexOf("live-stop") < operations.lastIndexOf("media-stop"));
   const savedThreads = database.listThreads(character.id).threads.length;
   assert.ok(database.loadThreadMessages(first, character.id).messages.length > 0);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -233,6 +235,21 @@ try {
   const starting = service.start(); await delay(20); await service.stop(); await starting;
   assert.equal(service.status.phase, "stopped"); assert.equal(database.listThreads(character.id).threads.length, before, "Cancelled preflight must not create a session");
   media.blockPreflight = false;
+  await service.start(); operations.length = 0;
+  let unblockStop = () => {};
+  media.stopGate = new Promise<void>(resolve => { unblockStop = resolve; });
+  const stoppingOnce = service.stop(), stoppingTwice = service.stop();
+  await until(() => operations.includes("media-stop"));
+  assert.equal((await service.start()).phase, "stopping", "A new start cannot overtake pending cleanup");
+  assert.equal(operations.filter(operation => operation === "live-start").length, 0);
+  unblockStop(); await Promise.all([stoppingOnce, stoppingTwice]); media.stopGate = undefined;
+  assert.equal(operations.filter(operation => operation === "live-stop").length, 1);
+  assert.equal(operations.filter(operation => operation === "media-stop").length, 1);
+  await service.start(); media.failStop = true;
+  assert.equal((await service.stop()).phase, "error", "Failed cleanup cannot be reported as stopped");
+  media.failStop = false;
+  assert.equal((await service.start()).phase, "running", "A retry must finish old cleanup before acquiring a new binding");
+  await service.stop();
   const officialReference = database.getLiveConfig().credentialRef;
   await service.connect();
   await assert.rejects(service.setCredentials({ appId: "123", accessKey: "new", accessSecret: "new", identityCode: "new" }), /断开/);

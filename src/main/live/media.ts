@@ -3,13 +3,26 @@ import { createServer } from "node:net";
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { z } from "zod";
 import { liveOutputDimensions, type LiveSettings, type LivePreview } from "../../shared/live";
-import { LiveOperationError, LivePortInUseError } from "./errors";
+import { LiveMediaError, LiveOperationError, LivePortInUseError } from "./errors";
+import { mediaProcessSchema } from "../../shared/diagnostics";
+import { diagnostic, type DiagnosticContext } from "../diagnostics/logger";
 import { liveOutputProfile } from "./outputProfile";
 import { Mp4Preview } from "./mp4Preview";
 
+const supervisorRecordSchema = z.discriminatedUnion("event", [
+  z.strictObject({ event: z.literal("ready"), process: z.literal("server") }),
+  z.strictObject({ event: z.literal("started"), process: z.literal("encoder") }),
+  z.strictObject({ event: z.literal("timeout"), process: z.literal("server") }),
+  z.strictObject({ event: z.literal("exited"), process: z.enum(["server", "encoder"]), code: z.int().min(0).max(0xffffffff) }),
+  z.strictObject({ event: z.literal("launch-failed"), process: mediaProcessSchema, code: z.int().min(0).max(0xffffffff).optional() }),
+]);
+
 export class LiveMedia {
   private process: ChildProcessWithoutNullStreams | undefined;
+  private closed: Promise<void> | undefined;
+  private stopping: Promise<void> | undefined;
   private sequence = 0;
   private encoder: "h264_nvenc" | "h264_mf" | undefined;
   onFailure: (error: Error) => void = () => {};
@@ -48,12 +61,13 @@ export class LiveMedia {
       "-g", String(fps / 2), "-bf", "0"];
   }
   async start(settings: LiveSettings, pipe: string, signal: AbortSignal) {
+    await this.stop();
     const { fps } = liveOutputProfile(settings);
     const { width, height } = liveOutputDimensions(settings);
     if (!this.encoder) throw new Error("直播硬件编码器尚未预检。");
     signal.throwIfAborted(); await mkdir(this.work, { recursive: true });
     const config = join(this.work, "mediamtx.yml");
-    await writeFile(config, `logLevel: ${this.acceptanceOutput ? "info" : "error"}\nlogDestinations: [stdout]\napi: false\nmetrics: false\npprof: false\nplayback: false\nrtsp: false\nhls: false\nwebrtc: false\nsrt: false\nmoq: false\nrtmp: true\nrtmpAddress: 127.0.0.1:${settings.port}\npaths:\n  katarune/live:\n    source: publisher\n    overridePublisher: false\n`);
+    await writeFile(config, `logLevel: info\nlogDestinations: [stdout]\napi: false\nmetrics: false\npprof: false\nplayback: false\nrtsp: false\nhls: false\nwebrtc: false\nsrt: false\nmoq: false\nrtmp: true\nrtmpAddress: 127.0.0.1:${settings.port}\npaths:\n  katarune/live:\n    source: publisher\n    overridePublisher: false\n`);
     signal.throwIfAborted();
     const args = [join(this.resources, "mediamtx.exe"), config, join(this.resources, "ffmpeg.exe"),
       "-hide_banner", "-nostdin", "-loglevel", this.acceptanceOutput ? "info" : "error", "-nostats", "-stats_period", "0.25", "-progress", "pipe:2",
@@ -65,46 +79,89 @@ export class LiveMedia {
       `[f=flv:flvflags=no_duration_filesize]rtmp://127.0.0.1:${settings.port}/katarune/live|[f=mp4:movflags=frag_keyframe+empty_moov+default_base_moof]pipe:1`];
     const child = spawn(join(this.resources, "media-supervisor.exe"), args, { windowsHide: true, stdio: "pipe" });
     this.process = child;
-    const preview = new Mp4Preview((initialization, fragment) => this.onPreview({ initialization, fragment, sequence: this.sequence++ }));
-    child.stdout.on("data", (bytes: Buffer) => {
-      if (this.process !== child) return;
-      try { preview.write(bytes); }
-      catch { this.onFailure(new Error("直播预览媒体格式无效。")); void this.stop(); }
-    });
-    // stderr can contain local paths. Drain without forwarding raw media logs.
-    await new Promise<void>((resolve, reject) => {
-      let buffer = "", frame = false, settled = false;
+    const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
+    this.closed = closed;
+    const startedAt = Date.now();
+    let stage: NonNullable<DiagnosticContext["mediaStage"]> = "server-start";
+    const failure = (message: string, context: DiagnosticContext = {}) => new LiveMediaError(message,
+      { mediaStage: stage, mediaProcess: "supervisor", durationMs: Date.now() - startedAt, ...context });
+    try { await new Promise<void>((resolve, reject) => {
+      let buffer = "", frame = false, elapsed = false, hasPreview = false, serverReady = false, encoderStarted = false;
+      let settled = false, running = false;
+      let knownFailure: LiveMediaError | undefined;
       const cleanup = () => { clearTimeout(timer); signal.removeEventListener("abort", abort); };
       const finish = (error?: Error) => { if (settled) return; settled = true; cleanup(); error ? reject(error) : resolve(); };
-      const abort = () => { void this.stop(); finish(new Error("直播启动已取消。")); };
-      const timer = setTimeout(() => { void this.stop(); finish(new Error("直播编码器未能产生音视频，请检查输出设置。")); }, 30_000);
+      const fail = (error: LiveMediaError) => {
+        if (!settled) finish(error);
+        else if (running && !this.stopping && !signal.aborted) { running = false; this.onFailure(error); }
+      };
+      const ready = () => {
+        if (settled || knownFailure || this.stopping || signal.aborted || !serverReady || !encoderStarted || !frame || !elapsed || !hasPreview) return;
+        running = true;
+        diagnostic("info", "live.media-ready", { mediaStage: "output", durationMs: Date.now() - startedAt });
+        finish();
+      };
+      const abort = () => finish(failure("直播启动已取消。"));
+      const timer = setTimeout(() => finish(failure(stage === "server-start" ? "本地直播服务未能就绪。" : "直播编码器未能产生有效音视频，请检查输出设置。")), 30_000);
       signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      const preview = new Mp4Preview((initialization, fragment) => {
+        hasPreview = true;
+        this.onPreview({ initialization, fragment, sequence: this.sequence++ }); ready();
+      });
+      child.stdout.on("data", (bytes: Buffer) => {
+        if (this.process !== child || this.stopping || knownFailure) return;
+        try { preview.write(bytes); }
+        catch { knownFailure = failure("直播预览媒体格式无效。", { mediaStage: "output", mediaProcess: "encoder" }); fail(knownFailure); }
+      });
+      // Raw stderr is only available to explicit acceptance tests. Production
+      // diagnostics retain validated fixed records, never paths or log text.
       const progress = (data: Buffer) => {
         this.acceptanceOutput?.(data.toString("utf8"));
         buffer += data.toString("utf8");
         if (buffer.length > 8192) buffer = buffer.slice(-8192);
         const lines = buffer.split(/\r?\n/); buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (line.startsWith("frame=") && Number(line.slice(6)) >= fps * 3) frame = true;
-          if (frame && line.startsWith("out_time_us=") && Number(line.slice(12)) >= 3_000_000) finish();
+          if (line.startsWith("katarune-media:")) {
+            try {
+              const record = supervisorRecordSchema.parse(JSON.parse(line.slice("katarune-media:".length)));
+              if (record.event === "ready") { serverReady = true; stage = "encoder-start"; }
+              else if (record.event === "started") { encoderStarted = true; stage = "output"; }
+              else if (record.event === "timeout") knownFailure = failure("本地直播服务启动超时。", { mediaProcess: "server" });
+              else if (record.event === "exited") knownFailure ??= failure(record.process === "server" ? "本地直播服务提前退出。" : "直播编码器提前退出。", { mediaProcess: record.process, exitCode: record.code });
+              else knownFailure = failure("无法启动直播媒体进程。", { mediaProcess: record.process, ...(record.code === undefined ? {} : { nativeError: record.code }) });
+            } catch { knownFailure = failure("直播媒体组件返回了无效状态，请重新准备媒体资源。"); fail(knownFailure); }
+          }
+          if (/^frame=\s*\d+$/.test(line) && Number(line.slice(6)) >= fps * 3) frame = true;
+          if (/^out_time_us=\d+$/.test(line) && Number(line.slice(12)) >= 3_000_000) elapsed = true;
         }
+        ready();
       };
       child.stderr.on("data", progress);
-      child.once("error", () => finish(new Error("无法启动直播媒体进程。")));
-      child.once("exit", code => {
-        if (!settled) finish(new Error(`直播媒体进程提前退出（${code ?? -1}）。`));
-        else if (this.process === child && !signal.aborted) this.onFailure(new Error("直播媒体进程已退出。"));
+      child.once("error", () => fail(failure("无法启动直播媒体进程。")));
+      // close follows exit and drains the final structured child failure record.
+      child.once("close", code => {
+        if (this.process !== child) return;
+        if (this.stopping || signal.aborted) { finish(failure("直播启动已取消。")); return; }
+        fail(knownFailure ?? failure("直播媒体监督进程已退出。", { exitCode: code ?? -1 }));
       });
-    });
+    }); } catch (error) { await this.stop(); throw error; }
   }
-  async stop() {
-    const child = this.process; this.process = undefined;
-    if (!child) return;
-    child.stdin.end();
-    await new Promise<void>(resolve => {
-      if (child.exitCode !== null) { resolve(); return; }
-      const timer = setTimeout(() => { child.kill(); resolve(); }, 2000);
-      child.once("exit", () => { clearTimeout(timer); resolve(); });
-    });
+  stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
+    const child = this.process, closed = this.closed;
+    if (!child || !closed) return Promise.resolve();
+    this.stopping = (async () => {
+      child.stdin.end();
+      const timer = setTimeout(() => { child.kill(); }, 2000);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([closed, new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(() => reject(new LiveMediaError("直播媒体进程尚未退出，请稍后重试。", { mediaStage: "stop", mediaProcess: "supervisor" })), 10_000);
+        })]);
+        if (this.process === child) { this.process = undefined; this.closed = undefined; }
+      } finally { clearTimeout(timer); clearTimeout(deadline); }
+    })().finally(() => { this.stopping = undefined; });
+    return this.stopping;
   }
 }

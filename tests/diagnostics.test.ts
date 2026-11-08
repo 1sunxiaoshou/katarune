@@ -128,6 +128,18 @@ describe("diagnostic privacy and resource bounds", () => {
     Reflect.set(hostile, "reasonCode", "secret-token");
     expect(safeContext(hostile)).not.toHaveProperty("reasonCode");
   });
+  it("retains bounded media failure context without exposing native messages", () => {
+    const logger = new Diagnostics(join(directory, "media-failure"), "test");
+    logger.record("error", "live.start-failed", { mediaStage: "encoder-start", mediaProcess: "encoder", nativeError: 2, exitCode: 23, durationMs: 400 }, new Error("synthetic private path"));
+    const record = diagnosticRecordSchema.parse(JSON.parse(logger.memorySnapshot()[0]!));
+    expect(record).toMatchObject({ mediaStage: "encoder-start", mediaProcess: "encoder", nativeError: 2, exitCode: 23, durationMs: 400 });
+    expect(JSON.stringify(record)).not.toContain("synthetic private path");
+    expect(diagnosticRecordSchema.safeParse({ ...record, mediaStage: "private-text" }).success).toBe(false);
+    const unsafe = {};
+    Reflect.set(unsafe, "mediaProcess", "private-text");
+    Reflect.set(unsafe, "nativeError", -1);
+    expect(safeContext(unsafe)).toEqual({});
+  });
   it("aggregates sustained rejections in fixed windows without flooding away faults", () => {
     vi.useFakeTimers();
     try {

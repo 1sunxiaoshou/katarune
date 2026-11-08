@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Worker } from "node:worker_threads";
 import { join } from "node:path";
 import { mkdirSync, existsSync, writeFileSync, rmSync } from "node:fs";
-import { projectErrorChain, PROCESS_EXIT_REASONS, rejectionCodeSchema, type RejectionCode, type DiagnosticStatus } from "../../shared/diagnostics";
+import { projectErrorChain, PROCESS_EXIT_REASONS, mediaStageSchema, mediaProcessSchema, rejectionCodeSchema, type RejectionCode, type DiagnosticStatus } from "../../shared/diagnostics";
 
 type Level = "debug" | "info" | "warn" | "error" | "fatal";
 type Source = { source: "main" | "renderer" | "unity" | "asr"; processInstanceId: string; sourceSequence?: number; timestamp?: string };
@@ -13,6 +13,8 @@ export type DiagnosticContext = {
   operationId?: string; parentOperationId?: string; runId?: string; dialogueId?: string;
   toolCallId?: string; performanceId?: string; bindingEpoch?: number; durationMs?: number;
   attempt?: number; exitCode?: number; count?: number;
+  mediaStage?: import("zod").infer<typeof mediaStageSchema>;
+  mediaProcess?: import("zod").infer<typeof mediaProcessSchema>; nativeError?: number;
   reason?: string; processKind?: "renderer" | "utility" | "gpu" | "other";
   outcome?: "success" | "failed" | "cancelled" | "degraded" | "spoken" | "chat-only" | "rejected";
   reasonCode?: RejectionCode;
@@ -31,6 +33,10 @@ export function safeContext(context: DiagnosticContext): DiagnosticContext {
   if (reason.success) safe.reasonCode = reason.data;
   if (context.reason && PROCESS_EXIT_REASONS.some(value => value === context.reason)) safe.reason = context.reason;
   if (context.processKind && ["renderer", "utility", "gpu", "other"].includes(context.processKind)) safe.processKind = context.processKind;
+  const stage = mediaStageSchema.safeParse(context.mediaStage), mediaProcess = mediaProcessSchema.safeParse(context.mediaProcess);
+  if (stage.success) safe.mediaStage = stage.data;
+  if (mediaProcess.success) safe.mediaProcess = mediaProcess.data;
+  if (typeof context.nativeError === "number" && Number.isSafeInteger(context.nativeError) && context.nativeError >= 0) safe.nativeError = context.nativeError;
   return safe;
 }
 export class Diagnostics {

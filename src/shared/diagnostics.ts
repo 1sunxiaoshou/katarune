@@ -31,6 +31,8 @@ export const rejectionCodeSchema = z.enum([
 ]);
 export type RejectionCode = z.infer<typeof rejectionCodeSchema>;
 export const PROCESS_EXIT_REASONS = ["clean-exit", "abnormal-exit", "killed", "crashed", "oom", "launch-failed", "integrity-failure", "memory-eviction"] as const;
+export const mediaStageSchema = z.enum(["server-start", "encoder-start", "output", "stop"]);
+export const mediaProcessSchema = z.enum(["supervisor", "server", "encoder"]);
 const id = z.string().check(z.regex(/^[A-Za-z0-9_-]{1,100}$/));
 export const diagnosticRecordSchema = z.object({
   schemaVersion: z.literal(1), timestamp: z.iso.datetime(), observedTimestamp: z.iso.datetime(),
@@ -41,6 +43,7 @@ export const diagnosticRecordSchema = z.object({
   operationId: z.optional(id), parentOperationId: z.optional(id), runId: z.optional(id), dialogueId: z.optional(id),
   toolCallId: z.optional(id), performanceId: z.optional(id), incidentId: z.optional(z.uuid()),
   bindingEpoch: z.optional(z.number()), durationMs: z.optional(z.number()), attempt: z.optional(z.number()), exitCode: z.optional(z.number()), count: z.optional(z.number()),
+  mediaStage: z.optional(mediaStageSchema), mediaProcess: z.optional(mediaProcessSchema), nativeError: z.optional(z.number().check(z.int(), z.gte(0))),
   outcome: z.optional(z.enum(["success", "failed", "cancelled", "degraded", "spoken", "chat-only", "rejected"])),
   reasonCode: z.optional(rejectionCodeSchema),
   reason: z.optional(z.enum(PROCESS_EXIT_REASONS)), processKind: z.optional(z.enum(["renderer", "utility", "gpu", "other"])),

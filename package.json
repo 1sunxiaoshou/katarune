@@ -14,6 +14,7 @@
     "test:live:packaged": "node tests/run-live-service.mjs --player --packaged",
     "test:live:media": "node tests/live-media-player.integration.mjs",
     "test:live:cleanup": "node tests/live-media-cleanup.integration.mjs",
+    "test:live:startup": "node tests/live-media-startup.integration.mjs",
     "asr:download": "node scripts/download-asr-model.mjs",
     "test:asr": "node tests/run-asr.mjs",
     "electron:install": "install-electron --no",

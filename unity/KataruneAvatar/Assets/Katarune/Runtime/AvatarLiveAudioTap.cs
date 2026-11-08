@@ -17,7 +17,7 @@ namespace Katarune.Avatar
         private readonly int[] _lengths = new int[Capacity];
         private int _write, _read, _channels, _sampleRate;
         private long _samples;
-        private long _clockOrigin;
+        private AvatarLiveClock _clock;
         private volatile bool _active;
         internal volatile bool Overflow;
         internal volatile bool FormatChanged;
@@ -25,23 +25,20 @@ namespace Katarune.Avatar
         internal volatile bool Pulse;
         internal long Samples => Interlocked.Read(ref _samples);
         internal int SampleRate => _sampleRate;
-        // Samples is the END of the last mixed block, not a continuous frame clock.
-        // Unity's DSP time is also block-quantized on this Windows backend. Use
-        // the monotonic counter to interpolate within the current audio block.
-        // Refresh its origin from the sample position every callback, preventing
-        // long-running drift between the audio device and the system clock.
-        internal double TimeSeconds => Math.Max(0,(System.Diagnostics.Stopwatch.GetTimestamp()-Interlocked.Read(ref _clockOrigin))/(double)System.Diagnostics.Stopwatch.Frequency);
+        internal double TimeSeconds => _clock.Read(System.Diagnostics.Stopwatch.GetTimestamp());
+        internal bool ClockStalled => _clock.Stalled(System.Diagnostics.Stopwatch.GetTimestamp());
         internal void Begin()
         {
             _sampleRate = AudioSettings.outputSampleRate;
             for (var index=0; index<Capacity; index++) _blocks[index] = new byte[MaxSamples * 4];
-            _write=0; _read=0; _samples=0; _clockOrigin=System.Diagnostics.Stopwatch.GetTimestamp(); Overflow=false; _active=true;
+            _clock=new AvatarLiveClock(System.Diagnostics.Stopwatch.Frequency,_sampleRate);
+            _write=0; _read=0; _samples=0; _channels=0; Overflow=false; FormatChanged=false; _active=true;
         }
         internal void End() { _active=false; }
         private void OnAudioFilterRead(float[] data, int channels)
         {
             if (!_active) return;
-            Interlocked.Exchange(ref _clockOrigin,System.Diagnostics.Stopwatch.GetTimestamp()-(long)(_samples*(double)System.Diagnostics.Stopwatch.Frequency/_sampleRate));
+            _clock.Observe(_samples,System.Diagnostics.Stopwatch.GetTimestamp());
             if(_channels!=0 && _channels!=channels) { FormatChanged=true; return; }
             if (Acceptance) {
                 var pulse=false;

@@ -10,7 +10,7 @@ const output=resolve('.test-dist/live-cleanup'); await mkdir(output,{recursive:t
 await build({configFile:false,logLevel:'error',build:{ssr:resolve('src/main/live/media.ts'),outDir:join(output,'module'),emptyOutDir:false,rollupOptions:{output:{entryFileNames:'media.mjs'}}}});
 const {LiveMedia}=await import(pathToFileURL(join(output,'module/media.mjs')).href);
 const tools=resolve('resources/live-media'), port=19436, config=join(output,'mediamtx.yml');
-await writeFile(config,`logLevel: error\nrtmp: true\nrtmpAddress: 127.0.0.1:${port}\nrtsp: false\nhls: false\nwebrtc: false\nsrt: false\nmoq: false\npaths:\n  katarune/live:\n    source: publisher\n`);
+await writeFile(config,`logLevel: info\nrtmp: true\nrtmpAddress: 127.0.0.1:${port}\nrtsp: false\nhls: false\nwebrtc: false\nsrt: false\nmoq: false\npaths:\n  katarune/live:\n    source: publisher\n`);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const run=promisify(execFile);
 async function children(pid){ return JSON.parse((await run('powershell.exe',['-NoProfile','-NonInteractive','-Command',`@(Get-CimInstance Win32_Process -Filter 'ParentProcessId=${pid}' | Select-Object ProcessId,Name) | ConvertTo-Json -Compress`],{windowsHide:true,timeout:10000})).stdout||'[]'); }

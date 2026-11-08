@@ -16,7 +16,7 @@ import type { DouyinLoginBrowser } from "./douyinLoginProtocol";
 import type { LiveMedia } from "./media";
 import type { AiRuntime } from "../ai/runtime";
 import { resolveCharacterSpeechVoice } from "../../shared/speechSelection";
-import { LiveOperationError, LivePortInUseError } from "./errors";
+import { LiveOperationError, LivePortInUseError, LiveMediaError } from "./errors";
 import { liveOutputProfile } from "./outputProfile";
 
 function parseLiveSettings(value: unknown) {
@@ -79,6 +79,7 @@ export class LiveService {
   private round: AbortController | undefined;
   private starting: Promise<void> | undefined;
   private stopping: Promise<void> | undefined;
+  private cleaning: Promise<void> | undefined;
   private resetting: Promise<unknown> | null = null;
   private lastTurn = 0;
   private lastEvent = 0;
@@ -152,7 +153,7 @@ export class LiveService {
       this.change({ error: `${error.message}（原因码：${error.reasonCode}）`, errorCode: null });
       return;
     }
-    const incident = diagnostic("error", event, {}, error);
+    const incident = diagnostic("error", event, error instanceof LiveMediaError ? error.context : {}, error);
     const message = error instanceof LiveOperationError ? error.message : "直播操作失败，请检查配置或重新启动。";
     this.change({ error: `${message}${incident ? `（故障编号：${incident}）` : ""}`, errorCode: error instanceof LivePortInUseError ? "port-in-use" : null });
   }
@@ -299,7 +300,13 @@ export class LiveService {
   }
   async start() {
     if (this.changingConnection) throw new OperationRejected("operation-in-progress", "连接配置正在保存，请稍候。");
-    if (this.active) return this.status;
+    if (this.active || this.starting || this.stopping) return this.status;
+    if (this.lifetime && this.state.phase === "error") {
+      this.change({ phase: "stopping" });
+      try { await this.cleanup(true); }
+      catch (error) { this.failure("live.cleanup-failed", error); this.change({ phase: "error" }); return this.status; }
+    }
+    this.cleaning = undefined;
     const lifetime = new AbortController(); this.lifetime = lifetime;
     this.change({ phase: "starting", error: null, threadId: null, runId: randomUUID(), events: [] });
     this.starting = this.begin(lifetime);
@@ -320,6 +327,7 @@ export class LiveService {
       try { aiRuntime.resolveLanguageModel(model); aiRuntime.resolveSpeechModel(speech); }
       catch (cause) { throw new LiveOperationError("直播角色的对话模型或语音服务不可用，请检查供应商配置。", { cause }); }
       if (!resolveCharacterSpeechVoice(character, defaults, database.fetchModelConfig(speech))) throw new OperationRejected("configuration-required", "请先为直播角色设置语音音色。");
+      await media.stop(); lifetime.signal.throwIfAborted();
       await media.preflight(settings, lifetime.signal); lifetime.signal.throwIfAborted();
       const threadId = randomUUID();
       this.previousMessageId = null; this.writingId = null; this.writingParent = null; this.titled = false; this.buffer.clear(); this.change({ threadId });
@@ -343,8 +351,10 @@ export class LiveService {
     } catch (error) {
       const cancelled = lifetime.signal.aborted;
       if (!cancelled) this.failure("live.start-failed", error);
-      await this.cleanup(true);
-      this.change({ phase: cancelled ? "stopped" : "error" });
+      let cleaned = true;
+      try { await this.cleanup(true); }
+      catch (cleanupError) { cleaned = false; this.failure("live.cleanup-failed", cleanupError); }
+      this.change({ phase: cancelled && cleaned ? "stopped" : "error" });
       // The state subscription owns this failure notification and incident ID.
       // Returning the failed state avoids a second IPC rejection for the same failure.
     }
@@ -415,11 +425,19 @@ export class LiveService {
     this.lifetime?.abort(); this.round?.abort(); this.change({ phase: "stopping" });
     this.connectAbort?.abort();
     this.connection.cancelPending(); this.douyin.cancelPending(); this.login.cancel();
-    this.stopping = (async () => { await this.starting?.catch(() => {}); await this.cleanup(restore); this.change({ phase: "stopped", generating: false }); })();
+    this.stopping = (async () => {
+      await this.starting?.catch(() => {});
+      try { await this.cleanup(restore); this.change({ phase: "stopped", generating: false }); }
+      catch (error) { this.failure("live.cleanup-failed", error); this.change({ phase: "error", generating: false }); }
+    })();
     try { await this.stopping; } finally { this.stopping = undefined; }
     return this.status;
   }
-  private async cleanup(restore: boolean) {
+  private cleanup(restore: boolean): Promise<void> {
+    this.cleaning ??= this.cleanupRun(restore).catch(error => { this.cleaning = undefined; throw error; });
+    return this.cleaning;
+  }
+  private async cleanupRun(restore: boolean) {
     if (this.timer) clearInterval(this.timer); this.timer = undefined;
     this.round?.abort(); this.buffer.clear();
     await this.roundFinished;

@@ -11,11 +11,11 @@ import { runtimePackage } from './runtimePackage.mjs';
 
 const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
 assert.ok(aspectRatio==='16:9'||aspectRatio==='9:16','Unsupported live output aspect ratio');
-const output=resolve(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized'); await mkdir(output,{recursive:true});
+const output=resolve(process.env.KATARUNE_LIVE_TEST_OUTPUT??(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized')); await mkdir(output,{recursive:true});
 await build({configFile:false,logLevel:'error',build:{ssr:resolve('src/main/live/media.ts'),outDir:join(output,'module'),emptyOutDir:false,rollupOptions:{output:{entryFileNames:'media.mjs'}}}});
 const {LiveMedia}=await import(pathToFileURL(join(output,'module/media.mjs')).href);
 const tools=resolve('resources/live-media'), ffmpeg=join(tools,'ffmpeg.exe'), ffprobe=join(tools,'ffprobe.exe');
-const executable=resolve('unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe');
+const executable=resolve(process.env.KATARUNE_LIVE_PLAYER??'unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe');
 const control=`katarune-live-control-${randomUUID()}`, pipe=`katarune-live-${randomUUID()}`;
 const width=Number(process.env.KATARUNE_LIVE_WIDTH??1920);
 assert.ok([1280,1920,2560].includes(width),'Unsupported live output resolution');
@@ -82,6 +82,12 @@ try {
   await Promise.all([recording,speech]);
   await promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',join(output,'capture.flv'),'-ss','3','-frames:v','1',join(output,'frame.png')],{timeout:10000,windowsHide:true});
   const sync=[{stage:'initial',...await measureCapture(join(output,'capture.flv'),'initial')}];
+  const shortWav=Buffer.from(wav.subarray(0,44+48000*2));
+  shortWav.writeUInt32LE(shortWav.length-8,4); shortWav.writeUInt32LE(shortWav.length-44,40);
+  const shortTone=join(output,'subtitle-tone.wav'); await writeFile(shortTone,shortWav);
+  for(const text of ['星河璀璨，蝴蝶翩跹。','星河璀璨，蝴蝶翩跹。','春风拂柳，雪落山巅。']) {
+    await command('speech',shortTone,{text,segments:[]}); await delay(1000);
+  }
   assert.ok(previews>5,'Preview segments missing');
   await writeFile(join(output,'preview.mp4'),Buffer.concat(previewChunks));
   const previewStreams=JSON.parse((await promisify(execFile)(ffprobe,['-v','error','-show_streams','-of','json',join(output,'preview.mp4')],{timeout:10000,windowsHide:true})).stdout).streams;
