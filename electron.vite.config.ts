@@ -27,6 +27,26 @@ const ignoreBundledUseClientWarnings: WarningHandlerWithDefault = (
   defaultHandler(warning);
 };
 
+const ignoreZodDocumentationAnnotations: WarningHandlerWithDefault = (
+  warning,
+  defaultHandler,
+) => {
+  const id = warning.id?.replace(/\\/g, "/");
+  // Zod 4.6.6 mentions @__PURE__ in prose. Remove this filter when upstream
+  // fixes those comments; keep warnings for actual misplaced annotations.
+  if (
+    warning.code === "INVALID_ANNOTATION" &&
+    ((id?.endsWith("/node_modules/zod/v4/core/util.js") &&
+      warning.message.includes("// Wrapped in a `@__PURE__` IIFE:")) ||
+      (id?.endsWith("/node_modules/zod/v4/core/regexes.js") &&
+        warning.message.includes("/** Anchors a pattern source.")))
+  ) {
+    return;
+  }
+
+  defaultHandler(warning);
+};
+
 export default defineConfig({
   main: {
     build: {
@@ -50,6 +70,7 @@ export default defineConfig({
       },
       rollupOptions: {
         input: { index: resolve("src/preload/index.ts"), desktop: resolve("src/preload/desktop.ts") },
+        onwarn: ignoreZodDocumentationAnnotations,
         output: {
           format: "cjs",
         },
@@ -59,7 +80,10 @@ export default defineConfig({
   renderer: {
     build: {
       minify: "esbuild",
-      rollupOptions: { input: { index: resolve("src/renderer/index.html"), desktop: resolve("src/renderer/desktop.html") } },
+      rollupOptions: {
+        input: { index: resolve("src/renderer/index.html"), desktop: resolve("src/renderer/desktop.html") },
+        onwarn: ignoreZodDocumentationAnnotations,
+      },
     },
     resolve: {
       alias: {
