@@ -20,7 +20,7 @@ const control=`katarune-live-control-${randomUUID()}`, pipe=`katarune-live-${ran
 const width=Number(process.env.KATARUNE_LIVE_WIDTH??1920);
 assert.ok([1280,1920,2560].includes(width),'Unsupported live output resolution');
 const outputWidth=aspectRatio==='9:16'?width*9/16:width, outputHeight=aspectRatio==='9:16'?width:width*9/16;
-const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,background:'immersive',backgroundColor:'#202020',camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe};
+const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe};
 const characterRoot=resolve('resources/characters/default-package'), packageFile=join(output,'avatar-package.json');
 await writeFile(packageFile,JSON.stringify(runtimePackage(
   JSON.parse(await readFile(join(characterRoot,'manifest.json'),'utf8')),

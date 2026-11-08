@@ -18,7 +18,7 @@ namespace Katarune.Avatar
     internal sealed class AvatarLiveOutput : MonoBehaviour
     {
         [Serializable] internal sealed class Settings {
-            public string pipe, camera="center", background="immersive", backgroundColor="#202020", aspectRatio="16:9";
+            public string pipe, camera="center", aspectRatio="16:9";
             public int width=1920, fps=60; public bool subtitles=true;
             public float voiceVolume=1, musicVolume=1;
         }
@@ -53,8 +53,6 @@ namespace Katarune.Avatar
         private long _submitted=-1;
         private int _frameBytes, _generation, _previousFrameRate;
         private float _previousAspect, _speechVolume, _musicVolume;
-        private CameraClearFlags _previousClear;
-        private Color _previousColor;
         private AvatarSceneRig.AvatarFramingState _framing;
         private string _failure;
         private readonly bool _acceptance=Environment.GetEnvironmentVariable("KATARUNE_LIVE_ACCEPTANCE")=="1";
@@ -78,7 +76,7 @@ namespace Katarune.Avatar
             var height=settings.aspectRatio=="9:16"?settings.width:settings.width*9/16;
             _framing=_rig.CaptureFraming(); _previousTarget=_camera.targetTexture; _previousAspect=_camera.aspect;
             _previousPhysical=_camera.usePhysicalProperties; _previousSensor=_camera.sensorSize; _previousGateFit=_camera.gateFit;
-            _previousHdr=_camera.allowHDR; _previousClear=_camera.clearFlags; _previousColor=_camera.backgroundColor;
+            _previousHdr=_camera.allowHDR;
             _previousEnabled=_camera.enabled;
             _speechVolume=_speech.OutputVolume; _musicVolume=_dance.OutputVolume;
             _previousFrameRate=Application.targetFrameRate;
@@ -95,8 +93,7 @@ namespace Katarune.Avatar
                 _renderRequest=new RenderPipeline.StandardRequest { destination=_scene };
                 if(!RenderPipeline.SupportsRenderRequest(_camera,_renderRequest)) throw new InvalidOperationException("当前渲染管线不支持后台直播。");
                 _camera.enabled=false;
-                _camera.clearFlags=CameraClearFlags.SolidColor;
-                _rig.LiveOutputActive=true; _rig.LiveSolidBackground=settings.background=="solid"; _rig.SetPresentationMode(true,settings.camera);
+                _rig.LiveOutputActive=true; _rig.SetPresentationMode(true,settings.camera);
                 _panel=ScriptableObject.CreateInstance<PanelSettings>(); _panel.targetTexture=_subtitles;
                 _panel.themeStyleSheet=Resources.Load<ThemeStyleSheet>("Live/LiveTheme");
                 _panel.clearColor=true; _panel.colorClearValue=Color.clear; _panel.scaleMode=PanelScaleMode.ConstantPixelSize;
@@ -156,10 +153,9 @@ namespace Katarune.Avatar
             if(!AvatarCameraViews.IsSupported(next.camera)) throw new InvalidOperationException("直播镜头无效。");
             // Resolution, FPS and pipe ownership remain fixed until restart.
             _settings.subtitles=next.subtitles;
-            _settings.background=next.background; _settings.backgroundColor=next.backgroundColor; _settings.camera=next.camera;
+            _settings.camera=next.camera;
             _speech.OutputVolume=next.voiceVolume; _dance.OutputVolume=next.musicVolume;
-            _rig.LiveSolidBackground=next.background=="solid"; _rig.SetPresentationMode(true,next.camera);
-            if(ColorUtility.TryParseHtmlString(next.backgroundColor,out var color)) _camera.backgroundColor=color;
+            _rig.SetPresentationMode(true,next.camera);
         }
         private void Update()
         {
@@ -221,8 +217,8 @@ namespace Katarune.Avatar
             _videoPipe=null; _audioPipe=null;
             if(_frames!=null) { _frames.CompleteAdding(); while(_frames.TryTake(out var frame)) ArrayPool<byte>.Shared.Return(frame.Bytes); }
             if(_readbacks>0) AsyncGPUReadback.WaitAllRequests(); _readbacks=0;
-            if(_camera!=null) { _camera.enabled=_previousEnabled; _camera.targetTexture=_previousTarget; _camera.aspect=_previousAspect; _camera.usePhysicalProperties=_previousPhysical; _camera.sensorSize=_previousSensor; _camera.gateFit=_previousGateFit; _camera.fieldOfView=_framing.CameraFieldOfView; _camera.lensShift=_framing.CameraLensShift; _camera.allowHDR=_previousHdr; _camera.clearFlags=_previousClear; _camera.backgroundColor=_previousColor; }
-            if(restorePresentation) { _rig.LiveOutputActive=false; _rig.LiveSolidBackground=false; _rig.RestoreFraming(_framing); _speech.OutputVolume=_speechVolume; _dance.OutputVolume=_musicVolume; Application.targetFrameRate=_previousFrameRate; _window?.SetLiveOutput(false); }
+            if(_camera!=null) { _camera.enabled=_previousEnabled; _camera.targetTexture=_previousTarget; _camera.aspect=_previousAspect; _camera.usePhysicalProperties=_previousPhysical; _camera.sensorSize=_previousSensor; _camera.gateFit=_previousGateFit; _camera.fieldOfView=_framing.CameraFieldOfView; _camera.lensShift=_framing.CameraLensShift; _camera.allowHDR=_previousHdr; }
+            if(restorePresentation) { _rig.LiveOutputActive=false; _rig.RestoreFraming(_framing); _speech.OutputVolume=_speechVolume; _dance.OutputVolume=_musicVolume; Application.targetFrameRate=_previousFrameRate; _window?.SetLiveOutput(false); }
             if(_audio!=null) Destroy(_audio); if(_ui!=null) Destroy(_ui); if(_panel!=null) Destroy(_panel); if(_blend!=null) Destroy(_blend); if(_font!=null) Destroy(_font);
             foreach(var texture in new[]{_scene,_subtitles,_composite}) if(texture!=null) { texture.Release(); Destroy(texture); }
             _scene=null; _subtitles=null; _composite=null; _audio=null; _ui=null; _panel=null; _blend=null; _font=null; _camera=null;

@@ -705,7 +705,7 @@ try {
   runtime.close();
   const legacyLiveSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
   try {
-    legacyLiveSqlite.exec("UPDATE live_settings SET config = json_set(config, '$.fps', 30, '$.videoBitrateKbps', 3000)");
+    legacyLiveSqlite.exec("UPDATE live_settings SET config = json_set(config, '$.fps', 30, '$.videoBitrateKbps', 3000, '$.background', 'solid', '$.backgroundColor', '#123456')");
     // Reconstruct the pre-0028 schema as well as its migration journal.
     legacyLiveSqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access; DROP TABLE mcp_servers");
     legacyLiveSqlite.exec("ALTER TABLE live_settings DROP COLUMN douyin_credential_ref");
@@ -718,6 +718,7 @@ try {
     configValidator,
   });
   const upgradedLiveConfig = runtime.getLiveConfig();
+  assert.deepEqual(upgradedLiveConfig.settings, { ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90 }, "Removing obsolete live options must preserve all other settings");
   assert.equal(upgradedLiveConfig.settings.idleSeconds, 90);
   assert.equal(upgradedLiveConfig.settings.characterId, restoredCharacterId);
   assert.equal(upgradedLiveConfig.credentialRef, "synthetic-official-reference");

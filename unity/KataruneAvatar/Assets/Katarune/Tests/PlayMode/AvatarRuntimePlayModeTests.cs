@@ -11,6 +11,41 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarRuntimePlayModeTests
     {
         [UnityTest]
+        public IEnumerator BackgroundSwitchesReuseResourcesAndReleaseThemOnDestruction()
+        {
+            var root = new GameObject("Background lifecycle test");
+            Material material = null;
+            Mesh mesh = null;
+            try
+            {
+                var backdrop = root.AddComponent<AvatarImmersiveBackdrop>();
+                backdrop.SetVisible(true);
+                var renderer = root.GetComponentInChildren<MeshRenderer>(true);
+                material = renderer.sharedMaterial;
+                mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+                backdrop.Advance(.45f);
+                Assert.That(renderer.gameObject.activeSelf, Is.True);
+                Assert.That(material.GetFloat("_Opacity"), Is.EqualTo(.5f).Within(.001f));
+                backdrop.SetVisible(false);
+                backdrop.Advance(.225f);
+                Assert.That(material.GetFloat("_Opacity"), Is.InRange(0f, .5f));
+                backdrop.SetVisible(true);
+                backdrop.Advance(.9f);
+                Assert.That(material.GetFloat("_Opacity"), Is.EqualTo(1f));
+                Assert.That(root.GetComponentInChildren<MeshRenderer>().sharedMaterial, Is.SameAs(material));
+                backdrop.SetVisible(false);
+                // The background clock must complete its fade without camera updates.
+                yield return new WaitForSecondsRealtime(1f);
+                Assert.That(renderer.gameObject.activeSelf, Is.False);
+                Assert.That(root.transform.childCount, Is.EqualTo(1));
+            }
+            finally { Object.Destroy(root); }
+            yield return null;
+            Assert.That(material == null, Is.True, "Destroying the background must release its material.");
+            Assert.That(mesh == null, Is.True, "Destroying the background must release its mesh.");
+        }
+
+        [UnityTest]
         public IEnumerator LocalDefaultVrmLoadsThroughRuntimeWhenPresent()
         {
             var modelPath = AvatarBootstrap.ResolveInitialModelPath(null, Application.dataPath);

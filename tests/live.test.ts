@@ -91,5 +91,6 @@ describe("livestream batching and history", () => {
     expect(liveSettingsSchema.safeParse({ ...DEFAULT_LIVE_SETTINGS, port: 80 }).success).toBe(false);
     expect(liveSettingsSchema.safeParse({ ...DEFAULT_LIVE_SETTINGS, ffmpegArguments: "-anything" }).success).toBe(false);
     expect(liveSettingsSchema.safeParse({ ...DEFAULT_LIVE_SETTINGS, fps: 30, videoBitrateKbps: 3000 }).success).toBe(false);
+    expect(liveSettingsSchema.safeParse({ ...DEFAULT_LIVE_SETTINGS, background: "solid", backgroundColor: "#202020" }).success).toBe(false);
   });
 });

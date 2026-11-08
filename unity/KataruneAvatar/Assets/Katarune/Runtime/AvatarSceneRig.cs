@@ -72,7 +72,6 @@ namespace Katarune.Avatar
         private float _transitionFieldOfView;
         private AvatarImmersiveBackdrop _immersiveBackdrop;
         internal bool Immersive => _immersive;
-        internal bool LiveSolidBackground;
         internal bool LiveOutputActive;
         internal string CameraView => _cameraView;
         internal string EffectiveCameraView => _danceCameraTrack != null ? "track" : _danceCameraView ?? _cameraView;
@@ -101,6 +100,9 @@ namespace Katarune.Avatar
             if (_immersive == immersive && _cameraView == cameraView) return;
             _immersive = immersive;
             _cameraView = cameraView;
+            if (Application.isPlaying && immersive && _immersiveBackdrop == null)
+                _immersiveBackdrop = gameObject.AddComponent<AvatarImmersiveBackdrop>();
+            _immersiveBackdrop?.SetVisible(immersive);
             if (_camera == null || !_hasFramedBounds) return;
             _transitionPosition = _camera.transform.position;
             _transitionRotation = _camera.transform.rotation;
@@ -108,8 +110,6 @@ namespace Katarune.Avatar
             _transitionFieldOfView = _camera.fieldOfView;
             _transitionElapsed = 0f;
             _cameraTransition = true;
-            if (Application.isPlaying && immersive && _immersiveBackdrop == null)
-                _immersiveBackdrop = gameObject.AddComponent<AvatarImmersiveBackdrop>();
         }
         internal void SetDanceCamera(string view)
         {
@@ -451,7 +451,7 @@ namespace Katarune.Avatar
             if (_camera == null || !_hasFramedBounds) return;
             if (_danceCameraTrack != null)
             {
-                ApplyDanceCameraTrack(); _immersiveBackdrop?.SetVisibility(_immersive && !LiveSolidBackground, deltaTime); return;
+                ApplyDanceCameraTrack(); return;
             }
             if (_danceCameraRestoring)
             {
@@ -497,7 +497,6 @@ namespace Katarune.Avatar
                 Quaternion.Slerp(_transitionRotation, rotation, t));
             _camera.lensShift = Vector2.Lerp(_transitionLensShift, lensShift, t);
             _camera.fieldOfView = Mathf.Lerp(_transitionFieldOfView, fieldOfView, t);
-            _immersiveBackdrop?.SetVisibility(_immersive && !LiveSolidBackground, deltaTime);
             if (_transitionElapsed >= .9f) _cameraTransition = false;
         }
 

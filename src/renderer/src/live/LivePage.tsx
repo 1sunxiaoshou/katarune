@@ -3,7 +3,6 @@ import { ChevronUpIcon, CopyIcon, Volume2Icon, VolumeXIcon, LoaderCircleIcon } f
 import { Button } from "../components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Card, CardContent } from "../components/ui/card";
-import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { OptionSelect } from "../components/ui/option-select";
@@ -150,10 +149,6 @@ export function LivePage({ onClose }: { onClose: () => void }) {
               <Field id="live-proactive" label="主动聊天"><Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} /></Field>
             </TabsContent>
             <TabsContent value="picture" className="live-settings scrollbar-hidden">
-              <Collapsible open={draft.background === "solid"}>
-                <Field id="live-background" label="背景"><OptionSelect<LiveSettings["background"]> id="live-background" label="背景" value={draft.background} options={[{ value: "immersive", label: "沉浸背景" }, { value: "solid", label: "纯色" }]} onValueChange={value => change("background", value, true)} /></Field>
-                <CollapsibleContent><div className="pt-4"><Field id="live-background-color" label="背景颜色"><Input id="live-background-color" type="color" className="p-1" value={draft.backgroundColor} onChange={event => change("backgroundColor", event.target.value, true)} /></Field></div></CollapsibleContent>
-              </Collapsible>
               <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={AVATAR_CAMERA_OPTIONS} onValueChange={value => change("camera", value, true)} /></Field>
               <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
             </TabsContent>

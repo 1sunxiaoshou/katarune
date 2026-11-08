@@ -21,7 +21,6 @@ export const liveSettingsSchema = z.strictObject({
   webRoomId: z._default(z.string().check(z.regex(/^(?:[1-9]\d{0,19})?$/)), ""),
   characterId: z.nullable(z.uuid()), instructions: text(8000), replyIntervalSeconds: integer(5, 300),
   proactive: z.boolean(), idleSeconds: integer(15, 1800), thankGifts: z.boolean(),
-  background: z.enum(["immersive", "solid"]), backgroundColor: z.string().check(z.regex(/^#[0-9a-fA-F]{6}$/)),
   camera: avatarCameraViewSchema, subtitles: z.boolean(),
   voiceVolume: z.number().check(z.gte(0), z.lte(1)), musicVolume: z.number().check(z.gte(0), z.lte(1)),
   aspectRatio: z._default(z.enum(["16:9", "9:16"]), "16:9"),
@@ -37,7 +36,7 @@ export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   platform: "bilibili",
   connectionMode: "official", webRoomId: "",
   characterId: null, instructions: "", replyIntervalSeconds: 15, proactive: true, idleSeconds: 60,
-  thankGifts: true, background: "immersive", backgroundColor: "#202020", camera: "center", subtitles: true,
+  thankGifts: true, camera: "center", subtitles: true,
   voiceVolume: 1, musicVolume: 1, aspectRatio: "16:9", width: 1920, port: 1935,
 };
 export const liveCredentialsSchema = z.strictObject({

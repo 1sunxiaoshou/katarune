@@ -22,11 +22,10 @@ namespace Katarune.Avatar.Editor
 
     public static class AvatarImmersivePreview
     {
-        // Render the actual URP material at the same dimensions/times as the
-        // offline Canvas reference. This never loads a scene or personal model.
+        // Render the actual URP background without loading a scene or personal model.
         public static void Capture()
         {
-            if (!Application.isBatchMode) throw new InvalidOperationException("Run the background comparison in a batch Editor.");
+            if (!Application.isBatchMode) throw new InvalidOperationException("Run the background capture in a batch Editor.");
             var output = Path.GetFullPath(Path.Combine(Application.dataPath,"../../..",".test-dist/immersive-reference"));
             Directory.CreateDirectory(output);
             foreach (var path in new[] { "Typography", "Film", "Frames" })
@@ -42,7 +41,8 @@ namespace Katarune.Avatar.Editor
                 camera.backgroundColor = Color.clear;
                 camera.targetTexture = target;
                 var backdrop = root.AddComponent<AvatarImmersiveBackdrop>();
-                backdrop.SetVisibility(true,1f);
+                backdrop.SetVisible(true);
+                backdrop.Advance(1f);
                 var material = root.GetComponentInChildren<MeshRenderer>().sharedMaterial;
                 foreach (var time in new[] { 0, 5 })
                 {

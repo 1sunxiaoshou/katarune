@@ -1650,7 +1650,7 @@ async function run() {
       })()`);
       await clickSelector(window, '#live-tab-picture');
       await waitUntil('instructions save on leaving the tab', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.instructions==='本场聊游戏，礼物集中感谢。')`));
-      await waitForSelector(window, '#live-background');
+      await waitForSelector(window, '#live-camera');
       await scrollLiveSettingIntoView(window, '#live-camera');
       for (const [view,label] of [['fullbody','全身'],['closeup','特写'],['overhead','俯视'],['side','侧拍'],['center','对话']]) {
         await clickSelector(window, '#live-camera');
@@ -1980,7 +1980,7 @@ async function run() {
       await waitUntil('preview rejoins after backpressure',()=>livePreviewAcks.includes(200));
       await window.webContents.executeJavaScript(`window.liveVideoBeforeTabSwitch=document.querySelector('.live-preview-frame');void 0`);
       window.setSize(760,520);
-      for (const [tab,control] of [['interaction','#live-instructions'],['picture','#live-background'],['sound','#live-voice-volume'],['output','#live-resolution']]) {
+      for (const [tab,control] of [['interaction','#live-instructions'],['picture','#live-camera'],['sound','#live-voice-volume'],['output','#live-resolution']]) {
         await clickSelector(window, `#live-tab-${tab}`);
         await waitForSelector(window, control);
         assert.equal(await window.webContents.executeJavaScript(`(() => {

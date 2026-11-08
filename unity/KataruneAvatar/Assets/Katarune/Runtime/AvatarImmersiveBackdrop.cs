@@ -14,9 +14,14 @@ namespace Katarune.Avatar
         private Material _material;
         private float _opacity;
         private float _motionTime;
-        private void Awake()
+        private bool _visible;
+
+        private void Awake() => EnsureResources();
+
+        internal void SetVisible(bool visible)
         {
-            EnsureResources();
+            _visible = visible;
+            if (visible) EnsureResources();
         }
 
         private void EnsureResources()
@@ -46,10 +51,12 @@ namespace Katarune.Avatar
             _surface.SetActive(false);
         }
 
-        internal void SetVisibility(bool visible, float deltaTime)
+        private void LateUpdate() => Advance(Time.unscaledDeltaTime);
+
+        internal void Advance(float deltaTime)
         {
-            EnsureResources();
-            _opacity = Mathf.MoveTowards(_opacity, visible ? 1f : 0f, Mathf.Max(0f, deltaTime) / .9f);
+            if (_material == null) return;
+            _opacity = Mathf.MoveTowards(_opacity, _visible ? 1f : 0f, Mathf.Max(0f, deltaTime) / .9f);
             _material.SetFloat("_Opacity", Mathf.SmoothStep(0f, 1f, _opacity));
             _motionTime += Mathf.Max(0f, deltaTime);
             _material.SetFloat("_MotionTime", _motionTime);
