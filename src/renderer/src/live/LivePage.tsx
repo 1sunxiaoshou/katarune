@@ -19,6 +19,7 @@ import { notify } from "../notifications";
 import { assetUrl, type Character } from "../../../shared/ipc";
 import { DEFAULT_LIVE_SETTINGS, liveOutputDimensions, type LiveSettings } from "../../../shared/live";
 import { AVATAR_CAMERA_OPTIONS } from "../../../shared/avatarCamera";
+import { AVATAR_BACKGROUND_OPTIONS } from "../../../shared/avatarBackground";
 import { useLiveState } from "./liveState";
 import { LiveConnectionPanel } from "./LiveConnectionPanel";
 import { LivePreviewPlayer } from "./livePreviewPlayer";
@@ -149,6 +150,7 @@ export function LivePage({ onClose }: { onClose: () => void }) {
               <Field id="live-proactive" label="主动聊天"><Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} /></Field>
             </TabsContent>
             <TabsContent value="picture" className="live-settings scrollbar-hidden">
+              <Field id="live-background" label="背景"><OptionSelect<LiveSettings["backgroundId"]> id="live-background" label="背景" value={draft.backgroundId} options={AVATAR_BACKGROUND_OPTIONS} onValueChange={value => change("backgroundId", value, true)} /></Field>
               <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={AVATAR_CAMERA_OPTIONS} onValueChange={value => change("camera", value, true)} /></Field>
               <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
             </TabsContent>

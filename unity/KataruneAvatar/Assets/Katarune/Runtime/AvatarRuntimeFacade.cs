@@ -166,11 +166,12 @@ namespace Katarune.Avatar
         private static AvatarBehaviorSettings Normalize(AvatarBehaviorSettings settings)
         {
             ValidateEnum(settings.Affect, nameof(settings.Affect));
+            ValidateEnum(settings.GazeTrackingMode, nameof(settings.GazeTrackingMode));
             return new AvatarBehaviorSettings(
                 settings.Affect,
                 Mathf.Clamp01(settings.AffectIntensity),
                 settings.BlinkingEnabled,
-                settings.PointerGazeTrackingEnabled);
+                settings.GazeTrackingMode);
         }
 
         private static AvatarPresentationSettings Normalize(AvatarPresentationSettings settings)

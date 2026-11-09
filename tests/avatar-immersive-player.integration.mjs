@@ -70,6 +70,11 @@ for (const cameraView of ["fullbody", "center", "closeup", "overhead", "side"]) 
       return messages.find(m => m.type === "window-state" && m.requestId === requestId);
     };
     const desktop = await layout("desktop", cameraView, true);
+    if (cameraView === "center") {
+      const requestId = randomUUID();
+      socket.write(JSON.stringify({ id: requestId, operation: "background", value: "cloud-observatory" }) + "\n");
+      await until(() => messages.some(m => m.type === "presentation" && m.backgroundId === "cloud-observatory"), "Static background selection missing");
+    }
     const entered = await layout("immersive");
     assert.equal(entered.mode, "immersive");
     assert.equal(entered.cameraView, cameraView);

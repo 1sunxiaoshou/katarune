@@ -109,7 +109,7 @@ namespace Katarune.Avatar
         private int _blinkStage;
         private bool _doubleBlinkPending;
         private float _blinkWeight;
-        private bool _lastPointerGazeTrackingEnabled;
+        private AvatarGazeTrackingMode _lastGazeTrackingMode;
 
         public AvatarBehaviorModel(IAvatarRandom random = null)
         {
@@ -120,7 +120,7 @@ namespace Katarune.Avatar
         }
 
         public AvatarAffectPreset Affect { get; private set; }
-        public bool PointerGazeTrackingEnabled { get; private set; }
+        public AvatarGazeTrackingMode GazeTrackingMode { get; private set; }
         public float AffectIntensity { get; private set; }
         public bool BlinkingEnabled { get; private set; }
         public AvatarPoseFrame CurrentFrame => _frame;
@@ -129,7 +129,7 @@ namespace Katarune.Avatar
             Affect,
             AffectIntensity,
             BlinkingEnabled,
-            PointerGazeTrackingEnabled);
+            GazeTrackingMode);
 
         public void SetAffect(AvatarAffectPreset affect, float intensity)
         {
@@ -141,7 +141,7 @@ namespace Katarune.Avatar
         {
             SetAffect(settings.Affect, settings.AffectIntensity);
             BlinkingEnabled = settings.BlinkingEnabled;
-            PointerGazeTrackingEnabled = settings.PointerGazeTrackingEnabled;
+            GazeTrackingMode = settings.GazeTrackingMode;
         }
 
         public void SetManualVisemes(float aa, float ih, float ou, float ee, float oh, bool immediate = false)
@@ -177,14 +177,14 @@ namespace Katarune.Avatar
             Affect = AvatarAffectPreset.Neutral;
             AffectIntensity = 0f;
             BlinkingEnabled = true;
-            PointerGazeTrackingEnabled = false;
+            GazeTrackingMode = AvatarGazeTrackingMode.None;
             _elapsed = 0f;
             _blinkStage = 0;
             _blinkElapsed = 0f;
             _blinkWeight = 0f;
             _doubleBlinkPending = false;
             ScheduleBlink();
-            _lastPointerGazeTrackingEnabled = false;
+            _lastGazeTrackingMode = AvatarGazeTrackingMode.None;
             _gazeCoordinator.Reset();
             Array.Clear(_expressionWeights, 0, _expressionWeights.Length);
             Array.Clear(_mouthWeights, 0, _mouthWeights.Length);
@@ -277,9 +277,9 @@ namespace Katarune.Avatar
 
         private HeadEyeGazePose UpdateGaze(float deltaTime, Vector2 gazeTargetAngles, AvatarBasePoseProfile profile)
         {
-            var trackingChanged = _lastPointerGazeTrackingEnabled != PointerGazeTrackingEnabled;
-            _lastPointerGazeTrackingEnabled = PointerGazeTrackingEnabled;
-            if (PointerGazeTrackingEnabled)
+            var trackingChanged = _lastGazeTrackingMode != GazeTrackingMode;
+            _lastGazeTrackingMode = GazeTrackingMode;
+            if (GazeTrackingMode != AvatarGazeTrackingMode.None)
             {
                 if (trackingChanged) _gazeCoordinator.SetFixationTarget(gazeTargetAngles);
                 else _gazeCoordinator.TrackTarget(gazeTargetAngles);

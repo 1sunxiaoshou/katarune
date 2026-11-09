@@ -72,6 +72,14 @@ namespace Katarune.Avatar
         private float _transitionFieldOfView;
         private AvatarImmersiveBackdrop _immersiveBackdrop;
         internal bool Immersive => _immersive;
+        internal string BackgroundId => _immersiveBackdrop?.BackgroundId ?? AvatarImmersiveBackdrop.DefaultBackgroundId;
+
+        internal void SetBackground(string id)
+        {
+            if (_immersiveBackdrop == null) _immersiveBackdrop = gameObject.AddComponent<AvatarImmersiveBackdrop>();
+            _immersiveBackdrop.SetBackground(id);
+            _immersiveBackdrop.SetVisible(_immersive);
+        }
         internal bool LiveOutputActive;
         internal string CameraView => _cameraView;
         internal string EffectiveCameraView => _danceCameraTrack != null ? "track" : _danceCameraView ?? _cameraView;

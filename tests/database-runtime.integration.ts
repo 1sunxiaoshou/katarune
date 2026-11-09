@@ -678,7 +678,7 @@ try {
   runtime.setLiveWebCredentialRef("synthetic-web-reference");
   assert.equal(runtime.getLiveConfig().credentialRef, "synthetic-official-reference");
   assert.equal(runtime.getLiveConfig().webCredentialRef, "synthetic-web-reference");
-  runtime.saveLiveConfig({ ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90 });
+  runtime.saveLiveConfig({ ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90, backgroundId: "cloud-observatory" });
   assert.equal(runtime.getLiveConfig().settings.idleSeconds, 90);
   const liveDatabase = runtime;
   const firstLiveMessage = {
@@ -718,7 +718,7 @@ try {
     configValidator,
   });
   const upgradedLiveConfig = runtime.getLiveConfig();
-  assert.deepEqual(upgradedLiveConfig.settings, { ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90 }, "Removing obsolete live options must preserve all other settings");
+  assert.deepEqual(upgradedLiveConfig.settings, { ...liveConfig.settings, characterId: restoredCharacterId, idleSeconds: 90, backgroundId: "cloud-observatory" }, "Removing obsolete live options must preserve all other settings");
   assert.equal(upgradedLiveConfig.settings.idleSeconds, 90);
   assert.equal(upgradedLiveConfig.settings.characterId, restoredCharacterId);
   assert.equal(upgradedLiveConfig.credentialRef, "synthetic-official-reference");

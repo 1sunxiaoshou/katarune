@@ -220,6 +220,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(Resources.Load<Texture2D>("Immersive/Typography"), Is.Not.Null);
             Assert.That(Resources.Load<Texture2D>("Immersive/Film"), Is.Not.Null);
             Assert.That(Resources.Load<Texture2D>("Immersive/Frames"), Is.Not.Null);
+            Assert.That(Resources.Load<Texture2D>("Immersive/CloudObservatory"), Is.Not.Null);
         }
 
         [Test]

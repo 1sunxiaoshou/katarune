@@ -1,5 +1,6 @@
 import * as z from "zod/mini";
 import { avatarCameraViewSchema } from "./avatarCamera";
+import { avatarBackgroundSchema, DEFAULT_AVATAR_BACKGROUND } from "./avatarBackground";
 
 const text = (max: number) => z.string().check(z.maxLength(max));
 const integer = (min: number, max: number) => z.int().check(z.gte(min), z.lte(max));
@@ -22,6 +23,7 @@ export const liveSettingsSchema = z.strictObject({
   characterId: z.nullable(z.uuid()), instructions: text(8000), replyIntervalSeconds: integer(5, 300),
   proactive: z.boolean(), idleSeconds: integer(15, 1800), thankGifts: z.boolean(),
   camera: avatarCameraViewSchema, subtitles: z.boolean(),
+  backgroundId: z._default(avatarBackgroundSchema, DEFAULT_AVATAR_BACKGROUND),
   voiceVolume: z.number().check(z.gte(0), z.lte(1)), musicVolume: z.number().check(z.gte(0), z.lte(1)),
   aspectRatio: z._default(z.enum(["16:9", "9:16"]), "16:9"),
   width: z.union([z.literal(1280), z.literal(1920), z.literal(2560)]), port: integer(1024, 65535),
@@ -37,6 +39,7 @@ export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   connectionMode: "official", webRoomId: "",
   characterId: null, instructions: "", replyIntervalSeconds: 15, proactive: true, idleSeconds: 60,
   thankGifts: true, camera: "center", subtitles: true,
+  backgroundId: DEFAULT_AVATAR_BACKGROUND,
   voiceVolume: 1, musicVolume: 1, aspectRatio: "16:9", width: 1920, port: 1935,
 };
 export const liveCredentialsSchema = z.strictObject({

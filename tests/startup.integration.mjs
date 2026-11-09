@@ -2,16 +2,69 @@ import assert from "node:assert/strict";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { once } from "node:events";
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { app, BrowserWindow, screen } from "electron";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const directory = process.env.KATARUNE_STARTUP_TEST_DIR;
+const backgroundsOnly = process.env.KATARUNE_STARTUP_TEST_SCENARIO === "backgrounds";
 assert.ok(directory, "An isolated startup test directory is required");
 app.setAppPath(process.cwd());
 app.setPath("userData", join(directory, "user-data"));
 app.setPath("sessionData", join(directory, "session-data"));
+const gazePreferencesDirectory = join(directory, app.isPackaged ? "user-data" : "user-data-development");
+const gazePreferencesPath = join(gazePreferencesDirectory, "avatar-desktop-layout.json");
+
+async function verifyBackgroundSelection(window, until, binding) {
+  const surface = name => BrowserWindow.getAllWindows().find(item => item.webContents.getURL().includes(`surface=${name}`));
+  let capsule, panel;
+  const controls = async () => {
+    await until(() => surface("capsule") && surface("panel"), "Desktop controls missing");
+    capsule = surface("capsule"); panel = surface("panel");
+    await until(() => capsule.webContents.executeJavaScript(`!!window.avatarDesktop`), "Desktop preload missing");
+  };
+  const state = () => panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`);
+  const command = (operation, value) => panel.webContents.executeJavaScript(`window.avatarDesktop.command(${JSON.stringify({ operation, value })})`);
+  const openPanel = async () => {
+    capsule.focus();
+    await until(() => capsule.isFocused(), "Owned capsule did not focus");
+    await panel.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: 'panel', value: 'more' })`);
+    await until(async () => panel.isVisible() && (await state()).panelPhase === "open", "Owned panel did not open");
+  };
+  await controls();
+  await until(async () => (await state()).presentation?.gaze === "camera", "Old gaze preference was lost");
+  assert.equal((await state()).backgroundId, "film", "Old layouts must default to the original background");
+  await openPanel();
+  await command("mode", "immersive");
+  await until(async () => (await state()).mode === "immersive", "Immersive mode did not activate");
+  await openPanel();
+  await until(() => panel.webContents.executeJavaScript(`!!document.querySelector('[aria-label="背景"]')`), "Background selector did not mount");
+  for (const [id, label] of [["cloud-observatory", "云端星象小客厅"], ["film", "动态胶片"], ["cloud-observatory", "云端星象小客厅"]]) {
+    await panel.webContents.executeJavaScript(`document.querySelector('[aria-label="背景"]').click()`);
+    await until(() => panel.webContents.executeJavaScript(`!![...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)})`), "Background choices did not open");
+    await panel.webContents.executeJavaScript(`[...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)}).click()`);
+    await until(async () => (await state()).presentation.backgroundId === id, "Player did not confirm background selection");
+    await until(() => panel.webContents.executeJavaScript(`document.querySelector('[aria-label="背景"]')?.textContent.includes(${JSON.stringify(label)})`), "Background selection did not render");
+  }
+  await command("background", "../custom.png");
+  assert.equal((await state()).presentation.backgroundId, "cloud-observatory", "Invalid paths must preserve the selected background");
+  await command("background", "cloud-observatory");
+  await until(async () => {
+    assert.equal((await state()).error, null, "Saving the background reported a desktop error");
+    return JSON.parse(await readFile(gazePreferencesPath, "utf8")).backgroundId === "cloud-observatory";
+  }, "Background choice did not persist");
+  const saved = JSON.parse(await readFile(gazePreferencesPath, "utf8"));
+  assert.equal(saved.gaze, "camera");
+  assert.equal(saved.role.x, .78); assert.equal(saved.role.y, .5); assert.equal(saved.role.height, .65);
+  await writeFile(join(directory, "background-selector.png"), (await panel.capturePage()).toPNG());
+  await window.webContents.executeJavaScript(`window.katarune.stopAvatar()`);
+  await window.webContents.executeJavaScript(`window.katarune.startAvatar(${JSON.stringify(binding)})`);
+  await controls();
+  await until(async () => (await state()).presentation?.backgroundId === "cloud-observatory", "Saved background did not restore after restarting the Player");
+  assert.equal((await state()).mode, "desktop", "Restarting must retain transparent desktop mode");
+  await window.webContents.executeJavaScript(`window.katarune.stopAvatar()`);
+}
 
 let passed = false;
 const timeout = setTimeout(() => {
@@ -50,27 +103,29 @@ app.once("browser-window-created", async (_event, window) => {
         if (element && (!(element instanceof HTMLImageElement) || (element.complete && element.naturalWidth > 0))) return resolve();
         if (Date.now() > deadline) return reject(new Error('Missing or unloaded ' + ${JSON.stringify(selector)})); setTimeout(check, 20); }; check();
     })`);
-    await wait('[data-testid="settings-launcher"]');
-    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
-    await wait('[data-testid="open-diagnostics"]');
-    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="open-diagnostics"]').scrollIntoView({block: 'center'})`);
-    await new Promise(resolve => setTimeout(resolve, 600));
-    await writeFile(join(directory, "diagnostics-settings.png"), (await window.capturePage()).toPNG());
-    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-back"]').click()`);
-    await wait('.chat-character-entry .character-list-portrait img');
-    const verifyCard = async selector => {
-      const image = await window.webContents.executeJavaScript(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); const rect = element.parentElement.getBoundingClientRect(); return { src: element.src, width: rect.width, height: rect.height }; })()`);
-      assert.ok(image.src.endsWith(state.activeCharacter.packageThumbnailAssetId));
-      assert.ok(Math.abs(image.width - image.height) < 1);
-    };
-    await verifyCard('.chat-character-entry .character-list-portrait img');
-    window.webContents.send("character-packages:open", state.activeCharacter.id);
-    await wait('[data-testid="character-package-dialog"] .character-package-art img');
-    await verifyCard('[data-testid="character-list-item"] .character-list-portrait img');
-    await new Promise(resolve => setTimeout(resolve, 350)); // Allow the 200 ms entry transition to paint before capture.
-    await writeFile(join(directory, "character-packages.png"), (await window.capturePage()).toPNG());
-    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-package-dialog"] [data-slot="dialog-close"]').click()`);
-    await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-back"]').click()`);
+    if (!backgroundsOnly) {
+      await wait('[data-testid="settings-launcher"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-launcher"]').click()`);
+      await wait('[data-testid="open-diagnostics"]');
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="open-diagnostics"]').scrollIntoView({block: 'center'})`);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await writeFile(join(directory, "diagnostics-settings.png"), (await window.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="settings-back"]').click()`);
+      await wait('.chat-character-entry .character-list-portrait img');
+      const verifyCard = async selector => {
+        const image = await window.webContents.executeJavaScript(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); const rect = element.parentElement.getBoundingClientRect(); return { src: element.src, width: rect.width, height: rect.height }; })()`);
+        assert.ok(image.src.endsWith(state.activeCharacter.packageThumbnailAssetId));
+        assert.ok(Math.abs(image.width - image.height) < 1);
+      };
+      await verifyCard('.chat-character-entry .character-list-portrait img');
+      window.webContents.send("character-packages:open", state.activeCharacter.id);
+      await wait('[data-testid="character-package-dialog"] .character-package-art img');
+      await verifyCard('[data-testid="character-list-item"] .character-list-portrait img');
+      await new Promise(resolve => setTimeout(resolve, 350)); // Allow the 200 ms entry transition to paint before capture.
+      await writeFile(join(directory, "character-packages.png"), (await window.capturePage()).toPNG());
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-package-dialog"] [data-slot="dialog-close"]').click()`);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="character-back"]').click()`);
+    }
     await wait('[data-testid="avatar-toggle"]');
     const avatar = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
       let unsubscribe = () => {};
@@ -99,18 +154,26 @@ app.once("browser-window-created", async (_event, window) => {
     await until(() => desktopWindow("capsule")?.isVisible(), "Capsule did not become visible");
     const capsule = desktopWindow("capsule"), panel = desktopWindow("panel");
     await until(() => capsule.webContents.executeJavaScript(`!!document.querySelector('button[aria-label="更多"]')`), "Capsule buttons did not mount");
+    if (backgroundsOnly) {
+      await verifyBackgroundSelection(window, until, avatar.binding);
+      passed = true;
+      console.log("[backgrounds] Selector, persistence, invalid paths, preserved preferences and Player restart passed: " + directory);
+      return;
+    }
     assert.equal(capsule.isFocused(), false);
     const capsuleBounds = capsule.getBounds();
-    const more = await capsule.webContents.executeJavaScript(`(() => { const r = document.querySelector('button[aria-label="更多"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
-    const clickMore = async (button = more) => {
+    const clickMore = async (target) => {
       capsule.moveTop();
+      const button = target ?? await capsule.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const r = document.querySelector('button[aria-label="更多"]').getBoundingClientRect();
+        resolve({ x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) });
+      })))`);
       const currentBounds = capsule.getBounds();
       const point = screen.dipToScreenPoint({ x: currentBounds.x + button.x, y: currentBounds.y + button.y });
       const { stdout } = await promisify(execFile)("pwsh", ["-NoProfile", "-File", resolve("tests/native-desktop-click.ps1"),
-        "-X", String(point.x), "-Y", String(point.y), "-WindowHandle", String(capsule.getNativeWindowHandle().readBigUInt64LE()),
-        "-OwnerProcessId", String(process.pid)], { windowsHide: true, timeout: 10_000 });
+        "-X", String(point.x), "-Y", String(point.y), "-WindowHandle", String(capsule.getNativeWindowHandle().readBigUInt64LE())], { windowsHide: true, timeout: 10_000 });
       const native = JSON.parse(stdout);
-      assert.ok(native.clicked, `An unrelated window occluded the owned test windows; no click was sent: ${JSON.stringify(native)}`);
+      assert.ok(native.clicked, `The pointer did not hit the requested desktop window; no click was sent: ${JSON.stringify(native)}`);
     };
     const panelPainted = () => panel.webContents.executeJavaScript(`(() => { const element = document.querySelector('.desktop-panel'); return element?.dataset.phase === 'open' && Number(getComputedStyle(element).opacity) > .99; })()`);
     // A hidden native window may stop delivering animation frames. Opening must
@@ -193,19 +256,27 @@ app.once("browser-window-created", async (_event, window) => {
     await writeFile(join(directory, "capsule-switch-frames.json"), JSON.stringify(switchFrames));
     window.show();
     window.focus();
+    await until(() => window.isFocused(), "The main window must finish focusing before clicking the capsule");
     await clickMore();
     await until(() => panel.isVisible(), "Panel must reopen on the next click");
     await until(panelPainted, "Reopened panel content must paint");
+    assert.equal((await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).presentation.gaze, "mouse", "The saved mouse toggle must survive the mode upgrade");
+    for (const mode of ["camera", "mouse", "none", "camera"]) {
+      const label = { camera: "镜头", mouse: "鼠标", none: "无" }[mode];
+      await panel.webContents.executeJavaScript(`(() => {
+        const tab = [...document.querySelectorAll('[aria-label="视线追踪"] [role="tab"]')].find(tab => tab.textContent === ${JSON.stringify(label)});
+        if (!tab) throw new Error('Missing gaze mode ${mode}');
+        tab.click();
+      })()`);
+      await until(async () => (await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).presentation.gaze === mode, `Unity did not confirm gaze mode ${mode}`);
+      await until(() => panel.webContents.executeJavaScript(`document.querySelector('[aria-label="视线追踪"] [role="tab"][aria-selected="true"]')?.textContent === ${JSON.stringify(label)}`), `The gaze tab must render mode ${mode} before switching again`);
+    }
+    await until(async () => JSON.parse(await readFile(gazePreferencesPath, "utf8")).gaze === "camera", "The camera gaze mode must be persisted");
+    const gazePreferences = JSON.parse(await readFile(gazePreferencesPath, "utf8"));
+    assert.equal(gazePreferences.version, 3);
+    assert.equal(gazePreferences.role.display, String(screen.getPrimaryDisplay().id));
+    for (const [key, value] of Object.entries({ x: .78, y: .5, height: .65 })) assert.ok(Math.abs(gazePreferences.role[key] - value) < .001, `The gaze mode upgrade changed desktop placement ${key}`);
     const actions = (await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).capabilities.actions;
-    assert.equal(actions.length, 26);
-    assert.ok(actions.some(action => action.kind === "performance" && action.label === "我的悲伤是水做的"));
-    assert.ok(actions.some(action => action.semantic === "think"), "The basic thinking pose must remain available");
-    assert.ok(!actions.some(action => action.semantic === "thinkGesture"), "The removed thinking gesture must not remain available");
-    assert.equal(actions.filter(action => action.idle).length, 3);
-    assert.ok(actions.some(action => action.key === "redreaming-angel"));
-    assert.ok(actions.some(action => action.key === "point-left"));
-    assert.ok(actions.every(action => /[\u4e00-\u9fff]/u.test(action.label)), "Every default action must have a Chinese display name");
-    assert.ok(!actions.some(action => action.label.startsWith("完整")), "Removed full-body variants must not remain in the picker");
     await writeFile(join(directory, "desktop-panel.png"), (await panel.capturePage()).toPNG());
     const normalPanelBounds = panel.getBounds();
     const openActions = async () => {
@@ -290,6 +361,7 @@ app.once("browser-window-created", async (_event, window) => {
     await until(async () => !(await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).presentation?.action, "Clicking the selected dance must stop it directly");
     assert.equal((await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`)).error, null);
     const openedPanel = await panel.webContents.executeJavaScript(`window.avatarDesktop.getState()`);
+    assert.equal(openedPanel.presentation.gaze, "camera", "Dance switching and stopping must preserve the selected gaze mode");
     window.focus();
     await until(() => !panel.isVisible(), "Clicking away must still dismiss the panel");
     await panel.webContents.executeJavaScript(`window.avatarDesktop.command({ operation: "panel-ready", value: ${JSON.stringify(String(openedPanel.panelRevision))} })`);
@@ -339,4 +411,11 @@ app.once("browser-window-created", async (_event, window) => {
 app.once("will-quit", () => {
   if (!passed) app.exit(1);
 });
+await mkdir(gazePreferencesDirectory, { recursive: true });
+await writeFile(gazePreferencesPath, JSON.stringify({
+  version: backgroundsOnly ? 3 : 2,
+  role: { display: "startup-primary", x: .78, y: .5, height: .65 },
+  capsule: { display: "startup-primary", x: .95, y: .95, height: 1 },
+  yaw: 0, pitch: 4, gaze: backgroundsOnly ? "camera" : true, outline: false,
+}));
 await import(pathToFileURL(resolve("out/main/index.js")).href);

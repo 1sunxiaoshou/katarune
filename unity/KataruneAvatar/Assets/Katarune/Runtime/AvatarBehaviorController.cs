@@ -59,7 +59,7 @@ namespace Katarune.Avatar
         private void LateUpdate()
         {
             if (_driver == null) return;
-            var gazeTargetAngles = ResolvePointerGazeTarget();
+            var gazeTargetAngles = ResolveGazeTarget();
             var frame = Model.Tick(Time.deltaTime, gazeTargetAngles);
             frame.HasAuthoredBodyPose = _motion?.HasAuthoredBodyPose ?? false;
             frame.ProceduralBodyWeight = Mathf.Clamp01(_motion?.ProceduralBodyWeight ?? 1f);
@@ -67,9 +67,9 @@ namespace Katarune.Avatar
             _driver.Apply(frame);
         }
 
-        private Vector2 ResolvePointerGazeTarget()
+        private Vector2 ResolveGazeTarget()
         {
-            if (!Model.PointerGazeTrackingEnabled
+            if (Model.GazeTrackingMode == AvatarGazeTrackingMode.None
                 || !(_driver is IAvatarGazeGeometryProvider geometryProvider)
                 || !geometryProvider.TryGetGazeGeometry(out var geometry))
             {
@@ -79,8 +79,12 @@ namespace Katarune.Avatar
             if (_camera == null) _camera = Camera.main;
             if (_camera == null) return Vector2.zero;
 
+            if (Model.GazeTrackingMode == AvatarGazeTrackingMode.Camera)
+                return AvatarGazeProjection.TryProjectTarget(_camera.transform.position, geometry, out var cameraAngles)
+                    ? cameraAngles : Vector2.zero;
+
             var screenPosition = AvatarWindow.PointerPosition();
-            return AvatarPointerGazeProjection.TryProject(
+            return AvatarGazeProjection.TryProject(
                 _camera,
                 screenPosition,
                 geometry,

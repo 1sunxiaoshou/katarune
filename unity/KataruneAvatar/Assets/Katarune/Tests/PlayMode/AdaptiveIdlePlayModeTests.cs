@@ -28,7 +28,7 @@ namespace Katarune.Avatar.Tests
                 var neck = model.Runtime.ControlRig.GetBoneTransform(HumanBodyBones.Neck);
                 var headBase = head.localRotation; var neckBase = neck.localRotation;
                 var behavior = new AvatarBehaviorModel();
-                behavior.ApplySettings(AvatarBehaviorSettings.Default.WithPointerGazeTracking(true));
+                behavior.ApplySettings(AvatarBehaviorSettings.Default.WithGazeTracking(AvatarGazeTrackingMode.Mouse));
                 AvatarPoseFrame frame = null;
                 for (var i = 0; i < 120; i++) frame = behavior.Tick(1f / 60f, new Vector2(18f, 8f));
                 frame.HasAuthoredBodyPose = true; frame.ProceduralBodyWeight = frame.ProceduralArmWeight = 0f;
@@ -47,7 +47,7 @@ namespace Katarune.Avatar.Tests
                         Assert.That(float.IsFinite(model.Runtime.LookAt.Yaw), Is.True);
                     }
                 }
-                behavior.ApplySettings(AvatarBehaviorSettings.Default.WithPointerGazeTracking(false));
+                behavior.ApplySettings(AvatarBehaviorSettings.Default.WithGazeTracking(AvatarGazeTrackingMode.None));
                 for (var i = 0; i < 240; i++) frame = behavior.Tick(1f / 60f, Vector2.zero);
                 frame.HasAuthoredBodyPose = true; frame.ProceduralBodyWeight = frame.ProceduralArmWeight = 0f;
                 head.localRotation = headBase; neck.localRotation = neckBase; driver.Apply(frame);

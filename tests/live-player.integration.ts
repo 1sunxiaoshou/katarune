@@ -49,7 +49,7 @@ void app.whenReady().then(async () => {
     const model = database.createModelConfig({ providerConfigId: provider.id, modelType: "languageModel", modelId: "test-model", displayName: null, metadata: null, settings: {}, enabled: true });
     const speech = database.createModelConfig({ providerConfigId: provider.id, modelType: "speechModel", modelId: "test-voice", displayName: null, metadata: null, settings: { defaultVoiceId: "voice" }, enabled: true });
     database.updateCharacter({ id: owner.id, modelConfigId: model.id, speechModelConfigId: speech.id, speechVoice: "voice" });
-    database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: owner.id, proactive: false, port: 19437 });
+    database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: owner.id, proactive: false, port: 19437, backgroundId: "cloud-observatory" });
     const pcm = Buffer.alloc(48000 * 2 * 4);
     for (let sample = 0; sample < pcm.length / 2; sample++) pcm.writeInt16LE(Math.round(.15 * 32767 * Math.sin(sample / 48000 * 2 * Math.PI * 660)), sample * 2);
     await mkdir(join(directory, "speech"), { recursive: true });
@@ -100,6 +100,11 @@ void app.whenReady().then(async () => {
     connection.onState({ connection: "connected", broadcast: "live", roomId: "101", roomName: "合成官方连接", roomCover: "", roomDescription: "" });
     const emit = (id: string) => connection.onEvent({ id, kind: "danmaku", roomId: "101", timestamp: now, userId: "viewer", userName: "观众", text: "你好", giftId: "", giftName: "", quantity: 0 });
     const wait = async (predicate: () => boolean, label: string, timeout = 15000) => { const end = Date.now() + timeout; while (!predicate()) { assert.ok(Date.now() < end, `${label}: ${JSON.stringify(live!.status)}`); assert.equal(live!.status.error, null); await new Promise(resolve => setTimeout(resolve, 25)); } };
+    await wait(() => avatar.presentation?.backgroundId === "cloud-observatory", "Live background selection");
+    await live.updateSettings({ ...live.status.settings, backgroundId: "film" });
+    await wait(() => avatar.presentation?.backgroundId === "film", "Live background switch");
+    await live.updateSettings({ ...live.status.settings, backgroundId: "cloud-observatory" });
+    await wait(() => avatar.presentation?.backgroundId === "cloud-observatory", "Live picture restoration");
     emit("one"); now += 16000;
     await wait(() => generations === 1 && !live!.status.generating, "First host reply");
     const history = database.loadThreadMessages(live.status.threadId!, owner.id).messages;
@@ -141,6 +146,7 @@ void app.whenReady().then(async () => {
       console.log("Live dance completed naturally; the next host reply drained successfully.");
     }
     await live.stop(); assert.equal(avatar.status.phase, "ready");
+    await wait(() => avatar.presentation?.backgroundId === "film", "Desktop background restoration");
     assert.equal(avatar.liveActive, false); assert.deepEqual(avatar.status.binding, desktopBinding);
     let desktopSpeechStarted = false;
     assert.equal(await avatar.playSpeech(desktopBinding, { audio: pcmWav(Buffer.alloc(48000), 48000), format: "wav", mediaType: "audio/wav", cacheHit: false, spokenText: "桌宠播放恢复测试。" }, new AbortController().signal, () => { desktopSpeechStarted = true; }), true);

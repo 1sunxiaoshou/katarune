@@ -1,4 +1,4 @@
-param([int]$X, [int]$Y, [long]$WindowHandle, [int]$OwnerProcessId)
+param([int]$X, [int]$Y, [long]$WindowHandle)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
@@ -27,7 +27,6 @@ public static class DesktopClick {
 [DesktopClick]::Move($X,$Y)
 Start-Sleep -Milliseconds 100
 $probe = [DesktopClick]::Probe($X,$Y)
-$hitProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($probe[1])"
-$owned = $probe[0] -eq $WindowHandle -or $probe[1] -eq $OwnerProcessId -or $hitProcess.ParentProcessId -eq $OwnerProcessId
+$owned = $probe[0] -eq $WindowHandle
 if ($owned) { [DesktopClick]::Click() }
-[PSCustomObject]@{ clicked=$owned; hitHandle=$probe[0]; hitProcessId=$probe[1] } | ConvertTo-Json -Compress
+[PSCustomObject]@{ clicked=$owned; expectedHandle=$WindowHandle; hitHandle=$probe[0]; hitProcessId=$probe[1] } | ConvertTo-Json -Compress

@@ -67,7 +67,7 @@ namespace Katarune.Avatar.Tests
                 AvatarAffectPreset.Happy,
                 4f,
                 false,
-                true);
+                AvatarGazeTrackingMode.Mouse);
 
             _facade.ApplyBehavior(requested);
             var snapshot = _facade.Snapshot;
@@ -76,7 +76,7 @@ namespace Katarune.Avatar.Tests
             Assert.That(changes, Is.EqualTo(1));
             Assert.That(snapshot.Behavior.AffectIntensity, Is.EqualTo(1f));
             Assert.That(snapshot.Behavior.BlinkingEnabled, Is.False);
-            Assert.That(snapshot.Behavior.PointerGazeTrackingEnabled, Is.True);
+            Assert.That(snapshot.Behavior.GazeTrackingMode, Is.EqualTo(AvatarGazeTrackingMode.Mouse));
 
             _facade.ApplyBehavior(snapshot.Behavior);
             Assert.That(_facade.Snapshot.Revision, Is.EqualTo(1));

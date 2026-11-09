@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { AVATAR_CAMERA_OPTIONS } from "../../../shared/avatarCamera";
+import { AVATAR_BACKGROUND_OPTIONS } from "../../../shared/avatarBackground";
 import { initializeRendererDiagnostics } from "../diagnostics";
 import {
   ArrowLeft,
@@ -409,13 +410,22 @@ function Desktop() {
               </TabsList>
             </Tabs>
           </div>
-          {state.mode === "immersive" && <div className="control-row">
-            <span>视角</span>
-            <Choice label="视角" active={state.panelPhase === "open"}
-              value={state.cameraView}
-              options={AVATAR_CAMERA_OPTIONS.map(option => ({ id: option.value, name: option.label }))}
-              onChange={(value) => command("camera-view", value)} />
-          </div>}
+          {state.mode === "immersive" && <>
+            <div className="control-row">
+              <span>视角</span>
+              <Choice label="视角" active={state.panelPhase === "open"}
+                value={state.cameraView}
+                options={AVATAR_CAMERA_OPTIONS.map(option => ({ id: option.value, name: option.label }))}
+                onChange={(value) => command("camera-view", value)} />
+            </div>
+            <div className="control-row">
+              <span>背景</span>
+              <Choice label="背景" active={state.panelPhase === "open"}
+                value={p?.backgroundId ?? state.backgroundId}
+                options={AVATAR_BACKGROUND_OPTIONS.map(option => ({ id: option.value, name: option.label }))}
+                onChange={(value) => command("background", value)} />
+            </div>
+          </>}
           <Tabs
             className="expressions"
             value={p?.affect ?? null}
@@ -451,13 +461,14 @@ function Desktop() {
             <span>视线追踪</span>
             <Tabs
               className="desktop-segmented"
-              value={p?.gaze ? "mouse" : "none"}
-              onValueChange={(v) => command("gaze", String(v === "mouse"))}
+              value={p?.gaze ?? "none"}
+              onValueChange={(v) => command("gaze", v)}
             >
               <TabsList className="desktop-tabs-list" aria-label="视线追踪">
                 <TabsIndicator className="desktop-tabs-indicator" />
                 <TabsTrigger value="none">无</TabsTrigger>
                 <TabsTrigger value="mouse">鼠标</TabsTrigger>
+                <TabsTrigger value="camera">镜头</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>

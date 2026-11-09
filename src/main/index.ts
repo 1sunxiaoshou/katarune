@@ -43,6 +43,7 @@ import { createWindowsUpdater } from "./updates/windowsUpdater";
 
 let mainWindow: BrowserWindow | undefined;
 let desktopWindows: AvatarDesktopWindows | undefined;
+let desktopShutdown: Promise<void> | undefined;
 let avatarService: AvatarService | undefined;
 let characterPackageService: CharacterPackageService | undefined;
 let asrService: AsrService | undefined;
@@ -272,10 +273,13 @@ app.on("before-quit", event => {
     void liveService.stop(false).finally(() => { liveShutdownDone = true; app.quit(); });
     return;
   }
+  if (desktopWindows) {
+    event.preventDefault();
+    desktopShutdown ??= desktopWindows.dispose().finally(() => { desktopWindows = undefined; app.quit(); });
+    return;
+  }
   diaryService?.dispose();
   agentToolsService?.cancel();
-  desktopWindows?.dispose();
-  desktopWindows = undefined;
   asrService?.dispose();
   avatarService?.stop();
   speechRequests?.cancelAll();

@@ -18,7 +18,7 @@ namespace Katarune.Avatar
     internal sealed class AvatarLiveOutput : MonoBehaviour
     {
         [Serializable] internal sealed class Settings {
-            public string pipe, camera="center", aspectRatio="16:9";
+            public string pipe, camera="center", aspectRatio="16:9", backgroundId=AvatarImmersiveBackdrop.DefaultBackgroundId;
             public int width=1920, fps=60; public bool subtitles=true;
             public float voiceVolume=1, musicVolume=1;
         }
@@ -54,6 +54,7 @@ namespace Katarune.Avatar
         private int _frameBytes, _generation, _previousFrameRate;
         private float _previousAspect, _speechVolume, _musicVolume;
         private AvatarSceneRig.AvatarFramingState _framing;
+        private string _previousBackgroundId;
         private string _failure;
         private readonly bool _acceptance=Environment.GetEnvironmentVariable("KATARUNE_LIVE_ACCEPTANCE")=="1";
         private float _nextDiagnostic;
@@ -75,6 +76,7 @@ namespace Katarune.Avatar
             var width=settings.aspectRatio=="9:16"?settings.width*9/16:settings.width;
             var height=settings.aspectRatio=="9:16"?settings.width:settings.width*9/16;
             _framing=_rig.CaptureFraming(); _previousTarget=_camera.targetTexture; _previousAspect=_camera.aspect;
+            _previousBackgroundId=_rig.BackgroundId;
             _previousPhysical=_camera.usePhysicalProperties; _previousSensor=_camera.sensorSize; _previousGateFit=_camera.gateFit;
             _previousHdr=_camera.allowHDR;
             _previousEnabled=_camera.enabled;
@@ -151,9 +153,11 @@ namespace Katarune.Avatar
             if(!_active) return;
             var next=JsonUtility.FromJson<Settings>(json); if(next==null) return;
             if(!AvatarCameraViews.IsSupported(next.camera)) throw new InvalidOperationException("直播镜头无效。");
+            _rig.SetBackground(next.backgroundId);
             // Resolution, FPS and pipe ownership remain fixed until restart.
             _settings.subtitles=next.subtitles;
             _settings.camera=next.camera;
+            _settings.backgroundId=next.backgroundId;
             _speech.OutputVolume=next.voiceVolume; _dance.OutputVolume=next.musicVolume;
             _rig.SetPresentationMode(true,next.camera);
         }
@@ -218,7 +222,7 @@ namespace Katarune.Avatar
             if(_frames!=null) { _frames.CompleteAdding(); while(_frames.TryTake(out var frame)) ArrayPool<byte>.Shared.Return(frame.Bytes); }
             if(_readbacks>0) AsyncGPUReadback.WaitAllRequests(); _readbacks=0;
             if(_camera!=null) { _camera.enabled=_previousEnabled; _camera.targetTexture=_previousTarget; _camera.aspect=_previousAspect; _camera.usePhysicalProperties=_previousPhysical; _camera.sensorSize=_previousSensor; _camera.gateFit=_previousGateFit; _camera.fieldOfView=_framing.CameraFieldOfView; _camera.lensShift=_framing.CameraLensShift; _camera.allowHDR=_previousHdr; }
-            if(restorePresentation) { _rig.LiveOutputActive=false; _rig.RestoreFraming(_framing); _speech.OutputVolume=_speechVolume; _dance.OutputVolume=_musicVolume; Application.targetFrameRate=_previousFrameRate; _window?.SetLiveOutput(false); }
+            if(restorePresentation) { _rig.SetBackground(_previousBackgroundId); _rig.LiveOutputActive=false; _rig.RestoreFraming(_framing); _speech.OutputVolume=_speechVolume; _dance.OutputVolume=_musicVolume; Application.targetFrameRate=_previousFrameRate; _window?.SetLiveOutput(false); }
             if(_audio!=null) Destroy(_audio); if(_ui!=null) Destroy(_ui); if(_panel!=null) Destroy(_panel); if(_blend!=null) Destroy(_blend); if(_font!=null) Destroy(_font);
             foreach(var texture in new[]{_scene,_subtitles,_composite}) if(texture!=null) { texture.Release(); Destroy(texture); }
             _scene=null; _subtitles=null; _composite=null; _audio=null; _ui=null; _panel=null; _blend=null; _font=null; _camera=null;

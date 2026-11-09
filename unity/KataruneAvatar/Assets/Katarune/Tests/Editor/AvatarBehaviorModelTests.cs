@@ -47,11 +47,12 @@ namespace Katarune.Avatar.Tests
             Assert.That(model.Tick(0.04f, Vector2.zero).Blink, Is.GreaterThan(0.5f));
         }
 
-        [Test]
-        public void PointerGazeIsClampedToSafeRange()
+        [TestCase(AvatarGazeTrackingMode.Mouse)]
+        [TestCase(AvatarGazeTrackingMode.Camera)]
+        public void PointerGazeIsClampedToSafeRange(AvatarGazeTrackingMode mode)
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(mode));
 
             var frame = model.Tick(2f, new Vector2(100f, -100f));
             var combined = CombinedGaze(frame);
@@ -61,11 +62,12 @@ namespace Katarune.Avatar.Tests
             Assert.That(frame.GazePitch, Is.GreaterThan(combined.y));
         }
 
-        [Test]
-        public void EyesLeadBeforeHeadFollowsLargeGazeShift()
+        [TestCase(AvatarGazeTrackingMode.Mouse)]
+        [TestCase(AvatarGazeTrackingMode.Camera)]
+        public void EyesLeadBeforeHeadFollowsLargeGazeShift(AvatarGazeTrackingMode mode)
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(mode));
 
             var early = model.Tick(0.03f, new Vector2(18f, 0f));
             Assert.That(early.GazeYaw, Is.GreaterThan(0f));
@@ -78,11 +80,12 @@ namespace Katarune.Avatar.Tests
             Assert.That(CombinedGaze(settled).x, Is.GreaterThan(17.8f));
         }
 
-        [Test]
-        public void SmallGazeShiftDoesNotRecruitHead()
+        [TestCase(AvatarGazeTrackingMode.Mouse)]
+        [TestCase(AvatarGazeTrackingMode.Camera)]
+        public void SmallGazeShiftDoesNotRecruitHead(AvatarGazeTrackingMode mode)
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(mode));
 
             var frame = model.Tick(2f, new Vector2(2f, 1f));
             Assert.That(CombinedGaze(frame).x, Is.EqualTo(2f).Within(0.01f));
@@ -93,15 +96,16 @@ namespace Katarune.Avatar.Tests
             Assert.That(frame.NeckEuler.y, Is.Zero.Within(0.001f));
         }
 
-        [Test]
-        public void PointerGazeToggleReturnsSmoothlyToCenter()
+        [TestCase(AvatarGazeTrackingMode.Mouse)]
+        [TestCase(AvatarGazeTrackingMode.Camera)]
+        public void PointerGazeToggleReturnsSmoothlyToCenter(AvatarGazeTrackingMode mode)
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(mode));
             var earlyPointer = model.Tick(0.01f, new Vector2(18f, 10f));
             Assert.That(earlyPointer.GazeYaw, Is.GreaterThan(0f).And.LessThan(18f));
 
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(false));
+            model.ApplySettings(model.Settings.WithGazeTracking(AvatarGazeTrackingMode.None));
             var fixedForward = model.Tick(1f, Vector2.one);
             Assert.That(CombinedGaze(fixedForward).magnitude, Is.LessThan(0.01f));
         }
@@ -113,14 +117,15 @@ namespace Katarune.Avatar.Tests
 
             var fixedFrame = model.Tick(30f, new Vector2(1f, -1f));
             Assert.That(CombinedGaze(fixedFrame).magnitude, Is.LessThan(0.001f));
-            Assert.That(model.PointerGazeTrackingEnabled, Is.False);
+            Assert.That(model.GazeTrackingMode, Is.EqualTo(AvatarGazeTrackingMode.None));
         }
 
-        [Test]
-        public void EnablingPointerGazeContinuouslyTracksPointer()
+        [TestCase(AvatarGazeTrackingMode.Mouse)]
+        [TestCase(AvatarGazeTrackingMode.Camera)]
+        public void EnablingPointerGazeContinuouslyTracksPointer(AvatarGazeTrackingMode mode)
         {
             var model = CreateModel();
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(mode));
 
             model.Tick(1f, new Vector2(18f, 10f));
             var frame = model.Tick(1f, new Vector2(-18f, -10f));
@@ -234,12 +239,12 @@ namespace Katarune.Avatar.Tests
         {
             var model = CreateModel();
             model.SetAffect(AvatarAffectPreset.Angry, 1f);
-            model.ApplySettings(model.Settings.WithPointerGazeTracking(true));
+            model.ApplySettings(model.Settings.WithGazeTracking(AvatarGazeTrackingMode.Mouse));
             model.SetManualVisemes(1f, 0f, 0f, 0f, 0f);
             model.Reset();
 
             Assert.That(model.Affect, Is.EqualTo(AvatarAffectPreset.Neutral));
-            Assert.That(model.PointerGazeTrackingEnabled, Is.False);
+            Assert.That(model.GazeTrackingMode, Is.EqualTo(AvatarGazeTrackingMode.None));
             Assert.That(SumMouth(model.CurrentFrame), Is.EqualTo(0f));
         }
 

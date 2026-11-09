@@ -1651,6 +1651,12 @@ async function run() {
       await clickSelector(window, '#live-tab-picture');
       await waitUntil('instructions save on leaving the tab', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.instructions==='本场聊游戏，礼物集中感谢。')`));
       await waitForSelector(window, '#live-camera');
+      for (const backgroundId of ['cloud-observatory', 'film', 'cloud-observatory']) {
+        await clickSelector(window, '#live-background');
+        await waitForSelector(window, `[data-testid="live-background-option-${backgroundId}"]`);
+        await clickSelector(window, `[data-testid="live-background-option-${backgroundId}"]`);
+        await waitUntil(`background ${backgroundId} persists`, () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.backgroundId===${JSON.stringify(backgroundId)})`));
+      }
       await scrollLiveSettingIntoView(window, '#live-camera');
       for (const [view,label] of [['fullbody','全身'],['closeup','特写'],['overhead','俯视'],['side','侧拍'],['center','对话']]) {
         await clickSelector(window, '#live-camera');

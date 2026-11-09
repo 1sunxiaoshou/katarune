@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Katarune.Avatar
 {
-    internal static class AvatarPointerGazeProjection
+    internal static class AvatarGazeProjection
     {
         // The projection plane represents the visible desktop window inside the scene.
         // Keeping it between the camera and the avatar produces an expressive but bounded
@@ -54,6 +54,12 @@ namespace Katarune.Avatar
             if (!windowPlane.Raycast(pointerRay, out var distance) || distance < 0f) return false;
 
             var target = pointerRay.GetPoint(distance);
+            return TryProjectTarget(target, geometry, out viewportAngles);
+        }
+
+        internal static bool TryProjectTarget(Vector3 target, AvatarGazeGeometry geometry, out Vector2 viewportAngles)
+        {
+            viewportAngles = Vector2.zero;
             var localDirection = Quaternion.Inverse(geometry.ReferenceRotation)
                 * (target - geometry.Origin);
             if (localDirection.z <= 0.0001f) return false;

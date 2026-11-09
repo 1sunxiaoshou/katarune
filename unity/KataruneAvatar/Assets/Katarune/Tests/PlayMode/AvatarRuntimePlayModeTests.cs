@@ -11,6 +11,51 @@ namespace Katarune.Avatar.Tests
     public sealed class AvatarRuntimePlayModeTests
     {
         [UnityTest]
+        public IEnumerator CameraGazeTracksTheCurrentCameraAndReturnsToNeutral()
+        {
+            var cameraRoot = Camera.main == null ? new GameObject("Gaze test camera") { tag = "MainCamera" } : null;
+            if (cameraRoot != null) cameraRoot.AddComponent<Camera>();
+            var camera = Camera.main;
+            var previousPosition = camera.transform.position;
+            var root = new GameObject("Gaze test behavior");
+            try
+            {
+                var behavior = root.AddComponent<AvatarBehaviorController>();
+                behavior.Bind(new GazeDriver());
+                behavior.ApplySettings(AvatarBehaviorSettings.Default.WithGazeTracking(AvatarGazeTrackingMode.Camera));
+                camera.transform.position = new Vector3(-4f, 1f, 4f);
+                yield return new WaitForSecondsRealtime(1.2f);
+                var frame = behavior.CurrentFrame;
+                Assert.That(frame.GazeYaw + frame.HeadGaze.x, Is.GreaterThan(17.5f));
+                Assert.That(frame.GazePitch + frame.HeadGaze.y, Is.GreaterThan(5f));
+                camera.transform.position = new Vector3(4f, -1f, 4f);
+                yield return new WaitForSecondsRealtime(1.2f);
+                Assert.That(frame.GazeYaw + frame.HeadGaze.x, Is.LessThan(-17.5f));
+                Assert.That(frame.GazePitch + frame.HeadGaze.y, Is.LessThan(-5f));
+                behavior.ApplySettings(behavior.Settings.WithGazeTracking(AvatarGazeTrackingMode.None));
+                yield return new WaitForSecondsRealtime(1.2f);
+                Assert.That((new Vector2(frame.GazeYaw, frame.GazePitch) + frame.HeadGaze).magnitude, Is.LessThan(.01f));
+            }
+            finally
+            {
+                camera.transform.position = previousPosition;
+                Object.Destroy(root);
+                if (cameraRoot != null) Object.Destroy(cameraRoot);
+            }
+            yield return null;
+        }
+
+        private sealed class GazeDriver : IAvatarDriver, IAvatarGazeGeometryProvider
+        {
+            public bool SupportsAffect(AvatarAffectPreset preset) => true;
+            public bool TryGetGazeGeometry(out AvatarGazeGeometry geometry)
+            { geometry = new AvatarGazeGeometry(Vector3.zero, Quaternion.identity); return true; }
+            public void Apply(AvatarPoseFrame frame) { }
+            public void ResetPose() { }
+            public void Dispose() { }
+        }
+
+        [UnityTest]
         public IEnumerator BackgroundSwitchesReuseResourcesAndReleaseThemOnDestruction()
         {
             var root = new GameObject("Background lifecycle test");
@@ -32,6 +77,15 @@ namespace Katarune.Avatar.Tests
                 backdrop.SetVisible(true);
                 backdrop.Advance(.9f);
                 Assert.That(material.GetFloat("_Opacity"), Is.EqualTo(1f));
+                Assert.That(root.GetComponentInChildren<MeshRenderer>().sharedMaterial, Is.SameAs(material));
+                backdrop.SetBackground("cloud-observatory");
+                Assert.That(backdrop.BackgroundId, Is.EqualTo("cloud-observatory"));
+                Assert.That(material.GetFloat("_PictureMode"), Is.EqualTo(1f));
+                Assert.That(material.GetTexture("_Picture"), Is.SameAs(Resources.Load<Texture2D>("Immersive/CloudObservatory")));
+                Assert.Throws<System.ArgumentException>(() => backdrop.SetBackground("../custom.png"));
+                Assert.That(backdrop.BackgroundId, Is.EqualTo("cloud-observatory"), "Invalid selections must preserve the current background.");
+                backdrop.SetBackground("film");
+                Assert.That(material.GetFloat("_PictureMode"), Is.Zero);
                 Assert.That(root.GetComponentInChildren<MeshRenderer>().sharedMaterial, Is.SameAs(material));
                 backdrop.SetVisible(false);
                 // The background clock must complete its fade without camera updates.

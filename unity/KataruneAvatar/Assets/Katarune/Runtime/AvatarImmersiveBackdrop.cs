@@ -9,6 +9,8 @@ namespace Katarune.Avatar
     [DefaultExecutionOrder(1000)]
     public sealed class AvatarImmersiveBackdrop : MonoBehaviour
     {
+        internal const string DefaultBackgroundId = "film";
+        internal string BackgroundId { get; private set; } = DefaultBackgroundId;
         private GameObject _surface;
         private Mesh _mesh;
         private Material _material;
@@ -17,6 +19,20 @@ namespace Katarune.Avatar
         private bool _visible;
 
         private void Awake() => EnsureResources();
+
+        internal void SetBackground(string id)
+        {
+            if (id != DefaultBackgroundId && id != "cloud-observatory")
+                throw new ArgumentException("背景无效。", nameof(id));
+            var picture = id == "cloud-observatory"
+                ? Resources.Load<Texture2D>("Immersive/CloudObservatory")
+                    ?? throw new InvalidOperationException("云端星象背景资源缺失。")
+                : null;
+            EnsureResources();
+            _material.SetTexture("_Picture", picture);
+            _material.SetFloat("_PictureMode", picture != null ? 1f : 0f);
+            BackgroundId = id;
+        }
 
         internal void SetVisible(bool visible)
         {

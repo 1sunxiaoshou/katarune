@@ -13,6 +13,13 @@ const event = (index: number, kind: "danmaku" | "gift" = "danmaku"): LiveEvent =
   id: String(index), kind, roomId: "101", timestamp: 1000, userId: "viewer", userName: "观众", text: `消息${index}`, giftId: "1", giftName: "花", quantity: 1,
 });
 describe("livestream output shape", () => {
+  it("defaults older settings to the film background and only accepts built-in background IDs", () => {
+    const { backgroundId: _background, ...previous } = DEFAULT_LIVE_SETTINGS;
+    expect(liveSettingsSchema.parse(previous).backgroundId).toBe("film");
+    expect(liveSettingsSchema.parse({ ...previous, backgroundId: "cloud-observatory" }).backgroundId).toBe("cloud-observatory");
+    expect(liveSettingsSchema.safeParse({ ...previous, backgroundId: "../custom.png" }).success).toBe(false);
+    expect(liveSettingsSchema.safeParse({ ...previous, backgroundId: "unknown" }).success).toBe(false);
+  });
   it("keeps existing settings landscape and rejects unsupported aspect ratios", () => {
     const { aspectRatio: _aspectRatio, ...existing } = DEFAULT_LIVE_SETTINGS;
     expect(liveSettingsSchema.parse(existing).aspectRatio).toBe("16:9");

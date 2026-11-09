@@ -14,7 +14,8 @@ namespace Katarune.Avatar.Editor
             importer.npotScale = TextureImporterNPOTScale.None;
             importer.maxTextureSize = 4096;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
-            importer.wrapMode = TextureWrapMode.Repeat;
+            importer.wrapMode = assetPath.EndsWith("/CloudObservatory.png", StringComparison.Ordinal)
+                ? TextureWrapMode.Clamp : TextureWrapMode.Repeat;
             importer.filterMode = FilterMode.Bilinear;
             importer.mipmapEnabled = true;
         }
@@ -28,18 +29,14 @@ namespace Katarune.Avatar.Editor
             if (!Application.isBatchMode) throw new InvalidOperationException("Run the background capture in a batch Editor.");
             var output = Path.GetFullPath(Path.Combine(Application.dataPath,"../../..",".test-dist/immersive-reference"));
             Directory.CreateDirectory(output);
-            foreach (var path in new[] { "Typography", "Film", "Frames" })
+            foreach (var path in new[] { "Typography", "Film", "Frames", "CloudObservatory" })
                 AssetDatabase.ImportAsset($"Assets/Katarune/Resources/Immersive/{path}.png", ImportAssetOptions.ForceUpdate);
-            var root = new GameObject("Immersive background comparison camera");
+            var root = new GameObject("Immersive background capture camera");
             var camera = root.AddComponent<Camera>();
-            var target = new RenderTexture(1920,1080,24,RenderTextureFormat.ARGB32);
-            var pixels = new Texture2D(1920,1080,TextureFormat.RGB24,false);
-            var previous = RenderTexture.active;
             try
             {
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = Color.clear;
-                camera.targetTexture = target;
                 var backdrop = root.AddComponent<AvatarImmersiveBackdrop>();
                 backdrop.SetVisible(true);
                 backdrop.Advance(1f);
@@ -47,18 +44,37 @@ namespace Katarune.Avatar.Editor
                 foreach (var time in new[] { 0, 5 })
                 {
                     material.SetFloat("_MotionTime",time);
-                    camera.Render();
-                    RenderTexture.active = target;
-                    pixels.ReadPixels(new Rect(0,0,1920,1080),0,0);
-                    pixels.Apply();
-                    File.WriteAllBytes(Path.Combine(output,$"shader-{time}.png"),pixels.EncodeToPNG());
+                    SaveFrame(camera,1920,1080,Path.Combine(output,$"shader-{time}.png"));
                 }
+                backdrop.SetBackground("cloud-observatory");
+                SaveFrame(camera,1920,1080,Path.Combine(output,"cloud-observatory-landscape.png"));
+                SaveFrame(camera,1080,1920,Path.Combine(output,"cloud-observatory-portrait.png"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        private static void SaveFrame(Camera camera, int width, int height, string path)
+        {
+            var target = new RenderTexture(width,height,24,RenderTextureFormat.ARGB32);
+            var pixels = new Texture2D(width,height,TextureFormat.RGB24,false);
+            var previous = RenderTexture.active;
+            try
+            {
+                camera.targetTexture = target;
+                camera.aspect = width/(float)height;
+                camera.Render();
+                RenderTexture.active = target;
+                pixels.ReadPixels(new Rect(0,0,width,height),0,0);
+                pixels.Apply();
+                File.WriteAllBytes(path,pixels.EncodeToPNG());
             }
             finally
             {
                 RenderTexture.active = previous;
                 camera.targetTexture = null;
-                UnityEngine.Object.DestroyImmediate(root);
                 UnityEngine.Object.DestroyImmediate(target);
                 UnityEngine.Object.DestroyImmediate(pixels);
             }

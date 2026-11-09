@@ -102,46 +102,48 @@ namespace Katarune.Avatar
         public override int GetHashCode() => HashCode.Combine(Aa, Ih, Ou, Ee, Oh);
     }
 
+    public enum AvatarGazeTrackingMode { None, Mouse, Camera }
+
     public readonly struct AvatarBehaviorSettings : IEquatable<AvatarBehaviorSettings>
     {
         public AvatarBehaviorSettings(
             AvatarAffectPreset affect,
             float affectIntensity,
             bool blinkingEnabled,
-            bool pointerGazeTrackingEnabled)
+            AvatarGazeTrackingMode gazeTrackingMode)
         {
             Affect = affect;
             AffectIntensity = affectIntensity;
             BlinkingEnabled = blinkingEnabled;
-            PointerGazeTrackingEnabled = pointerGazeTrackingEnabled;
+            GazeTrackingMode = gazeTrackingMode;
         }
 
         public static AvatarBehaviorSettings Default => new AvatarBehaviorSettings(
             AvatarAffectPreset.Neutral,
             0f,
             true,
-            false);
+            AvatarGazeTrackingMode.None);
 
         public AvatarAffectPreset Affect { get; }
         public float AffectIntensity { get; }
         public bool BlinkingEnabled { get; }
-        public bool PointerGazeTrackingEnabled { get; }
+        public AvatarGazeTrackingMode GazeTrackingMode { get; }
 
         public AvatarBehaviorSettings WithAffect(AvatarAffectPreset value, float intensity) => new AvatarBehaviorSettings(
-            value, intensity, BlinkingEnabled, PointerGazeTrackingEnabled);
+            value, intensity, BlinkingEnabled, GazeTrackingMode);
 
         public AvatarBehaviorSettings WithBlinking(bool blinkingEnabled) => new AvatarBehaviorSettings(
-            Affect, AffectIntensity, blinkingEnabled, PointerGazeTrackingEnabled);
+            Affect, AffectIntensity, blinkingEnabled, GazeTrackingMode);
 
-        public AvatarBehaviorSettings WithPointerGazeTracking(bool enabled) => new AvatarBehaviorSettings(
-            Affect, AffectIntensity, BlinkingEnabled, enabled);
+        public AvatarBehaviorSettings WithGazeTracking(AvatarGazeTrackingMode mode) => new AvatarBehaviorSettings(
+            Affect, AffectIntensity, BlinkingEnabled, mode);
 
         public bool Equals(AvatarBehaviorSettings other)
         {
             return Affect == other.Affect
                 && AffectIntensity.Equals(other.AffectIntensity)
                 && BlinkingEnabled == other.BlinkingEnabled
-                && PointerGazeTrackingEnabled == other.PointerGazeTrackingEnabled;
+                && GazeTrackingMode == other.GazeTrackingMode;
         }
 
         public override bool Equals(object obj) => obj is AvatarBehaviorSettings other && Equals(other);
@@ -149,7 +151,7 @@ namespace Katarune.Avatar
         public override int GetHashCode()
         {
             return HashCode.Combine(
-                Affect, AffectIntensity, BlinkingEnabled, PointerGazeTrackingEnabled);
+                Affect, AffectIntensity, BlinkingEnabled, GazeTrackingMode);
         }
     }
 

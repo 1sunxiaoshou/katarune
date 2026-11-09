@@ -7,7 +7,7 @@ import {
   type Display,
   type Rectangle,
 } from "electron";
-import { readFileSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -15,6 +15,8 @@ import {
   desktopTextSchema,
   avatarDisplayModeSchema,
   avatarCameraViewSchema,
+  avatarGazeTrackingModeSchema,
+  type AvatarGazeTrackingMode,
   type DesktopCommand,
   type DesktopSnapshot,
   type DesktopSurface,
@@ -24,15 +26,18 @@ import {
 import type { AvatarService } from "./avatarService";
 import { nearestPanelBounds } from "./panelPlacement";
 import { AVATAR_CHANNELS, avatarTextResultSchema } from "../../shared/avatar";
+import { avatarBackgroundSchema, DEFAULT_AVATAR_BACKGROUND, type AvatarBackground } from "../../shared/avatarBackground";
+import { writeDesktopPreferences } from "./desktopPreferences";
 
 type Placement = { display: string; x: number; y: number; height: number };
 type Preferences = {
-  version: 2;
+  version: 3;
   role: Placement;
   capsule: Placement;
   yaw: number;
   pitch: number;
-  gaze: boolean;
+  gaze: AvatarGazeTrackingMode;
+  backgroundId: AvatarBackground;
   outline: boolean;
 };
 const CAPSULE_WIDTH = 240;
@@ -75,6 +80,7 @@ export class AvatarDesktopWindows {
     | undefined;
   private publishTimer: ReturnType<typeof setTimeout> | undefined;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingSave = Promise.resolve();
   private disposed = false;
   private lastInputZones = "";
   constructor(
@@ -86,12 +92,16 @@ export class AvatarDesktopWindows {
     const display = screen.getPrimaryDisplay();
     this.prefs = this.defaults(display);
     try {
-      const saved: unknown = JSON.parse(readFileSync(this.file, "utf8"));
+      let saved: unknown = JSON.parse(readFileSync(this.file, "utf8"));
+      if (saved && typeof saved === "object" && "version" in saved && saved.version === 2 && "gaze" in saved && typeof saved.gaze === "boolean")
+        saved = { ...saved, version: 3, gaze: saved.gaze ? "mouse" : "none" };
+      if (saved && typeof saved === "object" && "version" in saved && saved.version === 3 && !("backgroundId" in saved))
+        saved = { ...saved, backgroundId: DEFAULT_AVATAR_BACKGROUND };
       if (this.validPreferences(saved)) {
         this.prefs = {
-          version: 2, role: saved.role, capsule: saved.capsule,
+          version: 3, role: saved.role, capsule: saved.capsule,
           yaw: saved.yaw, pitch: saved.pitch,
-          gaze: saved.gaze, outline: saved.outline,
+          gaze: saved.gaze, outline: saved.outline, backgroundId: saved.backgroundId,
         };
         this.hasSavedLayout = true;
       }
@@ -160,9 +170,10 @@ export class AvatarDesktopWindows {
     if (!value || typeof value !== "object") return false;
     const p = value as Preferences;
     return (
-      p.version === 2 &&
+      p.version === 3 &&
       [p.yaw, p.pitch].every(Number.isFinite) &&
-      typeof p.gaze === "boolean" &&
+      avatarGazeTrackingModeSchema.safeParse(p.gaze).success &&
+      avatarBackgroundSchema.safeParse(p.backgroundId).success &&
       typeof p.outline === "boolean" &&
       [p.role, p.capsule].every(
         (r) =>
@@ -193,7 +204,7 @@ export class AvatarDesktopWindows {
       },
     );
     return {
-      version: 2,
+      version: 3,
       role,
       capsule: {
         display: String(d.id),
@@ -203,7 +214,8 @@ export class AvatarDesktopWindows {
       },
       yaw: 0,
       pitch: 4,
-      gaze: false,
+      gaze: "none",
+      backgroundId: DEFAULT_AVATAR_BACKGROUND,
       outline: false,
     };
   }
@@ -441,7 +453,10 @@ export class AvatarDesktopWindows {
       }
       this.sendLayout();
       void this.avatar
-        .desktopCommand("gaze", String(this.prefs.gaze))
+        .desktopCommand("gaze", this.prefs.gaze)
+        .catch((e) => this.operationError(e));
+      void this.avatar
+        .desktopCommand("background", this.prefs.backgroundId)
         .catch((e) => this.operationError(e));
       void this.avatar
         .desktopCommand("outline", String(this.prefs.outline))
@@ -485,6 +500,7 @@ export class AvatarDesktopWindows {
       textSessionId: this.textSessionId,
       mode: this.mode,
       cameraView: this.cameraView,
+      backgroundId: this.prefs.backgroundId,
       voiceLevel: this.avatar.inputLevel,
       panel: this.panelView,
       panelRevision: this.panelRevision,
@@ -670,6 +686,7 @@ export class AvatarDesktopWindows {
         "action",
         "action-stop",
         "gaze",
+        "background",
         "outline",
       ],
     };
@@ -798,7 +815,20 @@ export class AvatarDesktopWindows {
       case "action-stop":
         await this.avatar.desktopCommand(`desktop-${c.operation}`, value);
         break;
-      case "gaze":
+      case "background": {
+        const backgroundId = avatarBackgroundSchema.parse(value);
+        await this.avatar.desktopCommand("background", backgroundId);
+        this.prefs.backgroundId = backgroundId;
+        this.saveSoon();
+        break;
+      }
+      case "gaze": {
+        const mode = avatarGazeTrackingModeSchema.parse(value);
+        await this.avatar.desktopCommand("gaze", mode);
+        this.prefs.gaze = mode;
+        this.saveSoon();
+        break;
+      }
       case "outline":
         await this.avatar.desktopCommand(c.operation, value);
         this.prefs[c.operation] = value === "true";
@@ -807,25 +837,25 @@ export class AvatarDesktopWindows {
     }
   }
   private saveSoon(): void {
+    if (this.disposed) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = undefined;
-      this.save();
+      void this.save();
     }, 400);
   }
-  private save(): void {
-    try {
-      writeFileSync(`${this.file}.tmp`, JSON.stringify(this.prefs));
-      renameSync(`${this.file}.tmp`, this.file);
-    } catch (error) {
-      this.operationError(error);
-    }
+  private save(): Promise<void> {
+    const contents = JSON.stringify(this.prefs);
+    this.pendingSave = this.pendingSave
+      .then(() => writeDesktopPreferences(this.file, contents))
+      .catch(error => this.operationError(new Error("桌宠设置保存失败，请检查文件访问权限。", { cause: error })));
+    return this.pendingSave;
   }
   private closeWindows(): void {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = undefined;
-      this.save();
+      void this.save();
     }
     this.cancelLayout();
     this.initialized = false;
@@ -847,10 +877,11 @@ export class AvatarDesktopWindows {
     for (const w of this.windows.values()) if (!w.isDestroyed()) w.destroy();
     this.windows.clear();
   }
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true;
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.save();
+    this.saveTimer = undefined;
+    const saved = this.save();
     this.closeWindows();
     this.avatar.onDesktopChanged = undefined;
     this.avatar.onWindowState = undefined;
@@ -861,5 +892,6 @@ export class AvatarDesktopWindows {
     screen.removeListener("display-added", this.displaysChanged);
     screen.removeListener("display-removed", this.displaysChanged);
     screen.removeListener("display-metrics-changed", this.displaysChanged);
+    await saved;
   }
 }

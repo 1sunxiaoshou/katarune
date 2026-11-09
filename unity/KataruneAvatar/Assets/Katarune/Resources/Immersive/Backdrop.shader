@@ -5,6 +5,8 @@ Shader "Katarune/ImmersiveBackdrop"
         _Typography ("Typography", 2D) = "black" {}
         _Film ("Film", 2D) = "black" {}
         _Frames ("Frames", 2D) = "black" {}
+        _Picture ("Picture", 2D) = "white" {}
+        _PictureMode ("Picture mode", Float) = 0
         _Opacity ("Opacity", Range(0,1)) = 0
         _MotionTime ("Motion time", Float) = 0
     }
@@ -23,9 +25,12 @@ Shader "Katarune/ImmersiveBackdrop"
             TEXTURE2D(_Typography); SAMPLER(sampler_Typography);
             TEXTURE2D(_Film); SAMPLER(sampler_Film);
             TEXTURE2D(_Frames); SAMPLER(sampler_Frames);
+            TEXTURE2D(_Picture); SAMPLER(sampler_Picture);
             CBUFFER_START(UnityPerMaterial)
                 float _Opacity;
                 float _MotionTime;
+                float _PictureMode;
+                float4 _Picture_TexelSize;
             CBUFFER_END
             struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
             struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -39,6 +44,14 @@ Shader "Katarune/ImmersiveBackdrop"
             }
             half4 Frag(Varyings input) : SV_Target
             {
+                if (_PictureMode > .5)
+                {
+                    // Fill the output while preserving the image's proportions.
+                    float2 size = max(_Picture_TexelSize.zw, 1);
+                    float fillScale = max(_ScreenParams.x / size.x, _ScreenParams.y / size.y);
+                    float2 uv = (input.uv - .5) * _ScreenParams.xy / (size * fillScale) + .5;
+                    return half4(SAMPLE_TEXTURE2D(_Picture, sampler_Picture, uv).rgb, _Opacity);
+                }
                 // HTML canvas uses top-left coordinates and centered aspect fill.
                 float scale = max(_ScreenParams.x / 1920, _ScreenParams.y / 1080);
                 float2 p = (float2(input.uv.x, 1-input.uv.y) - .5) * _ScreenParams.xy / scale;

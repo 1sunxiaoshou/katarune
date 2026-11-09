@@ -10,15 +10,16 @@ const directory = mkdtempSync(join(output, "run-"));
 mkdirSync(join(directory, "session-data"));
 const { ELECTRON_RENDERER_URL: _devUrl, ...environment } = process.env;
 const development = process.argv.includes("--dev");
+const entry = join(root, "tests", "startup.integration.mjs");
 const child = spawn(
   development ? process.execPath : electronPath,
-  development ? [join(root, "node_modules/electron-vite/bin/electron-vite.js"), "--entry", join(root, "tests/startup.integration.mjs")]
-    : [join(root, "tests", "startup.integration.mjs")],
+  development ? [join(root, "node_modules/electron-vite/bin/electron-vite.js"), "--entry", entry]
+    : [entry],
   {
     cwd: root,
     windowsHide: true,
     stdio: "inherit",
-    env: { ...environment, KATARUNE_STARTUP_TEST_DIR: directory },
+    env: { ...environment, KATARUNE_STARTUP_TEST_DIR: directory, KATARUNE_STARTUP_TEST_SCENARIO: process.argv.includes("--backgrounds") ? "backgrounds" : "all" },
   },
 );
 child.once("error", (error) => {

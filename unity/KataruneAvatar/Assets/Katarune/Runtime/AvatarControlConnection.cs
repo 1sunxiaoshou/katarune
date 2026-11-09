@@ -61,6 +61,7 @@ namespace Katarune.Avatar
         internal Color CurrentSubtitleBackground => _userSubtitleActive ? new Color(.92f,.96f,1f,.94f) : new Color(.11f,.10f,.14f,.92f);
         private AvatarSceneRig _rig;
         private long _presentationRevision = -1;
+        private string _presentationBackgroundId;
         private Vector2 _presentationReference;
         private string _lastPresentation;
         private AvatarWindow _window;
@@ -94,7 +95,8 @@ namespace Katarune.Avatar
 
         [Serializable] private sealed class Presentation {
             public string type = "presentation"; public string modelName; public string modelPath; public bool loading;
-            public string affect; public string action; public string[] playingActions; public bool gaze; public bool outline; public string error;
+            public string affect; public string action; public string[] playingActions; public string gaze; public bool outline; public string error;
+            public string backgroundId;
             public float referenceWidth; public float referenceHeight;
         }
         public void Configure(IAvatarRuntimeFacade runtime, string pipeName, AvatarSpeechPlayer speech = null)
@@ -187,15 +189,18 @@ namespace Katarune.Avatar
             if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready) SendCapabilities();
             var snapshot = _runtime.Snapshot;
             var reference = _rig != null ? _rig.ReferenceWindowSize : new Vector2(0.3f, 0.8f);
-            if (snapshot.Revision != _presentationRevision || reference != _presentationReference)
+            var backgroundId = _rig?.BackgroundId ?? AvatarImmersiveBackdrop.DefaultBackgroundId;
+            if (snapshot.Revision != _presentationRevision || reference != _presentationReference || backgroundId != _presentationBackgroundId)
             {
             _presentationRevision = snapshot.Revision; _presentationReference = reference;
+            _presentationBackgroundId = backgroundId;
             var presentation = JsonUtility.ToJson(new Presentation {
                 modelName = snapshot.Model?.Name ?? "", modelPath = snapshot.Model?.Path ?? "",
                 loading = snapshot.RuntimeState == AvatarRuntimeState.Loading,
                 affect = snapshot.Behavior.Affect.ToString().ToLowerInvariant(), action = snapshot.Motion.CurrentActionId ?? "",
                 playingActions = PlayingActions(snapshot.Motion.CurrentActionId),
-                gaze = snapshot.Behavior.PointerGazeTrackingEnabled, outline = snapshot.Presentation.SoftOutlineEnabled,
+                gaze = snapshot.Behavior.GazeTrackingMode.ToString().ToLowerInvariant(), outline = snapshot.Presentation.SoftOutlineEnabled,
+                backgroundId = backgroundId,
                 error = snapshot.LastError ?? "", referenceWidth = reference.x, referenceHeight = reference.y,
             });
             if (presentation != _lastPresentation) { Send(presentation); _lastPresentation = presentation; }
@@ -316,7 +321,17 @@ namespace Katarune.Avatar
                                 if (result.Outcome != AvatarActionRequestOutcome.Started) throw new InvalidOperationException(result.Error ?? "动作不可用。");
                             }
                             Reply(request); break;
-                        case "gaze": _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithPointerGazeTracking(request.value == "true")); Reply(request); break;
+                        case "background":
+                            if (_rig == null) throw new InvalidOperationException("角色画面尚未就绪。");
+                            _rig.SetBackground(request.value); Reply(request); break;
+                        case "gaze":
+                            var gazeMode = request.value switch {
+                                "none" => AvatarGazeTrackingMode.None,
+                                "mouse" => AvatarGazeTrackingMode.Mouse,
+                                "camera" => AvatarGazeTrackingMode.Camera,
+                                _ => throw new InvalidOperationException("视线追踪模式无效。"),
+                            };
+                            _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithGazeTracking(gazeMode)); Reply(request); break;
                         case "outline": _runtime.ApplyPresentation(_runtime.Snapshot.Presentation.WithSoftOutline(request.value == "true")); Reply(request); break;
                         case "speech":
                             RequireNoDance();
@@ -506,7 +521,7 @@ namespace Katarune.Avatar
                 if (result.Outcome == AvatarLoadOutcome.Loaded) {
                     _rig?.SetDesktopPose(yaw, pitch);
                     SendCapabilities(force: true);
-                    _runtime.ApplyBehavior(epoch == _epoch ? behavior : _runtime.Snapshot.Behavior.WithPointerGazeTracking(behavior.PointerGazeTrackingEnabled));
+                    _runtime.ApplyBehavior(epoch == _epoch ? behavior : _runtime.Snapshot.Behavior.WithGazeTracking(behavior.GazeTrackingMode));
                 }
                 Reply(request, result.Outcome == AvatarLoadOutcome.Loaded ? null : result.Error ?? "模型加载失败。");
             } catch (Exception error) { Reply(request, error.Message); }

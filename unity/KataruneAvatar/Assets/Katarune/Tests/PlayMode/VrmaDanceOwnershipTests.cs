@@ -54,44 +54,47 @@ namespace Katarune.Avatar.Tests
                 motion = preparing.GetAwaiter().GetResult(); driver = new UniVrmAvatarDriver(model); driver.AttachMotion(motion);
                 var generated = model.GetComponent<AdaptiveIdlePlayback>();
                 motion.Tick(.3f); Assert.That(generated.IsBakedActive, Is.True, "No authored idle uses the generated secondary-motion loop.");
-                var frame = new AvatarPoseFrame {
-                    HasAuthoredBodyPose = true, ProceduralBodyWeight = 0f, ProceduralArmWeight = 0f,
-                    Blink = 1f, Happy = .9f, Aa = .8f, HeadGaze = new Vector2(24f, 10f), GazeYaw = 24f, GazePitch = 10f,
-                    HeadEuler = new Vector3(12, 18, 3), HipsPositionOffset = new Vector3(.2f, .1f, 0),
-                };
-                motion.BeginDance(faceId); motion.SampleDance(faceId, .5f); motion.Tick(.3f);
-                var head = model.Runtime.ControlRig.GetBoneTransform(HumanBodyBones.Head);
-                var hips = model.Runtime.ControlRig.GetBoneTransform(HumanBodyBones.Hips);
-                var authoredHead = head.localRotation; var authoredHips = hips.localPosition;
-                driver.Apply(frame); model.Runtime.Process();
-                Assert.That(generated.IsBakedActive, Is.False, "Dance must release the baked joints so native SpringBone writeback stays enabled.");
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.Zero);
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.Zero);
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.EqualTo(.4f).Within(.001f));
-                Assert.That(model.Runtime.Expression.GetWeight(custom), Is.EqualTo(.6f).Within(.001f));
-                Assert.That(model.Runtime.LookAt.Yaw, Is.EqualTo(-20f).Within(.1f));
-                Assert.That(Quaternion.Angle(head.localRotation, authoredHead), Is.LessThan(.001f), "Pointer gaze cannot modify the dance head.");
-                Assert.That(Vector3.Distance(hips.localPosition, authoredHips), Is.LessThan(.00001f));
+                foreach (var gazeMode in new[] { AvatarGazeTrackingMode.Mouse, AvatarGazeTrackingMode.Camera })
+                {
+                    var behavior = new AvatarBehaviorModel(new SystemAvatarRandom(1));
+                    behavior.ApplySettings(AvatarBehaviorSettings.Default.WithGazeTracking(gazeMode));
+                    var frame = behavior.Tick(1f, new Vector2(18f, 10f));
+                    frame.HasAuthoredBodyPose = true; frame.ProceduralBodyWeight = frame.ProceduralArmWeight = 0f;
+                    frame.Blink = 1f; frame.Happy = .9f; frame.Aa = .8f;
+                    motion.BeginDance(faceId); motion.SampleDance(faceId, .5f); motion.Tick(.3f);
+                    var head = model.Runtime.ControlRig.GetBoneTransform(HumanBodyBones.Head);
+                    var hips = model.Runtime.ControlRig.GetBoneTransform(HumanBodyBones.Hips);
+                    var authoredHead = head.localRotation; var authoredHips = hips.localPosition;
+                    driver.Apply(frame); model.Runtime.Process();
+                    Assert.That(generated.IsBakedActive, Is.False, "Dance must release the baked joints so native SpringBone writeback stays enabled.");
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.Zero);
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.Zero);
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.EqualTo(.4f).Within(.001f));
+                    Assert.That(model.Runtime.Expression.GetWeight(custom), Is.EqualTo(.6f).Within(.001f));
+                    Assert.That(model.Runtime.LookAt.Yaw, Is.EqualTo(-20f).Within(.1f));
+                    Assert.That(Quaternion.Angle(head.localRotation, authoredHead), Is.LessThan(.001f), "Tracking cannot modify the dance head: " + gazeMode);
+                    Assert.That(Vector3.Distance(hips.localPosition, authoredHips), Is.LessThan(.00001f));
 
-                motion.EndDance(true); motion.Tick(.3f); var neutralHead = head.localRotation;
-                driver.Apply(frame); model.Runtime.Process();
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.EqualTo(1f));
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.EqualTo(.8f).Within(.001f));
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.EqualTo(.9f).Within(.001f));
-                Assert.That(model.Runtime.Expression.GetWeight(custom), Is.Zero, "Ended clip custom weights must not stick.");
-                Assert.That(Quaternion.Angle(head.localRotation, neutralHead), Is.GreaterThan(3f));
-                Assert.That(generated.IsBakedActive, Is.True);
+                    motion.EndDance(true); motion.Tick(.3f); var neutralHead = head.localRotation;
+                    driver.Apply(frame); model.Runtime.Process();
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.EqualTo(1f));
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.EqualTo(.8f).Within(.001f));
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.EqualTo(.9f).Within(.001f));
+                    Assert.That(model.Runtime.Expression.GetWeight(custom), Is.Zero, "Ended clip custom weights must not stick.");
+                    Assert.That(Quaternion.Angle(head.localRotation, neutralHead), Is.GreaterThan(3f));
+                    Assert.That(generated.IsBakedActive, Is.True);
 
-                motion.BeginDance(bodyId); motion.SampleDance(bodyId, .5f); motion.Tick(.3f);
-                driver.Apply(frame); model.Runtime.Process();
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.Zero, "A dance without facial tracks stays neutral.");
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.Zero);
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.Zero);
-                Assert.That(model.Runtime.LookAt.Yaw, Is.Zero.Within(.001f));
-                Assert.That(model.Runtime.LookAt.Pitch, Is.Zero.Within(.001f));
-                Assert.That(generated.IsBakedActive, Is.False);
-                motion.EndDance(true); motion.Tick(.3f); driver.Apply(frame);
-                Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.EqualTo(.8f).Within(.001f));
+                    motion.BeginDance(bodyId); motion.SampleDance(bodyId, .5f); motion.Tick(.3f);
+                    driver.Apply(frame); model.Runtime.Process();
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Blink), Is.Zero, "A dance without facial tracks stays neutral.");
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Happy), Is.Zero);
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.Zero);
+                    Assert.That(model.Runtime.LookAt.Yaw, Is.Zero.Within(.001f));
+                    Assert.That(model.Runtime.LookAt.Pitch, Is.Zero.Within(.001f));
+                    Assert.That(generated.IsBakedActive, Is.False);
+                    motion.EndDance(true); motion.Tick(.3f); driver.Apply(frame);
+                    Assert.That(model.Runtime.Expression.GetWeight(ExpressionKey.Aa), Is.EqualTo(.8f).Within(.001f));
+                }
             }
             finally { driver?.Dispose(); motion?.Dispose(); if (facePath != null) File.Delete(facePath); Object.Destroy(model.gameObject); }
             yield return null;

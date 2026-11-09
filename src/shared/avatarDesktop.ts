@@ -2,11 +2,14 @@ import type { DiagnosticsApi } from "./diagnostics";
 import * as z from "zod/mini";
 import type { AvatarStatus, AvatarCapabilities } from "./avatar";
 import { avatarCameraViewSchema, type AvatarCameraView } from "./avatarCamera";
+import { avatarBackgroundSchema, type AvatarBackground } from "./avatarBackground";
 export { avatarCameraViewSchema, type AvatarCameraView } from "./avatarCamera";
 
 const number = z.number();
 export const avatarDisplayModeSchema = z.enum(["desktop", "immersive"]);
 export type AvatarDisplayMode = z.infer<typeof avatarDisplayModeSchema>;
+export const avatarGazeTrackingModeSchema = z.enum(["none", "mouse", "camera"]);
+export type AvatarGazeTrackingMode = z.infer<typeof avatarGazeTrackingModeSchema>;
 export const desktopRectSchema = z.object({
   x: number,
   y: number,
@@ -22,7 +25,8 @@ export const avatarPresentationSchema = z.object({
   affect: z.string(),
   action: z.string(),
   playingActions: z.optional(z.array(z.string().check(z.minLength(1), z.maxLength(256))).check(z.maxLength(3))),
-  gaze: z.boolean(),
+  gaze: avatarGazeTrackingModeSchema,
+  backgroundId: avatarBackgroundSchema,
   outline: z.boolean(),
   error: z.string(),
   referenceWidth: number,
@@ -71,6 +75,7 @@ export const desktopCommandSchema = z.object({
     "capsule-size",
     "mode",
     "camera-view",
+    "background",
   ]),
   value: z.optional(z.string().check(z.maxLength(256))),
   width: z.optional(z.number().check(z.gte(100), z.lte(520))),
@@ -97,6 +102,7 @@ export type DesktopSnapshot = {
   textSessionId: string | null;
   mode: AvatarDisplayMode;
   cameraView: AvatarCameraView;
+  backgroundId: AvatarBackground;
   voiceLevel: number;
   panel: "more" | "help";
   panelPhase: "closed" | "preparing" | "open";
