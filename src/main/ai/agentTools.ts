@@ -6,7 +6,7 @@ import { experimental_createBashTool } from "@ai-sdk/tool-bash";
 import { experimental_createWebFetchTool } from "@ai-sdk/tool-web-fetch";
 import { tool, type ToolSet, type UIMessage } from "ai";
 import { z } from "zod";
-import { directoryAccessInputSchema, type AgentAccessMode, type DirectoryAccess } from "../../shared/agentTools";
+import { agentAccessModeSchema, directoryAccessInputSchema, type AgentAccessMode, type DirectoryAccess } from "../../shared/agentTools";
 import { parseAssetUrl } from "../../shared/assets";
 import type { AssetService } from "../assets/assetService";
 import type { ChatImageProcessor } from "../assets/chatImageProcessor";
@@ -14,6 +14,11 @@ import type { DatabaseRuntime } from "../database/database";
 import { ChatAttachmentRunBudget, chatAttachmentPath, createViewImageTools } from "./chatAttachments";
 import { createRestrictedBash, createRestrictedFilesystem, filesystemSandbox } from "./bashSandbox";
 import { findNativeBash, runNativeBash } from "./nativeBash";
+
+export function validateAgentAccessMode(mode: AgentAccessMode): void {
+  agentAccessModeSchema.parse(mode);
+  if (mode === "full-access" && !findNativeBash()) throw new Error("完全访问需要本机 Bash。Windows 请先安装 Git for Windows。");
+}
 
 type ToolDatabase = Pick<DatabaseRuntime, "fetchCharacter" | "fetchThread" | "fetchThreadChatAttachment" | "fetchAsset" | "fetchAssetSourcePath" | "getThreadToolAccess" | "setThreadToolMode" | "grantThreadDirectory" | "revokeThreadDirectory">;
 export interface AgentToolRun {
@@ -115,7 +120,7 @@ export class AgentToolsService {
 
   setMode(characterId: string, threadId: string, mode: AgentAccessMode) {
     this.state(characterId, threadId);
-    if (mode === "full-access" && !findNativeBash()) throw new Error("完全访问需要本机 Bash。Windows 请先安装 Git for Windows。");
+    validateAgentAccessMode(mode);
     this.cancel(threadId);
     this.database.setThreadToolMode(threadId, characterId, mode);
     return this.state(characterId, threadId);

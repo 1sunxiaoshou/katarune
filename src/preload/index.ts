@@ -38,6 +38,8 @@ import {
   deleteCharacterResultSchema,
   deleteThreadMessagesRequestSchema,
   initializeThreadResponseSchema,
+  initializeThreadRequestSchema,
+  type InitializeThreadRequest,
   importChatAttachmentRequestSchema,
   listThreadsRequestSchema,
   IPC_CHANNELS,
@@ -226,11 +228,11 @@ const api: KataruneApi = Object.freeze({
       threadListSchema,
       listThreadsRequestSchema.parse(request),
     ),
-  initializeThread: (request: ThreadIdRequest) =>
+  initializeThread: (request: InitializeThreadRequest) =>
     invokeValidated(
       IPC_CHANNELS.initializeThread,
       initializeThreadResponseSchema,
-      threadIdRequestSchema.parse(request),
+      initializeThreadRequestSchema.parse(request),
     ),
   fetchThread: (request: ThreadIdRequest) =>
     invokeValidated(

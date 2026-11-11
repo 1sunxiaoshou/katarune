@@ -12,7 +12,7 @@ import {
 } from "./characters";
 import { MODEL_TYPES } from "./models";
 import type { LiveApi } from "./live";
-import type { AgentToolsApi } from "./agentTools";
+import { agentAccessModeSchema, type AgentToolsApi } from "./agentTools";
 import type { McpApi } from "./mcp";
 import type { AppUpdatesApi } from "./appUpdates";
 import { PROVIDER_TYPES } from "./providers";
@@ -158,6 +158,10 @@ export const aiRuntimeStatusSchema = z.strictObject({
 export const threadIdRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
   characterId: z.uuid(),
+});
+
+export const initializeThreadRequestSchema = z.extend(threadIdRequestSchema, {
+  initialAccessMode: z.optional(agentAccessModeSchema),
 });
 
 export const listThreadsRequestSchema = z.strictObject({
@@ -580,6 +584,7 @@ export type AppInfo = Readonly<z.infer<typeof appInfoSchema>>;
 export type DatabaseStatus = Readonly<z.infer<typeof databaseStatusSchema>>;
 export type AiRuntimeStatus = Readonly<z.infer<typeof aiRuntimeStatusSchema>>;
 export type ThreadIdRequest = Readonly<z.infer<typeof threadIdRequestSchema>>;
+export type InitializeThreadRequest = Readonly<z.infer<typeof initializeThreadRequestSchema>>;
 export type ListThreadsRequest = Readonly<z.infer<typeof listThreadsRequestSchema>>;
 export type ThreadMetadata = Readonly<z.infer<typeof threadMetadataSchema>>;
 export type ThreadList = Readonly<z.infer<typeof threadListSchema>>;
@@ -689,7 +694,7 @@ export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, Mcp
   getAppSettings(): Promise<AppSettings>;
   updateAppSettings(request: UpdateAppSettingsRequest): Promise<AppSettings>;
   listThreads(request: ListThreadsRequest): Promise<ThreadList>;
-  initializeThread(request: ThreadIdRequest): Promise<InitializeThreadResponse>;
+  initializeThread(request: InitializeThreadRequest): Promise<InitializeThreadResponse>;
   fetchThread(request: ThreadIdRequest): Promise<ThreadMetadata>;
   generateThreadTitle(
     request: GenerateThreadTitleRequest,

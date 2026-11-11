@@ -240,6 +240,29 @@ try {
   });
   assert.deepEqual(runtime.getAppSettings(), emptyAppSettings);
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
+  // Fail the permission INSERT after the thread INSERT to verify real SQLite rollback.
+  const atomicThreadId = "atomic-permission-thread";
+  const atomicSqlite = new BetterSqlite3(join(userDataPath, "katarune.sqlite"));
+  try {
+    atomicSqlite.exec(`CREATE TRIGGER fail_initial_permission BEFORE INSERT ON thread_tool_access
+      WHEN NEW.thread_id = 'atomic-permission-thread'
+      BEGIN SELECT RAISE(ABORT, 'synthetic initial permission failure'); END;`);
+    assert.throws(() => runtime!.initializeThread(atomicThreadId, initialCharacterId, "chat", "full-access"), /synthetic initial permission failure/);
+    assert.equal(atomicSqlite.prepare('SELECT id FROM threads WHERE id = ?').get(atomicThreadId), undefined);
+    assert.equal(atomicSqlite.prepare('SELECT thread_id FROM thread_tool_access WHERE thread_id = ?').get(atomicThreadId), undefined);
+    atomicSqlite.exec('DROP TRIGGER fail_initial_permission');
+    runtime.initializeThread(atomicThreadId, initialCharacterId, "chat", "full-access");
+    assert.equal(runtime.getThreadToolAccess(atomicThreadId, initialCharacterId).mode, "full-access");
+    runtime.setThreadToolMode(atomicThreadId, initialCharacterId, "request-approval");
+    runtime.initializeThread(atomicThreadId, initialCharacterId, "chat", "full-access");
+    assert.equal(runtime.getThreadToolAccess(atomicThreadId, initialCharacterId).mode, "request-approval", 'retry must not reset existing permissions');
+    assert.throws(() => runtime!.initializeThread("invalid-live-permission", initialCharacterId, "live", "full-access"));
+    assert.equal(atomicSqlite.prepare('SELECT id FROM threads WHERE id = ?').get("invalid-live-permission"), undefined);
+    runtime.deleteThread(atomicThreadId, initialCharacterId);
+  } finally {
+    atomicSqlite.exec('DROP TRIGGER IF EXISTS fail_initial_permission');
+    atomicSqlite.close();
+  }
   await runAgentToolIntegration(runtime, userDataPath);
   await runImageReferenceIntegration(configValidator);
   runtime.initializeThread(threadId, initialCharacterId);
@@ -657,6 +680,8 @@ try {
   runtime.deleteThread(orderingThreadId, restoredCharacterId);
 
   runtime.initializeThread(secondThreadId, secondCharacterId);
+  assert.throws(() => runtime!.initializeThread(secondThreadId, restoredCharacterId, "chat", "full-access"));
+  assert.equal(runtime.getThreadToolAccess(secondThreadId, secondCharacterId).mode, "request-approval");
   assert.deepEqual(
     runtime.listThreads(restoredCharacterId).threads.map((thread) => thread.remoteId),
     [threadId],

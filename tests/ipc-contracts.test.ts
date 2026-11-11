@@ -28,6 +28,7 @@ import {
   replaceProviderCredentialRequestSchema,
   listThreadsRequestSchema,
   threadIdRequestSchema,
+  initializeThreadRequestSchema,
   setActiveCharacterRequestSchema,
   speechCancelRequestSchema,
   speechGenerateRequestSchema,
@@ -39,6 +40,12 @@ import {
 } from "../src/shared/ipc";
 
 describe("shared IPC contracts", () => {
+  it("validates initial permissions without accepting renderer-selected thread kinds", () => {
+    const request = { threadId: "draft", characterId: "00000000-0000-4000-8000-000000000001" };
+    expect(initializeThreadRequestSchema.parse({ ...request, initialAccessMode: "full-access" })).toEqual({ ...request, initialAccessMode: "full-access" });
+    expect(initializeThreadRequestSchema.safeParse({ ...request, initialAccessMode: "unknown" }).success).toBe(false);
+    expect(initializeThreadRequestSchema.safeParse({ ...request, kind: "live" }).success).toBe(false);
+  });
   it("validates default model settings and partial updates", () => {
     const defaultLanguageModelConfigId =
       "00000000-0000-4000-8000-000000000001";

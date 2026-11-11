@@ -20,6 +20,7 @@ import {
   renameThreadRequestSchema,
   setThreadStatusRequestSchema,
   threadIdRequestSchema,
+  initializeThreadRequestSchema,
 } from "../../shared/ipc";
 import { createChatService } from "../ai/chatService";
 import { ChatStreamRegistry, startChatStream } from "../ai/chatStream";
@@ -27,7 +28,7 @@ import type { AiRuntime } from "../ai/runtime";
 import type { DatabaseRuntime } from "../database/database";
 import type { AssetService } from "../assets/assetService";
 import { createElectronChatImageProcessor } from "../assets/chatImageProcessor";
-import type { AgentToolsService } from "../ai/agentTools";
+import { validateAgentAccessMode, type AgentToolsService } from "../ai/agentTools";
 import type { McpService } from "../mcp/mcpService";
 
 export function registerChatHandlers(
@@ -79,8 +80,9 @@ export function registerChatHandlers(
     return database.listThreads(characterId);
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.initializeThread, (_event, value: unknown) => {
-    const { threadId, characterId } = parseRequest(threadIdRequestSchema, value);
-    return database.initializeThread(threadId, characterId);
+    const { threadId, characterId, initialAccessMode = "request-approval" } = parseRequest(initializeThreadRequestSchema, value);
+    validateAgentAccessMode(initialAccessMode);
+    return database.initializeThread(threadId, characterId, "chat", initialAccessMode);
   });
   diagnosticIpcMain.handle(IPC_CHANNELS.fetchThread, (_event, value: unknown) => {
     const { threadId, characterId } = parseRequest(threadIdRequestSchema, value);

@@ -13,7 +13,8 @@ import {
 } from "../../shared/ipc";
 import { VALIDATION_THREAD_ID } from "./constants";
 import { assetColumns } from "./assetRepository";
-import { assets, messageAssets, messages, threads } from "./schema";
+import { assets, messageAssets, messages, threads, threadToolAccess } from "./schema";
+import { agentAccessModeSchema } from "../../shared/agentTools";
 import type {
   KataruneDatabase,
   ThreadRepository,
@@ -52,26 +53,40 @@ export function createThreadRepository(
     });
   };
 
-  const initializeThread: ThreadRepository["initializeThread"] = (threadId, characterId, kind = "chat") => {
+  const initializeThread: ThreadRepository["initializeThread"] = (threadId, characterId, kind = "chat", initialAccessMode) => {
     fetchCharacter(characterId);
-    const now = new Date();
-    database
-      .insert(threads)
-      .values({
-        id: threadId,
-        kind,
-        characterId,
-        title: "新对话",
-        status: "regular",
-        lastMessageAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: threads.id })
-      .run();
+    if (initialAccessMode !== undefined) {
+      agentAccessModeSchema.parse(initialAccessMode);
+      if (kind !== "chat") throw new OperationRejected("operation-not-allowed");
+    }
+    return database.transaction((transaction) => {
+      const now = new Date();
+      const inserted = transaction
+        .insert(threads)
+        .values({
+          id: threadId,
+          kind,
+          characterId,
+          title: "新对话",
+          status: "regular",
+          lastMessageAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: threads.id })
+        .run();
 
-    fetchThread(threadId, characterId);
-    return initializeThreadResponseSchema.parse({ remoteId: threadId });
+      const thread = fetchThread(threadId, characterId);
+      if (initialAccessMode !== undefined && thread.kind !== "chat")
+        throw new OperationRejected("operation-not-allowed");
+      // Retried initialization must never reset permissions on an existing conversation.
+      if (inserted.changes > 0 && kind === "chat") {
+        transaction.insert(threadToolAccess).values({
+          threadId, mode: initialAccessMode ?? "request-approval",
+        }).run();
+      }
+      return initializeThreadResponseSchema.parse({ remoteId: threadId });
+    });
   };
 
   return {

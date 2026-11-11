@@ -12,7 +12,7 @@ import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
 import { createAssetService } from "../src/main/assets/assetService";
-import { assetSchema, referenceChatAttachmentRequestSchema, importChatAttachmentRequestSchema } from "../src/shared/ipc";
+import { assetSchema, referenceChatAttachmentRequestSchema, importChatAttachmentRequestSchema, initializeThreadRequestSchema } from "../src/shared/ipc";
 import { AGENT_TOOL_CHANNELS, agentAccessRequestSchema, agentCharacterRequestSchema, agentModeRequestSchema } from "../src/shared/agentTools";
 import { DEFAULT_LIVE_SETTINGS, LIVE_CHANNELS, LIVE_LOGIN_CHANNELS, livePlatformSchema, liveLoginIdSchema, liveSettingsSchema, liveCredentialsSchema, liveWebCredentialsSchema } from "../src/shared/live";
 import { Mp4Preview } from "../src/main/live/mp4Preview";
@@ -137,6 +137,9 @@ const secondCharacter = {
 let characters = [character, secondCharacter];
 let activeCharacterId = characterId;
 const agentModes = new Map();
+const chatAccessModes = new Map();
+let failThreadInitialization = false;
+const failedThreadInitializations = [];
 const openedAgentWorkspaces = [];
 let directoryApprovalResponses = 0;
 let webApprovalResponses = 0;
@@ -381,8 +384,14 @@ function registerMockHandlers() {
       completedThreadListLoads += 1;
     }
   });
-  ipcMain.handle("threads:initialize", (_event, request) => {
+  ipcMain.handle("threads:initialize", (_event, value) => {
+    const request = initializeThreadRequestSchema.parse(value);
+    if (failThreadInitialization) {
+      failedThreadInitializations.push(request);
+      throw new Error("合成会话初始化失败");
+    }
     if (!threads.some((thread) => thread.remoteId === request.threadId)) {
+      agentModes.set(request.threadId, request.initialAccessMode ?? 'request-approval');
       threads = [
         {
           remoteId: request.threadId,
@@ -504,6 +513,7 @@ function registerMockHandlers() {
     return { success: true };
   });
   ipcMain.on("chat-stream:start", (event, request) => {
+    chatAccessModes.set(request.threadId, agentModes.get(request.threadId) ?? "request-approval");
     const port = event.ports[0];
     if (port === undefined) return;
     activeChatStreamCount += 1;
@@ -1524,12 +1534,19 @@ async function run() {
       await click('[data-testid="settings-back"]');
     });
     await runStep("composer tool permissions switch directly without leaving the draft", async () => {
+      await window.webContents.executeJavaScript(`window.permissionUnhandledRejections = [];
+        window.addEventListener('unhandledrejection', event => {
+          window.permissionUnhandledRejections.push(String(event.reason));
+        }); void 0`);
       const setComposerValue = (target, value) => target.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, ${JSON.stringify(value)});
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
+      await clickSelector(window, '[data-testid="thread-new"]');
       await waitForText(window, '[data-testid="agent-access-trigger"]', '请求批准');
+      const initialThreadCount = threads.length;
+      const initialModeCount = agentModes.size;
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="agent-access-trigger"]').closest('.aui-composer-action-wrapper') !== null`), true);
       await setComposerValue(window, '保留权限切换前的草稿');
       await clickSelector(window, '[data-testid="agent-access-trigger"]');
@@ -1538,21 +1555,64 @@ async function run() {
       await waitUntil('permission options loaded', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="agent-access-option-full-access"]').disabled`));
       await clickSelector(window, '[data-testid="agent-access-option-full-access"]');
       await waitForText(window, '[data-testid="agent-access-trigger"]', '完全访问');
-      const permissionThreadId = [...agentModes.keys()].find(id => agentModes.get(id) === 'full-access');
-      assert.ok(permissionThreadId);
-      await window.webContents.executeJavaScript(`document.querySelector('.thread-starline-item[data-active="true"]')?.setAttribute('data-permission-test-thread','true')`);
+      assert.equal(threads.length, initialThreadCount, 'changing draft permissions must not create a conversation');
+      assert.equal(agentModes.size, initialModeCount, 'draft permissions must not be persisted before sending');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="消息输入"]').value`), '保留权限切换前的草稿');
       await new Promise(resolve => setTimeout(resolve, 250));
       writeFileSync(join(projectRoot, '.test-dist', 'agent-access-composer.png'), (await window.webContents.capturePage()).toPNG());
       window.setSize(760, 520);
       await clickSelector(window, '[data-testid="agent-access-trigger"]');
       await waitForSelector(window, '[data-testid="agent-access-menu"]');
+      await waitUntil('draft permission selection restored', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="agent-access-option-full-access"]').getAttribute('aria-pressed') === 'true'`));
       await waitUntil('compact permission menu fits', () => window.webContents.executeJavaScript(`(() => { const r=document.querySelector('[data-testid="agent-access-menu"]').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight; })()`));
       await new Promise(resolve => setTimeout(resolve, 250));
       writeFileSync(join(projectRoot, '.test-dist', 'agent-access-composer-menu.png'), (await window.webContents.capturePage()).toPNG());
       await clickSelector(window, '.aui-composer-input');
       window.setSize(1280, 900);
-      await setComposerValue(window, '');
+      for (const mode of ['request-approval', 'full-access']) {
+        await clickSelector(window, '[data-testid="agent-access-trigger"]');
+        await waitUntil('draft permission options loaded', () => window.webContents.executeJavaScript(`!document.querySelector('[data-testid="agent-access-option-${mode}"]').disabled`));
+        await clickSelector(window, `[data-testid="agent-access-option-${mode}"]`);
+      }
+      assert.equal(threads.length, initialThreadCount, 'repeated draft permission changes must not create a conversation');
+      await clickSelector(window, '[data-testid="character-launcher"]');
+      await waitForSelector(window, '[data-testid="character-system-prompt"]');
+      await clickSelector(window, '[data-testid="character-back"]');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '完全访问权限');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[aria-label="消息输入"]').value`), '保留权限切换前的草稿');
+      const chatCountBeforeFailure = chatAccessModes.size;
+      const titleCountBeforeFailure = titleRequests.length;
+      failThreadInitialization = true;
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitUntil('initialization failure delivered', () => failedThreadInitializations.length > 0);
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '合成会话初始化失败');
+      assert.equal(threads.length, initialThreadCount, 'failed initialization must not persist a conversation');
+      assert.equal(agentModes.size, initialModeCount, 'failed initialization must not persist permissions');
+      assert.equal(chatAccessModes.size, chatCountBeforeFailure, 'failed initialization must not start a model request');
+      assert.equal(titleRequests.length, titleCountBeforeFailure, 'failed initialization must not generate a title');
+      await waitForText(window, '[data-testid="agent-access-trigger"]', '完全访问权限');
+      failThreadInitialization = false;
+      await setComposerValue(window, '重试权限初始化');
+      await clickSelector(window, 'button[aria-label="发送消息"]');
+      await waitUntil('first message uses draft permissions', () => [...chatAccessModes.values()].includes('full-access'));
+      const permissionThreadId = [...chatAccessModes.keys()].find(id => chatAccessModes.get(id) === 'full-access');
+      assert.equal(permissionThreadId, failedThreadInitializations[0].threadId, 'retry must reuse the same draft conversation');
+      assert.equal(threads.length, initialThreadCount + 1, 'first send creates exactly one conversation');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '收到：');
+      await waitUntil('title generation resumes after initialization retry', () => titleRequests.some(request => request.threadId === permissionThreadId));
+      assert.equal(failedThreadInitializations.length, 1, 'history must not retry failed initialization in the background');
+      await waitUntil('retry preserves both user messages in history', () => {
+        const messages = storedMessages.get(messageKey(permissionThreadId, characterId)) ?? [];
+        return ['保留权限切换前的草稿', '重试权限初始化'].every(text => messages.some(message =>
+          message.content.role === 'user' && message.content.parts?.some(part => part.type === 'text' && part.text === text)));
+      });
+      const recoveredMessages = storedMessages.get(messageKey(permissionThreadId, characterId));
+      for (const [index, message] of recoveredMessages.entries()) {
+        if (message.parent_id !== null) assert.ok(recoveredMessages.slice(0, index).some(parent => parent.id === message.parent_id), 'parents must be saved before their children');
+      }
+      await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+      assert.deepEqual(await window.webContents.executeJavaScript('window.permissionUnhandledRejections'), [], 'initialization failure must not leak Promise rejections');
+      await window.webContents.executeJavaScript(`document.querySelector('.thread-starline-item[data-active="true"]')?.setAttribute('data-permission-test-thread','true')`);
       const savedThreadCount = threads.length;
       await clickSelector(window, '[data-testid="thread-new"]');
       await waitForText(window, '[data-testid="agent-access-trigger"]', '请求批准');

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { useStore } from "zustand";
 import { useAui, useAuiState } from "@assistant-ui/react";
 import { CheckIcon, ChevronDownIcon, ShieldAlertIcon, ShieldIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import type { AgentAccessMode, AgentAccessState } from "../../../shared/agentTools";
+import { useAgentAccessDrafts } from "./AgentAccessDraftContext";
 
 const modes = [
   { value: "request-approval", label: "请求批准", description: "编辑外部文件和使用互联网时始终询问", icon: ShieldIcon },
@@ -17,10 +19,13 @@ export function AgentAccessControl() {
   const localId = useAuiState(s => s.threadListItem.id);
   const threadId = useAuiState(s => s.threadListItem.remoteId);
   return <AccessMenu key={`${activeCharacter.id}:${localId}`} characterId={activeCharacter.id} threadId={threadId}
+    localId={localId} isNew={() => aui.threadListItem().getState().status === "new"}
     initializeThread={async () => (await aui.threadListItem().initialize()).remoteId} />;
 }
 
-function AccessMenu({ characterId, threadId, initializeThread }: { characterId: string; threadId: string | undefined; initializeThread: () => Promise<string> }) {
+function AccessMenu({ characterId, threadId, localId, isNew, initializeThread }: { characterId: string; threadId: string | undefined; localId: string; isNew: () => boolean; initializeThread: () => Promise<string> }) {
+  const drafts = useAgentAccessDrafts();
+  const draftMode = useStore(drafts, s => s.modes.get(localId) ?? "request-approval");
   const [state, setState] = useState<AgentAccessState | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,11 +42,17 @@ function AccessMenu({ characterId, threadId, initializeThread }: { characterId: 
     catch (error) { setError(error instanceof Error ? error.message : "无法更新工具权限。"); }
     finally { setBusy(false); }
   };
-  const selectMode = (mode: AgentAccessMode) => {
-    if (state?.mode === mode) { setOpen(false); return; }
-    void perform(async () => window.katarune.setAgentAccessMode({ characterId, threadId: threadId ?? await initializeThread(), mode }), true);
+  const mode = threadId === undefined ? draftMode : state?.mode;
+  const selectMode = (nextMode: AgentAccessMode) => {
+    if (mode === nextMode) { setOpen(false); return; }
+    if (isNew() && state) {
+      drafts.getState().setMode(localId, nextMode);
+      setOpen(false);
+      return;
+    }
+    void perform(async () => window.katarune.setAgentAccessMode({ characterId, threadId: threadId ?? await initializeThread(), mode: nextMode }), true);
   };
-  const full = state?.mode === "full-access";
+  const full = mode === "full-access";
   return <Popover open={open} onOpenChange={next => {
     setOpen(next);
     if (next) void perform(() => window.katarune.getAgentAccess({ characterId, threadId }));
@@ -58,10 +69,10 @@ function AccessMenu({ characterId, threadId, initializeThread }: { characterId: 
       <div role="group" aria-label="访问模式">
         {modes.map(({ value, label, description, icon: Icon }) => <Button key={value} type="button" variant="ghost"
           className="h-auto w-full justify-start gap-2 rounded-md px-2 py-2 text-left whitespace-normal" disabled={busy || !state || (value === "full-access" && !state.nativeShellAvailable)}
-          aria-pressed={state?.mode === value} data-testid={`agent-access-option-${value}`} onClick={() => selectMode(value)}>
+          aria-pressed={mode === value} data-testid={`agent-access-option-${value}`} onClick={() => selectMode(value)}>
           <Icon className={`size-4 shrink-0 ${value === "full-access" ? "text-orange-600 dark:text-orange-400" : "text-muted-foreground"}`} />
           <span className="min-w-0 flex-1"><span className="block text-xs">{label}</span><span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">{description}</span></span>
-          {state?.mode === value && <CheckIcon className="size-4 shrink-0" />}
+          {mode === value && <CheckIcon className="size-4 shrink-0" />}
         </Button>)}
       </div>
       {state && !state.nativeShellAvailable && <p className="px-2 text-xs text-muted-foreground">完全访问需要本机 Bash；Windows 可安装 Git for Windows。</p>}

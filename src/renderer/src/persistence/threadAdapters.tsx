@@ -15,6 +15,7 @@ import { useMemo, type PropsWithChildren } from "react";
 import { notify } from "../notifications";
 import { useLiveState } from "../live/liveState";
 import { parseAssetUrl } from "../../../shared/ipc";
+import type { AgentAccessDraftStore } from "../chat/AgentAccessDraftContext";
 
 function extractAssetIds(value: unknown): string[] {
   const assetIds = new Set<string>();
@@ -151,6 +152,7 @@ class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
 
 export function createKataruneThreadListAdapter(
   characterId: string,
+  accessDrafts: AgentAccessDraftStore,
 ): RemoteThreadListAdapter {
   function ThreadPersistenceProvider({
     children,
@@ -179,7 +181,9 @@ export function createKataruneThreadListAdapter(
       const thread = await window.katarune.initializeThread({
         threadId,
         characterId,
+        initialAccessMode: accessDrafts.getState().modes.get(threadId) ?? "request-approval",
       });
+      accessDrafts.getState().clear(threadId);
       return { remoteId: thread.remoteId, externalId: undefined };
     },
     fetch: async (threadId) => {

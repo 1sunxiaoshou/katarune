@@ -1,0 +1,45 @@
+diff --git a/node_modules/@assistant-ui/react-ai-sdk/dist/ui/use-chat/useExternalHistory.js b/node_modules/@assistant-ui/react-ai-sdk/dist/ui/use-chat/useExternalHistory.js
+index 9e54b97..d321948 100644
+--- a/node_modules/@assistant-ui/react-ai-sdk/dist/ui/use-chat/useExternalHistory.js
++++ b/node_modules/@assistant-ui/react-ai-sdk/dist/ui/use-chat/useExternalHistory.js
+@@ -136,6 +136,7 @@ const useExternalHistory = (runtimeRef, historyAdapter, toThreadMessages, storag
+ 					...durationMs != null ? { durationMs } : void 0,
+ 					...stepTimestamps != null ? { stepTimestamps } : void 0
+ 				};
++				if (optionalThreadListItem()?.getState().status === "new") return;
+ 				const { messages } = latest;
+ 				let lastInnerMessageId = null;
+ 				const getLastInnerId = (msgs) => msgs.length > 0 ? storageFormatAdapter.getId(msgs.at(-1)) : null;
+@@ -183,7 +184,8 @@ const useExternalHistory = (runtimeRef, historyAdapter, toThreadMessages, storag
+ 	}, [
+ 		formatAdapter,
+ 		storageFormatAdapter,
+-		runtimeRef
++		runtimeRef,
++		optionalThreadListItem
+ 	]);
+ 	return {
+ 		isLoading,
+diff --git a/node_modules/@assistant-ui/react-ai-sdk/src/ui/use-chat/useExternalHistory.ts b/node_modules/@assistant-ui/react-ai-sdk/src/ui/use-chat/useExternalHistory.ts
+index 07dd1ca..23492b0 100644
+--- a/node_modules/@assistant-ui/react-ai-sdk/src/ui/use-chat/useExternalHistory.ts
++++ b/node_modules/@assistant-ui/react-ai-sdk/src/ui/use-chat/useExternalHistory.ts
+@@ -220,6 +220,9 @@ export const useExternalHistory = <TMessage>(
+           ...(stepTimestamps != null ? { stepTimestamps } : undefined),
+         };
+ 
++        // Initialization failed: keep messages pending without retrying from history.
++        if (optionalThreadListItem()?.getState().status === "new") return;
++
+         const { messages } = latest;
+         let lastInnerMessageId: string | null = null;
+ 
+@@ -290,7 +293,7 @@ export const useExternalHistory = <TMessage>(
+         persistTimerRef.current = null;
+       }
+     };
+-  }, [formatAdapter, storageFormatAdapter, runtimeRef]);
++  }, [formatAdapter, storageFormatAdapter, runtimeRef, optionalThreadListItem]);
+ 
+   const deleteMessage = useCallback(
+     async (messageId: string) => {

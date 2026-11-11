@@ -6,6 +6,7 @@ import { Diagnostics, diagnostic } from "../src/main/diagnostics/logger";
 import { OperationRejected } from "../src/main/diagnostics/operationRejected";
 import { DIAGNOSTICS_CHANNELS } from "../src/shared/diagnostics";
 import { IPC_CHANNELS } from "../src/shared/ipc";
+import * as nativeBash from "../src/main/ai/nativeBash";
 
 const fixture = vi.hoisted(() => ({
   on: new Map<string, (event: IpcMainEvent, value: unknown) => void>(),
@@ -40,6 +41,24 @@ const request = {
 };
 
 describe("non-invoke rejection boundaries", () => {
+  it("validates initial permissions before creating a thread and allows retry after storage failure", async () => {
+    type Args = Parameters<typeof registerChatHandlers>;
+    const initializeThread = vi.fn().mockReturnValue({ remoteId: request.threadId });
+    registerChatHandlers({ initializeThread } as unknown as Args[0], {} as Args[1], {} as Args[2], {} as Args[3]);
+    const invoke = (value: unknown) => fixture.handle.get(IPC_CHANNELS.initializeThread)!({} as IpcMainInvokeEvent, value);
+    const input = { threadId: request.threadId, characterId: request.characterId, initialAccessMode: "full-access" };
+    const shell = vi.spyOn(nativeBash, "findNativeBash").mockReturnValue(null);
+    try {
+      await expect(invoke(input)).rejects.toThrow();
+      await expect(invoke({ ...input, initialAccessMode: "unknown" })).rejects.toThrow();
+      expect(initializeThread).not.toHaveBeenCalled();
+      shell.mockReturnValue("synthetic-bash");
+      initializeThread.mockImplementationOnce(() => { throw new Error("synthetic storage failure"); });
+      await expect(invoke(input)).rejects.toThrow();
+      await expect(invoke(input)).resolves.toEqual({ remoteId: request.threadId });
+      expect(initializeThread).toHaveBeenLastCalledWith(request.threadId, request.characterId, "chat", "full-access");
+    } finally { shell.mockRestore(); }
+  });
   it("records malformed chat requests without reading the database or retaining input", () => {
     const fetch = vi.fn(), { invoke, port, event } = chat(fetch);
     invoke({ secret: "private-input" });

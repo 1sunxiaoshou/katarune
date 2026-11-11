@@ -31,6 +31,7 @@ import { MemoryToolUI } from "./chat/MemoryToolUI";
 import { ViewImageToolUI } from "./chat/ViewImageToolUI";
 import { AgentToolUI } from "./chat/AgentToolUI";
 import { createKataruneThreadListAdapter } from "./persistence/threadAdapters";
+import { AgentAccessDraftContext, createAgentAccessDraftStore } from "./chat/AgentAccessDraftContext";
 import { KataruneSpeechSynthesisAdapter } from "./speech/KataruneSpeechSynthesisAdapter";
 import { KataruneDictationAdapter } from './speech/KataruneDictationAdapter';
 import {
@@ -287,9 +288,10 @@ function CharacterRuntimeHost({
   character,
   children,
 }: CharacterRuntimeHostProps): React.JSX.Element {
+  const [accessDrafts] = useState(createAgentAccessDraftStore);
   const adapter = useMemo(
-    () => createKataruneThreadListAdapter(character.id),
-    [character.id],
+    () => createKataruneThreadListAdapter(character.id, accessDrafts),
+    [character.id, accessDrafts],
   );
   const runtime = useRemoteThreadListRuntime({
     adapter,
@@ -301,20 +303,22 @@ function CharacterRuntimeHost({
 
   return (
     <CharacterRuntimeConfigContext.Provider value={character}>
-      <AssistantRuntimeProvider runtime={runtime}>
-        {active ? (
-          <>
-            <AvatarSessionBinding />
-            <AvatarTextInputBridge />
-            <AutoReadReplies />
-            <MemoryToolUI />
-            <ViewImageToolUI />
-            <AgentToolUI />
-            <AvatarToolUI />
-            {children}
-          </>
-        ) : null}
-      </AssistantRuntimeProvider>
+      <AgentAccessDraftContext.Provider value={accessDrafts}>
+        <AssistantRuntimeProvider runtime={runtime}>
+          {active ? (
+            <>
+              <AvatarSessionBinding />
+              <AvatarTextInputBridge />
+              <AutoReadReplies />
+              <MemoryToolUI />
+              <ViewImageToolUI />
+              <AgentToolUI />
+              <AvatarToolUI />
+              {children}
+            </>
+          ) : null}
+        </AssistantRuntimeProvider>
+      </AgentAccessDraftContext.Provider>
     </CharacterRuntimeConfigContext.Provider>
   );
 }

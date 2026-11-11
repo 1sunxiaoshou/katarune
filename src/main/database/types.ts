@@ -1,4 +1,5 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { AgentAccessMode } from "../../shared/agentTools";
 import type {
   AppendThreadMessageRequest,
   AppSettings,
@@ -60,6 +61,7 @@ export interface DatabaseRuntime extends ReturnType<typeof import("./mcpReposito
     threadId: string,
     characterId: string,
     kind?: "chat" | "live",
+    initialAccessMode?: AgentAccessMode,
   ): InitializeThreadResponse;
   fetchThread(threadId: string, characterId: string): ThreadMetadata;
   renameThread(threadId: string, characterId: string, title: string): void;
