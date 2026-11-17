@@ -361,6 +361,7 @@ namespace Katarune.Avatar.Tests
             public IAvatarMotionInstance Motion { get; }
             public FakeVisual FakeVisual { get; }
             public Bounds Bounds { get; }
+            public Vector3 PortraitTarget => Bounds.center;
             public string Path { get; }
             public string Name { get; }
             public AvatarCapabilitySet Capabilities { get; }

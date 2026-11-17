@@ -1,6 +1,6 @@
 import { runtimePackage } from "./runtimePackage.mjs";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -14,6 +14,7 @@ const executable = resolve(
 );
 const withAudio = process.argv.includes("--audio");
 const builtinRoot = resolve("resources/characters/default-package");
+const angleBetween = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w))) * 180 / Math.PI;
 const model = join(builtinRoot, "avatar/model.vrm");
 const fixture = join(output, "fixture.vrma"),
   unsupported = join(output, "unsupported.vrma");
@@ -27,23 +28,23 @@ const base = {
 };
 const builtinManifest = JSON.parse(await readFile(join(builtinRoot, "manifest.json"), "utf8"));
 const builtinIds = JSON.parse(await readFile(join(builtinRoot, "action-ids.json"), "utf8"));
-function phaseEndpoints(raw) {
-  const size = raw.readUInt32LE(12), g = JSON.parse(raw.subarray(20, 20 + size).toString());
-  return Object.fromEntries(g.animations[0].channels.map(channel => {
-    const sampler = g.animations[0].samplers[channel.sampler], accessor = g.accessors[sampler.output];
-    const input = g.accessors[sampler.input], timeView = g.bufferViews[input.bufferView];
-    const timeOffset = 28 + size + (timeView.byteOffset ?? 0) + (input.byteOffset ?? 0);
-    for (let i = 1; i < input.count; i++)
-      assert.ok(raw.readFloatLE(timeOffset + i * 4) > raw.readFloatLE(timeOffset + (i - 1) * 4), "Animation key times must strictly increase");
-    assert.equal(accessor.componentType, 5126);
-    const width = { VEC3: 3, VEC4: 4 }[accessor.type], view = g.bufferViews[accessor.bufferView];
-    assert.ok(width && !view.byteStride);
-    const offset = 28 + size + (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
-    const frame = index => Array.from({ length: width }, (_, i) => raw.readFloatLE(offset + (index * width + i) * 4));
-    return [g.nodes[channel.target.node].name + ":" + channel.target.path, [frame(0), frame(accessor.count - 1)]];
-  }));
+const nativeMotions = JSON.parse(await readFile(join(builtinRoot, "native-motions.json"), "utf8"));
+async function nativeMotion(path) {
+  const relative = path.slice(builtinRoot.length + 1).replaceAll("\\", "/");
+  const metadata = nativeMotions.clips.find(clip => clip.file === relative);
+  assert.ok(metadata, `Missing native provenance for ${relative}`);
+  assert.equal(createHash("sha256").update(await readFile(path)).digest("hex"), metadata.sha256);
+  assert.ok(metadata.duration > 0);
+  return metadata;
 }
 const builtin = runtimePackage(builtinManifest, builtinIds, builtinRoot);
+const nativeFixtures = process.env.KATARUNE_NATIVE_MOTION_FIXTURES;
+const nativeIdleId=randomUUID(), nativeWalkId=randomUUID(), nativeNodId=randomUUID();
+const nativePack = nativeFixtures ? { ...base, id: randomUUID(), idle: {base:nativeIdleId,variations:[]}, actions:[
+  {id:nativeIdleId,key:"native-idle",name:"原生站立",playback:{kind:"loop",motion:join(nativeFixtures,"standby.bundle")}},
+  {id:nativeWalkId,key:"native-walk",name:"原生行走",playback:{kind:"loop",motion:join(nativeFixtures,"walk.bundle")}},
+  {id:nativeNodId,key:"nod",name:"VRMA 点头",playback:{kind:"oneShot",layer:"head",motion:fixture}},
+] } : null;
 const bodyFixture = join(output, "body-loop.vrma"), upperFixture = join(output, "upper-gesture.vrma");
 await writePackageVrmaFixture(model, bodyFixture, false, [{ bone: "head", axis: [0, 0, 1], amplitude: .15 }, { bone: "leftUpperLeg", axis: [1, 0, 0], amplitude: .3 }, { bone: "rightUpperArm", axis: [0, 0, 1], amplitude: .1 }]);
 await writePackageVrmaFixture(model, upperFixture, false, [{ bone: "rightUpperArm", axis: [0, 0, 1], amplitude: .7 }, { bone: "leftUpperLeg", axis: [1, 0, 0], amplitude: 1 }]);
@@ -106,6 +107,7 @@ async function validate(candidate, name, valid) {
 await validate(base, "default-empty-actions", true);
 await validate(builtin, "default-idle-and-variations", true);
 await validate(pack, "runtime-vrma", true);
+if (nativePack) await validate(nativePack, "native-humanoid-and-vrma", true);
 await validate({ ...pack, formatVersion: 1 }, "obsolete-package-format", false);
 await validate(phasePack, "phased-loop-and-oneshot", true);
 await validate(layered, "independent-layers", true);
@@ -387,6 +389,27 @@ try {
   await delay(300);
   await operation("action-cancel", builtinIds["think"]);
   console.log("[package-player] independent head and upper body, same-instance restore and targeted cancel passed");
+  if (nativePack) {
+    const before=sequence-1;
+    await operation("load-package",JSON.stringify(nativePack));
+    const nativeReady=await wait(m=>m.type==="ready",before);
+    assert.deepEqual(nativeReady.capabilities.actions.map(a=>a.id),nativePack.actions.map(a=>a.id));
+    const request=await operation("action",nativeWalkId);
+    const started=await wait(m=>m.type==="action"&&m.id===request&&m.status==="started");
+    await delay(1600);
+    const nod=await operation("action",nativeNodId);await wait(m=>m.type==="action"&&m.id===nod&&m.status==="completed");
+    const again=await operation("action",nativeWalkId);
+    assert.equal((await wait(m=>m.type==="action"&&m.id===again&&m.status==="started")).instanceId,started.instanceId);
+    // A replacement model loads the same bundles while the old model is alive.
+    await operation("load-package",JSON.stringify({...nativePack,id:randomUUID()}));
+    await operation("load-package",JSON.stringify({...nativePack,actions:[...nativePack.actions,{id:randomUUID(),key:"invalid",name:"invalid",playback:{kind:"oneShot",motion:unsupported}}]}),false);
+    const retained=await operation("action",nativeWalkId);await wait(m=>m.type==="action"&&m.id===retained&&m.status==="started");
+    await delay(1000);await operation("action-cancel",nativeWalkId);await delay(2300);
+    const snapshots=(await readFile(join(output,"frames.jsonl"),"utf8")).trim().split("\n").map(JSON.parse).filter(f=>f.actionId===nativeWalkId);
+    assert.ok(snapshots.length>15,"Native walk must actually render frames");
+    assert.ok(Math.max(...snapshots.map(f=>angleBetween(f.legRotation,snapshots[0].legRotation)))>5,"Native gait must move the legs");
+    console.log("[package-player] native walk, VRMA head overlay, shared replacement and failed-load retention passed");
+  }
   const finalBefore = sequence - 1;
   await operation("load-package", JSON.stringify(base));
   assert.deepEqual(
@@ -397,7 +420,7 @@ try {
   const builtinBefore = sequence - 1;
   await operation("load-package", JSON.stringify(builtin));
   const builtinReady = await wait(m => m.type === "ready", builtinBefore);
-  assert.equal(builtinReady.capabilities.actions.length, 26);
+  assert.equal(builtinReady.capabilities.actions.length, builtin.actions.length);
   const builtinDance = builtinReady.capabilities.actions.find(action => action.kind === "performance");
   assert.equal(builtinDance?.id, builtin.actions.find(action => action.key === "sad-water")?.id);
   assert.equal(builtinDance?.label, "我的悲伤是水做的");
@@ -411,9 +434,7 @@ try {
   await operation("desktop-action", builtinIds["nod"]);
   await delay(1800);
   const encourage = builtin.actions.find(a => a.id === builtinIds["encourage"]).playback;
-  const encourageBytes = await readFile(encourage.motion);
-  const encourageGltf = JSON.parse(encourageBytes.subarray(20, 20 + encourageBytes.readUInt32LE(12)).toString());
-  const encourageDuration = encourageGltf.accessors[encourageGltf.animations[0].samplers[0].input].max[0];
+  const encourageDuration = (await nativeMotion(encourage.motion)).duration;
   await operation("desktop-action", builtinIds["encourage"]);
   await delay((encourageDuration + 2.2) * 1000); // Full-body one-shot, then Think enter and loop.
   await operation("desktop-action", builtinIds["talk"]);
@@ -440,17 +461,10 @@ try {
     if (action.kind === "loop") {
       const playback = builtin.actions.find(a => a.id === action.id).playback;
       // Authored phase boundaries must already meet; observe three complete wraps.
-      const raw = await readFile(playback.enter);
-      const gltf = JSON.parse(raw.subarray(20, 20 + raw.readUInt32LE(12)).toString());
-      const duration = gltf.accessors[gltf.animations[0].samplers[0].input].max[0];
-      const loopRaw = await readFile(playback.motion);
-      const loopGltf = JSON.parse(loopRaw.subarray(20, 20 + loopRaw.readUInt32LE(12)).toString());
-      const loopDuration = loopGltf.accessors[loopGltf.animations[0].samplers[0].input].max[0];
-      const enterEnds = phaseEndpoints(raw), loopEnds = phaseEndpoints(loopRaw);
-      for (const [bone, [first, last]] of Object.entries(loopEnds)) {
-        assert.deepEqual(enterEnds[bone]?.[1], first, `${action.id}: enter must meet loop on ${bone}`);
-        assert.deepEqual(first, last, `${action.id}: loop must close on ${bone}`);
-      }
+      const enter = playback.enter ? await nativeMotion(playback.enter) : null;
+      const loop = await nativeMotion(playback.motion);
+      const duration = enter?.duration ?? 0, loopDuration = loop.duration;
+      if (enter) assert.ok(enter.boundaryError <= 0.00001, `${action.id}: native enter and loop curves must meet`);
       observedLoops.push({ id: action.id, instanceId: started.instanceId, layer: action.layer, duration: loopDuration });
       await delay((duration + loopDuration * 3 + .25) * 1000);
       const finish = await operation("action-finish", action.id);
@@ -466,7 +480,7 @@ try {
   const angelRequest = await operation("dance", angelDance.id);
   await delay(600); await operation("session-reset", "");
   assert.equal((await wait(message => message.type === "dance" && message.id === angelRequest && message.status === "cancelled")).status, "cancelled");
-  console.log("[package-player] all 21 daily actions played; loops observed for three wraps; both builtin dances started and reset");
+  console.log("[package-player] all builtin daily and locomotion actions played; loops observed for three wraps; both builtin dances started and reset");
   await delay(2400); // Capture a complete cycle of the real builtin humanoid idle.
   await new Promise((done) => {
     child.once("exit", done);
@@ -488,7 +502,6 @@ try {
   assert.ok(frames.some((f) => f.actionId === nextActionId));
   const parallelFrames = frames.filter(f => new RegExp(`body\\[action=${builtinIds["think"]};`).test(f.performance) && new RegExp(`upperBody\\[action=${builtinIds["greet"]};`).test(f.performance) && new RegExp(`head\\[action=${builtinIds["nod"]};`).test(f.performance));
   assert.ok(parallelFrames.length > 3, "All three layers must run in the same rendered frames");
-  const angleBetween = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w))) * 180 / Math.PI;
   const manualInstances = frames.filter(f => new RegExp(`body\\[action=${builtinIds["think"]};.*next=${builtinIds["talk"]}`).test(f.performance));
   assert.ok(manualInstances.some(f => f.performance.includes("phase=Exit")), "Manual switching must render the old exit before the queued pose starts");
   const manualThinkInstance = manualInstances[0]?.performance.match(/body\[.*?instance=([^;]+)/)?.[1];
@@ -567,7 +580,7 @@ try {
       manualLoopSwitchAndExit: true,
       interruptedPoseReentersForManualAndProgram: true,
       independentLayers: true,
-      actualDefaultActions: 26,
+      actualDefaultActions: builtin.actions.length,
       builtinDanceStartedAndReset: true,
       loopCoverage,
       maximumLowerMaskErrorDegrees: Math.max(...maskErrors),

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat } from "node:fs/promises";
 import { readFileSync, copyFileSync } from "node:fs";
 import { join, extname, basename } from "node:path";
 import { nativeImage } from "electron";
@@ -330,6 +330,15 @@ export class CharacterPackageService {
           if (extension !== ".srt") throw new Error("舞蹈字幕仅支持 SRT 文件。");
           validatePackageSrt(await readFile(source));
           mimeType = "application/x-subrip";
+        } else if (kind === "character_animation" && extension === ".bundle") {
+          const handle = await open(source, "r");
+          try {
+            const header = Buffer.alloc(8);
+            const { bytesRead } = await handle.read(header, 0, header.length, 0);
+            if (bytesRead !== 8 || !header.equals(Buffer.from("UnityFS\0", "ascii")))
+              throw new Error("原生动画须为 Unity 制作的 .bundle，不能直接使用裸 .anim 文件。");
+          } finally { await handle.close(); }
+          mimeType = "application/vnd.unity.assetbundle";
         } else if (extension !== (kind === "character_vrm" ? ".vrm" : ".vrma"))
           throw new Error("模型或动画扩展名不支持。");
         const sha256 = await hashFile(source, signal);

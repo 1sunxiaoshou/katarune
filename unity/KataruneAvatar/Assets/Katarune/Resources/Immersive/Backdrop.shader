@@ -7,6 +7,7 @@ Shader "Katarune/ImmersiveBackdrop"
         _Frames ("Frames", 2D) = "black" {}
         _Picture ("Picture", 2D) = "white" {}
         _PictureMode ("Picture mode", Float) = 0
+        _IslandSky ("Island sky", Float) = 0
         _Opacity ("Opacity", Range(0,1)) = 0
         _MotionTime ("Motion time", Float) = 0
     }
@@ -30,6 +31,7 @@ Shader "Katarune/ImmersiveBackdrop"
                 float _Opacity;
                 float _MotionTime;
                 float _PictureMode;
+                float _IslandSky;
                 float4 _Picture_TexelSize;
             CBUFFER_END
             struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
@@ -44,6 +46,15 @@ Shader "Katarune/ImmersiveBackdrop"
             }
             half4 Frag(Varyings input) : SV_Target
             {
+                if (_IslandSky > .5)
+                {
+                    half3 horizon = SRGBToLinear(half3(.72,.87,.92));
+                    half3 zenith = SRGBToLinear(half3(.24,.53,.82));
+                    half3 sky = lerp(horizon,zenith,smoothstep(.12,1,input.uv.y));
+                    float2 sun = (input.uv-float2(.77,.84))*float2(_ScreenParams.x/_ScreenParams.y,1);
+                    sky += SRGBToLinear(half3(.19,.14,.07))*exp(-dot(sun,sun)*6);
+                    return half4(sky,_Opacity);
+                }
                 if (_PictureMode > .5)
                 {
                     // Fill the output while preserving the image's proportions.

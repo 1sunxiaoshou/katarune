@@ -9,8 +9,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import { runtimePackage } from "./runtimePackage.mjs";
 
 // Real visible Player, default local model; no provider calls or personal data.
-const executable = resolve("unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
+const executable = resolve(process.env.KATARUNE_AVATAR_PLAYER ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
 const output = resolve(".test-dist/immersive-player");
+const backgroundOverride = process.env.KATARUNE_TEST_BACKGROUND;
+assert.ok(!backgroundOverride || ["film", "cloud-observatory", "island-coast"].includes(backgroundOverride));
 await mkdir(output, { recursive: true });
 const packageRoot = resolve("resources/characters/default-package");
 const manifest = JSON.parse(await readFile(join(packageRoot, "manifest.json"), "utf8"));
@@ -70,10 +72,11 @@ for (const cameraView of ["fullbody", "center", "closeup", "overhead", "side"]) 
       return messages.find(m => m.type === "window-state" && m.requestId === requestId);
     };
     const desktop = await layout("desktop", cameraView, true);
-    if (cameraView === "center") {
+    if (backgroundOverride || cameraView === "center") {
+      const backgroundId = backgroundOverride ?? "cloud-observatory";
       const requestId = randomUUID();
-      socket.write(JSON.stringify({ id: requestId, operation: "background", value: "cloud-observatory" }) + "\n");
-      await until(() => messages.some(m => m.type === "presentation" && m.backgroundId === "cloud-observatory"), "Static background selection missing");
+      socket.write(JSON.stringify({ id: requestId, operation: "background", value: backgroundId }) + "\n");
+      await until(() => messages.some(m => m.type === "presentation" && m.backgroundId === backgroundId), "Background selection missing");
     }
     const entered = await layout("immersive");
     assert.equal(entered.mode, "immersive");

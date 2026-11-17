@@ -17,9 +17,9 @@ namespace Katarune.Avatar
         private readonly Dictionary<ExpressionKey, float> _customAffectWeights = new Dictionary<ExpressionKey, float>(ExpressionKey.Comparer);
         private readonly Dictionary<HumanBodyBones, BoneBaseline> _bones = new Dictionary<HumanBodyBones, BoneBaseline>();
         private readonly HashSet<ExpressionKey> _animatedExpressions = new(ExpressionKey.Comparer);
-        private VrmaMotionInstance _motion;
+        private PackageMotionInstance _motion;
 
-        internal void AttachMotion(VrmaMotionInstance motion) => _motion = motion;
+        internal void AttachMotion(PackageMotionInstance motion) => _motion = motion;
 
         public UniVrmAvatarDriver(Vrm10Instance instance)
         {

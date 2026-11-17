@@ -1,0 +1,840 @@
+{
+  "unityVersion": "6000.3.27f2",
+  "platform": "StandaloneWindows64",
+  "clips": [
+    {
+      "file": "actions/idle/motion.bundle",
+      "source": "Ani_Avatar_Girl_Standby.anim",
+      "sourceSha256": "f2dd6d5d463f288a6c8f141fe83c94d3bed6967a0ba871970a606dd0b8332fc8",
+      "sha256": "68bdf0c39e3eeb06a33f603100b390d7fff8147ba38e83484ea662f5bffcb208",
+      "duration": 2.016666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/idle-variation-01/motion.bundle",
+      "source": "Ani_Avatar_Girl_Sword_PlayerGirl_Show_01.anim",
+      "sourceSha256": "25884f53aa92f803673969d9172ef9b87af747870eb094bb5865d8605e3916a7",
+      "sha256": "00d1f199eb200848a7bbe6a666225f913d5f96785f9cd24abe1a273102e0a0d0",
+      "duration": 5.516666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/idle-variation-02/motion.bundle",
+      "source": "Ani_Avatar_Girl_Sword_PlayerGirl_Show_02.anim",
+      "sourceSha256": "7db856b68bbd8f41c5150e59050316b30b9a3ec174ccb9429ef5c6cd0a787dda",
+      "sha256": "6fd1418debd50ee1de16b9fe7dafeca40b3124a9ff6bef79822cc9d1af09ae1c",
+      "duration": 9.350000381469727,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/greet/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Greet01.anim",
+      "sourceSha256": "8ed551cdd05666388dc4bd74f7e085f885a66ae1e428d86027448569afa86ed8",
+      "sha256": "f52b26d27ef3ea7ecd15b39b61d14836550ae5b417f16ce5e088ee980cbd2f9e",
+      "duration": 2.516666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/nod/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Sword_PlayerGirl_Nod01.anim",
+      "sourceSha256": "baf1ac4fe42d6cd317838c225c50411d1f1a7f100c4b65a58a384502e2000ff9",
+      "sha256": "74f0437253c6c0e7fe981dfcb8f3507a49d7c4c8c5e35a088ec823489e2a0cde",
+      "duration": 0.8500000238418579,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/shake-head/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Sword_PlayerGirl_ShakeHead01.anim",
+      "sourceSha256": "f3893287dff26bcd4f26f2722dc8360e0423dc447f148c3690528fed34d96dae",
+      "sha256": "d2e91863d63e969fba0983fd8f6d4be35f5dc4139414ac44d2ddace045cd2630",
+      "duration": 1.2000000476837158,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/talk/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Chat01BS.anim",
+      "sourceSha256": "07e43ffc6109b6a26e217b861315de9c48ff40eafafc4c5ffa8fd726d0620f90",
+      "sha256": "cc030d3a33542f6aa198a2b5760d8ac0141031456856c76d1ed5743e2b4d2283",
+      "duration": 1.341374158859253,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.80842524766922
+    },
+    {
+      "file": "actions/talk/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Chat01Loop.anim",
+      "sourceSha256": "92a25ed760e8405fbfe32e44c101900cca971b724042ad4210bd5375070b463b",
+      "sha256": "6daae60320d2187ee5508255c19506e980a1ea3028d43381e7b9704296395008",
+      "duration": 3.3500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/talk/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Chat01AS.anim",
+      "sourceSha256": "4ef34bc170a26d4a97d9ae9e78ac2a7f26d53894f8e00dcb3a511dcbe7f2e098",
+      "sha256": "d3648faca1ce30fd38bcdfbdba5361f1ae99f7397f25f9a1fdc222e24fcd6613",
+      "duration": 1.183333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/talk-gesture/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Talk03.anim",
+      "sourceSha256": "1656c775383cefc8a7dad8c5da715785e5f885f46d81d1acd95a040c80d5e19e",
+      "sha256": "a35e8ca046cf109f5fab2b96160e6cc0ddfdaa700206873e5310f4542654611b",
+      "duration": 3.516666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/think/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Think01BS.anim",
+      "sourceSha256": "add5383bc4a85b1714673a51d79de4f2758d9065e7d93bcb237863fa60dc0682",
+      "sha256": "0265130d73d4a7328592be66da7f401ea569d588ddb485cea093de1b2928b957",
+      "duration": 1.7340000867843628,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8399999737739563
+    },
+    {
+      "file": "actions/think/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Think01Loop.anim",
+      "sourceSha256": "ed0a6383611948932d8d60f868b9b76b330d97ce1f72796871370e971c91ba3d",
+      "sha256": "a42e716a22a7118e59630f1f563a71e191e6255bf36d48499ae9b617d3c2eac9",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/think/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Think01AS.anim",
+      "sourceSha256": "12ab339535134cf5199d2083514d56bd7f8a86f16c1ebad379647fe1d83c2c1b",
+      "sha256": "671906155caa7414a67cba68b6340ca4c1fb74bc86e3381207aa6f59b5c23dbc",
+      "duration": 1.4833334684371948,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/clap/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Clap01.anim",
+      "sourceSha256": "e3fe43abfc4ac126fcab9194f911cb6bee74e18a39b50cd4e979639cf7221931",
+      "sha256": "840d941c4af1fd92b13b8154677791217f72d086b94327e7ba7d243ac76951ae",
+      "duration": 3.8500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/cheer/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Cheer01BS.anim",
+      "sourceSha256": "02f78defa8e043f180b6532995696771112e71489045b1db0f853daea74d8b94",
+      "sha256": "0b0912aa67a136293a28f35b7c697209e1378fbd9b4d6a82c9a07a32d59d6a8e",
+      "duration": 1.0961538553237915,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.7692307829856873
+    },
+    {
+      "file": "actions/cheer/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Cheer01Loop.anim",
+      "sourceSha256": "c90f8bbda9a61495915d9f3b759a6bc95ac98afc1609852bdd4c3ad4c31fea22",
+      "sha256": "6af939ebd78f5fea897cf3ee421710d5b4e74409628e5591cdb7907ceb0a2240",
+      "duration": 3.8500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/cheer/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Cheer01AS.anim",
+      "sourceSha256": "11c25ba7ca266e1e5c30d399823e88c2e06ecb177c9298e76737bc9054bff186",
+      "sha256": "e6cf6cbbe86fbdfcb325dae8fdf6a994ad4228ba4c1c78e5efbd20e062b22a65",
+      "duration": 1.433333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/encourage/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Encourage01.anim",
+      "sourceSha256": "999e2453fef438ecc56fbf53066f252ac3215af5849d9662511fc6035fddf75c",
+      "sha256": "d93f6d6745c6ac43175f8f16336dd2348fd11b4cf7d5067d2b6113dbc48ba1b1",
+      "duration": 1.8500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/confused/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Confuse01BS.anim",
+      "sourceSha256": "c60a718a32a77976b3f7a32082c08cf8acadbc40b14f1589a940d21f0482df4d",
+      "sha256": "b8101cd9fdf039c1673aba7be055b013a7986177a9f32ed768c522d7281e7a42",
+      "duration": 1.5342106819152832,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8026316165924072
+    },
+    {
+      "file": "actions/confused/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Confuse01Loop.anim",
+      "sourceSha256": "5f77ea5a9c6f19b074f187c77e8c9feabf1aa90c7eeb172f045b4976d462ca0d",
+      "sha256": "222078c95e09cce5a9912bccbe21b13fddf8d684afcae33b7152353c3397de76",
+      "duration": 3.3500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/confused/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Confuse01AS.anim",
+      "sourceSha256": "2fcaa67fc6f19b384c2c1d7e63286f21c2f990ff68948b9d798e5d6fa0a54008",
+      "sha256": "dd7f742c7745f72c562e3bce059b52f45fae2faa68b391e2034c1b0e3de112c5",
+      "duration": 1.8500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/shrug/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Shrug01BS.anim",
+      "sourceSha256": "a185aedb85e8ba7039f8bad730e6a6c2bd20983253ed3460b828e4c3ac2a6a2f",
+      "sha256": "8c18269bc3ef4ec25fe04b0209b89ca80f3eadfcaca5ba3e130f3be1665ee835",
+      "duration": 1.751666784286499,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8500000238418579
+    },
+    {
+      "file": "actions/shrug/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Shrug01Loop.anim",
+      "sourceSha256": "066f9fba764c42388ab2ed8e352588876b8c13c073fec6fb38d914eb94c552d4",
+      "sha256": "50c602874913300e17051b3eab30c908429feac425e037c7902973d3f756d9be",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/shrug/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Shrug01AS.anim",
+      "sourceSha256": "593ff881b3bfdc7502664d475f504a5ff5926ceb635f833249d0311fd9f49f56",
+      "sha256": "ccf8258987c9d6758ea5e18f67da4b5d83ab46235638ed464e3705f13bffc0a5",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointF01BS.anim",
+      "sourceSha256": "b572419aafd0c4d33b2b530ab87c968653cc03e101181cd0b1ad7e953ba4f3d9",
+      "sha256": "631a5de1a6af011ccdf8cd0a3babc4f0aabe629c17a81aee9289d00330da87b0",
+      "duration": 1.4785715341567993,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8571429252624512
+    },
+    {
+      "file": "actions/point/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointF01Loop.anim",
+      "sourceSha256": "dbb83447cf52720c3e9c4b61252065929412d65fd37ff1249de784a56bc66aef",
+      "sha256": "6edc5b23c7bd9c77b97818242dde987e2d480d8e7a6ac66eb3c8ebd8d1493103",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointF01AS.anim",
+      "sourceSha256": "94eaef23a6e5bfc66e17ffd067aa3cf532426e62df647c32769a82ae53a4bf00",
+      "sha256": "7df204673e0f20d54b3e505d993c0fd1e2f17ddb4de1afee6f27f95590a691f4",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/akimbo/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Akimbo01BS.anim",
+      "sourceSha256": "8efa062a0b6e713e07ecc9d5528308228bcaaa9a3f18a50f28a47b6facadf2da",
+      "sha256": "a047b5b6f25f33694dfbf668e442ca05259c20215e02f1b9c9189d03c69adcd1",
+      "duration": 2.0980000495910645,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8799999952316284
+    },
+    {
+      "file": "actions/akimbo/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Akimbo01Loop.anim",
+      "sourceSha256": "6201201d2f97b633fbd9783c5dd0b48d8205691b656dab8c611851297feb361e",
+      "sha256": "a64fac77351de3abee0722a91495e6231df3bd853604286a7ed23f87dfc0cb91",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/akimbo/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Akimbo01AS.anim",
+      "sourceSha256": "e4d829deaa39aaa74c575cc0424088ee3de6753dc1fe3f297bcb85152f54946c",
+      "sha256": "b3777c549b5588101d8461e4b8e9a657cb31c0d31018ca4a1e971c360645f5b0",
+      "duration": 2.016666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/hold-arms/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_HoldArm01BS.anim",
+      "sourceSha256": "bae064ca77189683b9f9ae45ee2e70be9faa955ef9b6282025bcb3552632fb9d",
+      "sha256": "9b23041bd31704f637415efd7ad4e805093c528755f552fa39cc9a11588e63c2",
+      "duration": 2.269198417663574,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.89082270860672
+    },
+    {
+      "file": "actions/hold-arms/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_HoldArm01Loop.anim",
+      "sourceSha256": "92ae0e30b12636dca16a7e24c4aeb43c88b65add5fb41ae1e90af581a70917e1",
+      "sha256": "9a6fb5ed51fd9975853d2d8a17b2a510f30df30bd40c54566007c5cc5f4e7f97",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/hold-arms/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_HoldArm01AS.anim",
+      "sourceSha256": "04f9cef02b51ebed0adbfbd8469edd557576a3465528137ff1c81cf3dbe79d73",
+      "sha256": "22f5ef62a4537edd1e049cfd99838e9d3ea9aeb112a48d84e329f098b3a9c830",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/afraid/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Afraid01BS.anim",
+      "sourceSha256": "42b45e0b364898a10081e8ffa7cd786ea9bb412209f1a4ddf7e85d41d04317e9",
+      "sha256": "cb225dca1f2faa3824c4db79f915d7f4bd7299b9a4d31eca7c8b592cf137e911",
+      "duration": 1.5500000715255737,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8125
+    },
+    {
+      "file": "actions/afraid/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Afraid01Loop.anim",
+      "sourceSha256": "baf8d83f9dea415416393b0ec5d3e60896e898f809121c39cf381c32f2b8e58f",
+      "sha256": "9f2a291a5c0001597b6ae5dda9f9b8d1a08be99ceac715044ab3d1b0f43e8ac3",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/afraid/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Afraid01AS.anim",
+      "sourceSha256": "af44e640e44f787b2ff6bf7b839d04c7f7c5c47b45ce12efddf4577a1b911aa6",
+      "sha256": "f11b49cc94dec78f8395e30386abe317b8f6c7cae21c0d68c15ae79a7df9b466",
+      "duration": 1.6000001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/downcast/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Downcast01BS.anim",
+      "sourceSha256": "99325ee167bdb9b2573621be956ac8392e7ceef8dd17369f80229422d5761b31",
+      "sha256": "176a07b51c2f5cb5d815ea9c0063c206b85c093d7c4c90c655ce0f58b90f0d8a",
+      "duration": 1.9562500715255737,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8125
+    },
+    {
+      "file": "actions/downcast/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Downcast01Loop.anim",
+      "sourceSha256": "f81952f766156cf3beb791e86bc8c7d9c35ce68cc0277bffb0222b7786c0c358",
+      "sha256": "4ecb96f75cc484f9e8b99463433f1b439b2189bc1cfe74ab7e60a311ceb1b736",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/downcast/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Downcast01AS.anim",
+      "sourceSha256": "0c03b2609c387ca66b5eb99b2111c575e9266d3d1969840561410ba703bf85ad",
+      "sha256": "41b3cce1b4e1bd3b43b31911e036d4006c19fd1c7beaf4054cf69e277b0db82b",
+      "duration": 1.8500001430511475,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/alert/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Alert01BS.anim",
+      "sourceSha256": "865d08e7cfa0e258f43eb964cc116d5a8673fa2126d81efefe990b70b44b966e",
+      "sha256": "455008a659cd6fe231928977a713d160245d5709dce3f9d63b9527f9866b4c66",
+      "duration": 1.3250000476837158,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.75
+    },
+    {
+      "file": "actions/alert/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Alert01Loop.anim",
+      "sourceSha256": "1a091223924e74ba5b26e8b9ebd71964c4af91e6cc0648d4c6c778ce8b04417c",
+      "sha256": "1de4f59ba5ef1b9bfe25f5ff570fb86646b0dc038c5fad73dd6851661cdad919",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/alert/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Alert01AS.anim",
+      "sourceSha256": "c106047d43001b55d1b7ef56d86847ba3f0ee331c5c5bbc6243d186e08952e84",
+      "sha256": "a4981741b8da5ccbcf32d242d8e519134c50dd81c052086c99cecfc139890685",
+      "duration": 1.350000023841858,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/read/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PersonalRead01BS.anim",
+      "sourceSha256": "73da9a8cbfe6590f675ef708bf78f0a227c5339db39287e4190beefcc7b9573c",
+      "sha256": "162f2144ba23baf22240dc6acd1596c8a22ce58f6afad37be745e924bbb7425a",
+      "duration": 1.5891668796539307,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.30000001192092896,
+      "entryExitTime": 0.8500000238418579
+    },
+    {
+      "file": "actions/read/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PersonalRead01Loop.anim",
+      "sourceSha256": "a75a7818fe86b2855f0e3e8e868062554b1031e78f25d8c69500780253934f1d",
+      "sha256": "30dfd3215a51f0aaaee8c1efdef09e7889f5c9b19a95cd57c42636c14fc1de94",
+      "duration": 2.016666889190674,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.30000001192092896,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/read/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PersonalRead01AS.anim",
+      "sourceSha256": "61ec61a7c27182abdf10bb14cabc9776f934345388a2d4d19b5b21277c4ab7c2",
+      "sha256": "5a44e86a69d9a02a0013a2850ed0816d5a6bf08103604f8df9fdb89959e01e1f",
+      "duration": 1.9500000476837158,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/whisper/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Whisper01BS.anim",
+      "sourceSha256": "f79bb6da1df787dac9b1158be5e808b6463927649fbce597cffed2617580a5ab",
+      "sha256": "ef2954951340c9b7d2002eecb155560266fce7674ceec99782bcbbb357fcb39a",
+      "duration": 1.904666781425476,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.3499999940395355,
+      "entryExitTime": 0.8799999952316284
+    },
+    {
+      "file": "actions/whisper/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Whisper01Loop.anim",
+      "sourceSha256": "586643c90e70c3421c84d0671ac1379b8869e99abfaacd7eb65394fa6c9c3a4a",
+      "sha256": "abc19bcd3dc10f5239bb4e5515cb4dbca894b16608f398f59291418ccb16b952",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.3499999940395355,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/whisper/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_Whisper01AS.anim",
+      "sourceSha256": "bb23b9b90741633e6d40370557512f94e073e97c1176c1f3844366db71ba9b18",
+      "sha256": "9bc9f34ee480a18a9bcffc8dcad58f6b752070ef3386008d92c6ee7967ad3d71",
+      "duration": 1.4833334684371948,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point-left/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointL01BS.anim",
+      "sourceSha256": "48b37ec138ba85e2872261457e1d6eb98344d1e540ee42a43101d7362e5d03aa",
+      "sha256": "2dab1052bedfa5895c73db805b3336b9c142e36c37fcc1db6cdc8e9c680404b6",
+      "duration": 1.4785715341567993,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8571429252624512
+    },
+    {
+      "file": "actions/point-left/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointL01Loop.anim",
+      "sourceSha256": "191054d7d79e8249465fee279a5b7748462b8fb6adf24176cbfe371e2f766733",
+      "sha256": "9dc5e23c8fc65fa8947d508992cd672b3a8c1ec4ee7e4b7e4f162d27674fa2b4",
+      "duration": 1.683333396911621,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point-left/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointL01AS.anim",
+      "sourceSha256": "ead49d097425977b6c757c9743f0aa2ccde8768387e34009915ed1ee46d8d9af",
+      "sha256": "0bec74251a815786ff05657be32a19799ecfe45fd5c2f22a026909d30a008a5a",
+      "duration": 1.350000023841858,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point-right/enter.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointR01BS.anim",
+      "sourceSha256": "e72bdcfe4e013edc0105cb9969f985237aeb44f315553e4718ba544e5270a260",
+      "sha256": "da4046e30c3428dbb91a4d1ab991499b5b1d1c4a8d65c0fac5f2a54d2dc16b45",
+      "duration": 1.232100009918213,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.8539999723434448
+    },
+    {
+      "file": "actions/point-right/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointR01Loop.anim",
+      "sourceSha256": "63a67c2340d54fae4c05ad47a0665a0503282edd0120e75845345dff5066837b",
+      "sha256": "9859bb58f520f3f8445665b5c57454f75152522b78fe5f3da7e569f4778b9271",
+      "duration": 1.6500000953674316,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.25,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/point-right/exit.bundle",
+      "source": "Ani_Avatar_NPC_Girl_PointR01AS.anim",
+      "sourceSha256": "0fe1e0f995ec148eec761f812d8aab0971d3280c8685dc83321081e133c1aee2",
+      "sha256": "483fba05840bb62dedcd22269a8e5afc7ed4bfae503aa3c306a39f7a429eaa4c",
+      "duration": 1.3333333730697632,
+      "boundaryError": 0.0,
+      "entryOverlapSeconds": 0.0,
+      "entryExitTime": 0.0
+    },
+    {
+      "file": "actions/walk/motion.bundle",
+      "source": "Ani_Avatar_Girl_WalkCycle.anim",
+      "sourceSha256": "265811e5901fe345b43cf1bc7d61f8c9432effb1106a5efc8fc44c6850014393",
+      "sha256": "428ca30c3dcf7089afe34ecdc3202653c0d1a2b567fef252a31c89ad54b94b7f",
+      "duration": 1.350000023841858
+    },
+    {
+      "file": "actions/run/motion.bundle",
+      "source": "Ani_Avatar_Girl_RunCycle.anim",
+      "sourceSha256": "355f0b295c57585f99e568829679823eaaa58685b51e316615b677a873a61638",
+      "sha256": "73868baf35575cf2b7654517d9038fcff271d2ee9d6b1bfd07608060095673ef",
+      "duration": 0.6833333969116211
+    },
+    {
+      "file": "actions/sprint/motion.bundle",
+      "source": "Ani_Avatar_Girl_SprintCycle.anim",
+      "sourceSha256": "34553d3b9d662ae34c9d6e33ae8bf4afd67904854560790ef073926a417353be",
+      "sha256": "b4bdfdde5671817bba67153455589b67531b141f68bbafe78204e433ea81ce2e",
+      "duration": 0.4833333492279053
+    },
+    {
+      "file": "actions/run-start/motion.bundle",
+      "source": "Ani_Avatar_Girl_RunBS.anim",
+      "sourceSha256": "30e186403098aa5e172eed18a957847d73be99f7331a380652b665074ab7709a",
+      "sha256": "b7dbb3adbaeb68572ca3c69c3b92165b1cb2242b29049e5150d042d7a5a32a1a",
+      "duration": 1.0833333730697632
+    },
+    {
+      "file": "actions/sprint-start/motion.bundle",
+      "source": "Ani_Avatar_Girl_SprintBS.anim",
+      "sourceSha256": "e33568b9ca8102a33dbb1c40c506d678cfa22c8295973d191406f61c4216a494",
+      "sha256": "2caeff5337164999904264aa19dc3077bf4dc46b79f342505cb1c5205964ff81",
+      "duration": 1.2333333492279053
+    },
+    {
+      "file": "actions/walk-stop-left/motion.bundle",
+      "source": "Ani_Avatar_Girl_WalkStopL.anim",
+      "sourceSha256": "0ab30e144aa07b00d11808d9640140bbc83a1d1fee184a8fc0efaec407b7e355",
+      "sha256": "8dd91a5b59af21b2197439c7e7b77773b2f73aecd1a3eae8a76fbfc67a837034",
+      "duration": 1.683333396911621
+    },
+    {
+      "file": "actions/run-stop-left/motion.bundle",
+      "source": "Ani_Avatar_Girl_RunStopL.anim",
+      "sourceSha256": "401aef3c370ee0e42f732aa5e2265e7627a9e75f33492b8849854b2ea0c575d1",
+      "sha256": "19b21d5dc8f6ad93aedb2d6de451923437dc98bb517e687e9a89adc310c14832",
+      "duration": 1.433333396911621
+    },
+    {
+      "file": "actions/sprint-stop-left/motion.bundle",
+      "source": "Ani_Avatar_Girl_SprintStopL.anim",
+      "sourceSha256": "3ed77a628bf7db621d50137255f53bbb00e63f3f94cf1da15a948b6fd38f3db2",
+      "sha256": "e177eed3a30c0e87985e537eba6bccc6ecf9f31f10d2a695a881790a8847e975",
+      "duration": 1.933333396911621
+    },
+    {
+      "file": "actions/run-to-walk/motion.bundle",
+      "source": "Ani_Avatar_Girl_RunToWalk.anim",
+      "sourceSha256": "4dc4eeeae6fefa6d2f1fe78c291e0be81376b20044c935dc680f20bcc9113eee",
+      "sha256": "57d1ba85fa4c4fcd64fc7b0b4f6d2cfcda7d9bb31256c0e3f838ced05234ebe0",
+      "duration": 1.633333444595337
+    },
+    {
+      "file": "actions/sprint-to-run/motion.bundle",
+      "source": "Ani_Avatar_Girl_SprintToRun.anim",
+      "sourceSha256": "08a3c63002ae882ecad487ebe12f50df736cda40acd75ec7a5d193d7e036f79d",
+      "sha256": "24f9453920996a2868e0a99174a5518ae49dc017971e63d1daf368caf359305c",
+      "duration": 0.8166667222976685
+    },
+    {
+      "file": "actions/turn-left/motion.bundle",
+      "source": "Ani_Avatar_Girl_TurnL.anim",
+      "sourceSha256": "88e08bd62673812f12d56ab053251227a167072320b8a64fd99d51f176f24740",
+      "sha256": "65fdd400b37272c987118966d320181fc0a424ae4b52737dfff8940940c84c01",
+      "duration": 1.0166667699813843
+    },
+    {
+      "file": "actions/turn-right/motion.bundle",
+      "source": "Ani_Avatar_Girl_TurnL+Mirror.anim",
+      "sourceSha256": "d6ea4d5cfc6b75c4e6262dc352721fe820a6539eed7fd1b40315ba0e7b90fccc",
+      "sha256": "c2716afec86715c339791663cf1cca4969308fc575f2517908c6aa5723de840c",
+      "duration": 1.0166667699813843
+    },
+    {
+      "file": "actions/sit-down/motion.bundle",
+      "source": "Ani_Avatar_Girl_Sit01BSF.anim",
+      "sourceSha256": "af537c61125bd2f79711873c7d75b2735f76d9ed3d2e476ba43c1e97a88211fa",
+      "sha256": "c465eb21953c6577c0da235c013bf7585c06da9a3592ed26c784b4bd951ca753",
+      "duration": 1.100000023841858
+    },
+    {
+      "file": "actions/sit-idle/motion.bundle",
+      "source": "Ani_Avatar_Girl_Sit01Loop.anim",
+      "sourceSha256": "99f5164e2009547c202d55888d8c59ef9e32452f8d104a7debb5e1bab91378a2",
+      "sha256": "89d22f43060ef45eecc58baabbcdceb74d43436c867981f0ebb36e0c4b31fb91",
+      "duration": 2.016666889190674
+    },
+    {
+      "file": "actions/sit-up/motion.bundle",
+      "source": "Ani_Avatar_Girl_Sit01UpF.anim",
+      "sourceSha256": "8923523082591314b3c0f9dde5c38475aa320509cb96a8670831cba9d3ada919",
+      "sha256": "91744fd93dde9e80b2d50f012348f9e0fc4333dea9292b2e06eb03ff4f0658d1",
+      "duration": 1.100000023841858
+    },
+    {
+      "file": "actions/sit-chat-start/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitChat01BS.anim",
+      "sourceSha256": "5bdafc1601cfc2480245351f3ed20b32f7b032d995fc0ac74d12e6a4a09c84ec",
+      "sha256": "d35931bb71becccebca99033b6e3797af4b0affb3778ff3e92b7878d5c6c8934",
+      "duration": 1.0833333730697632
+    },
+    {
+      "file": "actions/sit-chat/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitChat01Loop.anim",
+      "sourceSha256": "f12e565531a4c37ad13b80b0eb09d63626bf0a1d8828b14d71fb0d4894c466f7",
+      "sha256": "802b9a868e70ca1c7c9a6fc942edd67dd02b31c67189f80b55a46cf0c5d8cd7c",
+      "duration": 2.516666889190674
+    },
+    {
+      "file": "actions/sit-chat-end/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitChat01AS.anim",
+      "sourceSha256": "104f77c8a40fdc820e4cb63f5402b14e44f006120fc4fdb8d50ece9c2672d6c8",
+      "sha256": "94a82ceb9c44e1b7b2baa620bdaf737b5a8d28fd0ca595d5623622c77b3d26ee",
+      "duration": 1.4833334684371948
+    },
+    {
+      "file": "actions/sit-think-start/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitThink01BS.anim",
+      "sourceSha256": "74c615b0d4f359b1873a7373a43d268c3b7469b442bcaba0e8d664a744e26154",
+      "sha256": "a1a19d9c38f79f745c2e69ff581498b9630db4f6eb4538ff90352fef9c2d83cc",
+      "duration": 1.533333420753479
+    },
+    {
+      "file": "actions/sit-think/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitThink01Loop.anim",
+      "sourceSha256": "ef12b13e714565e1ddcb5b698d727be37cd6416403a2b866e984545f99864294",
+      "sha256": "6b93ef790e53546c4835de0a63837e3a692df6fa87b40abeb554ec0cde4be27d",
+      "duration": 2.516666889190674
+    },
+    {
+      "file": "actions/sit-think-end/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitThink01AS.anim",
+      "sourceSha256": "fe425e8831d59add829bcae72af241750621da3c6f5ffa5a11d293ba0f1a22a4",
+      "sha256": "309d51a11cc4e9b706d70aac41840ff1679c211cf62a252aceea7f1b46e1f05a",
+      "duration": 1.2166666984558105
+    },
+    {
+      "file": "actions/sit-read-start/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitRead01BS.anim",
+      "sourceSha256": "4c97680b293d8ea1f0cf6f37c302462f40f3b9e5ee0bc0e027263712174a0fba",
+      "sha256": "a1fa727c9266006ed49c87f5462378439438451249d5b8fcf39f9a769e931440",
+      "duration": 2.933333396911621
+    },
+    {
+      "file": "actions/sit-read/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitRead01Loop.anim",
+      "sourceSha256": "7feed2d6e8850cdea63359f20ba544dbece12395acd8e8ec12864f66fbed8584",
+      "sha256": "17dae32e8e8407bb7e89c51cdc8f028b56cb9e6ddb26658ca66bb17a46903a09",
+      "duration": 4.516666889190674
+    },
+    {
+      "file": "actions/sit-read-end/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitRead01AS.anim",
+      "sourceSha256": "713b419fd9a25c3610b268bbf4c6d6ab2c409ec5f0a93b473063fbe31ae3e3f9",
+      "sha256": "498d1d1afc4e71bb0b0fa0b6bd3b73ee575ffd530608e8b1972d92919c4f65fe",
+      "duration": 2.3500001430511475
+    },
+    {
+      "file": "actions/sit-write-start/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitWrite01BS.anim",
+      "sourceSha256": "e0954234f856ac8f0427dfedff9837066ebf2cd44fb2f8009ca36760b1248e43",
+      "sha256": "10b9e9a5b7017bb7620fb2c9e431d5d66b7d215f18c97fa4c10d08c487681f2b",
+      "duration": 1.933333396911621
+    },
+    {
+      "file": "actions/sit-write/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitWrite01Loop.anim",
+      "sourceSha256": "479294ca67f0ce9f470df4450b390cb2b4f5e748f99af810b9714543d239d75f",
+      "sha256": "491f125b91cd1c0592e92cc925b72e097ae0715aa585113cc931135a98e3d4e6",
+      "duration": 2.516666889190674
+    },
+    {
+      "file": "actions/sit-write-end/motion.bundle",
+      "source": "Ani_Avatar_NPC_Girl_SitWrite01AS.anim",
+      "sourceSha256": "a9ab4512dcd806621c67950576fd4fb07c068af5c1ac5ce47b2370bff2a5272e",
+      "sha256": "157c075e9aa72bd246700d77d0fec94484b09cf00d74d97d7a51f211539ff382",
+      "duration": 2.1000001430511475
+    },
+    {
+      "file": "actions/crouch-idle/motion.bundle",
+      "source": "Ani_Avatar_Girl_CrouchIdle.anim",
+      "sourceSha256": "7868ad3ca4f4e47d76cc08c9e82818d3da484d9e94a34184e80bb4bf68917c21",
+      "sha256": "c21f387ecb099803ea0e246a34a58f82fe61469a3b7e7c425d3091425f658401",
+      "duration": 1.8500001430511475
+    },
+    {
+      "file": "actions/crouch-walk/motion.bundle",
+      "source": "Ani_Avatar_Girl_CrouchWalkCycle.anim",
+      "sourceSha256": "2fc8fc2d2a5f3d34d4d65c5760119e844dde5353c9214f8cfe7a572616e9d85e",
+      "sha256": "a5d0149c7b216743a770f5b3fdbb19da9b4757be173867461a2adbcdfe82bc2f",
+      "duration": 1.1166666746139526
+    },
+    {
+      "file": "actions/crouch-up/motion.bundle",
+      "source": "Ani_Avatar_Girl_CrouchToStandby.anim",
+      "sourceSha256": "96e834ca1a7085255561851d96fa1d33a2a1c829d2187b4af71cf96152d86e48",
+      "sha256": "c9f1e9067b21443a9b8d8a9054a2c047fb7a7ff6d628109ac8a30168f7093e30",
+      "duration": 0.7166666984558105
+    },
+    {
+      "file": "actions/jump/motion.bundle",
+      "source": "Ani_Avatar_Girl_Jump.anim",
+      "sourceSha256": "4174bd779073dbb7f41f11588f333ea173b07b04ff8e68fb065f804e7b392c77",
+      "sha256": "fc548aa79ec493e6217ecb1adb5935f523057ae1377b0df3a6c2c0ab243f5458",
+      "duration": 1.1166666746139526
+    },
+    {
+      "file": "actions/jump-walk/motion.bundle",
+      "source": "Ani_Avatar_Girl_JumpForWalkL.anim",
+      "sourceSha256": "e1b1b144dd6106aa9179814e0057bd64e43a121bcd3a80d51956df1a801ebb09",
+      "sha256": "2debeee38e58ef712e55dedba9c6b481d9a3f0ad5af4bb36ad94555e4a1810cc",
+      "duration": 1.1666667461395264
+    },
+    {
+      "file": "actions/jump-run/motion.bundle",
+      "source": "Ani_Avatar_Girl_JumpForRunL.anim",
+      "sourceSha256": "ad58608a573c79321a012f74a195f6a32b06c34cc54d577eea17f25ad1ed245f",
+      "sha256": "6f812a433ac4cb53e2a4b78640787f6c780c4fc31aaafb808b7e92e6622f762b",
+      "duration": 1.1166666746139526
+    },
+    {
+      "file": "actions/jump-sprint/motion.bundle",
+      "source": "Ani_Avatar_Girl_JumpForSprintL.anim",
+      "sourceSha256": "0c4b5b672d74a3ab92c9ab6b5f8653a478de1a5ee73a089f062fea107711cd32",
+      "sha256": "dfe59ee8c3ba5dcf4487b1da20fdbe405838f1eb160c8a2fc72fd941d28965f2",
+      "duration": 1.1500000953674316
+    },
+    {
+      "file": "actions/fall-loop/motion.bundle",
+      "source": "Ani_Avatar_Girl_DropDown.anim",
+      "sourceSha256": "829574672a84a608423ea6cf696b27fd9f947f00b4306f8105e957aa6e63da81",
+      "sha256": "2e9732b80e6c41192e1340369a135e13b7b1d239eab1bd06409bec0c348f7e88",
+      "duration": 0.8500000238418579
+    },
+    {
+      "file": "actions/land-low/motion.bundle",
+      "source": "Ani_Avatar_Girl_FallToGroundL.anim",
+      "sourceSha256": "6be374d85db77bbb0ae3a65d4280b661a27e286bb920a395546272da5f96b11e",
+      "sha256": "527b184890dcdbe7a89e507a135b50f24c6b48e55e42beb6882e887f3bdf642a",
+      "duration": 1.3000000715255737
+    },
+    {
+      "file": "actions/land-high/motion.bundle",
+      "source": "Ani_Avatar_Girl_FallToGroundH.anim",
+      "sourceSha256": "4d72409136f576aa6562ef688049193fbbeedd13247f2cd0decc2396d58d2dc6",
+      "sha256": "22d4c4a782d1f93ec7db02262a11ab70227cb375249d3ef6a1082e6d4b2077e6",
+      "duration": 2.1666667461395264
+    },
+    {
+      "file": "actions/land-run/motion.bundle",
+      "source": "Ani_Avatar_Girl_FallToGroundRunBS.anim",
+      "sourceSha256": "8ebcfed39a24c986a826a130293e3393a370e871566da72e9382085290ca5429",
+      "sha256": "d7569e3d795ae0af8324d45b7c0375d0fb1c1bf6e5a109e4fb48d333dfda3c01",
+      "duration": 1.100000023841858
+    },
+    {
+      "file": "actions/land-sprint/motion.bundle",
+      "source": "Ani_Avatar_Girl_FallToGroundSprintBS.anim",
+      "sourceSha256": "21a486cc787303db6320f322cac64e7831a0b8686b6c9c14535227e0bc38fa30",
+      "sha256": "7314c02132aa22ab13b0570b5d7970058ff04dc22d9016b65fad2d996e35ea59",
+      "duration": 1.033333420753479
+    },
+    {
+      "file": "actions/walk-stop-right/motion.bundle",
+      "source": "Ani_Avatar_Girl_WalkStopL+Mirror.anim",
+      "sourceSha256": "a87f613955a5adda5b44af612cac3de68d5cf7f555ef258a02cefb76c5263483",
+      "sha256": "6feb984b2cdc94c7bb572f9564c4131d614b9f0e5d203976ed99c240764a9de2",
+      "duration": 1.683333396911621
+    },
+    {
+      "file": "actions/run-stop-right/motion.bundle",
+      "source": "Ani_Avatar_Girl_RunStopL+Mirror.anim",
+      "sourceSha256": "06fed7dc5a51a597f3c7aa784359747ca581f6fc48bfc706d2368d714cdd58eb",
+      "sha256": "9be35768fac5ff4d42a819a06938fe62c9aaee20c21e4bba876c69a91e2e927c",
+      "duration": 1.433333396911621
+    },
+    {
+      "file": "actions/sprint-stop-right/motion.bundle",
+      "source": "Ani_Avatar_Girl_SprintStopL+Mirror.anim",
+      "sourceSha256": "c45892bf7256e539bbba6b90ee7a38f5851bf184e9e053469fd532fd508504ac",
+      "sha256": "64bb6ec7bc395c0bccfee5ef0e78bf27e0b158f08563b54b030020798820e0bf",
+      "duration": 1.933333396911621
+    }
+  ]
+}

@@ -79,6 +79,15 @@ namespace Katarune.Avatar
             if (_immersiveBackdrop == null) _immersiveBackdrop = gameObject.AddComponent<AvatarImmersiveBackdrop>();
             _immersiveBackdrop.SetBackground(id);
             _immersiveBackdrop.SetVisible(_immersive);
+            UpdateBackgroundStage();
+        }
+
+        private void UpdateBackgroundStage()
+        {
+            _immersiveBackdrop?.BindAvatar(_showcaseAvatar);
+            if (_hasFramedBounds) _immersiveBackdrop?.SetStage(
+                new Vector3(_showcaseBasePosition.x, _framedBounds.min.y, _showcaseBasePosition.z),
+                _framedBounds.size.y);
         }
         internal bool LiveOutputActive;
         internal string CameraView => _cameraView;
@@ -347,9 +356,10 @@ namespace Katarune.Avatar
                 _floor.transform.localScale = state.FloorScale;
             }
             _lastScreenSize = new Vector2Int(Screen.width, Screen.height);
+            UpdateBackgroundStage();
         }
 
-        internal void ActivateFraming(Transform avatar, Bounds bounds)
+        internal void ActivateFraming(Transform avatar, Bounds bounds, Vector3? portraitTarget = null)
         {
             if (avatar == null) throw new ArgumentNullException(nameof(avatar));
             var worldOffsetToOrigin = -avatar.position;
@@ -359,7 +369,7 @@ namespace Katarune.Avatar
             _showcaseBaseRotation = avatar.rotation;
             avatar.SetPositionAndRotation(_showcaseBasePosition, _showcaseBaseRotation);
             _framedBounds = bounds;
-            _portraitTarget = PortraitTarget(avatar, bounds);
+            _portraitTarget = portraitTarget.HasValue ? portraitTarget.Value + worldOffsetToOrigin : UniVrmAvatarLoader.MeasurePortraitTarget(avatar, bounds);
             _hasFramedBounds = true;
             ApplyFraming(bounds, resetAvatar: true);
             if (_immersive) SetPresentationModeAfterFraming();
@@ -375,26 +385,9 @@ namespace Katarune.Avatar
         {
             _hasFramedBounds = false;
             _showcaseAvatar = null;
+            _immersiveBackdrop?.BindAvatar(null);
             EndShowcaseDrag(preserveInertia: false);
             if (_floor != null) _floor.SetActive(false);
-        }
-
-        private static Vector3 PortraitTarget(Transform avatar, Bounds bounds)
-        {
-            var height = Mathf.Max(.1f, bounds.size.y);
-            foreach (var animator in avatar.GetComponentsInChildren<Animator>(true))
-            {
-                if (animator.avatar == null || !animator.isHuman) continue;
-                var left = animator.GetBoneTransform(HumanBodyBones.LeftEye);
-                var right = animator.GetBoneTransform(HumanBodyBones.RightEye);
-                if (left == null && right == null) continue;
-                var eyes = left != null && right != null ? (left.position + right.position) * .5f
-                    : (left != null ? left.position : right.position);
-                // Cache the resting eye position: idle motion must not make the camera chase the head.
-                eyes.y = Mathf.Clamp(eyes.y - height * .05f, bounds.min.y + height * .4f, bounds.max.y);
-                return eyes;
-            }
-            return new Vector3(bounds.center.x, bounds.min.y + height * .68f, bounds.center.z);
         }
 
         internal static void ConfigurePhysicalProjection(
@@ -457,6 +450,7 @@ namespace Katarune.Avatar
         internal void AdvancePresentation(float deltaTime)
         {
             if (_camera == null || !_hasFramedBounds) return;
+            UpdateBackgroundStage();
             if (_danceCameraTrack != null)
             {
                 ApplyDanceCameraTrack(); return;

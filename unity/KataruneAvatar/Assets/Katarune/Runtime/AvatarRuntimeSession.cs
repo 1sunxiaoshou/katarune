@@ -176,7 +176,7 @@ namespace Katarune.Avatar
             try
             {
                 next.Show();
-                _sceneRig.ActivateFraming(next.RootTransform, next.Bounds);
+                _sceneRig.ActivateFraming(next.RootTransform, next.Bounds, next.PortraitTarget);
                 if (previous != null)
                 {
                     previous.Hide();

@@ -30,11 +30,11 @@ unity build . --target StandaloneWindows64 --execute-method Katarune.Avatar.Edit
 
 ## 动作开发
 
-面向用户的动作通过角色包中的 VRMA 导入。下面的 `.motionpack` 是开发用 Unity AssetBundle，不能放进用户角色包清单。
+角色包支持 VRMA 和 Unity 原生 Humanoid AssetBundle（`.bundle`）。角色包中的每个动画 Bundle 只包含一个片段，制作命令见[角色包格式](../../docs/02-架构/角色包格式.md)。下列动作库入口也供独立 Player 开发使用。
 
 1. 将转换完成的 Humanoid `.anim` 导入 `Assets/KataruneLocal/Motions/Baked/`。
 2. 在 Project 窗口选中 Clip 或动作库，执行 `Katarune > Motion Packs > Build Selected Clips or Library`。
-3. 将生成的 `MotionPacks/*.motionpack` 复制到开发 Player 旁的 `MotionPacks/`，重启加载。不要复制 `.meta` 或构建用 `.manifest`。
+3. 将生成的 `MotionPacks/*.bundle` 复制到开发 Player 旁的 `MotionPacks/`，重启加载。不要复制 `.meta` 或构建用 `.manifest`。
 
 定义保存在 `Assets/KataruneLocal/MotionPacks/*.asset`；保留 `.meta` 和稳定 ID，替换时删除旧包，避免重复身份。也可通过 `--motion-packs "C:/path/to/packs"` 指定目录。
 

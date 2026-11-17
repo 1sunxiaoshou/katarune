@@ -8,7 +8,9 @@
     "Katarune.Avatar.UniVrm",
     "VRM10",
     "UniGLTF",
-    "UniHumanoid"
+    "UniHumanoid",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Core.Runtime"
   ],
   "optionalUnityReferences": ["TestAssemblies"]
 }

@@ -68,19 +68,26 @@ namespace Katarune.Avatar
                     throw new InvalidOperationException("The loaded avatar has no RuntimeGltfInstance.");
                 }
 
+                // Geometry belongs to the imported model, not the last validation sample.
+                // Freeze automatic VRM updates while asynchronous animation preparation
+                // writes temporary control-rig poses and awaits additional resources.
+                var updateType = loaded.UpdateType;
+                loaded.UpdateType = Vrm10Instance.UpdateTypes.None;
+                var bounds = MeasureBounds(loaded.gameObject);
+                var portraitTarget = MeasurePortraitTarget(loaded.transform, bounds);
                 runtimeInstance.EnableUpdateWhenOffscreen();
                 driver = new UniVrmAvatarDriver(loaded);
                 var rigBinding = CreateRigBinding(loaded);
                 motion = package == null && _motions.HasInstalledLibrary
                     ? _motions.Prepare(rigBinding)
-                    : await VrmaMotionInstance.PrepareAsync(loaded, package ?? new AvatarCharacterPackage { id = "builtin:default" }, bytes, cancellationToken);
-                ((UniVrmAvatarDriver)driver).AttachMotion(motion as VrmaMotionInstance);
+                    : await PackageMotionInstance.PrepareAsync(loaded, package ?? new AvatarCharacterPackage { id = "builtin:default" }, bytes, cancellationToken);
+                ((UniVrmAvatarDriver)driver).AttachMotion(motion as PackageMotionInstance);
                 visual = _visuals.Prepare(loaded.gameObject, presentation);
-                var bounds = MeasureBounds(loaded.gameObject);
                 var capabilities = ReadCapabilities(driver, motion);
                 loaded.name = Path.GetFileNameWithoutExtension(fullPath);
                 SetLayerRecursively(loaded.gameObject, LayerMask.NameToLayer("Ignore Raycast"));
                 loaded.gameObject.SetActive(false);
+                loaded.UpdateType = updateType;
 
                 var model = new AvatarActiveModel(
                     loaded,
@@ -89,6 +96,7 @@ namespace Katarune.Avatar
                     visual,
                     motion,
                     bounds,
+                    portraitTarget,
                     fullPath,
                     Path.GetFileNameWithoutExtension(fullPath),
                     capabilities);
@@ -121,6 +129,24 @@ namespace Katarune.Avatar
                 throw new ArgumentException("The selected model must use the .vrm extension.", nameof(path));
             }
             return fullPath;
+        }
+
+        internal static Vector3 MeasurePortraitTarget(Transform avatar, Bounds bounds)
+        {
+            var height = Mathf.Max(.1f, bounds.size.y);
+            foreach (var animator in avatar.GetComponentsInChildren<Animator>(true))
+            {
+                if (animator.avatar == null || !animator.isHuman) continue;
+                var left = animator.GetBoneTransform(HumanBodyBones.LeftEye);
+                var right = animator.GetBoneTransform(HumanBodyBones.RightEye);
+                if (left == null && right == null) continue;
+                var eyes = left != null && right != null ? (left.position + right.position) * .5f
+                    : (left != null ? left.position : right.position);
+                // Cache the resting eye position: idle motion must not make the camera chase the head.
+                eyes.y = Mathf.Clamp(eyes.y - height * .05f, bounds.min.y + height * .4f, bounds.max.y);
+                return eyes;
+            }
+            return new Vector3(bounds.center.x, bounds.min.y + height * .68f, bounds.center.z);
         }
 
         private static Bounds MeasureBounds(GameObject avatar)
@@ -177,6 +203,7 @@ namespace Katarune.Avatar
         IAvatarVisualInstance Visual { get; }
         IAvatarMotionInstance Motion { get; }
         Bounds Bounds { get; }
+        Vector3 PortraitTarget { get; }
         string Path { get; }
         string Name { get; }
         AvatarCapabilitySet Capabilities { get; }
@@ -220,6 +247,7 @@ namespace Katarune.Avatar
             AvatarVisualInstance visual,
             IAvatarMotionInstance motion,
             Bounds bounds,
+            Vector3 portraitTarget,
             string path,
             string name,
             AvatarCapabilitySet capabilities)
@@ -230,6 +258,7 @@ namespace Katarune.Avatar
             Visual = visual ?? throw new ArgumentNullException(nameof(visual));
             Motion = motion;
             Bounds = bounds;
+            PortraitTarget = portraitTarget;
             Path = path;
             Name = name;
             Capabilities = capabilities;
@@ -242,6 +271,7 @@ namespace Katarune.Avatar
         public IAvatarVisualInstance Visual { get; }
         public IAvatarMotionInstance Motion { get; }
         public Bounds Bounds { get; }
+        public Vector3 PortraitTarget { get; }
         public string Path { get; }
         public string Name { get; }
         public AvatarCapabilitySet Capabilities { get; }

@@ -10,6 +10,8 @@ import { build } from 'vite';
 import { runtimePackage } from './runtimePackage.mjs';
 
 const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
+const backgroundId=process.env.KATARUNE_TEST_BACKGROUND??'film';
+assert.ok(['film','cloud-observatory','island-coast'].includes(backgroundId),'Unsupported background');
 assert.ok(aspectRatio==='16:9'||aspectRatio==='9:16','Unsupported live output aspect ratio');
 const output=resolve(process.env.KATARUNE_LIVE_TEST_OUTPUT??(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized')); await mkdir(output,{recursive:true});
 await build({configFile:false,logLevel:'error',build:{ssr:resolve('src/main/live/media.ts'),outDir:join(output,'module'),emptyOutDir:false,rollupOptions:{output:{entryFileNames:'media.mjs'}}}});
@@ -20,7 +22,7 @@ const control=`katarune-live-control-${randomUUID()}`, pipe=`katarune-live-${ran
 const width=Number(process.env.KATARUNE_LIVE_WIDTH??1920);
 assert.ok([1280,1920,2560].includes(width),'Unsupported live output resolution');
 const outputWidth=aspectRatio==='9:16'?width*9/16:width, outputHeight=aspectRatio==='9:16'?width:width*9/16;
-const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe};
+const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe,backgroundId};
 const characterRoot=resolve('resources/characters/default-package'), packageFile=join(output,'avatar-package.json');
 await writeFile(packageFile,JSON.stringify(runtimePackage(
   JSON.parse(await readFile(join(characterRoot,'manifest.json'),'utf8')),
@@ -63,8 +65,10 @@ try {
   child=spawn(executable,['-force-d3d11','-force-d3d11-bitblt-model','-screen-fullscreen','1','-window-mode','borderless','-logFile',join(output,'player.log'),'--exit-on-error'],{cwd:dirname(executable),windowsHide:true,stdio:'ignore',env:{...process.env,KATARUNE_AVATAR_PIPE:control,KATARUNE_CHARACTER_PACKAGE:packageFile,KATARUNE_LIVE_ACCEPTANCE:'1'}});
   child.on('error',error=>{playerFailure=error;}); child.on('exit',code=>{playerFailure=new Error(`Player exited (${code})`);});
   await until(()=>messages.some(message=>message.type==='ready'),'Player readiness',60000);
+  await command('background','cloud-observatory');
   await command('live-start',JSON.stringify({...settings,fps:60}));
   await media.start(settings,pipe,lifetime.signal);
+  await until(()=>messages.some(message=>message.type==='presentation'&&message.backgroundId===backgroundId),'Live background selection');
   for(const camera of ['fullbody','closeup','overhead','side','center']) {
     await command('live-update',JSON.stringify({...settings,camera}));
     await delay(1000);
@@ -111,7 +115,9 @@ try {
     ]);
     sync.push({stage:'after-soak',...await measureCapture(capture,'after-soak')});
   }
+  const beforeStop=messages.length;
   await command('live-stop'); await media.stop();
+  await until(()=>messages.slice(beforeStop).some(message=>message.type==='presentation'&&message.backgroundId==='cloud-observatory'),'Desktop background restoration');
   assert.equal(playerFailure,undefined);
   const log=await readFile(join(output,'player.log'),'utf8');
   const diagnostics=log.split('\n').filter(line=>line.startsWith('LIVE_ACCEPTANCE'));

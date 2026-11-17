@@ -1,7 +1,7 @@
 {
   "formatVersion": 3,
   "name": "春原心奈",
-  "version": "2.1.0",
+  "version": "2.4.0",
   "portrait": "avatar/portrait.png",
   "thumbnail": "avatar/thumbnail.png",
   "model": "avatar/model.vrm",
@@ -12,7 +12,7 @@
       "description": "自动待机时持续播放。",
       "playback": {
         "kind": "loop",
-        "motion": "actions/idle/motion.vrma"
+        "motion": "actions/idle/motion.bundle"
       }
     },
     {
@@ -21,7 +21,7 @@
       "description": "自动待机期间随机播放。",
       "playback": {
         "kind": "oneShot",
-        "motion": "actions/idle-variation-01/motion.vrma"
+        "motion": "actions/idle-variation-01/motion.bundle"
       }
     },
     {
@@ -30,7 +30,7 @@
       "description": "自动待机期间随机播放。",
       "playback": {
         "kind": "oneShot",
-        "motion": "actions/idle-variation-02/motion.vrma"
+        "motion": "actions/idle-variation-02/motion.bundle"
       }
     },
     {
@@ -40,7 +40,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "upperBody",
-        "motion": "actions/greet/motion.vrma"
+        "motion": "actions/greet/motion.bundle"
       }
     },
     {
@@ -50,7 +50,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "head",
-        "motion": "actions/nod/motion.vrma"
+        "motion": "actions/nod/motion.bundle"
       }
     },
     {
@@ -60,7 +60,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "head",
-        "motion": "actions/shake-head/motion.vrma"
+        "motion": "actions/shake-head/motion.bundle"
       }
     },
     {
@@ -69,10 +69,10 @@
       "description": "交谈动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/talk/enter.vrma",
-        "exit": "actions/talk/exit.vrma",
+        "enter": "actions/talk/enter.bundle",
+        "exit": "actions/talk/exit.bundle",
         "layer": "body",
-        "motion": "actions/talk/motion.vrma"
+        "motion": "actions/talk/motion.bundle"
       }
     },
     {
@@ -82,7 +82,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "upperBody",
-        "motion": "actions/talk-gesture/motion.vrma"
+        "motion": "actions/talk-gesture/motion.bundle"
       }
     },
     {
@@ -91,10 +91,10 @@
       "description": "思考动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/think/enter.vrma",
-        "exit": "actions/think/exit.vrma",
+        "enter": "actions/think/enter.bundle",
+        "exit": "actions/think/exit.bundle",
         "layer": "body",
-        "motion": "actions/think/motion.vrma"
+        "motion": "actions/think/motion.bundle"
       }
     },
     {
@@ -104,7 +104,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "upperBody",
-        "motion": "actions/clap/motion.vrma"
+        "motion": "actions/clap/motion.bundle"
       }
     },
     {
@@ -113,10 +113,10 @@
       "description": "欢呼动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/cheer/enter.vrma",
-        "exit": "actions/cheer/exit.vrma",
+        "enter": "actions/cheer/enter.bundle",
+        "exit": "actions/cheer/exit.bundle",
         "layer": "body",
-        "motion": "actions/cheer/motion.vrma"
+        "motion": "actions/cheer/motion.bundle"
       }
     },
     {
@@ -126,7 +126,7 @@
       "playback": {
         "kind": "oneShot",
         "layer": "body",
-        "motion": "actions/encourage/motion.vrma"
+        "motion": "actions/encourage/motion.bundle"
       }
     },
     {
@@ -135,10 +135,10 @@
       "description": "疑惑动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/confused/enter.vrma",
-        "exit": "actions/confused/exit.vrma",
+        "enter": "actions/confused/enter.bundle",
+        "exit": "actions/confused/exit.bundle",
         "layer": "body",
-        "motion": "actions/confused/motion.vrma"
+        "motion": "actions/confused/motion.bundle"
       }
     },
     {
@@ -147,10 +147,10 @@
       "description": "耸肩动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/shrug/enter.vrma",
-        "exit": "actions/shrug/exit.vrma",
+        "enter": "actions/shrug/enter.bundle",
+        "exit": "actions/shrug/exit.bundle",
         "layer": "body",
-        "motion": "actions/shrug/motion.vrma"
+        "motion": "actions/shrug/motion.bundle"
       }
     },
     {
@@ -159,10 +159,10 @@
       "description": "向前指动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/point/enter.vrma",
-        "exit": "actions/point/exit.vrma",
+        "enter": "actions/point/enter.bundle",
+        "exit": "actions/point/exit.bundle",
         "layer": "body",
-        "motion": "actions/point/motion.vrma"
+        "motion": "actions/point/motion.bundle"
       }
     },
     {
@@ -171,10 +171,10 @@
       "description": "叉腰动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/akimbo/enter.vrma",
-        "exit": "actions/akimbo/exit.vrma",
+        "enter": "actions/akimbo/enter.bundle",
+        "exit": "actions/akimbo/exit.bundle",
         "layer": "body",
-        "motion": "actions/akimbo/motion.vrma"
+        "motion": "actions/akimbo/motion.bundle"
       }
     },
     {
@@ -183,10 +183,10 @@
       "description": "抱臂动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/hold-arms/enter.vrma",
-        "exit": "actions/hold-arms/exit.vrma",
+        "enter": "actions/hold-arms/enter.bundle",
+        "exit": "actions/hold-arms/exit.bundle",
         "layer": "body",
-        "motion": "actions/hold-arms/motion.vrma"
+        "motion": "actions/hold-arms/motion.bundle"
       }
     },
     {
@@ -195,10 +195,10 @@
       "description": "害怕动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/afraid/enter.vrma",
-        "exit": "actions/afraid/exit.vrma",
+        "enter": "actions/afraid/enter.bundle",
+        "exit": "actions/afraid/exit.bundle",
         "layer": "body",
-        "motion": "actions/afraid/motion.vrma"
+        "motion": "actions/afraid/motion.bundle"
       }
     },
     {
@@ -207,10 +207,10 @@
       "description": "低落动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/downcast/enter.vrma",
-        "exit": "actions/downcast/exit.vrma",
+        "enter": "actions/downcast/enter.bundle",
+        "exit": "actions/downcast/exit.bundle",
         "layer": "body",
-        "motion": "actions/downcast/motion.vrma"
+        "motion": "actions/downcast/motion.bundle"
       }
     },
     {
@@ -219,10 +219,10 @@
       "description": "警觉动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/alert/enter.vrma",
-        "exit": "actions/alert/exit.vrma",
+        "enter": "actions/alert/enter.bundle",
+        "exit": "actions/alert/exit.bundle",
         "layer": "body",
-        "motion": "actions/alert/motion.vrma"
+        "motion": "actions/alert/motion.bundle"
       }
     },
     {
@@ -231,10 +231,10 @@
       "description": "阅读动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/read/enter.vrma",
-        "exit": "actions/read/exit.vrma",
+        "enter": "actions/read/enter.bundle",
+        "exit": "actions/read/exit.bundle",
         "layer": "body",
-        "motion": "actions/read/motion.vrma"
+        "motion": "actions/read/motion.bundle"
       }
     },
     {
@@ -243,10 +243,10 @@
       "description": "低语动作。",
       "playback": {
         "kind": "loop",
-        "enter": "actions/whisper/enter.vrma",
-        "exit": "actions/whisper/exit.vrma",
+        "enter": "actions/whisper/enter.bundle",
+        "exit": "actions/whisper/exit.bundle",
         "layer": "body",
-        "motion": "actions/whisper/motion.vrma"
+        "motion": "actions/whisper/motion.bundle"
       }
     },
     {
@@ -255,10 +255,10 @@
       "description": "持续向左指",
       "playback": {
         "kind": "loop",
-        "enter": "actions/point-left/enter.vrma",
-        "exit": "actions/point-left/exit.vrma",
+        "enter": "actions/point-left/enter.bundle",
+        "exit": "actions/point-left/exit.bundle",
         "layer": "body",
-        "motion": "actions/point-left/motion.vrma"
+        "motion": "actions/point-left/motion.bundle"
       }
     },
     {
@@ -267,10 +267,10 @@
       "description": "持续向右指",
       "playback": {
         "kind": "loop",
-        "enter": "actions/point-right/enter.vrma",
-        "exit": "actions/point-right/exit.vrma",
+        "enter": "actions/point-right/enter.bundle",
+        "exit": "actions/point-right/exit.bundle",
         "layer": "body",
-        "motion": "actions/point-right/motion.vrma"
+        "motion": "actions/point-right/motion.bundle"
       }
     },
     {
@@ -305,6 +305,426 @@
           "file": "actions/redreaming-angel/camera.glb",
           "referenceHeight": 1.6553590819239616
         }
+      }
+    },
+    {
+      "key": "walk",
+      "name": "行走",
+      "description": "原地循环动作；场景位移由移动控制器驱动。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/walk/motion.bundle"
+      }
+    },
+    {
+      "key": "run",
+      "name": "跑步",
+      "description": "原地循环动作；场景位移由移动控制器驱动。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/run/motion.bundle"
+      }
+    },
+    {
+      "key": "sprint",
+      "name": "冲刺",
+      "description": "原地循环动作；场景位移由移动控制器驱动。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sprint/motion.bundle"
+      }
+    },
+    {
+      "key": "run-start",
+      "name": "起跑",
+      "description": "独立移动过渡片段；需由场景移动控制器选择时机调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/run-start/motion.bundle"
+      }
+    },
+    {
+      "key": "sprint-start",
+      "name": "冲刺起步",
+      "description": "独立移动过渡片段；需由场景移动控制器选择时机调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sprint-start/motion.bundle"
+      }
+    },
+    {
+      "key": "walk-stop-left",
+      "name": "行走左脚停步",
+      "description": "左脚支撑的独立停步片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/walk-stop-left/motion.bundle"
+      }
+    },
+    {
+      "key": "run-stop-left",
+      "name": "跑步左脚停步",
+      "description": "左脚支撑的独立停步片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/run-stop-left/motion.bundle"
+      }
+    },
+    {
+      "key": "sprint-stop-left",
+      "name": "冲刺左脚停步",
+      "description": "左脚支撑的独立停步片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sprint-stop-left/motion.bundle"
+      }
+    },
+    {
+      "key": "run-to-walk",
+      "name": "跑步转行走",
+      "description": "独立移动过渡片段；需由场景移动控制器选择时机调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/run-to-walk/motion.bundle"
+      }
+    },
+    {
+      "key": "sprint-to-run",
+      "name": "冲刺转跑步",
+      "description": "独立移动过渡片段；需由场景移动控制器选择时机调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sprint-to-run/motion.bundle"
+      }
+    },
+    {
+      "key": "turn-left",
+      "name": "向左转身",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/turn-left/motion.bundle"
+      }
+    },
+    {
+      "key": "turn-right",
+      "name": "向右转身",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/turn-right/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-down",
+      "name": "坐下",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-down/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-idle",
+      "name": "坐姿待机",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sit-idle/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-up",
+      "name": "坐姿起身",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-up/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-chat-start",
+      "name": "坐姿聊天准备",
+      "description": "坐姿内的独立BS过渡片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-chat-start/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-chat",
+      "name": "坐姿聊天",
+      "description": "坐姿内的独立循环片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sit-chat/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-chat-end",
+      "name": "坐姿聊天收尾",
+      "description": "坐姿内的独立AS过渡片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-chat-end/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-think-start",
+      "name": "坐姿思考准备",
+      "description": "坐姿内的独立BS过渡片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-think-start/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-think",
+      "name": "坐姿思考",
+      "description": "坐姿内的独立循环片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sit-think/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-think-end",
+      "name": "坐姿思考收尾",
+      "description": "坐姿内的独立AS过渡片段；需配合座位对齐，由场景控制器衔接。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-think-end/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-read-start",
+      "name": "坐姿阅读准备",
+      "description": "坐姿内的独立BS过渡片段；需配合座位对齐和书本道具。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-read-start/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-read",
+      "name": "坐姿阅读",
+      "description": "坐姿内的独立循环片段；需配合座位对齐和书本道具。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sit-read/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-read-end",
+      "name": "坐姿阅读收尾",
+      "description": "坐姿内的独立AS过渡片段；需配合座位对齐和书本道具。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-read-end/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-write-start",
+      "name": "坐姿写字准备",
+      "description": "坐姿内的独立BS过渡片段；需配合座位对齐和桌面、笔等道具。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-write-start/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-write",
+      "name": "坐姿写字",
+      "description": "坐姿内的独立循环片段；需配合座位对齐和桌面、笔等道具。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/sit-write/motion.bundle"
+      }
+    },
+    {
+      "key": "sit-write-end",
+      "name": "坐姿写字收尾",
+      "description": "坐姿内的独立AS过渡片段；需配合座位对齐和桌面、笔等道具。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sit-write-end/motion.bundle"
+      }
+    },
+    {
+      "key": "crouch-idle",
+      "name": "蹲伏待机",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/crouch-idle/motion.bundle"
+      }
+    },
+    {
+      "key": "crouch-walk",
+      "name": "蹲伏行走",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/crouch-walk/motion.bundle"
+      }
+    },
+    {
+      "key": "crouch-up",
+      "name": "蹲姿起身",
+      "description": "独立场景动作片段；位置、朝向及衔接时机由场景控制器管理。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/crouch-up/motion.bundle"
+      }
+    },
+    {
+      "key": "jump",
+      "name": "原地跳跃",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/jump/motion.bundle"
+      }
+    },
+    {
+      "key": "jump-walk",
+      "name": "行走起跳",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/jump-walk/motion.bundle"
+      }
+    },
+    {
+      "key": "jump-run",
+      "name": "跑步起跳",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/jump-run/motion.bundle"
+      }
+    },
+    {
+      "key": "jump-sprint",
+      "name": "冲刺起跳",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/jump-sprint/motion.bundle"
+      }
+    },
+    {
+      "key": "fall-loop",
+      "name": "下落循环",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "loop",
+        "layer": "body",
+        "motion": "actions/fall-loop/motion.bundle"
+      }
+    },
+    {
+      "key": "land-low",
+      "name": "低处落地",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/land-low/motion.bundle"
+      }
+    },
+    {
+      "key": "land-high",
+      "name": "高处落地",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/land-high/motion.bundle"
+      }
+    },
+    {
+      "key": "land-run",
+      "name": "落地接跑步",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/land-run/motion.bundle"
+      }
+    },
+    {
+      "key": "land-sprint",
+      "name": "落地接冲刺",
+      "description": "跳跃／落地姿态片段；不驱动真实腾空或场景位移，需由场景控制器结合地面检测调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/land-sprint/motion.bundle"
+      }
+    },
+    {
+      "key": "walk-stop-right",
+      "name": "行走右脚停步",
+      "description": "与左脚停步配对的原始镜像片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/walk-stop-right/motion.bundle"
+      }
+    },
+    {
+      "key": "run-stop-right",
+      "name": "跑步右脚停步",
+      "description": "与左脚停步配对的原始镜像片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/run-stop-right/motion.bundle"
+      }
+    },
+    {
+      "key": "sprint-stop-right",
+      "name": "冲刺右脚停步",
+      "description": "与左脚停步配对的原始镜像片段；需按步态相位调用。",
+      "playback": {
+        "kind": "oneShot",
+        "layer": "body",
+        "motion": "actions/sprint-stop-right/motion.bundle"
       }
     }
   ],

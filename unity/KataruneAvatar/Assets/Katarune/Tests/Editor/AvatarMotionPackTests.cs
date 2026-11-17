@@ -90,6 +90,10 @@ namespace Katarune.Avatar.Tests
         }
 
         [TestCase("Left Index 1 Stretched", false)]
+        [TestCase("LeftFootT.x", true)]
+        [TestCase("LeftUpperLegTDOF.x", true)]
+        [TestCase("RightUpperLegTDOF.z", true)]
+        [TestCase("UnknownBoneTDOF.x", false)]
         [TestCase("Left Thumb Spread", false)]
         [TestCase("RightHand.Little.Spread", false)]
         [TestCase("LeftHand.Index.1 Stretched", true)]
@@ -102,6 +106,40 @@ namespace Katarune.Avatar.Tests
                 AnimationCurve.Linear(0f, 0f, 2f, 0.5f));
             if (valid) Assert.DoesNotThrow(() => Editor.AvatarHumanoidClipValidator.ValidateBindings(_clip));
             else Assert.Throws<InvalidDataException>(() => Editor.AvatarHumanoidClipValidator.ValidateBindings(_clip));
+        }
+
+        [Test]
+        public void PackageClipRejectsAmbiguousCatalogsAndHiddenTimingOverrides()
+        {
+            Assert.That(AvatarMotionPacks.ValidatePackageClip(_library), Is.SameAs(_clip));
+            _library.Configure(null, new[] {new AvatarActionDefinition("first", "First", _clip), new AvatarActionDefinition("second", "Second", _clip)});
+            Assert.Throws<InvalidDataException>(() => AvatarMotionPacks.ValidatePackageClip(_library));
+            _library.Configure(null, new[] {new AvatarActionDefinition("first", "First", _clip, speed:2f)});
+            Assert.Throws<InvalidDataException>(() => AvatarMotionPacks.ValidatePackageClip(_library));
+            _library.Configure(null, new[] {new AvatarActionDefinition("first", "First", _clip, maximumDuration:.5f)});
+            Assert.Throws<InvalidDataException>(() => AvatarMotionPacks.ValidatePackageClip(_library));
+        }
+
+        [Test]
+        public void BodyExtractionPreservesNativeIkAndCanonicalizesFingerCurvesWithoutChangingTheSource()
+        {
+            var foot = EditorCurveBinding.FloatCurve("", typeof(Animator), "LeftFootT.x");
+            var finger = EditorCurveBinding.FloatCurve("", typeof(Animator), "LeftHand.Thumb.Spread");
+            var hair = EditorCurveBinding.FloatCurve("hair", typeof(Transform), "m_LocalPosition.x");
+            AnimationUtility.SetEditorCurve(_clip, foot, AnimationCurve.Linear(0, .2f, 2, .4f));
+            AnimationUtility.SetEditorCurve(_clip, finger, AnimationCurve.Linear(0, -.1f, 2, .3f));
+            AnimationUtility.SetEditorCurve(_clip, hair, AnimationCurve.Linear(0, 0, 2, 1));
+            var body = Editor.AvatarHumanoidClipValidator.ExtractHumanoidBody(_clip);
+            try
+            {
+                Assert.That(AnimationUtility.GetEditorCurve(body, foot).Evaluate(1), Is.EqualTo(.3f).Within(.0001f));
+                Assert.That(AnimationUtility.GetEditorCurve(body, EditorCurveBinding.FloatCurve("", typeof(Animator), "LeftHand.Thumb Spread")).Evaluate(1), Is.EqualTo(.1f).Within(.0001f));
+                Assert.That(AnimationUtility.GetEditorCurve(body, hair), Is.Null);
+                Assert.That(AnimationUtility.GetEditorCurve(_clip, hair), Is.Not.Null);
+                Assert.That(AnimationUtility.GetEditorCurve(_clip, finger), Is.Not.Null);
+                Assert.That(body.isHumanMotion, Is.True);
+            }
+            finally { Object.DestroyImmediate(body); }
         }
     }
 }

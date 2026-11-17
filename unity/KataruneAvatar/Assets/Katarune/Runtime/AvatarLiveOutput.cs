@@ -95,7 +95,10 @@ namespace Katarune.Avatar
                 _renderRequest=new RenderPipeline.StandardRequest { destination=_scene };
                 if(!RenderPipeline.SupportsRenderRequest(_camera,_renderRequest)) throw new InvalidOperationException("当前渲染管线不支持后台直播。");
                 _camera.enabled=false;
-                _rig.LiveOutputActive=true; _rig.SetPresentationMode(true,settings.camera);
+                // Prepare lazy scenery before the audio tap starts the media clock.
+                // Otherwise a cold scenery asset load consumes the first seconds
+                // and the video writer correctly rejects the already-late first frame.
+                _rig.LiveOutputActive=true; _rig.SetBackground(settings.backgroundId); _rig.SetPresentationMode(true,settings.camera);
                 _panel=ScriptableObject.CreateInstance<PanelSettings>(); _panel.targetTexture=_subtitles;
                 _panel.themeStyleSheet=Resources.Load<ThemeStyleSheet>("Live/LiveTheme");
                 _panel.clearColor=true; _panel.colorClearValue=Color.clear; _panel.scaleMode=PanelScaleMode.ConstantPixelSize;

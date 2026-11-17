@@ -17,6 +17,7 @@ describe("livestream output shape", () => {
     const { backgroundId: _background, ...previous } = DEFAULT_LIVE_SETTINGS;
     expect(liveSettingsSchema.parse(previous).backgroundId).toBe("film");
     expect(liveSettingsSchema.parse({ ...previous, backgroundId: "cloud-observatory" }).backgroundId).toBe("cloud-observatory");
+    expect(liveSettingsSchema.parse({ ...previous, backgroundId: "island-coast" }).backgroundId).toBe("island-coast");
     expect(liveSettingsSchema.safeParse({ ...previous, backgroundId: "../custom.png" }).success).toBe(false);
     expect(liveSettingsSchema.safeParse({ ...previous, backgroundId: "unknown" }).success).toBe(false);
   });

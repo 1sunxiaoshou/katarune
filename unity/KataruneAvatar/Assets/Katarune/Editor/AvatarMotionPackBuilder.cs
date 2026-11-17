@@ -39,16 +39,31 @@ namespace Katarune.Avatar.Editor
             }
             var path = Read("--motion-source");
             var id = Read("--motion-id");
+            if (!AvatarActionIds.IsValid(id)) throw new ArgumentException("Provide a valid --motion-id.");
+            if (Path.IsPathRooted(path))
+            {
+                if (!string.Equals(Path.GetExtension(path), ".anim", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("The source must be an .anim file.");
+                Directory.CreateDirectory(SourceDirectory);
+                var imported = $"{SourceDirectory}/{id}-source.anim";
+                if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(imported), StringComparison.OrdinalIgnoreCase)) File.Copy(path, imported, true);
+                AssetDatabase.ImportAsset(imported, ImportAssetOptions.ForceSynchronousImport);
+                path = imported;
+            }
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path ?? string.Empty);
-            BuildClip(clip, id, Read("--motion-name") ?? Path.GetFileNameWithoutExtension(path));
+            BuildClip(clip, id, Read("--motion-name") ?? Path.GetFileNameWithoutExtension(path), Read("--motion-output"));
         }
 
-        private static void BuildClip(AnimationClip clip, string id, string displayName)
+        private static void BuildClip(AnimationClip clip, string id, string displayName, string outputPath = null)
         {
             if (clip == null || !AvatarActionIds.IsValid(id))
                 throw new ArgumentException("Provide an imported .anim and a valid stable motion ID.");
             Directory.CreateDirectory(SourceDirectory);
             AssetDatabase.Refresh();
+            var body = AvatarHumanoidClipValidator.ExtractHumanoidBody(clip);
+            var bodyPath = $"{SourceDirectory}/{id}-body.anim";
+            var previous = AssetDatabase.LoadAssetAtPath<AnimationClip>(bodyPath);
+            if (previous != null) { EditorUtility.CopySerialized(body, previous); UnityEngine.Object.DestroyImmediate(body); body = previous; EditorUtility.SetDirty(body); }
+            else AssetDatabase.CreateAsset(body, bodyPath);
             var path = $"{SourceDirectory}/{id}.asset";
             var library = AssetDatabase.LoadAssetAtPath<AvatarMotionLibrary>(path);
             if (library == null)
@@ -56,8 +71,8 @@ namespace Katarune.Avatar.Editor
                 library = ScriptableObject.CreateInstance<AvatarMotionLibrary>();
                 AssetDatabase.CreateAsset(library, path);
             }
-            library.Configure(null, new[] { new AvatarActionDefinition(id, displayName, clip) }, false);
-            Build(library, id);
+            library.Configure(null, new[] { new AvatarActionDefinition(id, displayName, body) }, true);
+            Build(library, id, outputPath);
         }
 
         [MenuItem("Katarune/Motion Packs/Build Local Defaults")]
@@ -75,7 +90,7 @@ namespace Katarune.Avatar.Editor
             Build(library, "00-local-defaults");
         }
 
-        public static void Build(AvatarMotionLibrary library, string id)
+        public static void Build(AvatarMotionLibrary library, string id, string outputPath = null)
         {
             if (library == null || !AvatarActionIds.IsValid(id)) throw new ArgumentException("The pack needs a valid ID.");
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.StandaloneWindows64)
@@ -108,8 +123,10 @@ namespace Katarune.Avatar.Editor
                 BuildTarget.StandaloneWindows64);
             if (manifest == null || manifest.GetAllDependencies(filename).Length != 0)
                 throw new InvalidOperationException("Motion pack build failed or has external dependencies.");
-            Directory.CreateDirectory(AvatarMotionPacks.DefaultDirectory);
-            var output = Path.Combine(AvatarMotionPacks.DefaultDirectory, filename);
+            var output = string.IsNullOrEmpty(outputPath) ? Path.Combine(AvatarMotionPacks.DefaultDirectory, filename) : Path.GetFullPath(outputPath);
+            if (!string.Equals(Path.GetExtension(output), AvatarMotionPacks.Extension, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("The output must use the .bundle extension.");
+            Directory.CreateDirectory(Path.GetDirectoryName(output));
             File.Copy(Path.Combine(stage, filename), output, true);
             Debug.Log($"KATARUNE_MOTION_PACK_BUILT path={output} actions={library.Definitions.Count}");
         }

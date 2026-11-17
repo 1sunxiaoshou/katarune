@@ -1,9 +1,12 @@
 using System.Collections;
 using System.Threading;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using Object = UnityEngine.Object;
 
 namespace Katarune.Avatar.Tests
@@ -97,6 +100,138 @@ namespace Katarune.Avatar.Tests
             yield return null;
             Assert.That(material == null, Is.True, "Destroying the background must release its material.");
             Assert.That(mesh == null, Is.True, "Destroying the background must release its mesh.");
+        }
+
+        [UnityTest]
+        public IEnumerator IslandBackgroundHidesReusesAndReleasesItsWorldGeometry()
+        {
+            var root = new GameObject("Island background lifecycle test");
+            GameObject island = null;
+            Material[] materials = null;
+            Mesh[] meshes = null;
+            try
+            {
+                var backdrop = root.AddComponent<AvatarImmersiveBackdrop>();
+                backdrop.SetBackground("island-coast");
+                island = Resources.FindObjectsOfTypeAll<GameObject>().Single(value => value.name == "Katarune island coast" && value.scene.IsValid());
+                Assert.That(island.activeSelf, Is.False, "Selecting a background must preserve transparent desktop mode.");
+                backdrop.SetStage(new Vector3(0, .25f, 0), 3.3f);
+                backdrop.SetVisible(true);
+                backdrop.Advance(1);
+                Assert.That(island.activeSelf, Is.True);
+                Assert.That(island.transform.position.y, Is.EqualTo(.25f));
+                Assert.That(island.transform.localScale.x, Is.EqualTo(2));
+                materials = island.GetComponentsInChildren<MeshRenderer>().Select(value => value.sharedMaterial).ToArray();
+                meshes = island.GetComponentsInChildren<MeshFilter>().Select(value => value.sharedMesh).ToArray();
+                var baked = Resources.Load<GameObject>("Immersive/IslandCoast");
+                Assert.That(materials.Length, Is.EqualTo(baked.GetComponentsInChildren<MeshRenderer>(true).Length));
+                Assert.That(meshes, Is.EqualTo(baked.GetComponentsInChildren<MeshFilter>(true).Select(value => value.sharedMesh).ToArray()));
+                Assert.That(materials.Intersect(baked.GetComponentsInChildren<MeshRenderer>(true).Select(value => value.sharedMaterial)), Is.Empty,
+                    "Animation must not mutate baked material assets.");
+                Assert.That(island.GetComponentInChildren<MeshCollider>(), Is.Not.Null, "Baked beach supports movable props.");
+                Assert.That(island.GetComponentsInChildren<AvatarIslandProp>(), Is.Not.Empty);
+                backdrop.SetBackground("film");
+                Assert.That(island.activeSelf, Is.False);
+                backdrop.SetBackground("island-coast");
+                Assert.That(island.GetComponentsInChildren<MeshFilter>().Select(value => value.sharedMesh), Is.EqualTo(meshes));
+                Assert.Throws<System.ArgumentException>(() => backdrop.SetBackground("unknown"));
+                Assert.That(backdrop.BackgroundId, Is.EqualTo("island-coast"));
+                backdrop.SetVisible(false);
+                backdrop.Advance(1);
+                Assert.That(island.activeSelf, Is.False);
+            }
+            finally { Object.Destroy(root); }
+            yield return null;
+            Assert.That(island == null, Is.True);
+            Assert.That(materials.All(value => value == null), Is.True);
+            Assert.That(meshes.All(value => value != null), Is.True, "Shared baked meshes belong to the prefab, not the background instance.");
+        }
+
+        [UnityTest]
+        public IEnumerator IslandBackgroundBuoyancyFloatsAndStopsWhenHidden()
+        {
+            var root = new GameObject("Island background buoyancy test");
+            try
+            {
+                var backdrop = root.AddComponent<AvatarImmersiveBackdrop>();
+                backdrop.SetBackground("island-coast");
+                backdrop.SetVisible(true);
+                backdrop.Advance(1);
+                var island = Resources.FindObjectsOfTypeAll<GameObject>().Single(value => value.name == "Katarune island coast" && value.scene.IsValid());
+                var body = island.GetComponentInChildren<AvatarIslandBuoyancy>().GetComponent<Rigidbody>();
+                var minimum = float.PositiveInfinity;
+                var maximum = float.NegativeInfinity;
+                for (var i = 0; i < 180; i++)
+                {
+                    yield return new WaitForFixedUpdate();
+                    if (i < 60) continue;
+                    var height = island.transform.InverseTransformPoint(body.position).y;
+                    minimum = Mathf.Min(minimum, height);
+                    maximum = Mathf.Max(maximum, height);
+                }
+                Assert.That(minimum, Is.GreaterThan(AvatarIslandWater.SeaLevel - .2f), "Driftwood must remain afloat.");
+                Assert.That(maximum, Is.LessThan(AvatarIslandWater.SeaLevel + .25f), "Buoyancy must remain stable.");
+                Assert.That(maximum - minimum, Is.GreaterThan(.01f), "The rigidbody must respond to waves.");
+                Assert.That(Vector3.Dot(body.transform.up, Vector3.up), Is.GreaterThan(.7f));
+                backdrop.SetVisible(false);
+                backdrop.Advance(1);
+                var position = body.position;
+                yield return new WaitForSecondsRealtime(.25f);
+                Assert.That(Vector3.Distance(body.position, position), Is.LessThan(.001f), "Hidden scenery must stop physics.");
+            }
+            finally { Object.Destroy(root); }
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator IslandBackgroundRestoresLightingAndCameraAfterSwitchAndDisposal()
+        {
+            var cameraRoot = new GameObject("Island lighting test camera");
+            var originalLightRoot = new GameObject("Island original light");
+            var originalLight = originalLightRoot.AddComponent<Light>();
+            originalLight.type = LightType.Directional;
+            var initialSun = RenderSettings.sun;
+            var initialAmbient = RenderSettings.ambientMode;
+            var initialSky = RenderSettings.ambientSkyColor;
+            var camera = cameraRoot.AddComponent<Camera>();
+            camera.enabled = false;
+            var cameraData = camera.GetUniversalAdditionalCameraData();
+            cameraData.renderPostProcessing = false;
+            cameraData.requiresDepthOption = CameraOverrideOption.Off;
+            AvatarImmersiveBackdrop backdrop = null;
+            VolumeProfile profile = null;
+            try
+            {
+                backdrop = cameraRoot.AddComponent<AvatarImmersiveBackdrop>();
+                backdrop.SetBackground("island-coast");
+                Assert.That(originalLight.enabled, Is.True, "Hidden island must not change scene lights.");
+                Assert.That(cameraData.renderPostProcessing, Is.False);
+                backdrop.SetVisible(true);
+                backdrop.Advance(1);
+                Assert.That(originalLight.enabled, Is.False);
+                Assert.That(RenderSettings.sun.name, Is.EqualTo("Island afternoon sun"));
+                Assert.That(RenderSettings.sun.shadows, Is.EqualTo(LightShadows.Soft));
+                Assert.That(cameraData.renderPostProcessing, Is.True);
+                Assert.That(cameraData.requiresDepthOption, Is.EqualTo(CameraOverrideOption.On));
+                var island = Resources.FindObjectsOfTypeAll<GameObject>().Single(value => value.name == "Katarune island coast" && value.scene.IsValid());
+                profile = island.GetComponent<Volume>().sharedProfile;
+                Assert.That(profile.TryGet<Bloom>(out var bloom) && bloom.intensity.value > 0, Is.True);
+                backdrop.SetBackground("film");
+                Assert.That(originalLight.enabled, Is.True);
+                Assert.That(RenderSettings.sun == initialSun, Is.True);
+                Assert.That(RenderSettings.ambientMode, Is.EqualTo(initialAmbient));
+                Assert.That(RenderSettings.ambientSkyColor, Is.EqualTo(initialSky));
+                Assert.That(cameraData.renderPostProcessing, Is.False);
+                Assert.That(cameraData.requiresDepthOption, Is.EqualTo(CameraOverrideOption.Off));
+                backdrop.SetBackground("island-coast");
+                Assert.That(cameraData.renderPostProcessing, Is.True);
+            }
+            finally { Object.DestroyImmediate(cameraRoot); Object.DestroyImmediate(originalLightRoot); }
+            yield return null;
+            Assert.That(RenderSettings.sun == initialSun, Is.True);
+            Assert.That(RenderSettings.ambientMode, Is.EqualTo(initialAmbient));
+            Assert.That(RenderSettings.ambientSkyColor, Is.EqualTo(initialSky));
+            Assert.That(profile == null, Is.True, "The owned runtime volume profile must be released.");
         }
 
         [UnityTest]

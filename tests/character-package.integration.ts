@@ -71,11 +71,11 @@ void app
       const oldPortrait = db.listCharacters().characters[0]!.portraitAssetId;
       await service.initialize();
       const builtin = service.detail(DEFAULT_PACKAGE_ID);
-      assert.equal(builtin.actions.length, 26);
+      assert.equal(builtin.actions.length, 68);
       assert.equal(builtin.manifest.formatVersion, 3);
       const builtinRuntime = service.runtime(DEFAULT_PACKAGE_ID);
       assert.equal(builtinRuntime.model, join(images, "default-package/avatar/model.vrm"));
-      assert.equal(builtinRuntime.actions.find(a => a.id === builtinRuntime.idle.base)?.playback.motion, join(images, "default-package/actions/idle/motion.vrma"));
+      assert.equal(builtinRuntime.actions.find(a => a.id === builtinRuntime.idle.base)?.playback.motion, join(images, "default-package/actions/idle/motion.bundle"));
       assert.deepEqual(builtinRuntime.idle.variations.map(id => builtinRuntime.actions.find(a => a.id === id)?.key), ["idle-variation-01", "idle-variation-02"]);
       assert.equal(builtinRuntime.bindings.length, 19);
       const builtinDance = builtinRuntime.actions.find(action => action.key === "sad-water");
@@ -248,6 +248,31 @@ void app
       assert.equal(v2Runtime.formatVersion, 3);
       assert.equal(v2Runtime.actions.find(a => a.key === "think")?.playback.blendSeconds, .2);
       const v2Id = v2.actions[0]!.id;
+      const nativeBytes = Buffer.from("UnityFS\0native clip validated by the Unity callback");
+      const nativeManifest = {
+        ...v2Manifest, name: "原生与 VRMA 混合包", bindings: {}, idle: { base: "idle", variations: [] },
+        actions: [
+          { key: "idle", name: "站立", description: "原生人体片段", playback: { kind: "loop", motion: "standby.bundle" } },
+          { key: "mixed", name: "混合阶段", description: "复用同一原生资源", playback: { kind: "loop", enter: "wave.vrma", motion: "standby.bundle", exit: "wave.vrma" } },
+        ],
+      };
+      validateAudio = async pack => {
+        const motion = pack.actions[0]!.playback.motion;
+        assert.deepEqual(await readFile(motion), nativeBytes);
+        assert.equal(pack.actions[1]!.playback.motion, motion, "Shared native files resolve to the same staged resource");
+      };
+      const nativeZip = await makeZip("native", [{ name: "standby.bundle", data: nativeBytes }], Buffer.from(JSON.stringify(nativeManifest)));
+      const nativePack = await service.import(nativeZip, randomUUID(), () => {});
+      const nativeRepeated = await service.import(nativeZip, randomUUID(), () => {});
+      assert.deepEqual(nativeRepeated.actions.map(a => a.id), nativePack.actions.map(a => a.id));
+      const nativeResource = db.fetchCharacterPackage(nativePack.id).resources.find(r => r.path === "standby.bundle")!;
+      assert.equal(db.fetchAsset(nativeResource.assetId).mimeType, "application/vnd.unity.assetbundle");
+      assert.deepEqual(await readFile(service.runtime(nativePack.id).actions[0]!.playback.motion), nativeBytes, "Native bytes survive publication under an opaque asset path");
+      validateAudio = undefined;
+      await assert.rejects(service.import(await makeZip("invalid-native", [{ name: "standby.bundle", data: "%YAML 1.1 uncompiled animation" }], Buffer.from(JSON.stringify(nativeManifest))), randomUUID(), () => {}), /bundle/);
+      const rejectedManifest = { ...nativeManifest, actions: nativeManifest.actions.map(a => ({ ...a, playback: { ...a.playback, motion: "standby.anim" } })) };
+      await assert.rejects(service.import(await makeZip("raw-anim", [{ name: "standby.anim", data: nativeBytes }], Buffer.from(JSON.stringify(rejectedManifest))), randomUUID(), () => {}), /扩展名/);
+      service.remove(nativePack.id);
       const music = Buffer.from("opaque MP3 fixture validated by the player callback");
       const danceManifest = {
         ...v2Manifest, name: "舞蹈测试包", bindings: {},

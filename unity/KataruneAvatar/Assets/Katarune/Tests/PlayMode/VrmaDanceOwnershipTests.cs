@@ -20,8 +20,8 @@ namespace Katarune.Avatar.Tests
         public IEnumerator DanceOwnsFaceAndGazeReleasesGeneratedIdleAndRestoresOrdinaryBehavior()
         {
             var modelPath = AvatarDefaultAssets.EditorModelPath(Application.dataPath);
-            var bodyPath = Path.GetFullPath(Path.Combine(Application.dataPath, "../../..", "resources", "characters", "default-package", "actions", "idle", "motion.vrma"));
-            if (!File.Exists(modelPath) || !File.Exists(bodyPath)) Assert.Ignore("Default local VRM and idle VRMA required.");
+            var bodyPath = Path.GetFullPath(Path.Combine(Application.dataPath, "../../..", "resources", "characters", "default-package", "actions", "idle", "motion.bundle"));
+            if (!File.Exists(modelPath) || !File.Exists(bodyPath)) Assert.Ignore("Default local VRM and native idle required.");
             var bytes = File.ReadAllBytes(modelPath);
             // Register a synthetic custom binding in the SDK's parsed VRM data before runtime creation.
             // The local model and binary geometry stay untouched; this test does not depend on user custom morphs.
@@ -36,7 +36,7 @@ namespace Katarune.Avatar.Tests
             var loading = importer.LoadAsync(new RuntimeOnlyAwaitCaller());
             while (!loading.IsCompleted) yield return null;
             var model = loading.GetAwaiter().GetResult().Root.GetComponent<Vrm10Instance>(); model.UpdateType = Vrm10Instance.UpdateTypes.None;
-            VrmaMotionInstance motion = null; UniVrmAvatarDriver driver = null; string facePath = null;
+            PackageMotionInstance motion = null; UniVrmAvatarDriver driver = null; string facePath = null;
             try
             {
                 var customClip = model.Vrm.Expression.CustomClips.Single(clip => clip.name == "test-authored-face");
@@ -49,7 +49,7 @@ namespace Katarune.Avatar.Tests
                         new AvatarPackageAction { id = bodyId, key = "body", name = "Body dance", playback = new AvatarPackagePlayback { kind = "performance", motion = bodyPath } },
                     },
                 };
-                var preparing = VrmaMotionInstance.PrepareAsync(model, package, bytes, CancellationToken.None);
+                var preparing = PackageMotionInstance.PrepareAsync(model, package, bytes, CancellationToken.None);
                 while (!preparing.IsCompleted) yield return null;
                 motion = preparing.GetAwaiter().GetResult(); driver = new UniVrmAvatarDriver(model); driver.AttachMotion(motion);
                 var generated = model.GetComponent<AdaptiveIdlePlayback>();

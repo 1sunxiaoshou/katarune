@@ -9,7 +9,7 @@ namespace Katarune.Avatar
 {
     public sealed class AvatarMotionPacks : IDisposable
     {
-        public const string Extension = ".motionpack";
+        public const string Extension = ".bundle";
         public const string LibraryAssetName = "motion-library";
         private readonly List<AssetBundle> _bundles = new();
         private bool _disposed;
@@ -108,6 +108,17 @@ namespace Katarune.Avatar
                     if (char.IsControl(c)) throw new InvalidDataException("Action names cannot contain control characters.");
                 ValidateClip(action.Clip);
             }
+        }
+
+        internal static AnimationClip ValidatePackageClip(AvatarMotionLibrary library)
+        {
+            Validate(library);
+            if (library.TryGetBase(out _) || library.Definitions.Count != 1)
+                throw new InvalidDataException("角色包中的每个 .bundle 须仅包含一个动作片段；播放定义放在角色包清单中。");
+            var action = library.Definitions[0];
+            if (action.Speed != 1f || action.Duration != action.Clip.length || action.Clip.length > 3600f)
+                throw new InvalidDataException("角色包原生片段须使用原始速度、完整时长，且不超过一小时。");
+            return action.Clip;
         }
 
         private static void ValidateClip(AnimationClip clip)
