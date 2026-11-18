@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Katarune 右下角弹幕原型</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="demo.js" defer></script>
+</head>
+<body>
+  <main class="preview">
+    <div class="frame">
+      <section class="scene" aria-label="Katarune 直播画面">
+        <img class="scene-art" src="assets/scene.png" alt="Katarune 角色站在蓝白色卧室中">
+        <section class="chat-panel" aria-label="实时弹幕">
+          <ol class="feed" aria-label="最近四条弹幕"></ol>
+        </section>
+      </section>
+    </div>
+    <form class="controls" aria-label="原型演示控制">
+      <div class="playback">
+        <button id="playback" type="button">暂停自动播放</button>
+        <button id="next" type="button">下一条</button>
+      </div>
+      <div class="compose">
+        <input id="sender" name="sender" aria-label="用户名" placeholder="用户名" maxlength="32">
+        <input id="message" name="message" aria-label="弹幕正文" placeholder="输入测试弹幕" maxlength="180" required>
+        <button type="submit">发送</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>
