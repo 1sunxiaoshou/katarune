@@ -100,7 +100,7 @@ export function MemoryDocument({ characterId, characterName, entry, newKind, edi
   }} data-testid="memory-title-input" /></h2>;
   const accessibleError = fieldError && <span className="sr-only" id={`memory-${fieldError.field}-error`}>{fieldError.message}</span>;
 
-  return <article className="memory-article" data-editing={editing} data-testid={editing ? "memory-editor" : "memory-detail"} onKeyDown={event => {
+  return <article className="memory-article content-fade-in" data-editing={editing} data-testid={editing ? "memory-editor" : "memory-detail"} onKeyDown={event => {
     if (!editing || event.nativeEvent.isComposing) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void save(); }
     if (event.key === "Escape" && !pending) { event.preventDefault(); onClose(); }

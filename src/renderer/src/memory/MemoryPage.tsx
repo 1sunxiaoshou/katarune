@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { BookOpenIcon, NotebookPenIcon, UsersIcon, BookTextIcon, PlusIcon, CircleAlertIcon } from "lucide-react";
 import type { MemoryDiaryState, MemoryEntry, MemoryKind, MemoryList } from "../../../shared/memory";
@@ -22,6 +22,24 @@ const MemoryDocument = lazy(async () => ({ default: (await import("./MemoryDocum
 const categories = [{ kind: "diary", label: "日记", icon: NotebookPenIcon }, { kind: "person", label: "人物", icon: UsersIcon }, { kind: "event", label: "纪事", icon: BookTextIcon }] as const;
 const errorText = (cause: unknown) => cause instanceof Error ? cause.message : "无法读取记忆。";
 
+interface CategoryPosition {
+  query: string;
+  offset: number;
+  selectedId: string | null;
+  scrollTop: number;
+}
+
+function LoadingHint({ reading = false }: { reading?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(true), 150);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return visible ? <div className={reading ? "memory-empty" : "memory-list-hint"} role="status">
+    {reading ? "正在打开记忆…" : "正在读取…"}
+  </div> : null;
+}
+
 export function MemoryPage({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { activeCharacter } = useCharacterSession();
   return <MemoryWorkspace key={activeCharacter.id} characterId={activeCharacter.id} characterName={activeCharacter.name} portraitAssetId={activeCharacter.packageThumbnailAssetId ?? activeCharacter.packagePortraitAssetId ?? null} onClose={onClose} />;
@@ -31,13 +49,17 @@ function MemoryWorkspace({ characterId, characterName, portraitAssetId, onClose 
   const [kind, setKind] = useState<MemoryKind>("diary");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
-  const [list, setList] = useState<MemoryList>({ entries: [], total: 0 });
+  const [list, setList] = useState<MemoryList | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [entry, setEntry] = useState<MemoryEntry | null>(null);
+  const [loadedEntry, setEntry] = useState<MemoryEntry | null>(null);
+  const readableId = list ? selectedId : null;
+  const entry = loadedEntry?.id === readableId ? loadedEntry : null;
+  const positions = useRef(new Map<MemoryKind, CategoryPosition>());
+  const listRef = useRef<HTMLDivElement>(null);
+  const restoreScroll = useRef<number | null>(null);
   const [diary, setDiary] = useState<MemoryDiaryState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [reading, setReading] = useState(false);
+
   const [reload, setReload] = useState(0);
   const [editor, setEditor] = useState<{ entry: MemoryEntry | null; newKind: "person" | "event" } | null>(null);
   const [forgetTarget, setForgetTarget] = useState<MemoryEntry | null>(null);
@@ -47,29 +69,55 @@ function MemoryWorkspace({ characterId, characterName, portraitAssetId, onClose 
 
   useEffect(() => {
     let active = true;
-    setLoading(true); setError(null);
+    setError(null);
     const timer = setTimeout(() => {
-      void Promise.all([window.katarune.listMemory({ characterId, kind, query, offset }), window.katarune.getMemoryDiaryState({ id: characterId })])
-        .then(([nextList, nextDiary]) => {
+      void window.katarune.listMemory({ characterId, kind, query, offset })
+        .then(nextList => {
           if (!active) return;
-          setList(nextList); setDiary(nextDiary);
+          setList(nextList);
           setSelectedId(current => (nextList.entries.some(item => item.id === current) ? current : nextList.entries[0]?.id ?? null));
-        }).catch(cause => { if (active) setError(errorText(cause)); }).finally(() => { if (active) setLoading(false); });
+        }).catch(cause => { if (active) setError(errorText(cause)); });
     }, query ? 180 : 0);
     return () => { active = false; clearTimeout(timer); };
   }, [characterId, kind, query, offset, reload]);
 
   useEffect(() => {
     let active = true;
-    setEntry(current => current?.id === selectedId ? current : null);
-    if (!selectedId) { setReading(false); return; }
-    setReading(true);
-    void window.katarune.readMemory({ characterId, id: selectedId }).then(value => { if (active) setEntry(value); })
-      .catch(cause => { if (active) setError(errorText(cause)); }).finally(() => { if (active) setReading(false); });
+    if (!readableId) return;
+    void window.katarune.readMemory({ characterId, id: readableId }).then(value => { if (active) setEntry(value); })
+      .catch(cause => { if (active) setError(errorText(cause)); });
     return () => { active = false; };
-  }, [characterId, selectedId, reload]);
+  }, [characterId, readableId, reload]);
 
-  const switchKind = (value: MemoryKind) => { setKind(value); setQuery(""); setOffset(0); setSelectedId(null); setEntry(null); };
+  useEffect(() => {
+    if (kind !== "diary") return;
+    let active = true;
+    void window.katarune.getMemoryDiaryState({ id: characterId })
+      .then(value => { if (active) setDiary(value); })
+      .catch(cause => { if (active) setError(errorText(cause)); });
+    return () => { active = false; };
+  }, [characterId, kind, reload]);
+
+  useLayoutEffect(() => {
+    if (list && listRef.current && restoreScroll.current !== null) {
+      listRef.current.scrollTop = restoreScroll.current;
+      restoreScroll.current = null;
+    }
+  }, [list]);
+
+  const switchKind = (value: MemoryKind) => {
+    if (value === kind) return;
+    positions.current.set(kind, { query, offset, selectedId, scrollTop: restoreScroll.current ?? listRef.current?.scrollTop ?? 0 });
+    const position = positions.current.get(value);
+    restoreScroll.current = position?.scrollTop ?? 0;
+    setKind(value);
+    setQuery(position?.query ?? "");
+    setOffset(position?.offset ?? 0);
+    setSelectedId(position?.selectedId ?? null);
+    setEntry(null);
+    setList(null);
+    setError(null);
+  };
   const onSaved = (saved: MemoryEntry) => { setEditor(null); setEntry(saved); setSelectedId(saved.id); refresh(); };
   const category = categories.find(item => item.kind === kind)!;
   const displayedEntry = editor?.entry ?? entry;
@@ -87,22 +135,22 @@ function MemoryWorkspace({ characterId, characterName, portraitAssetId, onClose 
       </aside>
       <TabsContent value={kind} className="memory-panel" data-kind={kind} aria-label={`${category.label}内容`}>
         {error && <div role="alert" className="memory-error flex min-w-0 items-start gap-2 text-sm text-destructive"><CircleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden /><p className="min-w-0 flex-1 break-words">{error}</p><Button variant="outline" size="sm" onClick={refresh}>重试</Button></div>}
-        <TabsPrimitive.Root className="memory-columns" orientation="vertical" value={selectedId ?? "new"} onValueChange={value => { if (!editor && typeof value === "string") setSelectedId(value); }}>
+        <TabsPrimitive.Root className="memory-columns" orientation="vertical" value={selectedId ?? "new"} onValueChange={value => { if (!editor && typeof value === "string" && value !== selectedId) { setError(null); setSelectedId(value); } }}>
           <aside className="memory-browser" aria-label="记忆条目">
-            <div className="memory-browser-heading"><h2>{category.label}<span>{list.total}</span></h2>{kind !== "diary" && <TooltipIconButton className="size-8" disabled={editor !== null} tooltip={kind === "person" ? "添加人物" : "添加纪事"} onClick={() => setEditor({ entry: null, newKind: kind === "person" ? "person" : "event" })} data-testid="memory-add"><PlusIcon aria-hidden /></TooltipIconButton>}</div>
+            <div className="memory-browser-heading"><h2>{category.label}<span>{list?.total}</span></h2>{kind !== "diary" && <TooltipIconButton className="size-8" disabled={editor !== null} tooltip={kind === "person" ? "添加人物" : "添加纪事"} onClick={() => setEditor({ entry: null, newKind: kind === "person" ? "person" : "event" })} data-testid="memory-add"><PlusIcon aria-hidden /></TooltipIconButton>}</div>
             <div className="memory-search"><SearchInput disabled={editor !== null} value={query} onChange={event => { setQuery(event.target.value); setOffset(0); }} placeholder={`搜索${category.label}`} aria-label="搜索记忆" data-testid="memory-search" /></div>
-            <TabsPrimitive.List className="memory-list scrollbar-hidden" aria-label={`${category.label}条目`}>
+            <TabsPrimitive.List ref={listRef} className={list ? "memory-list scrollbar-hidden content-fade-in" : "memory-list scrollbar-hidden"} aria-label={`${category.label}条目`}>
               <TabsIndicator className="settings-tabs-indicator memory-list-indicator" />
-              {loading ? <p className="memory-list-hint" role="status">正在读取…</p> : list.entries.length ? list.entries.map(item => <TabsPrimitive.Tab key={item.id} value={item.id} disabled={editor !== null} render={<Button variant="ghost" />} className={`memory-list-item h-auto whitespace-normal rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset${selectedId === item.id ? " is-selected" : ""}`} aria-current={selectedId === item.id ? "true" : undefined} data-testid="memory-list-item">{item.day && <span className="memory-list-meta">{formatDay(item.day)}</span>}<span className="memory-list-title"><strong>{item.title}</strong>{item.kind === "person" && item.isUser && <Badge variant="secondary" className="memory-person-marker" aria-label="你的画像">你</Badge>}</span></TabsPrimitive.Tab>) : <p className="memory-list-hint">{query ? "没有找到匹配内容" : "还没有记忆"}</p>}
-              {list.total > 100 && <div className="memory-list-paging"><Button size="sm" variant="ghost" disabled={editor !== null || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>上一组</Button><Button size="sm" variant="ghost" disabled={editor !== null || offset + 100 >= list.total} onClick={() => setOffset(value => value + 100)}>下一组</Button></div>}
+              {!list ? (error ? null : <LoadingHint />) : list.entries.length ? list.entries.map(item => <TabsPrimitive.Tab key={item.id} value={item.id} disabled={editor !== null} render={<Button variant="ghost" />} className={`memory-list-item h-auto whitespace-normal rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset${selectedId === item.id ? " is-selected" : ""}`} aria-current={selectedId === item.id ? "true" : undefined} data-testid="memory-list-item">{item.day && <span className="memory-list-meta">{formatDay(item.day)}</span>}<span className="memory-list-title"><strong>{item.title}</strong>{item.kind === "person" && item.isUser && <Badge variant="secondary" className="memory-person-marker" aria-label="你的画像">你</Badge>}</span></TabsPrimitive.Tab>) : <p className="memory-list-hint">{query ? "没有找到匹配内容" : "还没有记忆"}</p>}
+              {list && list.total > 100 && <div className="memory-list-paging"><Button size="sm" variant="ghost" disabled={editor !== null || offset === 0} onClick={() => setOffset(value => Math.max(0, value - 100))}>上一组</Button><Button size="sm" variant="ghost" disabled={editor !== null || offset + 100 >= list.total} onClick={() => setOffset(value => value + 100)}>下一组</Button></div>}
             </TabsPrimitive.List>
             {kind === "diary" && <div className="memory-diary-policy"><Label htmlFor="memory-diary-enabled">每日整理记忆与日记<Switch size="sm" id="memory-diary-enabled" aria-label="每日整理记忆与日记" checked={diary?.enabled ?? false} disabled={changingDiary || !diary} data-testid="memory-diary-toggle" onCheckedChange={enabled => {
               setChangingDiary(true); void window.katarune.setMemoryDiaryEnabled({ characterId, enabled }).then(setDiary).catch(cause => setError(errorText(cause))).finally(() => setChangingDiary(false));
             }} /></Label>{diary?.failed ? <div role="status"><div className="min-w-0 flex-1"><p>{diary.failed} 天生成失败</p><p className="mt-1 break-words" data-testid="memory-diary-failure">{diary.lastFailure?.day}：{diaryFailureMessage(diary.lastFailure?.code ?? null)}</p></div><Button variant="link" size="sm" className="h-auto shrink-0 px-0 py-1 text-xs" disabled={changingDiary || !diary.enabled} data-testid="memory-diary-retry" onClick={() => { setChangingDiary(true); void window.katarune.retryMemoryDiaries({ id: characterId }).then(setDiary).catch(cause => setError(errorText(cause))).finally(() => setChangingDiary(false)); }}>重试</Button></div> : null}</div>}
           </aside>
           <TabsContent value={selectedId ?? "new"} className="memory-reading" aria-label="记忆正文">{editor || entry ?
-            <Suspense fallback={<div className="memory-empty" role="status">正在打开记忆…</div>}><MemoryDocument key={editor && !editor.entry ? editor.newKind : displayedEntry?.id} characterId={characterId} characterName={characterName} entry={editor ? editor.entry : entry} newKind={editor?.newKind ?? "event"} editing={editor !== null} onEdit={() => { if (entry) setEditor({ entry, newKind: entry.content.kind === "person" ? "person" : "event" }); }} onForget={() => setForgetTarget(entry)} onClose={() => setEditor(null)} onSaved={onSaved} /></Suspense>
-          : reading ? <div className="memory-empty" role="status">正在打开记忆…</div> : <div className="memory-empty"><BookOpenIcon className="size-7" aria-hidden /><h2>{kind === "diary" ? "把相处留在日记里" : kind === "person" ? "慢慢认识身边的人" : "记住一起经历的事"}</h2><p>{query ? "换一个关键词试试。" : kind === "diary" ? "聊过的一天，会在次日整理记忆，并按需写下日记。" : "聊天中值得记住的内容会在这里积累，也可以手动添加。"}</p></div>}</TabsContent>
+            <Suspense fallback={<LoadingHint reading />}><MemoryDocument key={editor && !editor.entry ? editor.newKind : displayedEntry?.id} characterId={characterId} characterName={characterName} entry={editor ? editor.entry : entry} newKind={editor?.newKind ?? "event"} editing={editor !== null} onEdit={() => { if (entry) setEditor({ entry, newKind: entry.content.kind === "person" ? "person" : "event" }); }} onForget={() => setForgetTarget(entry)} onClose={() => setEditor(null)} onSaved={onSaved} /></Suspense>
+          : !list || selectedId ? (error ? null : <LoadingHint key={selectedId ?? kind} reading />) : <div className="memory-empty"><BookOpenIcon className="size-7" aria-hidden /><h2>{kind === "diary" ? "把相处留在日记里" : kind === "person" ? "慢慢认识身边的人" : "记住一起经历的事"}</h2><p>{query ? "换一个关键词试试。" : kind === "diary" ? "聊过的一天，会在次日整理记忆，并按需写下日记。" : "聊天中值得记住的内容会在这里积累，也可以手动添加。"}</p></div>}</TabsContent>
         </TabsPrimitive.Root>
       </TabsContent>
     </Tabs>
