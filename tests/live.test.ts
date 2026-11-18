@@ -13,6 +13,13 @@ const event = (index: number, kind: "danmaku" | "gift" = "danmaku"): LiveEvent =
   id: String(index), kind, roomId: "101", timestamp: 1000, userId: "viewer", userName: "观众", text: `消息${index}`, giftId: "1", giftName: "花", quantity: 1,
 });
 describe("livestream output shape", () => {
+  it("defaults older settings to visible danmaku and preserves an explicit off setting", () => {
+    const { showDanmaku: _showDanmaku, ...previous } = DEFAULT_LIVE_SETTINGS;
+    expect(DEFAULT_LIVE_SETTINGS.showDanmaku).toBe(true);
+    expect(liveSettingsSchema.parse(previous).showDanmaku).toBe(true);
+    expect(liveSettingsSchema.parse({ ...previous, showDanmaku: false }).showDanmaku).toBe(false);
+    expect(liveSettingsSchema.safeParse({ ...previous, showDanmaku: "false" }).success).toBe(false);
+  });
   it("defaults older settings to the film background and only accepts built-in background IDs", () => {
     const { backgroundId: _background, ...previous } = DEFAULT_LIVE_SETTINGS;
     expect(liveSettingsSchema.parse(previous).backgroundId).toBe("film");

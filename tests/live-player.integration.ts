@@ -113,7 +113,14 @@ void app.whenReady().then(async () => {
     assert.ok(avatar.livePlaybackBusy); emit("two"); now += 16000;
     await new Promise(resolve => setTimeout(resolve, 500)); assert.equal(generations, 1, "New round started before actual speech drained");
     await wait(() => generations === 2 && !live!.status.generating, "Second host reply");
+    assert.ok(avatar.livePlaybackBusy, "The second host reply should still be playing");
+    now += 70_000;
+    await live.updateSettings({ ...live.status.settings, proactive: true });
     await wait(() => !avatar.livePlaybackBusy, "Actual speech completion");
+    now += 59_000;
+    await new Promise(resolve => setTimeout(resolve, 650));
+    assert.equal(generations, 2, "Proactive hosting must count idle time from actual Player drain");
+    await live.updateSettings({ ...live.status.settings, proactive: false });
     await recording;
     assert.ok(previewTimes.length > 5, "Full-size preview stopped producing segments");
     await writeFile(join(output, "preview.mp4"), Buffer.concat(previewChunks));

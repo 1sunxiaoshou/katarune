@@ -11,6 +11,7 @@ import { runtimePackage } from './runtimePackage.mjs';
 
 const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
 const backgroundId=process.env.KATARUNE_TEST_BACKGROUND??'film';
+const desktopBackground=backgroundId==='cloud-observatory'?'film':'cloud-observatory';
 assert.ok(['film','cloud-observatory','island-coast'].includes(backgroundId),'Unsupported background');
 assert.ok(aspectRatio==='16:9'||aspectRatio==='9:16','Unsupported live output aspect ratio');
 const output=resolve(process.env.KATARUNE_LIVE_TEST_OUTPUT??(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized')); await mkdir(output,{recursive:true});
@@ -23,6 +24,19 @@ const width=Number(process.env.KATARUNE_LIVE_WIDTH??1920);
 assert.ok([1280,1920,2560].includes(width),'Unsupported live output resolution');
 const outputWidth=aspectRatio==='9:16'?width*9/16:width, outputHeight=aspectRatio==='9:16'?width:width*9/16;
 const settings={characterId:null,instructions:'',replyIntervalSeconds:15,proactive:true,idleSeconds:60,thankGifts:true,camera:'center',subtitles:true,voiceVolume:1,musicVolume:1,aspectRatio,width,port:19435,pipe,backgroundId};
+const danmaku = [
+  ['蓝莓汽水', '下午好！'], ['小夜', '今天的房间好漂亮'],
+  ['云朵邮差', '来听卡塔聊天'], ['薄荷糖', '这个背景好清爽'],
+  ['橘子海', '窗外的风景也好看'], ['雨点', '我来晚了吗'],
+  ['棉花云', '今天聊什么？'], ['纸飞机', '刚好有空来听直播'],
+  ['微光', '声音听得很清楚'], ['夏日风铃', '这个镜头挺舒服'],
+  ['小鸽子', '先打个招呼'], ['栗子拿铁', '我在一边画画一边听'],
+  ['白桃苏打', '今天学校放假'], ['月见茶', '咖啡刚煮好'],
+  ['柠檬汽水', '窗边的灯光好柔和'], ['像素糖', '下一次想听游戏杂谈'],
+  ['晴空', '字幕和弹幕都看到了'], ['梨子冰', '现在这几行读起来很轻松'],
+  ['晚灯', '今天的直播真舒服'],
+  ['长昵称测试观众', '这是一条用于检查昵称和正文是否在同一段里换行的合成弹幕，<b>这里也是普通文字</b>。'],
+];
 const characterRoot=resolve('resources/characters/default-package'), packageFile=join(output,'avatar-package.json');
 await writeFile(packageFile,JSON.stringify(runtimePackage(
   JSON.parse(await readFile(join(characterRoot,'manifest.json'),'utf8')),
@@ -53,7 +67,7 @@ async function measureCapture(capture, name) {
   const audioOnsets=[]; let lastAudible=-48000;
   for(let sample=0;sample<pcm.length/4;sample++)if(Math.abs(pcm.readFloatLE(sample*4))>.03){ if(sample-lastAudible>24000) audioOnsets.push(sample/48000+audioStart); lastAudible=sample; }
   const markers=await readFile(markerFile), videoOnsets=[];
-  for(let frame=1;frame<markers.length;frame++)if(markers[frame]>220&&markers[frame-1]<160)videoOnsets.push(frameTimes[frame]);
+  for(let frame=1;frame<markers.length;frame++)if(markers[frame]>220&&markers[frame]-markers[frame-1]>=25)videoOnsets.push(frameTimes[frame]);
   // Exclude the receiver's initial keyframe/audio boundary; measure steady playback.
   const offsets=audioOnsets.filter(time=>time>audioStart+1&&time<audioStart+6.5).map(time=>videoOnsets.map(video=>video-time).sort((a,b)=>Math.abs(a)-Math.abs(b))[0]);
   assert.ok(offsets.length>=3&&offsets.every(offset=>Number.isFinite(offset)&&Math.abs(offset)<=.05),`Audio/video pulse offsets: ${JSON.stringify({audioOnsets,videoOnsets,offsets})}`);
@@ -65,10 +79,14 @@ try {
   child=spawn(executable,['-force-d3d11','-force-d3d11-bitblt-model','-screen-fullscreen','1','-window-mode','borderless','-logFile',join(output,'player.log'),'--exit-on-error'],{cwd:dirname(executable),windowsHide:true,stdio:'ignore',env:{...process.env,KATARUNE_AVATAR_PIPE:control,KATARUNE_CHARACTER_PACKAGE:packageFile,KATARUNE_LIVE_ACCEPTANCE:'1'}});
   child.on('error',error=>{playerFailure=error;}); child.on('exit',code=>{playerFailure=new Error(`Player exited (${code})`);});
   await until(()=>messages.some(message=>message.type==='ready'),'Player readiness',60000);
-  await command('background','cloud-observatory');
+  await command('background',desktopBackground);
   await command('live-start',JSON.stringify({...settings,fps:60}));
   await media.start(settings,pipe,lifetime.signal);
   await until(()=>messages.some(message=>message.type==='presentation'&&message.backgroundId===backgroundId),'Live background selection');
+  const outputDanmaku = (start, end) => command('live-danmaku', JSON.stringify({
+    messages: danmaku.slice(start, end).map(([name, text]) => ({ name, text })),
+  }));
+  await outputDanmaku(0, 4);
   for(const camera of ['fullbody','closeup','overhead','side','center']) {
     await command('live-update',JSON.stringify({...settings,camera}));
     await delay(1000);
@@ -83,9 +101,36 @@ try {
   const tone=join(output,'tone.wav');await writeFile(tone,wav);
   const recording=promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',url,'-t','8','-c','copy',join(output,'capture.flv')],{timeout:25000,windowsHide:true});
   const speech=command('speech',tone,{text:'直播音视频测试：中文字幕、口型与声音同步。',segments:[]});
-  await Promise.all([recording,speech]);
-  await promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',join(output,'capture.flv'),'-ss','3','-frames:v','1',join(output,'frame.png')],{timeout:10000,windowsHide:true});
+  const rollingDanmaku = async () => {
+    for (let end = 5; end <= danmaku.length; end++) {
+      await delay(230);
+      await outputDanmaku(end - 4, end);
+    }
+  };
+  await Promise.all([recording,speech,rollingDanmaku()]);
+  await promisify(execFile)(ffmpeg,['-hide_banner','-loglevel','error','-y','-i',join(output,'capture.flv'),'-ss','6','-frames:v','1',join(output,'frame.png')],{timeout:10000,windowsHide:true});
   const sync=[{stage:'initial',...await measureCapture(join(output,'capture.flv'),'initial')}];
+  async function captureDanmakuState(showDanmaku, filename) {
+    await command('live-update', JSON.stringify({ ...settings, showDanmaku }));
+    await promisify(execFile)(ffmpeg, [
+      '-hide_banner', '-loglevel', 'error', '-y', '-i', url, '-ss', '1', '-frames:v', '1', join(output, filename),
+    ], { timeout: 15000, windowsHide: true });
+  }
+  await captureDanmakuState(false, 'danmaku-off.png');
+  await captureDanmakuState(true, 'danmaku-on.png');
+  if (backgroundId === 'cloud-observatory') {
+    const panelSample = `crop=8:8:${Math.floor(outputWidth * .95)}:${Math.floor(outputHeight * .94)},format=gray`;
+    const mean = async filename => {
+      const { stdout } = await promisify(execFile)(ffmpeg, [
+        '-hide_banner', '-loglevel', 'error', '-i', join(output, filename), '-vf', panelSample, '-f', 'rawvideo', '-',
+      ], { encoding: 'buffer', timeout: 10000, windowsHide: true });
+      assert.equal(stdout.length, 64);
+      return stdout.reduce((sum, value) => sum + value, 0) / stdout.length;
+    };
+    const [enabled, hidden, restored] = await Promise.all(['frame.png', 'danmaku-off.png', 'danmaku-on.png'].map(mean));
+    assert.ok(hidden - enabled > 15, 'Turning off danmaku must remove the panel from the encoded stream');
+    assert.ok(hidden - restored > 15, 'Turning on danmaku must redisplay the latest messages');
+  }
   const shortWav=Buffer.from(wav.subarray(0,44+48000*2));
   shortWav.writeUInt32LE(shortWav.length-8,4); shortWav.writeUInt32LE(shortWav.length-44,40);
   const shortTone=join(output,'subtitle-tone.wav'); await writeFile(shortTone,shortWav);
@@ -117,7 +162,7 @@ try {
   }
   const beforeStop=messages.length;
   await command('live-stop'); await media.stop();
-  await until(()=>messages.slice(beforeStop).some(message=>message.type==='presentation'&&message.backgroundId==='cloud-observatory'),'Desktop background restoration');
+  await until(()=>messages.slice(beforeStop).some(message=>message.type==='presentation'&&message.backgroundId===desktopBackground),'Desktop background restoration');
   assert.equal(playerFailure,undefined);
   const log=await readFile(join(output,'player.log'),'utf8');
   const diagnostics=log.split('\n').filter(line=>line.startsWith('LIVE_ACCEPTANCE'));

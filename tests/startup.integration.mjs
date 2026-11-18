@@ -40,7 +40,7 @@ async function verifyBackgroundSelection(window, until, binding) {
   await until(async () => (await state()).mode === "immersive", "Immersive mode did not activate");
   await openPanel();
   await until(() => panel.webContents.executeJavaScript(`!!document.querySelector('[aria-label="背景"]')`), "Background selector did not mount");
-  for (const [id, label] of [["cloud-observatory", "云端星象小客厅"], ["film", "动态胶片"], ["island-coast", "异世界海岸"]]) {
+  for (const [id, label] of [["cloud-observatory", "背景1"], ["film", "动态胶片"], ["island-coast", "异世界海岸"]]) {
     await panel.webContents.executeJavaScript(`document.querySelector('[aria-label="背景"]').click()`);
     await until(() => panel.webContents.executeJavaScript(`!![...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)})`), "Background choices did not open");
     await panel.webContents.executeJavaScript(`[...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)}).click()`);

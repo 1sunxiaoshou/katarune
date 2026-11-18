@@ -19,7 +19,7 @@ namespace Katarune.Avatar
     {
         [Serializable] internal sealed class Settings {
             public string pipe, camera="center", aspectRatio="16:9", backgroundId=AvatarImmersiveBackdrop.DefaultBackgroundId;
-            public int width=1920, fps=60; public bool subtitles=true;
+            public int width=1920, fps=60; public bool subtitles=true, showDanmaku=true;
             public float voiceVolume=1, musicVolume=1;
         }
         private sealed class Frame { internal byte[] Bytes; internal long Index; }
@@ -36,6 +36,7 @@ namespace Katarune.Avatar
         private GameObject _ui;
         private Label _label;
         private Font _font;
+        private AvatarLiveDanmaku _danmaku;
         private int _subtitleWarmFrame, _subtitleClearFrame;
         private bool _subtitlesReady;
         private AvatarLiveAudioTap _audio;
@@ -118,6 +119,8 @@ namespace Katarune.Avatar
                 _label.style.backgroundColor=new Color(.11f,.10f,.14f,.92f);
                 _label.style.borderTopLeftRadius=AvatarSpeechSubtitles.Layout.Radius(scale); _label.style.borderTopRightRadius=AvatarSpeechSubtitles.Layout.Radius(scale); _label.style.borderBottomLeftRadius=AvatarSpeechSubtitles.Layout.Radius(scale); _label.style.borderBottomRightRadius=AvatarSpeechSubtitles.Layout.Radius(scale);
                 root.Add(_label);
+                _danmaku=new AvatarLiveDanmaku();
+                _danmaku.Initialize(width,height,_font,_panel.themeStyleSheet,_blend);
                 _audio=_camera.gameObject.AddComponent<AvatarLiveAudioTap>(); _audio.Acceptance=_acceptance; _audio.Begin();
                 _frameBytes=width*height*4; _frames=new BlockingCollection<Frame>(2);
                 _lifetime=new CancellationTokenSource(); _active=true; _submitted=-1; _failure=null; _generation++;
@@ -159,6 +162,7 @@ namespace Katarune.Avatar
             _rig.SetBackground(next.backgroundId);
             // Resolution, FPS and pipe ownership remain fixed until restart.
             _settings.subtitles=next.subtitles;
+            _settings.showDanmaku=next.showDanmaku;
             _settings.camera=next.camera;
             _settings.backgroundId=next.backgroundId;
             _speech.OutputVolume=next.voiceVolume; _dance.OutputVolume=next.musicVolume;
@@ -189,6 +193,10 @@ namespace Katarune.Avatar
             var display=string.IsNullOrEmpty(text)?DisplayStyle.None:DisplayStyle.Flex;
             if(_label.style.display.value!=display) _label.style.display=display;
         }
+        internal void UpdateDanmaku(string json)
+        {
+            if (_active) _danmaku.SetMessages(json);
+        }
         private void LateUpdate()
         {
             if(!_active || !_subtitlesReady || _audio.Samples==0) return;
@@ -205,7 +213,10 @@ namespace Katarune.Avatar
             RenderPipeline.SubmitRenderRequest(_camera,_renderRequest);
             Graphics.Blit(_scene,_composite);
             _blend.SetFloat("_AcceptancePulse",_acceptance && _audio.Pulse?1f:0f);
-            if(_settings.subtitles || _acceptance) Graphics.Blit(_subtitles,_composite,_blend);
+            _blend.SetFloat("_ShowSubtitles",_settings.subtitles?1f:0f);
+            var showDanmaku = _settings.showDanmaku && _danmaku.Visible;
+            _blend.SetFloat("_ShowDanmaku", showDanmaku ? 1f : 0f);
+            if(_settings.subtitles || _acceptance || showDanmaku) Graphics.Blit(_subtitles,_composite,_blend);
             _submitted=index; _readbacks++; var generation=_generation; var frames=_frames;
             var submittedAt=Time.realtimeSinceStartupAsDouble;
             AsyncGPUReadback.Request(_composite,0,TextureFormat.RGBA32,result=> {
@@ -226,6 +237,7 @@ namespace Katarune.Avatar
             if(_readbacks>0) AsyncGPUReadback.WaitAllRequests(); _readbacks=0;
             if(_camera!=null) { _camera.enabled=_previousEnabled; _camera.targetTexture=_previousTarget; _camera.aspect=_previousAspect; _camera.usePhysicalProperties=_previousPhysical; _camera.sensorSize=_previousSensor; _camera.gateFit=_previousGateFit; _camera.fieldOfView=_framing.CameraFieldOfView; _camera.lensShift=_framing.CameraLensShift; _camera.allowHDR=_previousHdr; }
             if(restorePresentation) { _rig.SetBackground(_previousBackgroundId); _rig.LiveOutputActive=false; _rig.RestoreFraming(_framing); _speech.OutputVolume=_speechVolume; _dance.OutputVolume=_musicVolume; Application.targetFrameRate=_previousFrameRate; _window?.SetLiveOutput(false); }
+            _danmaku?.Dispose(); _danmaku=null;
             if(_audio!=null) Destroy(_audio); if(_ui!=null) Destroy(_ui); if(_panel!=null) Destroy(_panel); if(_blend!=null) Destroy(_blend); if(_font!=null) Destroy(_font);
             foreach(var texture in new[]{_scene,_subtitles,_composite}) if(texture!=null) { texture.Release(); Destroy(texture); }
             _scene=null; _subtitles=null; _composite=null; _audio=null; _ui=null; _panel=null; _blend=null; _font=null; _camera=null;

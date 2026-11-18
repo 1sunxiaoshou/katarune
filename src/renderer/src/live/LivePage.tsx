@@ -17,7 +17,7 @@ import { PageLoading } from "../components/page-loading";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import { notify } from "../notifications";
 import { assetUrl, type Character } from "../../../shared/ipc";
-import { DEFAULT_LIVE_SETTINGS, liveOutputDimensions, type LiveSettings } from "../../../shared/live";
+import { DEFAULT_LIVE_SETTINGS, LIVE_IDLE_SECONDS_RANGE, liveOutputDimensions, type LiveSettings } from "../../../shared/live";
 import { AVATAR_CAMERA_OPTIONS } from "../../../shared/avatarCamera";
 import { AVATAR_BACKGROUND_OPTIONS } from "../../../shared/avatarBackground";
 import { useLiveState } from "./liveState";
@@ -62,6 +62,8 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [pickRole, setPickRole] = useState(false);
   const [draft, setDraft] = useState<LiveSettings>(state?.settings ?? DEFAULT_LIVE_SETTINGS);
+  const latestDraft = useRef(draft);
+  const [idleSecondsInput, setIdleSecondsInput] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
@@ -69,7 +71,8 @@ export function LivePage({ onClose }: { onClose: () => void }) {
   const monitor = useRef(state?.monitor ?? false); monitor.current = state?.monitor ?? false;
   const initialized = useRef(false);
   const savedSettings = state?.settings;
-  useEffect(() => { if (savedSettings) setDraft(savedSettings); }, [savedSettings]);
+  const replaceDraft = (next: LiveSettings) => { latestDraft.current = next; setDraft(next); };
+  useEffect(() => { if (savedSettings) replaceDraft(savedSettings); }, [savedSettings]);
   useEffect(() => { void window.katarune.listCharacters().then(result => setCharacters(result.characters)).catch(report); }, []);
   useEffect(() => {
     if (!state || state.settings.characterId || initialized.current) return;
@@ -104,12 +107,20 @@ export function LivePage({ onClose }: { onClose: () => void }) {
     const size = liveOutputDimensions({ width, aspectRatio: draft.aspectRatio });
     return `${size.width} × ${size.height}`;
   };
-  const save = async (next = draft) => {
+  const save = async (next = latestDraft.current) => {
     try { useLiveState.getState().setState(await window.katarune.updateLiveSettings(next)); }
-    catch (error) { setDraft(state.settings); report(error); }
+    catch (error) { replaceDraft(state.settings); report(error); }
   };
   const change = <K extends keyof LiveSettings>(key: K, value: LiveSettings[K], immediate = false) => {
-    const next = { ...draft, [key]: value }; setDraft(next); if (immediate) void save(next);
+    const next = { ...latestDraft.current, [key]: value }; replaceDraft(next); if (immediate) void save(next);
+  };
+  const commitIdleSeconds = (input: HTMLInputElement) => {
+    const seconds = input.valueAsNumber;
+    setIdleSecondsInput(null);
+    if (!Number.isFinite(seconds)) return;
+    const { min, max } = LIVE_IDLE_SECONDS_RANGE;
+    const next = Math.min(max, Math.max(min, Math.round(seconds)));
+    if (next !== latestDraft.current.idleSeconds) change("idleSeconds", next, true);
   };
   const perform = async (action: () => Promise<unknown>) => {
     if (pending) return; setPending(true);
@@ -147,12 +158,22 @@ export function LivePage({ onClose }: { onClose: () => void }) {
             </TabsList>
             <TabsContent value="interaction" className="live-settings scrollbar-hidden">
               <Field id="live-instructions" label="直播说明" stacked><Textarea id="live-instructions" rows={3} maxLength={8000} placeholder="这场直播想聊什么、如何与观众互动……" value={draft.instructions} onChange={event => change("instructions", event.target.value)} onBlur={() => void save()} /></Field>
-              <Field id="live-proactive" label="主动聊天"><Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} /></Field>
+              <Field id="live-proactive" label="主动聊天">
+                <div className="live-proactive-controls">
+                  <Input id="live-idle-seconds" aria-label="主动聊天等待时间（秒）" type="number" {...LIVE_IDLE_SECONDS_RANGE} step={1}
+                    value={idleSecondsInput ?? draft.idleSeconds} onChange={event => setIdleSecondsInput(event.currentTarget.value)}
+                    onKeyDown={event => { if (event.key === "Enter") commitIdleSeconds(event.currentTarget); }}
+                    onBlur={event => commitIdleSeconds(event.currentTarget)} />
+                  <span aria-hidden="true">秒</span>
+                  <Switch id="live-proactive" checked={draft.proactive} onCheckedChange={checked => change("proactive", checked, true)} />
+                </div>
+              </Field>
             </TabsContent>
             <TabsContent value="picture" className="live-settings scrollbar-hidden">
               <Field id="live-background" label="背景"><OptionSelect<LiveSettings["backgroundId"]> id="live-background" label="背景" value={draft.backgroundId} options={AVATAR_BACKGROUND_OPTIONS} onValueChange={value => change("backgroundId", value, true)} /></Field>
               <Field id="live-camera" label="镜头"><OptionSelect<LiveSettings["camera"]> id="live-camera" label="镜头" value={draft.camera} options={AVATAR_CAMERA_OPTIONS} onValueChange={value => change("camera", value, true)} /></Field>
               <Field id="live-subtitles" label="显示字幕"><Switch id="live-subtitles" checked={draft.subtitles} onCheckedChange={checked => change("subtitles", checked, true)} /></Field>
+              <Field id="live-danmaku" label="显示弹幕"><Switch id="live-danmaku" checked={draft.showDanmaku} onCheckedChange={checked => change("showDanmaku", checked, true)} /></Field>
             </TabsContent>
             <TabsContent value="sound" className="live-settings scrollbar-hidden">
               <VolumeField id="live-voice-volume" label="语音" value={draft.voiceVolume} onValueChange={value => change("voiceVolume", value)} onValueCommitted={value => change("voiceVolume", value, true)} />

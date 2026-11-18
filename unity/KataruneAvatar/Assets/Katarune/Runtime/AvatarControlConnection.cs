@@ -213,6 +213,12 @@ namespace Katarune.Avatar
                     request = JsonUtility.FromJson<Request>(line);
                     if (request?.operation == "live-start") { _liveOutput.Begin(request.value); Reply(request); continue; }
                     if (request?.operation == "live-update") { _liveOutput.UpdateSettings(request.value); Reply(request); continue; }
+                    if (request?.operation == "live-danmaku")
+                    {
+                        _liveOutput.UpdateDanmaku(request.value);
+                        if (!string.IsNullOrEmpty(request.id)) Reply(request);
+                        continue;
+                    }
                     if (request?.operation == "live-stop") { _liveOutput.End(); Reply(request); continue; }
                     if (request?.type == "binding") { _epoch = request.epoch; ClearSubtitle(); continue; }
                     if (request?.type == "window-layout") { _window?.ApplyLayout(request.value); continue; }

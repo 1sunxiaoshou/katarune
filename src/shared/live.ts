@@ -4,6 +4,7 @@ import { avatarBackgroundSchema, DEFAULT_AVATAR_BACKGROUND } from "./avatarBackg
 
 const text = (max: number) => z.string().check(z.maxLength(max));
 const integer = (min: number, max: number) => z.int().check(z.gte(min), z.lte(max));
+export const LIVE_IDLE_SECONDS_RANGE = { min: 15, max: 1800 } as const;
 export const livePlatformSchema = z.enum(["bilibili", "douyin"]);
 export type LivePlatform = z.infer<typeof livePlatformSchema>;
 export const livePlatformImageSchema = z.string().check(z.maxLength(2048), z.refine(value => {
@@ -21,8 +22,8 @@ export const liveSettingsSchema = z.strictObject({
   connectionMode: z._default(z.enum(["official", "web"]), "official"),
   webRoomId: z._default(z.string().check(z.regex(/^(?:[1-9]\d{0,19})?$/)), ""),
   characterId: z.nullable(z.uuid()), instructions: text(8000), replyIntervalSeconds: integer(5, 300),
-  proactive: z.boolean(), idleSeconds: integer(15, 1800), thankGifts: z.boolean(),
-  camera: avatarCameraViewSchema, subtitles: z.boolean(),
+  proactive: z.boolean(), idleSeconds: integer(LIVE_IDLE_SECONDS_RANGE.min, LIVE_IDLE_SECONDS_RANGE.max), thankGifts: z.boolean(),
+  camera: avatarCameraViewSchema, subtitles: z.boolean(), showDanmaku: z._default(z.boolean(), true),
   backgroundId: z._default(avatarBackgroundSchema, DEFAULT_AVATAR_BACKGROUND),
   voiceVolume: z.number().check(z.gte(0), z.lte(1)), musicVolume: z.number().check(z.gte(0), z.lte(1)),
   aspectRatio: z._default(z.enum(["16:9", "9:16"]), "16:9"),
@@ -38,7 +39,7 @@ export const DEFAULT_LIVE_SETTINGS: LiveSettings = {
   platform: "bilibili",
   connectionMode: "official", webRoomId: "",
   characterId: null, instructions: "", replyIntervalSeconds: 15, proactive: true, idleSeconds: 60,
-  thankGifts: true, camera: "center", subtitles: true,
+  thankGifts: true, camera: "center", subtitles: true, showDanmaku: true,
   backgroundId: DEFAULT_AVATAR_BACKGROUND,
   voiceVolume: 1, musicVolume: 1, aspectRatio: "16:9", width: 1920, port: 1935,
 };

@@ -69,6 +69,8 @@
 .live-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 144px); align-items: center; gap: 12px; }
 .live-field > [data-slot=label] { line-height: 1.5; color: var(--foreground-secondary); }
 .live-field > [data-slot=switch] { justify-self: end; }
+.live-proactive-controls { display: flex; justify-content: flex-end; align-items: center; gap: 8px; color: var(--foreground-secondary); font-size: 12px; }
+.live-proactive-controls > input { width: 68px; }
 .live-field-stacked { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .live-volume-field { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .live-volume-field > [data-slot=label] { color: var(--foreground-secondary); }

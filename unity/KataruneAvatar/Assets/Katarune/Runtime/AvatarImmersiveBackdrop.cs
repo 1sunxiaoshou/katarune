@@ -35,8 +35,8 @@ namespace Katarune.Avatar
             if (id != DefaultBackgroundId && id != "cloud-observatory" && id != "island-coast")
                 throw new ArgumentException("背景无效。", nameof(id));
             var picture = id == "cloud-observatory"
-                ? Resources.Load<Texture2D>("Immersive/CloudObservatory")
-                    ?? throw new InvalidOperationException("云端星象背景资源缺失。")
+                ? Resources.Load<Texture2D>("Immersive/背景1")
+                    ?? throw new InvalidOperationException("背景1的图片资源缺失。")
                 : null;
             EnsureResources();
             if (id == "island-coast" && _island == null) _island = new AvatarIslandBackdrop(GetComponent<Camera>());

@@ -26,6 +26,8 @@ async function until(predicate: () => boolean) {
 }
 const operations: string[] = [];
 class TestAvatar extends AvatarService {
+  outputDanmaku = "";
+  override sendLiveDanmaku(value: string) { this.outputDanmaku = value; return true; }
   owned = false; playbackBusy = false; resets = 0; restored = false; rejectLiveConfig = false;
   lastLiveStart = "";
   override get liveActive() { return this.owned; }
@@ -79,7 +81,7 @@ try {
   const model = database.createModelConfig({ providerConfigId: provider.id, modelType: "languageModel", modelId: "test-chat", displayName: null, metadata: null, settings: {}, enabled: true });
   const speech = database.createModelConfig({ providerConfigId: provider.id, modelType: "speechModel", modelId: "test-speech", displayName: null, metadata: null, settings: { defaultVoiceId: "test-voice" }, enabled: true });
   database.updateCharacter({ id: character.id, modelConfigId: model.id, speechModelConfigId: speech.id, speechVoice: "test-voice" });
-  database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: character.id, width: 1280, replyIntervalSeconds: 5, idleSeconds: 15, thankGifts: false, proactive: false });
+  database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: character.id, width: 1280, replyIntervalSeconds: 5, idleSeconds: 45, thankGifts: false, proactive: false });
   let now = 100_000;
   let failNextRound = false;
   const calls: { text: string; signal: AbortSignal; controller: ReadableStreamDefaultController<UIMessageChunk> }[] = [];
@@ -120,11 +122,11 @@ try {
     },
   });
   assert.equal(service.status.settings.replyIntervalSeconds, 15);
-  assert.equal(service.status.settings.idleSeconds, 60);
+  assert.equal(service.status.settings.idleSeconds, 45);
   assert.equal(service.status.settings.thankGifts, true);
   assert.equal(service.status.settings.width, 1920, "The retired 720p option uses the default 1K output");
   assert.equal(service.status.settings.aspectRatio, "16:9");
-  await service.updateSettings({ ...service.status.settings, instructions: "合成直播说明", replyIntervalSeconds: 5, idleSeconds: 15, thankGifts: false });
+  await service.updateSettings({ ...service.status.settings, instructions: "合成直播说明", replyIntervalSeconds: 5, idleSeconds: 60, thankGifts: false });
   assert.equal(database.getLiveConfig().settings.replyIntervalSeconds, 15);
   assert.equal(database.getLiveConfig().settings.idleSeconds, 60);
   assert.equal(database.getLiveConfig().settings.thankGifts, true);
@@ -181,9 +183,11 @@ try {
   assert.ok(first);
   assert.equal(database.listThreads(character.id).threads.length, beforeMissingConnection);
   now += 60_000; emit("未确认开播"); await delay(650); assert.equal(calls.length, 0);
+  assert.equal(avatar.outputDanmaku, "");
   assert.equal(database.listThreads(character.id).threads.length, beforeMissingConnection);
   connection.broadcast("live"); emit("一"); emit("二"); emit("礼物", "gift");
   await until(() => calls.length === 1);
+  assert.deepEqual(JSON.parse(avatar.outputDanmaku), { messages: [{ name: "观众", text: "一" }, { name: "观众", text: "二" }] });
   assert.equal(database.fetchThread(first, character.id).kind, "live");
   assert.equal(database.listThreads(character.id).threads.length, beforeMissingConnection + 1);
   assert.deepEqual(interactions(0), {
@@ -201,8 +205,13 @@ try {
   assert.equal(rows[0]!.parent_id, null); assert.equal(rows[1]!.parent_id, rows[0]!.id);
   assert.deepEqual(database.loadThreadMessages(first, character.id, 2).messages.map(row => row.id), rows.slice(-2).map(row => row.id));
   assert.throws(() => database.loadThreadMessages(first, database.createCharacter({ name: "隔离角色", systemPrompt: "", modelConfigId: null, speechModelConfigId: null, speechVoice: null }).id, 2));
+  const burst = Array.from({ length: 20 }, (_, index) => ({ name: "连续测试", text: `第 ${index + 1} 条` }));
+  burst.forEach(({ name, text }, index) => emit(`danmaku-burst-${index}`, "danmaku", { userName: name, text }));
+  await until(() => avatar.outputDanmaku.includes("第 20 条"));
+  assert.deepEqual(JSON.parse(avatar.outputDanmaku), { messages: burst.slice(-4) });
   connection.broadcast("unknown", "reconnecting"); now += 60_000;
   finish(); await until(() => !service!.status.generating); await delay(650); assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(avatar.outputDanmaku), { messages: [] });
   connection.broadcast("unknown"); await delay(650); assert.equal(calls.length, 2);
   assert.equal(service.status.threadId, first, "Reconnect must retain the live thread");
   connection.broadcast("live"); now += 60_000; await delay(650); assert.equal(calls.length, 2, "Disabled proactive mode must not call the model");
@@ -222,8 +231,17 @@ try {
   }
   await service.start();
   const proactiveThread = service.status.threadId!;
-  failNextRound = true; connection.broadcast("live"); now += 59_000;
-  await delay(650); assert.equal(calls.length, 4, "Proactive hosting must wait for the default idle threshold");
+  await service.updateSettings({ ...service.status.settings, idleSeconds: 90 });
+  assert.equal(database.getLiveConfig().settings.idleSeconds, 90);
+  failNextRound = true;
+  avatar.playbackBusy = true;
+  connection.broadcast("live");
+  now += 100_000;
+  await delay(650); assert.equal(calls.length, 4, "Proactive hosting must wait for ongoing playback");
+  avatar.playbackBusy = false;
+  await delay(650); assert.equal(calls.length, 4, "Ending playback must start a fresh idle interval");
+  now += 89_000;
+  await delay(650); assert.equal(calls.length, 4, "Proactive hosting must wait for the configured idle threshold");
   now += 1_000;
   await until(() => calls.length === 5 && !service!.status.generating);
   assert.ok(calls[4]!.text.includes("暂时没有"));

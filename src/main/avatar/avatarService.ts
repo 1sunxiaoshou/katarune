@@ -108,6 +108,12 @@ export class AvatarService {
     if (this.liveActive) return;
     this.socket?.write(`${JSON.stringify({ type: "window-layout", value: JSON.stringify(value) })}\n`);
   }
+  sendLiveDanmaku(value: string): boolean {
+    const socket = this.socket;
+    if (!this.liveActive || this.state.phase !== "ready" || !socket?.writable || socket.writableNeedDrain) return false;
+    socket.write(`${JSON.stringify({ operation: "live-danmaku", value })}\n`);
+    return true;
+  }
   sendWindowInputZones(rects: DesktopRect[]): void {
     this.socket?.write(`${JSON.stringify({ type: "window-input-zones", value: JSON.stringify({ rects }) })}\n`);
   }

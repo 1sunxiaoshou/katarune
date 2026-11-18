@@ -24,7 +24,7 @@ function parseLiveSettings(value: unknown) {
   // These policies use product defaults now; keep the stored shape without a data migration.
   return { ...settings, width: settings.width === 1280 ? DEFAULT_LIVE_SETTINGS.width : settings.width,
     replyIntervalSeconds: DEFAULT_LIVE_SETTINGS.replyIntervalSeconds,
-    idleSeconds: DEFAULT_LIVE_SETTINGS.idleSeconds, thankGifts: DEFAULT_LIVE_SETTINGS.thankGifts };
+    thankGifts: DEFAULT_LIVE_SETTINGS.thankGifts };
 }
 
 export function clipLiveHistory(messages: UIMessage[], limit = 24_000): UIMessage[] {
@@ -83,6 +83,8 @@ export class LiveService {
   private resetting: Promise<unknown> | null = null;
   private lastTurn = 0;
   private lastEvent = 0;
+  private playbackWasBusy = false;
+  private lastPlaybackEnded: number | undefined;
   private previousMessageId: string | null = null;
   private writingId: string | null = null;
   private writingParent: string | null = null;
@@ -92,6 +94,8 @@ export class LiveService {
   private connecting: Promise<void> | undefined;
   private connectAbort: AbortController | undefined;
   private changingConnection = false;
+  private outputDanmaku: { name: string; text: string }[] = [];
+  private sentDanmaku = '{"messages":[]}';
   private listeners = new Set<(state: LiveState) => void>();
   private state: LiveState;
   private now: () => number;
@@ -118,6 +122,11 @@ export class LiveService {
       if (event.platform !== this.state.settings.platform) return;
       this.state.events = [...this.state.events, event].slice(-200);
       if (this.state.phase === "running" && this.state.broadcast === "live") {
+        if (event.kind === "danmaku" && this.state.connection === "connected") {
+          const displayText = (value: string, limit: number) => Array.from(value.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/gu, " ").trim()).slice(0, limit).join("");
+          const text = displayText(event.text, 80);
+          if (text) this.outputDanmaku = [...this.outputDanmaku.slice(-3), { name: displayText(event.userName, 12) || "观众", text }];
+        }
         this.buffer.add(event, this.now());
         if (event.kind === "danmaku" || event.kind === "gift") this.lastEvent = this.now();
       }
@@ -129,8 +138,16 @@ export class LiveService {
     this.douyin.onFailure = error => { if (this.state.settings.platform === "douyin") onFailure(error); };
     options.media.onFailure = error => { void this.failRun("live.media-failed", error); };
     options.avatar.subscribe(status => {
-      if (this.state.phase === "running" && (status.phase === "error" || status.phase === "stopped")) void this.failRun("live.avatar-failed", new Error("直播角色已断开。"));
+      if (this.state.phase !== "running") return;
+      if (status.phase === "ready") this.observePlayback(this.now());
+      if (status.phase === "error" || status.phase === "stopped") void this.failRun("live.avatar-failed", new Error("直播角色已断开。"));
     });
+  }
+  private observePlayback(now: number) {
+    const busy = this.options.avatar.livePlaybackBusy;
+    if (this.playbackWasBusy && !busy) this.lastPlaybackEnded = now;
+    this.playbackWasBusy = busy;
+    return busy;
   }
   private handleConnectionState(state: import("./bilibili").BiliConnectionState) {
     const ended = state.broadcast === "offline" && this.state.broadcast !== "offline";
@@ -145,6 +162,7 @@ export class LiveService {
   subscribe(listener: (state: LiveState) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private change(patch: Partial<LiveState>) {
     this.state = { ...this.state, ...patch, ...(patch.error === null ? { errorCode: null } : {}), revision: this.state.revision + 1 };
+    if (this.state.connection !== "connected" || this.state.broadcast !== "live") this.outputDanmaku = [];
     for (const listener of this.listeners) listener(this.status);
   }
   private failure(event: string, error: unknown) {
@@ -307,6 +325,8 @@ export class LiveService {
       catch (error) { this.failure("live.cleanup-failed", error); this.change({ phase: "error" }); return this.status; }
     }
     this.cleaning = undefined;
+    this.outputDanmaku = [];
+    this.sentDanmaku = '{"messages":[]}';
     const lifetime = new AbortController(); this.lifetime = lifetime;
     this.change({ phase: "starting", error: null, threadId: null, runId: randomUUID(), events: [] });
     this.starting = this.begin(lifetime);
@@ -346,6 +366,8 @@ export class LiveService {
         });
       }
       this.lastTurn = this.now(); this.lastEvent = this.now();
+      this.playbackWasBusy = avatar.livePlaybackBusy;
+      this.lastPlaybackEnded = undefined;
       this.change({ phase: "running" }); diagnostic("info", "live.started");
       this.timer = setInterval(() => { void this.tick(); }, 500); this.timer.unref();
     } catch (error) {
@@ -361,16 +383,22 @@ export class LiveService {
   }
   private async tick() {
     const { avatar } = this.options;
-    if (this.state.phase !== "running" || this.state.generating || this.resetting || this.state.connection !== "connected" || this.state.broadcast !== "live" || avatar.livePlaybackBusy) return;
+    if (this.state.phase !== "running") return;
+    const payload = JSON.stringify({ messages: this.outputDanmaku });
+    if (payload !== this.sentDanmaku && avatar.sendLiveDanmaku(payload)) this.sentDanmaku = payload;
     const now = this.now(), settings = this.state.settings;
+    const playbackBusy = this.observePlayback(now);
+    if (this.state.generating || this.resetting || this.state.connection !== "connected" || this.state.broadcast !== "live" || playbackBusy) return;
     if (now - this.lastTurn < settings.replyIntervalSeconds * 1000) return;
     const events = this.buffer.take(now, settings.thankGifts);
-    if (!events.length && (!settings.proactive || now - Math.max(this.lastEvent, this.lastTurn) < settings.idleSeconds * 1000)) return;
+    const idleSince = Math.max(this.lastEvent, this.lastPlaybackEnded ?? this.lastTurn);
+    if (!events.length && (!settings.proactive || now - idleSince < settings.idleSeconds * 1000)) return;
     const controller = new AbortController(); this.round = controller;
     const signal = AbortSignal.any([controller.signal, this.lifetime!.signal]);
     const threadId = this.state.threadId, characterId = settings.characterId;
     if (!threadId || !characterId) return;
     this.roundInstructions = settings.instructions;
+    this.lastPlaybackEnded = undefined;
     this.lastTurn = now; this.change({ generating: true });
     let finishRound = () => {};
     this.roundFinished = new Promise<void>(resolve => { finishRound = resolve; });
