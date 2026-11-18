@@ -1,5 +1,5 @@
 import type { SpeechResult } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PROVIDER_TYPES, type ModelConfig, type ProviderConfig } from "../src/shared/ipc";
 import { createConfiguredProvider } from "../src/main/ai/providerFactory";
 import {
@@ -72,6 +72,44 @@ const credentialStore: CredentialStore = {
 };
 
 describe("configured Provider runtime", () => {
+  it("exposes DeepSeek Search only for an enabled official connection with credentials", async () => {
+    const config = { ...providerConfig("deepseek") };
+    const runtime = await createAiRuntime({ database: runtimeDatabase(config), credentialStore });
+    expect(Object.keys(runtime.createProviderChatTools({}).tools)).toEqual(["deepseek_search", "deepseek_fetch"]);
+    expect(runtime.listProviderTools(config.id).map(tool => [tool.id, tool.name, tool.apiPath])).toEqual([
+      ["deepseek_search", "网页搜索", "/v1/tools/search"],
+      ["deepseek_fetch", "网页抓取", "/v1/tools/fetch"],
+      ["deepseek_ocr", "OCR", "/v1/tools/ocr"],
+      ["deepseek_asr", "语音识别", "/v1/tools/asr"],
+      ["deepseek_tts", "语音合成", "/v1/tools/tts"],
+    ]);
+    config.settings = { webFetchEnabled: false };
+    await runtime.reload();
+    expect(Object.keys(runtime.createProviderChatTools({}).tools)).toEqual(["deepseek_search"]);
+    config.settings = null;
+    await runtime.reload();
+    const tools = runtime.createProviderChatTools({
+      readCurrentAttachment: () => { throw new Error("Fixture tool should not run in this test"); },
+      writeSpeechFile: async () => "outputs/fixture.wav",
+    });
+    expect(Object.keys(tools.tools)).toEqual(["deepseek_search", "deepseek_fetch", "deepseek_ocr", "deepseek_asr", "deepseek_tts"]);
+    expect(runtime.listProviderTools(config.id, "live").map(tool => tool.id)).toEqual(["deepseek_search", "deepseek_fetch"]);
+    expect(Object.keys(runtime.createProviderChatTools({}, "live").tools)).toEqual(["deepseek_search", "deepseek_fetch"]);
+    expect(tools.attachmentTool("scan.pdf")).toBe("deepseek_ocr");
+    expect(tools.attachmentTool("recording.wav")).toBe("deepseek_asr");
+    expect(tools.attachmentTool("table.csv")).toBeUndefined();
+    config.baseUrl = "https://gateway.example.invalid";
+    await runtime.reload();
+    expect(runtime.createProviderChatTools({}).tools).toEqual({});
+    expect(runtime.listProviderTools(config.id)).toEqual([]);
+    config.baseUrl = null;
+    const unavailable = await createAiRuntime({
+      database: runtimeDatabase(config),
+      credentialStore: { ...credentialStore, resolve: vi.fn().mockRejectedValue(new Error("Fixture key unavailable")) },
+    });
+    expect(unavailable.createProviderChatTools({}).tools).toEqual({});
+  });
+
   it("keeps credential requirements and main definitions exhaustive", () => {
     expect(Object.keys(PROVIDER_DEFINITIONS).sort()).toEqual(
       [...PROVIDER_TYPES].sort(),

@@ -5,6 +5,7 @@ import {
   InfoIcon,
   SlidersHorizontalIcon,
   PlugIcon,
+  WrenchIcon,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
@@ -19,6 +20,7 @@ import { ModelManagement } from "./ModelSettings";
 import { ProviderDialog } from "./ProviderDialog";
 import { GeneralSettings } from "./GeneralSettings";
 import { McpSettings } from "./McpSettings";
+import { AgentToolsSettings } from "./AgentToolsSettings";
 import { AboutSettings } from "./AboutSettings";
 import { useSettingsController } from "./useSettingsController";
 import { useApplicationSettings } from "./ApplicationSettingsProvider";
@@ -34,6 +36,11 @@ export function SettingsPage({
 }: SettingsPageProps): React.JSX.Element {
   const controller = useSettingsController();
   const [tab, setTab] = useState<string>(initialTab);
+  const [visitedModels, setVisitedModels] = useState(initialTab === "models");
+  const selectTab = (value: string) => {
+    if (value === "models") setVisitedModels(true);
+    setTab(value);
+  };
   const [discovery, setDiscovery] = useState<{ providerId: string; result: DiscoveredModelList } | null>(null);
   const { refreshAppSettings } = useApplicationSettings();
   const reload = useCallback(
@@ -57,7 +64,7 @@ export function SettingsPage({
       <Tabs
         className="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-6 px-6 pb-6 pt-20 md:h-full md:min-h-0 md:grid-cols-[8.5rem_minmax(0,1fr)] md:grid-rows-1 md:gap-8 md:px-8 md:pb-5 md:pt-20 lg:gap-10"
         value={tab}
-        onValueChange={setTab}
+        onValueChange={selectTab}
         data-testid="settings-workspace"
         orientation="vertical"
       >
@@ -79,6 +86,14 @@ export function SettingsPage({
             >
               <BotIcon aria-hidden="true" />
               模型
+            </TabsTrigger>
+            <TabsTrigger
+              className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
+              data-testid="settings-tab-tools"
+              value="tools"
+            >
+              <WrenchIcon aria-hidden="true" />
+              工具
             </TabsTrigger>
             <TabsTrigger
               className="z-[1] min-h-11 w-auto! justify-center px-3 data-active:bg-transparent! data-active:text-primary-foreground data-active:shadow-none! data-active:hover:text-primary-foreground md:w-full! md:justify-start dark:data-active:bg-transparent! dark:data-active:text-primary-foreground dark:data-active:hover:text-primary-foreground"
@@ -104,9 +119,9 @@ export function SettingsPage({
           data-testid="settings-content"
         >
           <TabsContent className="settings-tab-panel h-full" value="general">
-            <GeneralSettings dataState={controller.dataState} onOpenModels={() => setTab("models")} onReload={reload} />
+            <GeneralSettings dataState={controller.dataState} onOpenModels={() => selectTab("models")} onReload={reload} />
           </TabsContent>
-          <TabsContent className="settings-tab-panel h-full" value="models">
+          <TabsContent className="settings-tab-panel h-full" value="models" keepMounted={visitedModels}>
             <ModelManagement
               discovery={discovery}
               dataState={controller.dataState}
@@ -122,6 +137,7 @@ export function SettingsPage({
               onSelectProvider={controller.selectProvider}
             />
           </TabsContent>
+          <TabsContent className="settings-tab-panel h-full" value="tools"><AgentToolsSettings /></TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="mcp"><McpSettings /></TabsContent>
           <TabsContent className="settings-tab-panel h-full" value="about"><AboutSettings /></TabsContent>
         </div>

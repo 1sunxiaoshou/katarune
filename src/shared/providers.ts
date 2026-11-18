@@ -13,6 +13,12 @@ export const PROVIDER_TYPES = [
 
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
+export const DEEPSEEK_API_ORIGIN = "https://api.deepseek.com";
+
+export function providerToolEnabled(settings: Readonly<Record<string, unknown>> | null, key: string): boolean {
+  return settings?.[key] !== false;
+}
+
 export type CredentialMode = "required" | "optional";
 
 export interface ProviderCredentialRequirement {

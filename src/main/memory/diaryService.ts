@@ -6,18 +6,26 @@ import { DiaryError, diaryFailureCode } from "./diaryErrors";
 import { diaryDraftSchema, type DiaryDraft } from "../../shared/memory";
 import type { DatabaseRuntime } from "../database/database";
 import type { AiRuntime } from "../ai/runtime";
+import { agentToolEnabled, toolPolicyId } from "../../shared/agentToolSettings";
 
 export type DiaryDatabase = MemoryToolDatabase & Pick<DatabaseRuntime,
   "claimMemoryDiaryJob" | "memoryDiaryTranscript" | "finishMemoryDiaryJob" | "failMemoryDiaryJob" |
-  "fetchCharacter" | "getAppSettings" | "getMemoryDiaryState">;
+  "fetchCharacter" | "getAppSettings" | "getMemoryDiaryState"> & Partial<Pick<DatabaseRuntime, "getAgentToolOverrides">>;
 export type DiaryGenerator = (input: { model: LanguageModel; prompt: string; instructions: string; signal: AbortSignal; tools: ToolSet }) => Promise<DiaryDraft>;
 
-export const diaryInstructions = [
-  "一天过去了，现在是你回顾今天、整理自己并写日记的时间。",
-  "结合当天的交流，按需查阅已有记忆，补充或修正对人物的认识，以及事情的进展。没有变化就不必更新；保留仍有效的信息，分清事实与猜想，尊重对方不记录和遗忘的要求。",
-  "然后，以角色设定中的自己，用第一人称写下今天想留下的经历、感受或念头。这是写给自己的日记，自然表达即可，不必复述全部对话，也不必总结或升华。不要虚构经历。",
-  "使用 memory 工具整理记忆，最后调用 finish_diary 提交日记。记忆更新与是否写日记分别判断；没有想留下的内容时，worthKeeping=false，title/body 为空。",
-].join("\n\n");
+function createDiaryInstructions(memoryEnabled: boolean): string {
+  return [
+    "一天过去了，现在是你回顾今天、整理自己并写日记的时间。",
+    ...(memoryEnabled ? [
+      "结合当天的交流，按需使用 memory 工具查阅已有记忆，补充或修正对人物的认识，以及事情的进展。没有变化就不必更新；保留仍有效的信息，分清事实与猜想，尊重对方不记录和遗忘的要求。",
+      "记忆更新与是否写日记分别判断。",
+    ] : []),
+    "以角色设定中的自己，用第一人称写下今天想留下的经历、感受或念头。这是写给自己的日记，自然表达即可，不必复述全部对话，也不必总结或升华。不要虚构经历。",
+    "最后调用 finish_diary 提交日记。没有想留下的内容时，worthKeeping=false，title/body 为空。",
+  ].join("\n\n");
+}
+
+export const diaryInstructions = createDiaryInstructions(true);
 
 export const generateDiary: DiaryGenerator = async ({ model, prompt, instructions, signal, tools }) => {
   const agent = new ToolLoopAgent({
@@ -67,13 +75,15 @@ export function createDiaryService({ database, aiRuntime, generate = generateDia
           if (stopped || !database.getMemoryDiaryState(currentJob.characterId).enabled) throw new DiaryError("interrupted");
           if (digest(database.memoryDiaryTranscript(currentJob)) !== evidenceHash) throw new DiaryError("context_changed");
         };
-        const directory = database.memoryOverview(job.characterId).map(({ id, kind, title, day, isUser }) => ({ id, kind, title, day, isUser }));
-        const tools = createMemoryTools({ ...database,
+        const memoryEnabled = agentToolEnabled(database.getAgentToolOverrides?.(), "diary", toolPolicyId("system", "memory"));
+        const directory = memoryEnabled ? database.memoryOverview(job.characterId)
+          .map(({ id, kind, title, day, isUser }) => ({ id, kind, title, day, isUser })) : [];
+        const tools = memoryEnabled ? createMemoryTools({ ...database,
           saveMemory: (...args) => { assertWritable(); return database.saveMemory(...args); },
           forgetMemory: (...args) => { assertWritable(); return database.forgetMemory(...args); },
-        }, job.characterId);
+        }, job.characterId) : {};
         draft = diaryDraftSchema.parse(await generate({ model, signal: controller.signal, tools,
-          instructions: [character.systemPrompt, diaryInstructions].join("\n\n"),
+          instructions: [character.systemPrompt, memoryEnabled ? diaryInstructions : createDiaryInstructions(false)].join("\n\n"),
           prompt: JSON.stringify({ characterName: character.name, day: job.day, timeZone: job.timeZone, directory, transcript: transcript.map(({ role, text }) => ({ role, text })) }),
         }));
       }

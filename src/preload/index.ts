@@ -1,5 +1,9 @@
 import { diagnosticsApi } from "./diagnostics";
 import { agentToolsApi } from "./agentTools";
+import {
+  AGENT_TOOL_SETTINGS_CHANNELS, agentToolScopeRequestSchema, agentToolSettingsListSchema, setAgentToolEnabledSchema,
+  type AgentToolScopeRequest, type SetAgentToolEnabled,
+} from "../shared/agentToolSettings";
 import { mcpApi } from "./mcp";
 import { liveApi } from "./live";
 import { APP_UPDATE_CHANNELS, appUpdateStateSchema, type AppUpdateState } from "../shared/appUpdates";
@@ -24,6 +28,7 @@ import {
   appSettingsSchema,
   appStateSchema,
   availableModelListSchema,
+  providerToolListSchema,
   characterIdRequestSchema,
   characterListSchema,
   characterSchema,
@@ -123,6 +128,10 @@ function closeChatStreamPort(requestId: string): void {
 }
 
 const api: KataruneApi = Object.freeze({
+  listAgentToolSettings: (request: AgentToolScopeRequest) =>
+    invokeValidated(AGENT_TOOL_SETTINGS_CHANNELS.list, agentToolSettingsListSchema, agentToolScopeRequestSchema.parse(request)),
+  setAgentToolEnabled: (request: SetAgentToolEnabled) =>
+    invokeValidated(AGENT_TOOL_SETTINGS_CHANNELS.setEnabled, agentToolSettingsListSchema, setAgentToolEnabledSchema.parse(request)),
   ...agentToolsApi,
   ...mcpApi,
   ...liveApi,
@@ -357,6 +366,12 @@ const api: KataruneApi = Object.freeze({
     invokeValidated(
       IPC_CHANNELS.listAvailableModels,
       availableModelListSchema,
+    ),
+  listProviderTools: (request: ProviderConfigIdRequest) =>
+    invokeValidated(
+      IPC_CHANNELS.listProviderTools,
+      providerToolListSchema,
+      providerConfigIdRequestSchema.parse(request),
     ),
   generateSpeech: (request: SpeechGenerateRequest) =>
     invokeValidated(

@@ -79,6 +79,13 @@ const kataruneToolkitDefinition = defineToolkit({
 });
 
 type WebProvider = "openai" | "anthropic" | "google" | "xai";
+const WEB_PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic", google: "Google", xai: "xAI" } as const;
+const WEB_TOOL_NAMES: Record<string, string> = {
+  web_search: "网页搜索",
+  web_fetch: "网页抓取",
+  google_search: "Google 搜索",
+  url_context: "读取链接",
+};
 
 function resolveWebProvider({
   provider,
@@ -131,6 +138,12 @@ function providerTools(context: ProviderToolContext | undefined): ToolSet {
     case undefined:
       return {};
   }
+}
+
+export function listNativeProviderTools() {
+  return Object.entries(WEB_PROVIDER_NAMES).flatMap(([provider, sourceName]) =>
+    Object.entries(providerTools({ provider, modelId: "" })).flatMap(([name, tool]) =>
+      tool.type === "provider" ? [{ provider, sourceName, id: tool.id, name: WEB_TOOL_NAMES[name] ?? name }] : []));
 }
 
 class KataruneAiToolkit {

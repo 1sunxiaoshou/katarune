@@ -6,6 +6,9 @@ import {
   CheckIcon,
   CircleHelpIcon,
   DownloadIcon,
+  FileTextIcon,
+  GlobeIcon,
+  MicIcon,
   ImageIcon,
   MessageSquareTextIcon,
   PencilIcon,
@@ -37,14 +40,11 @@ import {
 import { Form, FormInput, useFieldError } from "@/components/form";
 import { SearchInput } from "@/components/search-input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tabs,
-  TabsContent,
-  TabsIndicator,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SettingsSegmentedTabsList } from "./SettingsSegmentedTabsList";
+import { providerToolEnabled } from "../../../shared/providers";
 import { TooltipIconButton } from "@/components/tooltip-icon-button";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ProviderLogo } from "@/components/provider-logo";
@@ -57,6 +57,7 @@ import {
   type ModelConfig,
   type ModelType,
   type ProviderConfig,
+  type ProviderToolDescriptor,
 } from "../../../shared/ipc";
 import {
   errorMessage,
@@ -115,6 +116,9 @@ function connectionTestTooltip(
   model: ModelConfig,
   callable: boolean,
 ): string {
+  if (!model.enabled) {
+    return "模型已关闭";
+  }
   if (!callable) {
     return "当前不可调用";
   }
@@ -164,26 +168,20 @@ function ModelCategoryList({
       }`}
       data-testid={testId}
     >
-      <TabsList
+      <SettingsSegmentedTabsList
         aria-labelledby={labelledBy}
-        className={`relative isolate grid h-8! rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground dark:bg-muted dark:text-muted-foreground ${
-          typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"
-        }`}
-      >
-        <TabsIndicator className="model-category-indicator" />
-        {categories.map((item) => (
-          <TabsTrigger
-            className="z-[1] w-full! min-w-0 justify-center! rounded-none px-1.5 text-[10px]! text-primary-foreground/70 hover:text-primary-foreground data-active:bg-transparent! data-active:text-foreground data-active:shadow-none! data-active:hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground dark:data-active:border-transparent! dark:data-active:bg-transparent! dark:data-active:text-background dark:data-active:hover:text-background"
-            key={item.value}
-            value={item.value}
-          >
-            {item.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+        className={typeOnly ? "min-w-[28rem] grid-cols-7" : "min-w-[32rem] grid-cols-8"}
+        options={categories}
+      />
     </div>
   );
 }
+
+type ProviderView = "models" | "tools";
+const PROVIDER_VIEWS = [
+  { value: "models", label: "模型" },
+  { value: "tools", label: "工具" },
+] as const satisfies readonly { readonly value: ProviderView; readonly label: string }[];
 
 interface ModelSettingsProps {
   readonly discovery: DiscoveredModelList | null;
@@ -191,6 +189,8 @@ interface ModelSettingsProps {
   readonly models: readonly ModelConfig[];
   readonly availableModelIds: ReadonlySet<string>;
   readonly onChanged: (preferredProviderId?: string) => Promise<void>;
+  readonly view: ProviderView;
+  readonly onViewChange: (view: ProviderView) => void;
 }
 
 interface ModelDialogProps {
@@ -358,16 +358,116 @@ type QuickAddState = {
   readonly status: "saving" | "saved";
 };
 
-function ModelSettings({ provider, models, availableModelIds, onChanged, discovery }: ModelSettingsProps): React.JSX.Element {
+const PROVIDER_LIST_ROW_CLASS = "grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_7rem] items-center gap-3 rounded-sm px-4";
+const PROVIDER_LIST_ID_CLASS = "truncate font-mono text-xs text-foreground";
+const PROVIDER_TOOL_ICONS: Record<ProviderToolDescriptor["kind"], LucideIcon> = {
+  web: GlobeIcon,
+  document: FileTextIcon,
+  transcription: MicIcon,
+  speech: Volume2Icon,
+};
+
+function ProviderTools({ provider, query, saving, onToolChange }: {
+  readonly provider: ProviderConfig;
+  readonly query: string;
+  readonly saving: boolean;
+  readonly onToolChange: (tool: ProviderToolDescriptor, enabled: boolean) => void;
+}): React.JSX.Element {
+  const [tools, setTools] = useState<readonly ProviderToolDescriptor[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const hasCredential = provider.credentialRef !== null;
+  const unavailableReason = !provider.enabled ? "供应商未启用" : !hasCredential ? "需要 API Key" : null;
+
+  useEffect(() => {
+    let current = true;
+    setTools(null);
+    setError(null);
+    void window.katarune.listProviderTools({ id: provider.id }).then(
+      result => { if (current) setTools(result.tools); },
+      error => { if (current) setError(errorMessage(error, "无法读取供应商工具。")); },
+    );
+    return () => { current = false; };
+  }, [provider.id, provider.baseUrl]);
+
+  const filtered = tools?.filter(tool => matchesSearch(query, [tool.name, tool.apiPath, tool.id]));
+  if (!filtered?.length) {
+    return <p className="grid flex-1 place-items-center text-sm text-muted-foreground" role={error ? "alert" : "status"}>
+      {error ?? (tools === null ? "加载中…" : tools.length === 0 ? "此供应商暂无可配置的工具" : "没有匹配的工具")}
+    </p>;
+  }
+
+  return (
+    <div className="grid gap-2">
+      {filtered.map(tool => {
+        const Icon = PROVIDER_TOOL_ICONS[tool.kind];
+        const descriptionId = `${tool.id}-description`;
+        return (
+          <div className={`${PROVIDER_LIST_ROW_CLASS} text-sm text-foreground`} key={tool.id} data-testid="provider-tool-row">
+            <span className="truncate font-medium" title={tool.name}>{tool.name}</span>
+            <span className={PROVIDER_LIST_ID_CLASS} title={tool.apiPath}>{tool.apiPath}</span>
+            <span className="inline-flex justify-center" aria-hidden="true"><Icon className="size-4" /></span>
+            <Switch
+              size="sm"
+              className="justify-self-center"
+              aria-label={tool.name}
+              aria-describedby={descriptionId}
+              checked={providerToolEnabled(provider.settings, tool.settingKey)}
+              disabled={saving || unavailableReason !== null}
+              onCheckedChange={enabled => onToolChange(tool, enabled)}
+            />
+            <div className="flex items-center justify-end gap-1">
+              <span className="sr-only" id={descriptionId}>{tool.description}</span>
+              <span className="min-w-0 truncate text-xs text-muted-foreground" title={unavailableReason ?? undefined}>
+                {unavailableReason ?? tool.billing}
+              </span>
+              <Popover>
+                <PopoverTrigger render={<Button type="button" size="icon-sm" variant="ghost" aria-label={`${tool.name}说明`} />}>
+                  <CircleHelpIcon aria-hidden="true" />
+                </PopoverTrigger>
+                <PopoverContent align="end">
+                  <PopoverTitle>{tool.name}</PopoverTitle>
+                  <PopoverDescription>{tool.description}</PopoverDescription>
+                  {!hasCredential && <p className="text-muted-foreground">请先在供应商设置中添加 API Key。</p>}
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ModelSettings({ provider, models, availableModelIds, onChanged, discovery, view, onViewChange }: ModelSettingsProps): React.JSX.Element {
   const [modelDialog, setModelDialog] = useState<ModelDialogState | null>(null);
   const [quickAddState, setQuickAddState] = useState<QuickAddState | null>(null);
   const [category, setCategory] = useState<ModelCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [toolQuery, setToolQuery] = useState("");
+  const [savingTool, setSavingTool] = useState(false);
   const [discoveredModels, setDiscoveredModels] = useState<readonly DiscoveredModel[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [modelToDelete, setModelToDelete] = useState<ModelConfig | null>(null);
   const notificationKeyPrefix = `settings.models:${provider.id}`;
+
+  const setToolEnabled = async (tool: ProviderToolDescriptor, enabled: boolean): Promise<void> => {
+    setSavingTool(true);
+    try {
+      await window.katarune.updateProviderConfig({
+        id: provider.id,
+        displayName: provider.displayName,
+        baseUrl: provider.baseUrl,
+        settings: { ...provider.settings, [tool.settingKey]: enabled },
+        enabled: provider.enabled,
+      });
+      await onChanged();
+    } catch (error) {
+      notify({ level: "error", message: errorMessage(error, `无法保存${tool.name}设置。`) });
+    } finally {
+      setSavingTool(false);
+    }
+  };
 
   useEffect(() => {
     setModelDialog(null);
@@ -579,19 +679,21 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
       <div className="grid gap-2">
         {visibleModels.map((model) => (
           <div
-            className="group/model grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_7rem] items-center gap-3 rounded-sm px-4 text-foreground"
+            className={`group/model ${PROVIDER_LIST_ROW_CLASS} text-foreground`}
             data-testid="model-row"
             key={model.id}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-medium" title={model.displayName ?? model.modelId}>{model.displayName ?? model.modelId}</span>
-              {!availableModelIds.has(model.id) && (
+              <span className={`truncate font-medium ${model.enabled ? "" : "text-muted-foreground"}`} title={model.displayName ?? model.modelId}>
+                {model.displayName ?? model.modelId}
+              </span>
+              {model.enabled && !availableModelIds.has(model.id) && (
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   不可调用
                 </span>
               )}
             </span>
-            <span className="truncate font-mono text-xs text-foreground" title={model.displayName !== null && model.displayName !== model.modelId ? model.modelId : undefined}>
+            <span className={PROVIDER_LIST_ID_CLASS} title={model.displayName !== null && model.displayName !== model.modelId ? model.modelId : undefined}>
               {model.displayName !== null && model.displayName !== model.modelId ? model.modelId : ""}
             </span>
             <ModelTypeIcon type={model.modelType} />
@@ -636,7 +738,7 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
         ))}
         {visibleDiscoveredModels.map((model) => (
           <div
-            className="discovered-model-row group/discovered relative isolate grid h-10 min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_2rem_4rem_7rem] items-center gap-3 overflow-hidden rounded-sm px-4"
+            className={`discovered-model-row group/discovered relative isolate overflow-hidden ${PROVIDER_LIST_ROW_CLASS}`}
             data-add-state={quickAddState?.modelId === model.id ? quickAddState.status : undefined}
             data-testid="discovered-model-row"
             key={model.id}
@@ -689,23 +791,39 @@ function ModelSettings({ provider, models, availableModelIds, onChanged, discove
   return (
     <>
       <Card className="min-h-[31rem] rounded-none border ring-0 lg:h-full lg:min-h-0" size="sm">
-      <CardHeader className="flex flex-row items-center gap-2">
-        <SearchInput data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
-        <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering || quickAddState !== null}><PlusIcon aria-hidden="true" /></TooltipIconButton>
-        <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering || quickAddState !== null}>
-          <DownloadIcon className={discovering ? "animate-pulse" : ""} aria-hidden="true" />
-        </TooltipIconButton>
-      </CardHeader>
-      <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
-          {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="scrollbar-hidden min-h-0 overflow-y-auto pb-12" data-testid="model-list-scroll" key={item.value} value={item.value}>
-              {modelRows(item.value)}
-            </TabsContent>
-          ))}
-          <ModelCategoryList floating />
+        <Tabs className="min-h-0 flex-1 gap-4" value={view} onValueChange={onViewChange}>
+          <CardHeader className="flex flex-row items-center gap-2">
+            <SettingsSegmentedTabsList aria-label="供应商内容" className="min-w-24 shrink-0 grid-cols-2" options={PROVIDER_VIEWS} />
+            {view === "models" ? (
+              <>
+                <SearchInput key="model-search" data-testid="model-search" aria-label="搜索模型" placeholder="搜索模型" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+                <TooltipIconButton className="size-8" data-testid="add-model" tooltip="添加模型" onClick={beginCreate} disabled={submitting || discovering || quickAddState !== null}><PlusIcon aria-hidden="true" /></TooltipIconButton>
+                <TooltipIconButton className="size-8" data-testid="discover-models" tooltip="获取模型列表" onClick={() => void discoverModels()} disabled={submitting || discovering || quickAddState !== null}>
+                  <DownloadIcon className={discovering ? "animate-pulse" : ""} aria-hidden="true" />
+                </TooltipIconButton>
+              </>
+            ) : (
+              <SearchInput key="tool-search" aria-label="搜索工具" placeholder="搜索工具" value={toolQuery} onChange={(event) => setToolQuery(event.target.value)} />
+            )}
+          </CardHeader>
+          <TabsContent value="models" className="flex min-h-0 min-w-0 flex-col">
+            <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
+                {MODEL_CATEGORIES.map((item) => (
+                  <TabsContent className="content-fade-in scrollbar-hidden min-h-0 overflow-y-auto pb-12" data-testid="model-list-scroll" key={item.value} value={item.value}>
+                    {modelRows(item.value)}
+                  </TabsContent>
+                ))}
+                <ModelCategoryList floating />
+              </Tabs>
+            </CardContent>
+          </TabsContent>
+          <TabsContent value="tools" className="content-fade-in flex min-h-0 min-w-0 flex-col">
+            <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+              <ProviderTools provider={provider} query={toolQuery} saving={savingTool} onToolChange={(tool, checked) => void setToolEnabled(tool, checked)} />
+            </CardContent>
+          </TabsContent>
         </Tabs>
-      </CardContent>
       </Card>
       {modelDialog !== null && (
         <ModelDialog
@@ -747,7 +865,7 @@ function EmptyModelPanel({ message, error = false }: { readonly message: string;
       <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Tabs className="relative min-h-0 min-w-0 flex-1" value={category} onValueChange={changeCategory}>
           {MODEL_CATEGORIES.map((item) => (
-            <TabsContent className="scrollbar-hidden grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
+            <TabsContent className="content-fade-in scrollbar-hidden grid min-h-0 place-items-center overflow-y-auto px-6 pb-12 text-center text-muted-foreground" key={item.value} value={item.value}>
               <span className={error ? "text-destructive" : undefined}>{message}</span>
             </TabsContent>
           ))}
@@ -783,6 +901,7 @@ export function ModelManagement({
   onDeleteProvider,
   onReload,
 }: ModelManagementProps): React.JSX.Element {
+  const [view, setView] = useState<ProviderView>("models");
   const providers = dataState.status === "ready" ? dataState.providers : [];
   const selectedProviderIndex = providers.findIndex(
     (provider) => provider.id === selectedProviderId,
@@ -861,6 +980,8 @@ export function ModelManagement({
                 : new Set()
             }
             onChanged={onReload}
+            view={view}
+            onViewChange={setView}
           />
         ) : (
           <EmptyModelPanel error={dataState.status === "error"} message={dataState.status === "loading" ? "加载中…" : dataState.status === "error" ? "加载失败" : providers.length === 0 ? "尚未添加供应商" : "请选择供应商"} />

@@ -147,6 +147,7 @@ export async function runAgentPermissionMigrationIntegration(configValidator: Da
       sqlite.prepare("INSERT INTO character_directory_grants (id, character_id, path, access) VALUES (?, ?, ?, 'read-write')")
         .run("00000000-0000-4000-8000-000000000007", characterId, directory);
       sqlite.exec("ALTER TABLE assets DROP COLUMN source_path");
+      sqlite.exec("ALTER TABLE app_settings DROP COLUMN agent_tool_overrides");
       sqlite.prepare("DELETE FROM __drizzle_migrations WHERE created_at >= ?").run(1793441573888);
     } finally { sqlite.close(); }
 

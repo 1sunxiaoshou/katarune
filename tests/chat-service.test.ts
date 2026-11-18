@@ -7,6 +7,7 @@ import type { ChatStreamRequest } from "../src/shared/ipc";
 import type { AvatarDanceState } from "../src/shared/avatar";
 import type { MemoryToolDatabase } from "../src/main/memory/memoryTools";
 import * as diagnostics from "../src/main/diagnostics/logger";
+import { createDeepSeekSearchTool } from "../src/main/ai/deepSeekSearch";
 import {
   createChatService,
   createChatAttachmentDownload,
@@ -128,6 +129,144 @@ function createMemory(overrides: Partial<MemoryToolDatabase> = {}): MemoryToolDa
 }
 
 describe("chat service", () => {
+  it("uses desktop tool settings when the current chat is bound, and keeps live settings separate", async () => {
+    const database = createDatabase();
+    const chatThread = database.fetchThread(request.threadId, request.characterId);
+    let kind: "chat" | "live" = "chat";
+    let boundThreadId: string | null = null;
+    let liveWebEnabled = false;
+    const mockTool = tool({ inputSchema: z.object({}), execute: async () => "fixture result" });
+    const model = createModel(() => {});
+    const service = createChatService({
+      database: {
+        ...database,
+        fetchThread: () => ({ ...chatThread, kind }),
+        getAgentToolOverrides: () => ({
+          chat: { "system:get_current_time": false, "system:memory": false },
+          desktop: { "system:performance": false, "provider:deepseek_search": true },
+          live: { "system:fetch_url": liveWebEnabled },
+        }),
+      },
+      avatar: {
+        captureBinding: ({ threadId }) => threadId === boundThreadId ? 0 : null,
+        createTools: () => ({ avatar_perform: mockTool, avatar_control: mockTool, avatar_play: mockTool }),
+        relay: (_request, stream) => stream,
+      },
+      memory: createMemory(),
+      aiRuntime: {
+        resolveLanguageModel: () => model,
+        createProviderChatTools: () => ({ tools: { deepseek_search: mockTool }, attachmentTool: () => undefined }),
+      },
+      mcp: { tools: async () => ({ mcp_fixture: dynamicTool({ inputSchema: z.object({}), execute: async () => "fixture result" }) }) },
+    });
+
+    const signal = new AbortController().signal;
+    await (await service.createResponse(request, signal)).text();
+    expect(model.doStreamCalls[0]?.tools ?? []).toEqual([]);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("用户喜欢简洁回答");
+    boundThreadId = request.threadId;
+    await (await service.createResponse(request, signal)).text();
+    expect(model.doStreamCalls[1]?.tools?.map(candidate => candidate.name)).toEqual(["get_current_time", "memory", "deepseek_search"]);
+    kind = "live";
+    await (await service.createResponse(request, signal)).text();
+    expect(model.doStreamCalls[2]?.tools?.map(candidate => candidate.name)).toEqual(["get_current_time", "memory", "avatar_perform", "avatar_control", "avatar_play"]);
+    liveWebEnabled = true;
+    await (await service.createResponse(request, signal)).text();
+    expect(model.doStreamCalls[3]?.tools?.map(candidate => candidate.name)).toContain("fetch_url");
+    kind = "chat";
+    boundThreadId = "other-thread";
+    await (await service.createResponse(request, signal)).text();
+    expect(model.doStreamCalls[4]?.tools ?? []).toEqual([]);
+  });
+
+  it("continues the chat without executing an outstanding approval for a disabled tool", async () => {
+    const execute = vi.fn(async () => "fixture page");
+    const model = createModel(() => {});
+    const service = createChatService({
+      database: { ...createDatabase(), getAgentToolOverrides: () => ({ chat: { "system:fetch_url": false } }) },
+      aiRuntime: { resolveLanguageModel: () => model },
+      attachmentSupport: {
+        assetService: { readChatAttachment: () => { throw new Error("unused"); } },
+        imageProcessor: { prepare: (data, mediaType) => ({ data, mediaType }) },
+      },
+      agentTools: { prepare: async () => ({
+        tools: { fetch_url: tool({ inputSchema: z.object({ url: z.url() }), execute }) },
+        attachmentPaths: new Map(),
+        instructions: "",
+        approvalSecret: "synthetic-approval-secret",
+        toolApproval: { request_directory_access: "user-approval" },
+      }) },
+    });
+    const response = await service.createResponse({
+      ...request,
+      messages: [...request.messages, {
+        id: "approval-message",
+        role: "assistant",
+        parts: [{
+          type: "tool-fetch_url", state: "approval-responded", toolCallId: "previous-page",
+          input: { url: "https://example.invalid/" }, approval: { id: "previous-approval", approved: true },
+        }],
+      }],
+    }, new AbortController().signal);
+    expect(await response.text()).toContain("Katarune ready");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["chat", "live"] as const)("lets a different provider's model use DeepSeek Search in %s", async scope => {
+    const fetchSearch = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      results: [{ title: "Example", url: "https://example.com/page", snippet: "Short excerpt", summary: "Search result",
+        site_name: "Example", date: null }],
+    }));
+    vi.stubGlobal("fetch", fetchSearch);
+    try {
+      let steps = 0;
+      const model = new MockLanguageModelV4({
+        provider: "openai.responses",
+        doStream: async () => ({ stream: new ReadableStream({ start(controller) {
+          const firstStep = steps++ === 0;
+          if (firstStep) controller.enqueue({
+            type: "tool-call", toolCallId: "search", toolName: "deepseek_search", input: '{"query":"public topic"}',
+          });
+          controller.enqueue({
+            type: "finish", finishReason: { unified: firstStep ? "tool-calls" : "stop", raw: undefined },
+            usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 1, text: 1, reasoning: undefined } },
+          });
+          controller.close();
+        } }) }),
+      });
+      const database = createDatabase();
+      const createProviderChatTools = vi.fn(() => ({
+        tools: { deepseek_search: createDeepSeekSearchTool("fixture-search-key") },
+        attachmentTool: () => undefined,
+      }));
+      const service = createChatService({
+        database: {
+          ...database,
+          fetchThread: (threadId, characterId) => ({ ...database.fetchThread(threadId, characterId), kind: scope }),
+          getAgentToolOverrides: () => ({ [scope]: { "provider:deepseek_search": true } }),
+        },
+        aiRuntime: {
+          resolveLanguageModel: () => model,
+          createProviderChatTools,
+        },
+      });
+      const output = await (await service.createResponse(request, new AbortController().signal)).text();
+      expect(createProviderChatTools).toHaveBeenCalledWith({}, scope);
+      expect(fetchSearch).toHaveBeenCalledExactlyOnceWith(new URL("https://api.deepseek.com/v1/tools/search"), expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer fixture-search-key", "Content-Type": "application/json" },
+        body: '{"query":"public topic","count":5}',
+        redirect: "error",
+      }));
+      expect(output).toContain("https://example.com/page");
+      expect(output).not.toContain("fixture-search-key");
+      expect(steps).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(["user-approval", "approved"] as const)("executes MCP through the native Agent independently of local tool approval (%s)", async approval => {
     const execute = vi.fn(async () => ({ content: [{ type: "text", text: "fixture MCP result" }] }));
     const mcp = { tools: vi.fn(async () => ({ mcp_fixture: dynamicTool({ inputSchema: z.object({}), description: "Fixture MCP", execute }) })) };
@@ -138,10 +277,12 @@ describe("chat service", () => {
         usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } } });
       controller.close();
     } }) }) });
-    const service = createChatService({ database: createDatabase(), aiRuntime: { resolveLanguageModel: () => model }, mcp,
+    const service = createChatService({
+      database: { ...createDatabase(), getAgentToolOverrides: () => ({ chat: { "mcp:mcp_fixture": true } }) },
+      aiRuntime: { resolveLanguageModel: () => model }, mcp,
       attachmentSupport: { assetService: { readChatAttachment: () => { throw new Error("unused"); } }, imageProcessor: { prepare: (data, mediaType) => ({ data, mediaType }) } },
       agentTools: { prepare: async () => ({ tools: {}, attachmentPaths: new Map(), instructions: "Fixture local tools", approvalSecret: "synthetic-approval-secret",
-        toolApproval: { request_directory_access: approval, fetch_url: approval } }) },
+        toolApproval: { request_directory_access: approval } }) },
     });
     const signal = new AbortController().signal;
     const output = await (await service.createResponse(request, signal)).text();

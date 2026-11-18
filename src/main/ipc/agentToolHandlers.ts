@@ -6,6 +6,7 @@ import { AGENT_TOOL_CHANNELS, agentAccessStateSchema, agentAccessRequestSchema, 
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import { OperationRejected, parseRequest } from "../diagnostics/operationRejected";
 import type { AgentToolsService } from "../ai/agentTools";
+import { wavDuration } from "../ai/wavDuration";
 
 export function registerAgentToolHandlers(service: Pick<AgentToolsService, "readChatFile" | "describeChatAttachment" | "state" | "setMode" | "workspace">) {
   diagnosticIpcMain.handle(AGENT_TOOL_CHANNELS.file, async (event, value: unknown) => {
@@ -18,6 +19,14 @@ export function registerAgentToolHandlers(service: Pick<AgentToolsService, "read
     const extension = extname(filename).toLowerCase();
     if (request.action === "info") return chatFileResultSchema.parse(result);
     if (request.action === "preview") {
+      if (extension === ".wav") {
+        try {
+          wavDuration(file.data);
+          return chatFileResultSchema.parse({ ...result, audio: file.data });
+        } catch {
+          return chatFileResultSchema.parse(result);
+        }
+      }
       if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].includes(extension)) {
         const image = nativeImage.createFromBuffer(Buffer.from(file.data));
         if (!image.isEmpty()) return chatFileResultSchema.parse({ ...result, image: image.resize({ width: Math.min(image.getSize().width, 1600) }).toDataURL() });

@@ -1,6 +1,8 @@
 import { createAlibaba } from "@ai-sdk/alibaba";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createDeepSeek } from "@ai-sdk/deepseek";
+import { deepSeekToolCatalog } from "./deepSeekTools";
+import type { ProviderToolCatalog } from "./providerTools";
 import { createGoogle } from "@ai-sdk/google";
 import { createMoonshotAI } from "@ai-sdk/moonshotai";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -119,6 +121,7 @@ export interface ProviderDefinition {
   readonly inspectModel: ProviderModelInspector;
   readonly languageModel?: LanguageCapabilityDefinition;
   readonly speechModel?: SpeechCapabilityDefinition;
+  readonly toolCatalog?: ProviderToolCatalog;
   createProvider(
     config: ProviderConfig,
     apiKey: string | undefined,
@@ -134,6 +137,8 @@ const providerSettingsSchema = z.strictObject({
   supportsStructuredOutputs: z.optional(z.boolean()),
 });
 const nullableProviderSettingsSchema = z.nullable(providerSettingsSchema);
+const deepSeekProviderSettingsSchema = z.nullable(z.extend(providerSettingsSchema,
+  Object.fromEntries(deepSeekToolCatalog.tools.map(tool => [tool.settingKey, z.optional(z.boolean())]))));
 const nullableLanguageSettingsSchema = z.nullable(languageModelSettingsSchema);
 const nullSettingsSchema = z.null();
 const nullableSpeechModelMetadataSchema = z.nullable(
@@ -636,7 +641,8 @@ export function createProviderDefinitionRegistry({
         createFishAudio(optionalFactorySettings(config, apiKey)),
     },
     deepseek: {
-      providerSettingsSchema: nullableProviderSettingsSchema,
+      providerSettingsSchema: deepSeekProviderSettingsSchema,
+      toolCatalog: deepSeekToolCatalog,
       discoverModels: deepSeekDiscovery,
       inspectModel: discoveryBackedInspector(deepSeekDiscovery),
       languageModel,

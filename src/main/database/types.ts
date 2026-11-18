@@ -1,5 +1,6 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { AgentAccessMode } from "../../shared/agentTools";
+import type { AgentToolOverrides, SetAgentToolEnabled } from "../../shared/agentToolSettings";
 import type {
   AppendThreadMessageRequest,
   AppSettings,
@@ -56,6 +57,8 @@ export interface DatabaseRuntime extends ReturnType<typeof import("./mcpReposito
   setActiveCharacter(characterId: string): AppState;
   getAppSettings(): AppSettings;
   updateAppSettings(request: UpdateAppSettingsRequest): AppSettings;
+  getAgentToolOverrides(): AgentToolOverrides;
+  setAgentToolEnabled(request: SetAgentToolEnabled): void;
   listThreads(characterId: string): ThreadList;
   initializeThread(
     threadId: string,
@@ -156,7 +159,7 @@ export type AppStateRepository = Pick<
 >;
 export type AppSettingsRepository = Pick<
   DatabaseRuntime,
-  "getAppSettings" | "updateAppSettings"
+  "getAppSettings" | "updateAppSettings" | "getAgentToolOverrides" | "setAgentToolEnabled"
 >;
 export type ThreadRepository = Pick<
   DatabaseRuntime,

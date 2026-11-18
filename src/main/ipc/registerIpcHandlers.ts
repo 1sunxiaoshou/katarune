@@ -17,6 +17,7 @@ import type { LiveService } from "../live/liveService";
 import type { AgentToolsService } from "../ai/agentTools";
 import type { McpService } from "../mcp/mcpService";
 import { registerMcpHandlers } from "./mcpHandlers";
+import { registerAgentToolSettingsHandlers } from "./agentToolSettingsHandlers";
 
 export function registerIpcHandlers(
   database: DatabaseRuntime,
@@ -39,6 +40,7 @@ export function registerIpcHandlers(
   if (avatar) registerAvatarHandlers(avatar, database);
   registerSpeechHandlers(speechService, speechRequests, avatar);
   registerProviderHandlers(database, aiRuntime, credentialStore);
+  registerAgentToolSettingsHandlers(database, aiRuntime, mcp);
   registerCharacterHandlers(database, chatStreams, live);
   registerMemoryHandlers(database, retryDiaries);
 

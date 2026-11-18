@@ -9,7 +9,7 @@ import type { AgentAccessMode, AgentAccessState } from "../../../shared/agentToo
 import { useAgentAccessDrafts } from "./AgentAccessDraftContext";
 
 const modes = [
-  { value: "request-approval", label: "请求批准", description: "编辑外部文件和使用互联网时始终询问", icon: ShieldIcon },
+  { value: "request-approval", label: "请求批准", description: "首次访问工作区外的目录时请求授权", icon: ShieldIcon },
   { value: "full-access", label: "完全访问权限", description: "可不受限制地访问互联网和你电脑上的任何文件", icon: ShieldAlertIcon },
 ] as const;
 

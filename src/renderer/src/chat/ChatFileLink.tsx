@@ -1,9 +1,19 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuiState } from "@assistant-ui/react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useCharacterSession } from "../characters/CharacterSessionProvider";
 import type { ChatFileResult, ChatFileSource } from "../../../shared/agentTools";
+
+function WavPreview({ bytes }: { readonly bytes: Uint8Array }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type: "audio/wav" }));
+    setUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [bytes]);
+  return <audio className="w-full" controls src={url} aria-label="音频预览" />;
+}
 
 export function ChatFileLink({ source, children, className }: { source: ChatFileSource; children: ReactNode; className?: string }) {
   const { activeCharacter } = useCharacterSession();
@@ -31,7 +41,7 @@ export function ChatFileLink({ source, children, className }: { source: ChatFile
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {file && <>
           <p className="text-xs text-muted-foreground">{formatFileSize(file.byteSize)}</p>
-          {file.image ? <img src={file.image} alt={file.filename} className="max-h-[60vh] max-w-full object-contain" /> : file.text !== undefined ? <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{file.text}</pre> : <p className="text-sm text-muted-foreground">此文件暂不支持预览。</p>}
+          {file.image ? <img src={file.image} alt={file.filename} className="max-h-[60vh] max-w-full object-contain" /> : file.audio ? <WavPreview bytes={file.audio} /> : file.text !== undefined ? <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{file.text}</pre> : <p className="text-sm text-muted-foreground">此文件暂不支持预览。</p>}
           <div className="flex gap-2">{"path" in source && <Button disabled={busy} variant="outline" onClick={() => void access("open")}>打开</Button>}<Button disabled={busy} onClick={() => void access("save")}>另存为</Button></div>
         </>}
       </DialogContent>

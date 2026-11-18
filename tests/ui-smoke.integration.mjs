@@ -8,6 +8,7 @@ import { app, BrowserWindow, ipcMain, protocol, safeStorage } from "electron";
 import { createCredentialStore } from "../src/main/security/credentialStore";
 import { McpService } from "../src/main/mcp/mcpService";
 import { registerMcpHandlers } from "../src/main/ipc/mcpHandlers";
+import { registerAgentToolSettingsHandlers } from "../src/main/ipc/agentToolSettingsHandlers";
 import { openDatabase } from "../src/main/database/database";
 import { createDiaryService } from "../src/main/memory/diaryService";
 import { registerMemoryHandlers } from "../src/main/ipc/memoryHandlers";
@@ -18,6 +19,8 @@ import { DEFAULT_LIVE_SETTINGS, LIVE_CHANNELS, LIVE_LOGIN_CHANNELS, livePlatform
 import { Mp4Preview } from "../src/main/live/mp4Preview";
 import { registerWindowThemeHandler } from "../src/main/windowTheme";
 import { validateModelMetadata, validateModelSettings, validateProviderSettings } from "../src/main/ai/providerDefinitions";
+import { deepSeekToolCatalog } from "../src/main/ai/deepSeekTools";
+import { pcmWav } from "../src/main/ai/streamingSpeech";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -74,6 +77,7 @@ let createdModelRequest = null;
 let createdModel = null;
 let updatedModelRequest = null;
 let modelEnabled = true;
+let modelAvailable = true;
 let appSettings = { defaultLanguageModelConfigId: null, defaultSpeechModelConfigId: null, defaultSpeechVoice: null, defaultAsrModel: "sensevoice-small-int8" };
 let updatedCharacterRequest = null;
 let createdCharacterCount = 0;
@@ -142,7 +146,6 @@ let failThreadInitialization = false;
 const failedThreadInitializations = [];
 const openedAgentWorkspaces = [];
 let directoryApprovalResponses = 0;
-let webApprovalResponses = 0;
 let threads = [
   ...Array.from({ length: 18 }, (_, index) => ({
     remoteId: `test-thread-${index + 1}`,
@@ -219,6 +222,10 @@ function registerMockHandlers() {
   ipcMain.handle(AGENT_TOOL_CHANNELS.file, (_event, request) => {
     deliveredFiles.push(request);
     assert.equal(request.characterId, characterId);
+    if (request.source.path === 'outputs/speech.wav') {
+      const audio = pcmWav(new Uint8Array(4800), 24_000);
+      return { filename: 'speech.wav', byteSize: audio.length, audio };
+    }
     return { filename: 'report.txt', byteSize: 6, ...(request.action === 'preview' ? { text: '文件预览测试' } : {}) };
   });
   ipcMain.handle(AGENT_TOOL_CHANNELS.get, (_event, value) => {
@@ -554,7 +561,7 @@ function registerMockHandlers() {
           writer.write({ type: 'tool-input-available', toolCallId: 'failed-bash', toolName: 'bash', input: { command: 'cat missing.txt' } });
           writer.write({ type: 'tool-output-available', toolCallId: 'failed-bash', output: { stdout: '', stderr: 'File missing', exitCode: 1 } });
           writer.write({ type: 'text-start', id: 'file-delivery' });
-          writer.write({ type: 'text-delta', id: 'file-delivery', delta: '[查看报告](outputs/report.txt)' });
+          writer.write({ type: 'text-delta', id: 'file-delivery', delta: '[查看报告](outputs/report.txt) [收听音频](outputs/speech.wav)' });
           writer.write({ type: 'text-end', id: 'file-delivery' });
           writer.write({ type: 'finish-step' }); return;
         }
@@ -575,23 +582,13 @@ function registerMockHandlers() {
           writer.write({ type: "finish-step" });
           return;
         }
-        if (serializedMessages.includes("测试网页批准")) {
-          const approval = request.messages.flatMap(message => message.parts ?? []).find(part => part.type === 'tool-fetch_url' && part.approval?.approved !== undefined);
+        if (serializedMessages.includes("测试网页读取")) {
           writer.write({ type: "start-step" });
-          if (!approval) {
-            writer.write({ type: "tool-input-available", toolCallId: "web-ui", toolName: "fetch_url", input: { url: "https://example.com" } });
-            writer.write({ type: "tool-approval-request", approvalId: "web-ui-approval", toolCallId: "web-ui", signature: "synthetic-web-signature" });
-            writer.write({ type: "tool-input-available", toolCallId: "web-time", toolName: "get_current_time", input: {} });
-            writer.write({ type: "tool-output-available", toolCallId: "web-time", output: { time: "12:00" } });
-          } else {
-            webApprovalResponses++;
-            assert.equal(approval.approval.approved, true);
-            assert.equal(approval.approval.signature, 'synthetic-web-signature');
-            writer.write({ type: "tool-output-available", toolCallId: "web-ui", output: { type: "document", content: "synthetic page" } });
-            writer.write({ type: "text-start", id: "web-done" });
-            writer.write({ type: "text-delta", id: "web-done", delta: "网页批准已继续" });
-            writer.write({ type: "text-end", id: "web-done" });
-          }
+          writer.write({ type: "tool-input-available", toolCallId: "web-ui", toolName: "fetch_url", input: { url: "https://example.com" } });
+          writer.write({ type: "tool-output-available", toolCallId: "web-ui", output: { type: "document", content: "synthetic page" } });
+          writer.write({ type: "text-start", id: "web-done" });
+          writer.write({ type: "text-delta", id: "web-done", delta: "网页读取完成" });
+          writer.write({ type: "text-end", id: "web-done" });
           writer.write({ type: "finish-step" });
           return;
         }
@@ -815,7 +812,7 @@ function registerMockHandlers() {
     port.on("close", close);
     port.start();
   });
-  ipcMain.handle("provider-configs:list", () => ({
+  const listProviderConfigs = () => ({
     providerConfigs: emptyConfigMode ? (createdProvider === null ? [] : [createdProvider]) : [
       ...(createdProvider === null ? [] : [createdProvider]),
       {
@@ -843,7 +840,8 @@ function registerMockHandlers() {
           }]
         : []),
     ],
-  }));
+  });
+  ipcMain.handle("provider-configs:list", listProviderConfigs);
   ipcMain.handle("provider-configs:create", (_event, request) => {
     if (failProviderSave) throw new Error("合成保存失败，请稍后重试。");
     createdProviderRequest = request;
@@ -865,6 +863,17 @@ function registerMockHandlers() {
     createdProvider = { ...createdProvider, credentialRef: "safe-storage/87654321-4321-4321-8321-cba987654321", updatedAt: now };
     return createdProvider;
   });
+  ipcMain.handle("provider-configs:update", (_event, request) => {
+    assert.equal(request.id, createdProvider?.id);
+    createdProvider = { ...createdProvider, ...request };
+    return createdProvider;
+  });
+  const listProviderTools = (id, scope = "chat") =>
+    id === providerId || id === createdProvider?.id
+      ? deepSeekToolCatalog.tools.filter(tool => scope !== "live" || tool.supportsLive).map(({ id, name, apiPath, settingKey, description, billing, kind }) =>
+        ({ id, name, apiPath, settingKey, description, billing, kind }))
+      : [];
+  ipcMain.handle("provider-configs:list-tools", (_event, { id }) => ({ tools: listProviderTools(id) }));
   ipcMain.handle("provider-configs:delete", (_event, request) => {
     if (createdProvider?.id === request.id) createdProvider = null;
     return { success: true };
@@ -934,7 +943,7 @@ function registerMockHandlers() {
     modelConfigIds: emptyConfigMode
       ? []
       : [
-          modelId,
+          ...(modelEnabled && modelAvailable ? [modelId] : []),
           ...(includeGoogleSpeechFixture
             ? [googleSpeechModelId, manualSpeechModelId]
             : []),
@@ -1074,7 +1083,7 @@ function registerMockHandlers() {
     if (character.id === updated.id) character = updated;
     return updated;
   });
-
+  return { listProviderConfigs, listProviderTools };
 }
 
 
@@ -1254,7 +1263,7 @@ async function runStep(label, action) {
 let exitCode = 0;
 
 async function run() {
-  registerMockHandlers();
+  const { listProviderConfigs, listProviderTools } = registerMockHandlers();
   const mcpCredentials = await createCredentialStore({ userDataPath, cipher: {
     isEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
     encryptString: value => safeStorage.encryptStringAsync(value),
@@ -1262,6 +1271,7 @@ async function run() {
   } });
   mcpService = new McpService(memoryDatabase, mcpCredentials);
   registerMcpHandlers(mcpService);
+  registerAgentToolSettingsHandlers({ ...memoryDatabase, listProviderConfigs }, { listProviderTools }, mcpService);
   registerWindowThemeHandler(sender => BrowserWindow.fromWebContents(sender) ?? undefined);
   const window = createTestWindow();
 
@@ -1328,6 +1338,11 @@ async function run() {
       await clickSelector(window, '[data-testid="settings-launcher"]');
       await clickSelector(window, '[data-testid="theme-light"]');
       await clickSelector(window, '[data-testid="settings-tab-models"]');
+      await fill('[data-testid="model-search"]', '切换后保留');
+      await clickSelector(window, '[data-testid="settings-tab-general"]');
+      await clickSelector(window, '[data-testid="settings-tab-models"]');
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-testid="model-search"]').value`), '切换后保留');
+      await fill('[data-testid="model-search"]', '');
       await clickSelector(window, '[data-testid="add-provider"]');
       await waitForSelector(window, '#provider-secret');
       const providerLayout = await layout('[role="dialog"] form');
@@ -1443,6 +1458,71 @@ async function run() {
       assert.equal(mcpService.list().length, 0);
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForNoError();
+    });
+    await runStep("tool settings scope switches and keep the diary submission fixed", async () => {
+      const page = '[data-testid="agent-tool-settings"]';
+      const system = `${page} section[aria-label="系统"]`;
+      const deepseek = `${page} section[aria-label="DeepSeek"]`;
+      const time = `${system} [role="switch"][aria-label="时间"]`;
+      const performance = `${system} [role="switch"][aria-label="表演工具"]`;
+      const search = `${deepseek} [role="switch"][aria-label="网页搜索"]`;
+      const click = selector => clickSelector(window, selector);
+      const chooseScope = async name => {
+        const tab = await window.webContents.executeJavaScript(`[...document.querySelectorAll(${JSON.stringify(page + ' [role="tab"]')})].findIndex(tab => tab.textContent.trim() === ${JSON.stringify(name)})`);
+        assert.notEqual(tab, -1);
+        await click(`${page} [role="tab"]:nth-of-type(${tab + 1})`);
+      };
+
+      await click('[data-testid="settings-launcher"]');
+      await click('[data-testid="theme-light"]');
+      await click('[data-testid="settings-tab-tools"]');
+      await waitForText(window, deepseek, "OCR");
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      await waitForSelector(window, `${time}[aria-checked="true"]`);
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(performance)}) === null`), true);
+      await click(time);
+      await waitForSelector(window, `${time}[aria-checked="false"]`);
+      assert.deepEqual(memoryDatabase.getAgentToolOverrides(), { chat: { "system:get_current_time": false } });
+      await chooseScope("桌宠");
+      await waitForSelector(window, `${time}[aria-checked="true"]`);
+      await waitForSelector(window, `${performance}[aria-checked="true"]`);
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(search)}).scrollIntoView({ block: "center" })`);
+      await click(search);
+      await waitForSelector(window, `${search}[aria-checked="true"]`);
+      assert.deepEqual(memoryDatabase.getAgentToolOverrides().desktop, { "provider:deepseek_search": true });
+      await click(search);
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(page)}).scrollIntoView({ block: "start" })`);
+      await chooseScope("直播");
+      await waitForSelector(window, `${time}[aria-checked="true"]`);
+      await waitForSelector(window, `${performance}[aria-checked="true"]`);
+      await waitForSelector(window, `${system} [role="switch"][aria-label="本地联网搜索"][aria-checked="false"]`);
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      assert.deepEqual(await window.webContents.executeJavaScript(`[...document.querySelectorAll(${JSON.stringify(deepseek + ' [role="switch"]')})].map(toggle => toggle.getAttribute("aria-label"))`), ["网页搜索", "网页抓取"]);
+      await click(search);
+      await waitForSelector(window, `${search}[aria-checked="true"]`);
+      assert.deepEqual(memoryDatabase.getAgentToolOverrides().live, { "provider:deepseek_search": true });
+      await click(search);
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      await chooseScope("日记");
+      await waitForText(window, system, "提交草稿");
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const row = [...document.querySelectorAll(${JSON.stringify(system + " li")})].find(item => item.textContent === "提交草稿");
+        return row?.childElementCount === 1 && row.querySelector('[role="switch"]') === null;
+      })()`), true);
+      writeFileSync(join(projectRoot, ".test-dist", "agent-tool-settings-diary.png"), (await window.webContents.capturePage()).toPNG());
+      const fixedToolUpdate = await window.webContents.executeJavaScript(`window.katarune
+        .setAgentToolEnabled({ scope: "diary", id: "system:finish_diary", enabled: false })
+        .then(() => "", error => String(error))`);
+      assert.match(fixedToolUpdate, /operation-not-allowed/);
+      await chooseScope("聊天");
+      await waitForSelector(window, `${time}[aria-checked="false"]`);
+      await waitForSelector(window, `${search}[aria-checked="false"]`);
+      await click(time);
+      await waitForSelector(window, `${time}[aria-checked="true"]`);
+      writeFileSync(join(projectRoot, ".test-dist", "agent-tool-settings-chat.png"), (await window.webContents.capturePage()).toPNG());
+      await click('[data-testid="settings-back"]');
     });
     await runStep("MCP settings manage global services and protect credentials", async () => {
       const click = async selector => {
@@ -1701,8 +1781,15 @@ async function run() {
       await scrollLiveSettingIntoView(window, 'label[for="live-proactive"]');
       await clickSelector(window, 'label[for="live-proactive"]');
       await waitUntil('proactive switch persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.proactive)`));
+      await clickSelector(window, '#live-idle-seconds');
+      await window.webContents.executeJavaScript(`document.querySelector('#live-idle-seconds').select()`);
+      await window.webContents.insertText('90');
+      await waitUntil('idle time input shows the new value', () => window.webContents.executeJavaScript(`document.querySelector('#live-idle-seconds').value==='90'`));
+      window.webContents.sendInputEvent({type:'keyDown',keyCode:'Return'});
+      window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
+      await waitUntil('idle time persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.idleSeconds===90)`));
       await clickSelector(window, 'label[for="live-proactive"]');
-      await waitUntil('proactive switch re-enables', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.proactive)`));
+      await waitUntil('proactive switch re-enables and retains the new idle time', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.proactive && state.settings.idleSeconds===90)`));
       await window.webContents.executeJavaScript(`(() => {
         const input=document.querySelector('#live-instructions');input.focus();
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'本场聊游戏，礼物集中感谢。');
@@ -1727,6 +1814,9 @@ async function run() {
       }
       await clickSelector(window, 'label[for="live-subtitles"]');
       await waitUntil('subtitles setting persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.subtitles)`));
+      await waitUntil('danmaku switch defaults on', () => window.webContents.executeJavaScript(`document.querySelector('input#live-danmaku')?.checked === true`));
+      await clickSelector(window, 'label[for="live-danmaku"]');
+      await waitUntil('danmaku setting persists', () => window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>!state.settings.showDanmaku)`));
       await clickSelector(window, '#live-tab-sound');
       await waitForSelector(window, '#live-voice-volume');
       await window.webContents.executeJavaScript(`(() => {
@@ -2073,7 +2163,7 @@ async function run() {
       window.webContents.sendInputEvent({type:'char',keyCode:'\r'});
       window.webContents.sendInputEvent({type:'keyUp',keyCode:'Return'});
       await waitUntil('keyboard switches parameter tabs',()=>window.webContents.executeJavaScript(`document.querySelector('#live-tab-picture').getAttribute('aria-selected')==='true'`));
-      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.voiceVolume===0.65&&!state.settings.subtitles&&state.settings.instructions==='本场聊游戏，礼物集中感谢。')`),true);
+      assert.equal(await window.webContents.executeJavaScript(`window.katarune.getLiveState().then(state=>state.settings.voiceVolume===0.65&&!state.settings.subtitles&&!state.settings.showDanmaku&&state.settings.instructions==='本场聊游戏，礼物集中感谢。')`),true);
       window.setSize(1280,900);
       await clickSelector(window, '[aria-label="返回对话"]');
       await waitForSelector(window, '[data-testid="memory-launcher"]');
@@ -2269,7 +2359,19 @@ async function run() {
         kind: 'diary', day: '2026-10-16', title: '很长的一天', body: Array.from({ length: 24 }, (_, index) => `第${index + 1}段。今天我们沿着河边慢慢走，聊了最近在读的书，也聊到下个周末的小计划。风经过水面的时候，她停了一会儿，我也陪着她安静下来。`).join('\n\n') + '\n\n\x60\x60\x60text\n' + Array.from({ length: 60 }, (_, index) => `记录 ${index + 1}`).join('\n') + '\n\x60\x60\x60\n\n| 时刻 | 记下的小事 |\n| --- | --- |\n' + Array.from({ length: 24 }, (_, index) => `| ${index + 1} | 一点值得记住的事情 |`).join('\n') + '\n\n长文终点，今天就写到这里。',
       } });
       await waitForText(window, '.memory-list', '很长的一天');
-      await selectDiary('很长的一天');
+      await window.webContents.executeJavaScript(`(async () => {
+        const buttons = [...document.querySelectorAll('[data-testid="memory-list-item"]')];
+        for (const title of ['一起挑选生日礼物', '书店里的午后', '很长的一天']) {
+          buttons.find(button => button.textContent.includes(title)).click();
+          await Promise.resolve();
+        }
+      })()`);
+      await waitForText(window, '[data-testid="memory-detail"]', '长文终点');
+      await clickSelector(window, '[data-testid="memory-tab-event"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '给小林挑选一本书');
+      await clickSelector(window, '[data-testid="memory-tab-diary"]');
+      await waitForText(window, '[data-testid="memory-detail"]', '长文终点');
+      await waitForText(window, '[data-testid="memory-list-item"][aria-current="true"]', '很长的一天');
       assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.memory-diary-scroll').scrollHeight > document.querySelector('.memory-diary-scroll').clientHeight`), true);
       await checkDiaryEnd(window);
       await checkDiaryModeSwitch(window);
@@ -2488,6 +2590,12 @@ async function run() {
       await waitUntil('file save requested', () => deliveredFiles.some(request => request.action === 'save'));
       await window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"] [data-slot="dialog-close"]').click()`);
       await waitUntil('file preview closed', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"]') === null`));
+      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button => button.textContent === '收听音频').click()`);
+      await waitUntil('generated WAV audio is playable in its preview', () => window.webContents.executeJavaScript(
+        `document.querySelector('[data-testid="chat-file-preview"] audio[aria-label="音频预览"]')?.readyState >= 1`,
+      ));
+      await window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"] [data-slot="dialog-close"]').click()`);
+      await waitUntil('audio preview closed', () => window.webContents.executeJavaScript(`document.querySelector('[data-testid="chat-file-preview"]') === null`));
     });
 
     await runStep("render private memory tool status", async () => {
@@ -2592,23 +2700,19 @@ async function run() {
       assert.equal(toolOnlyRequests, 1, "Backend tools must be continued only by Main's native Agent loop");
     });
 
-    await runStep("web access approval is visible and resumes the same conversation", async () => {
+    await runStep("web access shows the result without an approval prompt", async () => {
       await openNewConversation(window);
       await waitForSelector(window, '.aui-composer-input');
       await window.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.aui-composer-input');
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试网页批准');
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, '测试网页读取');
         input.dispatchEvent(new Event('input', { bubbles: true }));
       })()`);
       await clickSelector(window, 'button[aria-label="发送消息"]');
-      await waitForText(window, '[data-slot="tool-fallback-approval"]', '批准');
-      await waitForText(window, '[data-slot="tool-group-trigger"]', '2 项工具调用 · 等待批准');
-      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-group-trigger"]').getAttribute('aria-expanded')`), 'true');
+      await waitForText(window, '[data-slot="aui_thread-viewport"]', '网页读取完成');
+      await expandLatestToolGroup(window);
       await waitForText(window, '[data-testid="agent-action-fetch"]', 'https://example.com');
-      await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('[data-slot="tool-fallback-approval"] button')).find(button=>button.textContent.trim()==='批准').click()`);
-      await waitForText(window, '[data-slot="aui_thread-viewport"]', '网页批准已继续');
-      assert.equal(webApprovalResponses, 1);
-      await waitUntil('settled approval removes active controls', () => window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-fallback-approval"]') === null`));
+      assert.equal(await window.webContents.executeJavaScript(`document.querySelector('[data-slot="tool-fallback-approval"]') === null`), true);
       await openNewConversation(window);
     });
 
@@ -3174,6 +3278,33 @@ async function run() {
         1,
       );
     });
+    await runStep("model rows distinguish disabled models from unavailable models", async () => {
+      const modelRow = '[data-testid="model-row"]';
+      const name = `${modelRow} [title="DeepSeek Chat"]`;
+      const toggle = `${modelRow} [role="switch"]`;
+      const color = () => window.webContents.executeJavaScript(
+        `getComputedStyle(document.querySelector(${JSON.stringify(name)})).color`,
+      );
+      const hasUnavailableBadge = () => window.webContents.executeJavaScript(
+        `Array.from(document.querySelector(${JSON.stringify(modelRow)}).firstElementChild.children)
+          .some(child => child.textContent.trim() === "不可调用")`,
+      );
+      const enabledColor = await color();
+      modelAvailable = false;
+      try {
+        await clickSelector(window, toggle);
+        await waitForSelector(window, `${toggle}[aria-checked="false"]`);
+        await waitUntil("disabled model name is muted after settings reload", async () => await color() !== enabledColor);
+        assert.equal(await hasUnavailableBadge(), false);
+
+        await clickSelector(window, `${toggle}:not([data-disabled])`);
+        await waitForSelector(window, `${toggle}[aria-checked="true"]`);
+        await waitUntil("enabled unavailable model shows its badge and normal name color", async () =>
+          await hasUnavailableBadge() && await color() === enabledColor);
+      } finally {
+        modelAvailable = true;
+      }
+    });
     await runStep("compact empty states and recovery navigation", async () => {
       await clickSelector(window, '[data-testid="settings-back"]');
       await waitForSelector(window, '[data-testid="settings-launcher"]');
@@ -3246,6 +3377,65 @@ async function run() {
       assert.equal(createdModelRequest.modelType, 'languageModel');
       await waitUntil('model dialog closed', () => window.webContents.executeJavaScript(`document.querySelector('[role="dialog"]') === null`));
       await waitForText(window, '[data-testid="model-row"]', 'Unknown Model');
+    });
+
+    await runStep("provider tools switch views, filter independently and save search settings", async () => {
+      const viewTabs = '[role="tablist"][aria-label="供应商内容"]';
+      const toolsTab = `${viewTabs} [data-slot="tabs-trigger"]:last-of-type`;
+      const modelsTab = `${viewTabs} [data-slot="tabs-trigger"]:first-of-type`;
+      const webSearchSwitch = '[role="switch"][aria-label="网页搜索"]';
+      const rowLayout = (selector) => window.webContents.executeJavaScript(`(() => {
+        const row = document.querySelector(${JSON.stringify(selector)});
+        const style = getComputedStyle(row);
+        return [style.height, style.gridTemplateColumns, style.columnGap, style.paddingInlineStart];
+      })()`);
+      const modelLayout = await rowLayout('[data-testid="model-row"]');
+      await clickSelector(window, toolsTab);
+      await waitForSelector(window, webSearchSwitch);
+      assert.deepEqual(await window.webContents.executeJavaScript(
+        `Array.from(document.querySelectorAll('[data-testid="provider-tool-row"]'))
+          .map(row => [row.children[0].textContent, row.children[1].textContent])`,
+      ), [
+        ["网页搜索", "/v1/tools/search"], ["网页抓取", "/v1/tools/fetch"], ["OCR", "/v1/tools/ocr"],
+        ["语音识别", "/v1/tools/asr"], ["语音合成", "/v1/tools/tts"],
+      ]);
+      assert.deepEqual(await rowLayout('[data-testid="provider-tool-row"]'), modelLayout);
+      await clickSelector(window, '[aria-label="网页搜索说明"]');
+      await waitForText(window, '[data-slot="popover-content"]', '搜索词会发送给 DeepSeek，按次计费。');
+      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      await waitUntil('web search details closed', () => window.webContents.executeJavaScript(
+        `!document.querySelector('[data-slot="popover-content"][data-open]')`,
+      ));
+      await waitForSelector(window, `${viewTabs} .model-category-indicator`);
+      assert.equal(await window.webContents.executeJavaScript(`(() => {
+        const models = document.querySelector(${JSON.stringify(modelsTab)}).getBoundingClientRect();
+        const tools = document.querySelector(${JSON.stringify(toolsTab)}).getBoundingClientRect();
+        const search = document.querySelector('[aria-label="搜索工具"]').getBoundingClientRect();
+        return models.top === tools.top && models.right <= tools.left && tools.right < search.left;
+      })()`), true);
+      await waitUntil('tool panel excludes model controls', () => window.webContents.executeJavaScript(
+        `document.querySelector('[data-testid="model-search"]') === null &&
+          !document.querySelector('[data-testid="model-categories"]')`,
+      ));
+      await waitForSelector(window, `${webSearchSwitch}[aria-checked="true"]`);
+      await clickSelector(window, webSearchSwitch);
+      await waitUntil('DeepSeek Search disabled', () => createdProvider?.settings?.webSearchEnabled === false);
+      await waitForSelector(window, `${webSearchSwitch}[aria-checked="false"]`);
+      await clickSelector(window, webSearchSwitch);
+      await waitUntil('DeepSeek Search enabled', () => createdProvider?.settings?.webSearchEnabled === true);
+      await waitForSelector(window, `${webSearchSwitch}[aria-checked="true"]`);
+      await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => {
+        const toggle = document.querySelector(${JSON.stringify(webSearchSwitch)});
+        Promise.allSettled(toggle.getAnimations({ subtree: true }).map(animation => animation.finished)).then(resolve);
+      }))`);
+      writeFileSync(join(projectRoot, '.test-dist', 'provider-tools.png'), (await window.webContents.capturePage()).toPNG());
+      await clickSelector(window, '[aria-label="搜索工具"]');
+      await window.webContents.insertText('unmatched');
+      await waitForText(window, '[data-slot="tabs-content"]', '没有匹配的工具');
+      await clickSelector(window, modelsTab);
+      await waitForText(window, '[data-testid="model-row"]', 'Unknown Model');
+      await waitForSelector(window, '[data-testid="model-categories"]');
     });
 
     await runStep("choose a provider type from the searchable picker", async () => {

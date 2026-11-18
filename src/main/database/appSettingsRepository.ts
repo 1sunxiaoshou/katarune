@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { agentToolOverridesSchema, defaultAgentToolEnabled } from "../../shared/agentToolSettings";
 import {
   appSettingsSchema,
   type AppSettings,
@@ -14,6 +15,11 @@ export function createAppSettingsRepository(
   database: KataruneDatabase,
   fetchModelConfig: (id: string) => ModelConfig,
 ): AppSettingsRepository {
+  const getAgentToolOverrides = () => {
+    const row = database.select({ overrides: appSettings.agentToolOverrides }).from(appSettings).where(eq(appSettings.id, 1)).get();
+    if (!row) throw new Error("Application settings were not initialized.");
+    return agentToolOverridesSchema.parse(row.overrides ?? {});
+  };
   const getAppSettings = (): AppSettings => {
     const settings = database
       .select()
@@ -34,6 +40,20 @@ export function createAppSettingsRepository(
 
   return {
     getAppSettings,
+    getAgentToolOverrides,
+    setAgentToolEnabled: ({ id, scope, enabled }) => {
+      database.transaction(tx => {
+        const row = tx.select({ overrides: appSettings.agentToolOverrides }).from(appSettings).where(eq(appSettings.id, 1)).get();
+        if (!row) throw new Error("Application settings were not initialized.");
+        const overrides = agentToolOverridesSchema.parse(row.overrides ?? {});
+        const scene = { ...overrides[scope] };
+        if (enabled === defaultAgentToolEnabled(scope, id)) delete scene[id];
+        else scene[id] = enabled;
+        tx.update(appSettings).set({
+          agentToolOverrides: agentToolOverridesSchema.parse({ ...overrides, [scope]: scene }),
+        }).where(eq(appSettings.id, 1)).run();
+      });
+    },
     updateAppSettings: (request) => {
       const current = getAppSettings();
       const updates = { ...request };

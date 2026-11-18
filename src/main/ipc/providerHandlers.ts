@@ -2,6 +2,7 @@ import { parseRequest } from "../diagnostics/operationRejected";
 import { diagnosticIpcMain } from "../diagnostics/ipc";
 import {
   availableModelListSchema,
+  providerToolListSchema,
   createModelConfigRequestSchema,
   createProviderConfigRequestSchema,
   discoveredModelListSchema,
@@ -134,6 +135,10 @@ export function registerProviderHandlers(
       modelConfigIds: aiRuntime.listAvailableModelConfigIds(),
     }),
   );
+  diagnosticIpcMain.handle(IPC_CHANNELS.listProviderTools, (_event, value: unknown) => {
+    const { id } = parseRequest(providerConfigIdRequestSchema, value);
+    return providerToolListSchema.parse({ tools: aiRuntime.listProviderTools(id) });
+  });
   diagnosticIpcMain.handle(IPC_CHANNELS.createModelConfig, async (_event, value: unknown) => {
     const request = parseRequest(createModelConfigRequestSchema, value);
     const provider = database.fetchProviderConfig(request.providerConfigId);

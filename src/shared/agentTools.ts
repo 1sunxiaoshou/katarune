@@ -28,7 +28,14 @@ export const chatFileSourceSchema = z.union([
   z.strictObject({ path: z.string().min(1).max(4096) }),
 ]);
 export const chatFileRequestSchema = agentThreadRequestSchema.extend({ source: chatFileSourceSchema, action: z.enum(["info", "preview", "open", "save"]) });
-export const chatFileResultSchema = z.strictObject({ filename: z.string(), byteSize: z.number().nonnegative(), text: z.string().optional(), image: z.string().optional(), cancelled: z.boolean().optional() });
+export const chatFileResultSchema = z.strictObject({
+  filename: z.string(),
+  byteSize: z.number().nonnegative(),
+  text: z.string().optional(),
+  image: z.string().optional(),
+  audio: z.instanceof(Uint8Array).optional(),
+  cancelled: z.boolean().optional(),
+});
 export type ChatFileSource = z.infer<typeof chatFileSourceSchema>;
 export type ChatFileResult = z.infer<typeof chatFileResultSchema>;
 export const AGENT_TOOL_CHANNELS = {

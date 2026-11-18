@@ -239,6 +239,10 @@ try {
     configValidator,
   });
   assert.deepEqual(runtime.getAppSettings(), emptyAppSettings);
+  assert.deepEqual(runtime.getAgentToolOverrides(), {});
+  runtime.setAgentToolEnabled({ scope: "chat", id: "system:get_current_time", enabled: false });
+  runtime.setAgentToolEnabled({ scope: "desktop", id: "provider:deepseek_search", enabled: true });
+  runtime.setAgentToolEnabled({ scope: "diary", id: "system:memory", enabled: false });
   const initialCharacterId = runtime.getAppState().activeCharacter.id;
   // Fail the permission INSERT after the thread INSERT to verify real SQLite rollback.
   const atomicThreadId = "atomic-permission-thread";
@@ -589,6 +593,11 @@ try {
     defaultLanguageModelConfigId: modelConfig.id,
   });
   const restoredCharacterId = runtime.getAppState().activeCharacter.id;
+  assert.deepEqual(runtime.getAgentToolOverrides(), {
+    chat: { "system:get_current_time": false }, desktop: { "provider:deepseek_search": true }, diary: { "system:memory": false },
+  });
+  runtime.setAgentToolEnabled({ scope: "chat", id: "system:get_current_time", enabled: true });
+  assert.deepEqual(runtime.getAgentToolOverrides(), { chat: {}, desktop: { "provider:deepseek_search": true }, diary: { "system:memory": false } });
   assert.deepEqual(runtime.fetchMcpConfig(mcpConfig.id), mcpConfig, "MCP 配置和不透明凭据引用需要跨重启保持");
   runtime.saveMcpConfig({ ...mcpConfig, enabled: false });
   assert.equal(runtime.fetchMcpConfig(mcpConfig.id).enabled, false);
@@ -735,6 +744,7 @@ try {
     legacyLiveSqlite.exec("DROP TABLE thread_directory_grants; DROP TABLE thread_tool_access; DROP TABLE mcp_servers");
     legacyLiveSqlite.exec("ALTER TABLE live_settings DROP COLUMN douyin_credential_ref");
     legacyLiveSqlite.exec("ALTER TABLE assets DROP COLUMN source_path");
+    legacyLiveSqlite.exec("ALTER TABLE app_settings DROP COLUMN agent_tool_overrides");
     legacyLiveSqlite.exec("DELETE FROM __drizzle_migrations WHERE created_at >= 1793258398234");
   } finally { legacyLiveSqlite.close(); }
   runtime = openDatabase({

@@ -15,6 +15,7 @@ import { PROVIDER_TYPES } from "../../shared/providers";
 import { ASSET_KINDS } from "../../shared/assets";
 import type { DiaryFailureCode } from "../../shared/memory";
 import type { AgentAccessMode, DirectoryAccess } from "../../shared/agentTools";
+import type { AgentToolOverrides } from "../../shared/agentToolSettings";
 import type { McpServerConfig } from "../../shared/mcp";
 
 export const mcpServers = sqliteTable("mcp_servers", {
@@ -102,6 +103,7 @@ export const appSettings = sqliteTable(
       .references(() => modelConfigs.id, { onDelete: "set null" }),
     defaultAsrModel: text("default_asr_model").default("sensevoice-small-int8"),
     defaultSpeechVoice: text("default_speech_voice"),
+    agentToolOverrides: text("agent_tool_overrides", { mode: "json" }).$type<AgentToolOverrides>(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [check("app_settings_singleton_check", sql`${table.id} = 1`)],

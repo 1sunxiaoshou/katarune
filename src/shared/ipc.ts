@@ -13,6 +13,7 @@ import {
 import { MODEL_TYPES } from "./models";
 import type { LiveApi } from "./live";
 import { agentAccessModeSchema, type AgentToolsApi } from "./agentTools";
+import type { AgentToolSettingsApi } from "./agentToolSettings";
 import type { McpApi } from "./mcp";
 import type { AppUpdatesApi } from "./appUpdates";
 import { PROVIDER_TYPES } from "./providers";
@@ -100,6 +101,7 @@ export const IPC_CHANNELS = {
   deleteThreadMessages: "thread-messages:delete",
   startChatStream: "chat-stream:start",
   listAvailableModels: "models:list-available",
+  listProviderTools: "provider-configs:list-tools",
   generateSpeech: "speech:generate",
   cancelSpeech: "speech:cancel",
   speechStarted: "speech:started",
@@ -411,6 +413,17 @@ export const providerConfigListSchema = z.strictObject({
 export const providerConfigIdRequestSchema = z.strictObject({
   id: z.uuid(),
 });
+export const providerToolDescriptorSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  apiPath: z.string(),
+  settingKey: z.string(),
+  description: z.string(),
+  billing: z.string(),
+  kind: z.enum(["web", "document", "transcription", "speech"]),
+});
+export const providerToolListSchema = z.strictObject({ tools: z.array(providerToolDescriptorSchema) });
+export type ProviderToolDescriptor = Readonly<z.infer<typeof providerToolDescriptorSchema>>;
 
 export const createProviderConfigRequestSchema = z.strictObject({
   displayName: boundedStringSchema,
@@ -652,7 +665,7 @@ export type SpeechGenerateRequest = Readonly<z.infer<typeof speechGenerateReques
 export type SpeechCancelRequest = Readonly<z.infer<typeof speechCancelRequestSchema>>;
 export type SpeechGenerateResponse = Readonly<z.infer<typeof speechGenerateResponseSchema>>;
 
-export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, McpApi, AppUpdatesApi {
+export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, AgentToolSettingsApi, McpApi, AppUpdatesApi {
   listMemory(request: import("./memory").ListMemoryRequest): Promise<import("./memory").MemoryList>;
   readMemory(request: { characterId: string; id: string }): Promise<import("./memory").MemoryEntry>;
   saveMemory(request: import("./memory").MemorySaveInput & { characterId: string }): Promise<import("./memory").MemoryWriteResult>;
@@ -712,6 +725,7 @@ export interface KataruneApi extends DiagnosticsApi, LiveApi, AgentToolsApi, Mcp
   pullChatStream(requestId: string): void;
   cancelChatStream(requestId: string): void;
   listAvailableModels(): Promise<AvailableModelList>;
+  listProviderTools(request: ProviderConfigIdRequest): Promise<z.infer<typeof providerToolListSchema>>;
   generateSpeech(request: SpeechGenerateRequest): Promise<SpeechGenerateResponse>;
   cancelSpeech(request: SpeechCancelRequest): void;
   listProviderConfigs(): Promise<ProviderConfigList>;

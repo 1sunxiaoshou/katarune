@@ -6,6 +6,7 @@ import {
   type SpeechResult,
 } from "ai";
 import { hasTimestampedSpeech, type TimestampedSpeechModel } from "./timestampedSpeech";
+import { providerToolEnabled } from "../../shared/providers";
 import { hasStreamingSpeech, type StreamingSpeechModel } from "./streamingSpeech";
 import {
   aiRuntimeStatusSchema,
@@ -14,9 +15,11 @@ import {
   speechModelSettingsSchema,
   type AiRuntimeStatus,
   type ModelConnectionTestResult,
+  type ProviderToolDescriptor,
 } from "../../shared/ipc";
 import type { DatabaseRuntime } from "../database/database";
 import type { CredentialStore } from "../security/credentialStore";
+import { providerToolSupportsScope, type ProviderChatTools, type ProviderToolContext, type ProviderToolDefinition, type ProviderToolScope } from "./providerTools";
 import {
   createProviderDefinitionRegistry,
   getProviderDefinition,
@@ -63,6 +66,8 @@ export interface AiRuntime {
   listAvailableModelConfigIds(): readonly string[];
   resolveLanguageModel(modelConfigId: string): ResolvedLanguageModel;
   resolveSpeechModel(modelConfigId: string): ResolvedSpeechModel;
+  listProviderTools(providerConfigId: string, scope?: ProviderToolScope): readonly ProviderToolDescriptor[];
+  createProviderChatTools(context: ProviderToolContext, scope?: ProviderToolScope): ProviderChatTools;
   testConnection(modelConfigId: string): Promise<ModelConnectionTestResult>;
 }
 
@@ -90,6 +95,7 @@ export async function createAiRuntime({
 }: CreateAiRuntimeOptions): Promise<AiRuntime> {
   let registry: ProviderRegistry = createProviderRegistry({});
   let registeredProviderIds = new Set<string>();
+  let registeredTools = new Map<string, { tool: ProviderToolDefinition; apiKey: string }>();
   let status = aiRuntimeStatusSchema.parse({
     ready: true,
     configuredProviderCount: 0,
@@ -98,6 +104,7 @@ export async function createAiRuntime({
 
   const reload = async (): Promise<void> => {
     const providers: Record<string, RegistryProvider> = {};
+    const nextTools: typeof registeredTools = new Map();
 
     for (const config of database.listProviderConfigs().providerConfigs) {
       if (!config.enabled) continue;
@@ -125,6 +132,13 @@ export async function createAiRuntime({
             ? undefined
             : await credentialStore.resolve(config.credentialRef);
         providers[config.id] = definition.createProvider(config, apiKey);
+        if (apiKey && definition.toolCatalog?.supports(config)) {
+          for (const tool of definition.toolCatalog.tools) {
+            if (providerToolEnabled(config.settings, tool.settingKey) && !nextTools.has(tool.id)) {
+              nextTools.set(tool.id, { tool, apiKey });
+            }
+          }
+        }
       } catch {
         // An invalid or unavailable config remains persisted but is not exposed as callable.
       }
@@ -132,6 +146,7 @@ export async function createAiRuntime({
 
     registry = createProviderRegistry(providers);
     registeredProviderIds = new Set(Object.keys(providers));
+    registeredTools = nextTools;
     const modelCallsEnabled = database.listModelConfigs().modelConfigs.some((modelConfig) => {
       if (!modelConfig.enabled || modelConfig.modelType !== "languageModel") return false;
       const providerConfig = database.fetchProviderConfig(modelConfig.providerConfigId);
@@ -276,6 +291,27 @@ export async function createAiRuntime({
         .map((modelConfig) => modelConfig.id),
     resolveLanguageModel,
     resolveSpeechModel,
+    listProviderTools: (providerConfigId, scope = "chat") => {
+      const config = database.fetchProviderConfig(providerConfigId);
+      const catalog = getProviderDefinition(config.providerType, providerDefinitions).toolCatalog;
+      return catalog?.supports(config) ? catalog.tools
+        .filter(tool => providerToolSupportsScope(tool, scope))
+        .map(({ id, name, apiPath, settingKey, description, billing, kind }) =>
+          ({ id, name, apiPath, settingKey, description, billing, kind })) : [];
+    },
+    createProviderChatTools: (context, scope = "chat") => {
+      const tools: ProviderChatTools["tools"] = {};
+      const available: ProviderToolDefinition[] = [];
+      for (const { tool, apiKey } of registeredTools.values()) {
+        if (!providerToolSupportsScope(tool, scope)) continue;
+        const implementation = tool.createTool(apiKey, context);
+        if (implementation) {
+          tools[tool.id] = implementation;
+          available.push(tool);
+        }
+      }
+      return { tools, attachmentTool: filename => available.find(tool => tool.acceptsAttachment?.(filename))?.id };
+    },
     testConnection: async (modelConfigId) => {
       const startedAt = Date.now();
       try {

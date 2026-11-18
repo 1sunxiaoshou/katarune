@@ -61,6 +61,23 @@ const bashResult = z.object({ stdout: z.string(), stderr: z.string(), exitCode: 
 const run = async (tools: ToolSet, command: string) => bashResult.parse(await execute(tools, "bash", { command }));
 
 describe("character Bash workspaces", () => {
+  it("authorizes cloud tools only for new attachments and writes speech into the character workspace", async () => {
+    const f = await fixture();
+    const attached: UIMessage = { id: "attachment", role: "user", parts: [
+      { type: "file", url: assetUrl(assetId), filename: "资料.txt", mediaType: "text/plain" },
+    ] };
+    const run = await f.prepare(characterId, "thread", [attached]);
+    expect(run.readCurrentAttachment?.(assetId).data).toEqual(f.original);
+    expect(() => run.readCurrentAttachment?.(randomUUID())).toThrow("仅允许读取本轮");
+    const history = await f.prepare(characterId, "thread", [attached, {
+      id: "next", role: "user", parts: [{ type: "text", text: "Next" }],
+    }]);
+    expect(() => history.readCurrentAttachment?.(assetId)).toThrow("仅允许读取本轮");
+    if (!run.writeSpeechFile) throw new Error("Missing workspace writer");
+    const path = await run.writeSpeechFile(new Uint8Array([1, 2]), undefined);
+    expect(path).toMatch(/^outputs\/speech-[0-9a-f-]+\.wav$/);
+    expect(Array.from((await f.service.readChatFile(characterId, "thread", { path })).data)).toEqual([1, 2]);
+  });
   it("delivers workspace files and owned attachments while rejecting escapes and revoked grants", async () => {
     const f = await fixture();
     const workspace = await f.service.workspace(characterId);
@@ -190,7 +207,7 @@ describe("character Bash workspaces", () => {
 });
 
 const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } };
-it.each([true, false])("requires a signed approval before web access in request-approval mode (approved=%s)", async approved => {
+it("reads a web page in one run in request-approval mode", async () => {
   const f = await fixture(); const prepared = await f.prepare();
   const fetch = vi.fn(async () => ({ type: "document" as const, url: "https://example.com", finalUrl: "https://example.com", contentType: "text/plain", content: "fixture", offset: 0, totalLength: 7 }));
   const originalFetch = prepared.tools.fetch_url;
@@ -201,12 +218,9 @@ it.each([true, false])("requires a signed approval before web access in request-
     ? [{ type: "tool-call", toolCallId: "network", toolName: "fetch_url", input: JSON.stringify({ url: "https://example.com" }) }]
     : [{ type: "text", text: "done" }], finishReason: { unified: step === 1 ? "tool-calls" : "stop", raw: undefined }, usage, warnings: [] }) });
   const agent = new ToolLoopAgent({ model, tools, toolApproval: prepared.toolApproval, experimental_toolApprovalSecret: prepared.approvalSecret });
-  const first = await agent.generate({ prompt: "读取这个网页" });
-  expect(fetch).not.toHaveBeenCalled();
-  const approval = first.content.find(part => part.type === "tool-approval-request"); if (!approval) throw new Error("missing network approval");
-  await agent.generate({ messages: [{ role: "user", content: "读取这个网页" }, ...first.responseMessages,
-    { role: "tool", content: [{ type: "tool-approval-response", approvalId: approval.approvalId, approved }] }] });
-  expect(fetch).toHaveBeenCalledTimes(approved ? 1 : 0);
+  const result = await agent.generate({ prompt: "读取这个网页" });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(result.text).toBe("done");
 });
 
 it.each([true, false])("uses signed SDK approvals before granting a local directory (approved=%s)", async approved => {
@@ -229,8 +243,8 @@ it.each([true, false])("uses signed SDK approvals before granting a local direct
 it.skipIf(!findNativeBash())("runs on the local machine with filesystem and network access only in full-access mode", async () => {
   const f = await fixture(); f.service.setMode(characterId, "thread", "full-access"); const tools = (await f.prepare()).tools;
   expect(f.service.state(characterId, "another-thread").mode).toBe("request-approval");
-  expect((await f.prepare(characterId, "another-thread")).toolApproval.fetch_url).toBe("user-approval");
-  expect((await f.prepare()).toolApproval.fetch_url).toBe("approved");
+  expect((await f.prepare(characterId, "another-thread")).toolApproval.request_directory_access).toBe("user-approval");
+  expect((await f.prepare()).toolApproval.request_directory_access).toBe("approved");
   vi.spyOn(f.database, "fetchAssetSourcePath").mockReturnValue(join(f.outside, "source.txt"));
   const attached = await f.prepare(characterId, "thread", [{ id: "native-file", role: "user", parts: [{ type: "file", mediaType: "text/plain", url: assetUrl(assetId) }] }]);
   const attachedPath = attached.attachmentPaths.get(assetId);
