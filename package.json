@@ -43,6 +43,7 @@
     "test:watch": "vitest",
     "validate:ai": "vitest run tests/chat-service.test.ts tests/chat-stream.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.test.json",
+    "prebuild": "npm run models:snapshot",
     "build": "npm run typecheck && electron-vite build",
     "build:avatar": "node scripts/build-windows-avatar.mjs",
     "package:win:dir": "node scripts/verify-windows-resources.mjs && npm run build:avatar && npm run build && electron-builder --win --x64 --dir --publish never && node scripts/verify-windows-resources.mjs dist/win-unpacked/resources",
