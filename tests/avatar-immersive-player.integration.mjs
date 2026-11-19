@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { mkdir, stat, writeFile, readFile } from "node:fs/promises";
 import { resolve, join, dirname } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { runtimePackage } from "./runtimePackage.mjs";
+import { loadDefaultRuntimePackage } from "./runtimePackage.mjs";
 
 // Real visible Player, default local model; no provider calls or personal data.
 const executable = resolve(process.env.KATARUNE_AVATAR_PLAYER ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
@@ -15,10 +15,9 @@ const backgroundOverride = process.env.KATARUNE_TEST_BACKGROUND;
 assert.ok(!backgroundOverride || ["film", "cloud-observatory", "island-coast"].includes(backgroundOverride));
 await mkdir(output, { recursive: true });
 const packageRoot = resolve("resources/characters/default-package");
-const manifest = JSON.parse(await readFile(join(packageRoot, "manifest.json"), "utf8"));
 const packageFile = join(output, "package.json");
-const ids = Object.fromEntries(manifest.actions.map(action => [action.key, randomUUID()]));
-await writeFile(packageFile, JSON.stringify(runtimePackage(manifest, ids, packageRoot)));
+const { runtime: pack } = await loadDefaultRuntimePackage(packageRoot);
+await writeFile(packageFile, JSON.stringify(pack));
 const native = async (processId = 0) => JSON.parse((await promisify(execFile)("pwsh", [
   "-NoProfile", "-File", resolve("tests/native-avatar-window.ps1"), "-AvatarProcessId", String(processId),
 ], { windowsHide: true, timeout: 10_000 })).stdout);

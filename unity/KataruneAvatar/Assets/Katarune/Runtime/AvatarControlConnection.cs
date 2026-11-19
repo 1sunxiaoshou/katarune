@@ -163,18 +163,57 @@ namespace Katarune.Avatar
             foreach (var performance in _performances.Values.ToArray()) performance.Tick();
             if (!_connected)
             {
-                if (_lastCapabilities != null)
-                {
-                    CancelDance("连接已断开。");
-                    ClearPerformances();
-                    StopAllCoroutines(); _runtime.CancelAction(); _speech?.Stop();
-                    _mutedRuns.Clear(); _playingRunId = null;
-                    ClearSubtitle();
-                    _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear(); _lastCapabilities = null;
-                    _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear(); _runningActions.Clear();
-                }
+                if (_lastCapabilities != null) ClearDisconnectedPlayback();
                 return;
             }
+
+            PublishPresentation();
+            while (_incoming.TryTake(out var line))
+            {
+                Request request = null;
+                try
+                {
+                    request = JsonUtility.FromJson<Request>(line);
+                    DispatchRequest(request);
+                }
+                catch (Exception error)
+                {
+                    if (request == null) continue;
+                    if (!string.IsNullOrEmpty(request.toolCallId) && _toolNodes.TryGetValue(request.toolCallId, out var rejected))
+                    {
+                        rejected.Kind = "skip";
+                        _toolNodes.Remove(request.toolCallId);
+                        EnsureTimeline();
+                    }
+                    Reply(request, error.Message);
+                }
+            }
+        }
+
+        private void ClearDisconnectedPlayback()
+        {
+            CancelDance("连接已断开。");
+            ClearPerformances();
+            StopAllCoroutines();
+            _runtime.CancelAction();
+            _speech?.Stop();
+            _mutedRuns.Clear();
+            _playingRunId = null;
+            ClearSubtitle();
+            _timeline.Clear();
+            _toolNodes.Clear();
+            _commands.Clear();
+            _textBlocks.Clear();
+            _dialogues.Clear();
+            _lastCapabilities = null;
+            _timelineRunning = false;
+            _blockingActions.Clear();
+            _pendingActions.Clear();
+            _runningActions.Clear();
+        }
+
+        private void PublishPresentation()
+        {
             if (!_startupErrorSent && _lastCapabilities == null
                 && (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Error
                     || _runtime.Snapshot.RuntimeState == AvatarRuntimeState.Empty))
@@ -192,203 +231,303 @@ namespace Katarune.Avatar
             var backgroundId = _rig?.BackgroundId ?? AvatarImmersiveBackdrop.DefaultBackgroundId;
             if (snapshot.Revision != _presentationRevision || reference != _presentationReference || backgroundId != _presentationBackgroundId)
             {
-            _presentationRevision = snapshot.Revision; _presentationReference = reference;
-            _presentationBackgroundId = backgroundId;
-            var presentation = JsonUtility.ToJson(new Presentation {
-                modelName = snapshot.Model?.Name ?? "", modelPath = snapshot.Model?.Path ?? "",
-                loading = snapshot.RuntimeState == AvatarRuntimeState.Loading,
-                affect = snapshot.Behavior.Affect.ToString().ToLowerInvariant(), action = snapshot.Motion.CurrentActionId ?? "",
-                playingActions = PlayingActions(snapshot.Motion.CurrentActionId),
-                gaze = snapshot.Behavior.GazeTrackingMode.ToString().ToLowerInvariant(), outline = snapshot.Presentation.SoftOutlineEnabled,
-                backgroundId = backgroundId,
-                error = snapshot.LastError ?? "", referenceWidth = reference.x, referenceHeight = reference.y,
-            });
-            if (presentation != _lastPresentation) { Send(presentation); _lastPresentation = presentation; }
-            }
-            while (_incoming.TryTake(out var line))
-            {
-                Request request = null;
-                try
+                _presentationRevision = snapshot.Revision;
+                _presentationReference = reference;
+                _presentationBackgroundId = backgroundId;
+                var presentation = JsonUtility.ToJson(new Presentation {
+                    modelName = snapshot.Model?.Name ?? "",
+                    modelPath = snapshot.Model?.Path ?? "",
+                    loading = snapshot.RuntimeState == AvatarRuntimeState.Loading,
+                    affect = snapshot.Behavior.Affect.ToString().ToLowerInvariant(),
+                    action = snapshot.Motion.CurrentActionId ?? "",
+                    playingActions = PlayingActions(snapshot.Motion.CurrentActionId),
+                    gaze = snapshot.Behavior.GazeTrackingMode.ToString().ToLowerInvariant(),
+                    outline = snapshot.Presentation.SoftOutlineEnabled,
+                    backgroundId = backgroundId,
+                    error = snapshot.LastError ?? "",
+                    referenceWidth = reference.x,
+                    referenceHeight = reference.y,
+                });
+                if (presentation != _lastPresentation)
                 {
-                    request = JsonUtility.FromJson<Request>(line);
-                    if (request?.operation == "live-start") { _liveOutput.Begin(request.value); Reply(request); continue; }
-                    if (request?.operation == "live-update") { _liveOutput.UpdateSettings(request.value); Reply(request); continue; }
-                    if (request?.operation == "live-danmaku")
-                    {
-                        _liveOutput.UpdateDanmaku(request.value);
-                        if (!string.IsNullOrEmpty(request.id)) Reply(request);
-                        continue;
-                    }
-                    if (request?.operation == "live-stop") { _liveOutput.End(); Reply(request); continue; }
-                    if (request?.type == "binding") { _epoch = request.epoch; ClearSubtitle(); continue; }
-                    if (request?.type == "window-layout") { _window?.ApplyLayout(request.value); continue; }
-                    if (request?.type == "window-input-zones") { _window?.ApplyInputZones(request.value); continue; }
-                    if (request?.type == "run-start") {
-                        if (_danceRequest != null && _danceRequest.runId != request.runId) _chatOnlyRuns.Add(request.runId);
-                        continue;
-                    }
-                    if (request?.type == "user-subtitle")
-                    {
-                        if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
-                            ShowUserSubtitle(request.text);
-                        continue;
-                    }
-                    if (request?.type == "event") { ConsumeEvent(request.@event, request.runId, request.speechEnabled); continue; }
-                    if (request?.type == "dialogue-text")
-                    {
-                        if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var text)) text.SpokenText = request.text ?? "";
-                        continue;
-                    }
-                    if (request?.type == "dialogue-audio")
-                    {
-                        if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var dialogue)) dialogue.Audio = request;
-                        continue;
-                    }
-                    if (request?.operation == "cancel-validation") {
-                        if (_validations.TryGetValue(request.value, out var validation)) validation.Cancel();
-                        continue;
-                    }
-                    if (request?.operation == "session-reset")
-                    {
-                        CancelDance("会话已切换。");
-                        _packageCancellation?.Cancel();
-                        ClearPerformances();
-                        StopAllCoroutines();
-                        if (int.TryParse(request.value, out var epoch)) _epoch = epoch;
-                        _speech?.Stop();
-                        _runtime.CancelAction();
-                        _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(AvatarAffectPreset.Neutral, 0f));
-                        _timeline.Clear(); _toolNodes.Clear(); _commands.Clear(); _textBlocks.Clear(); _dialogues.Clear();
-                        _mutedRuns.Clear(); _chatOnlyRuns.Clear(); _endedDances.Clear(); _activeRunId = null; _playingRunId = null; _manualSpeech = false;
-                        _timelineRunning = false; _blockingActions.Clear(); _pendingActions.Clear(); _runningActions.Clear();
-                        _userSubtitleActive = false;
-                        ClearSubtitle();
-                        Reply(request); continue;
-                    }
-                    if (request?.operation == "run-cancel")
-                    {
-                        CancelRun(request.value);
-                        Reply(request); continue;
-                    }
-                    if (request?.operation == "voice-pause" || request?.operation == "voice-resume")
-                    {
-                        if (request.value == _playingRunId)
-                        {
-                            if (request.operation == "voice-pause") { _speech?.Pause(); Send(JsonUtility.ToJson(new PlaybackEvent { runId = request.value, active = true, state = "paused" })); }
-                            else { _speech?.Resume(); Send(JsonUtility.ToJson(new PlaybackEvent { runId = request.value, active = true, state = "playing" })); }
-                        }
-                        continue;
-                    }
-                    if (request?.operation == "voice-interrupt")
-                    {
-                        CancelRun(request.value);
-                        foreach (var dialogue in _dialogues.Values)
-                            if (dialogue.RunId == request.value) dialogue.SpeechEnabled = false;
-                        if (_playingRunId == request.value) _speech?.Stop();
-                        ClearSubtitle();
-                        continue;
-                    }
-                    if (request == null || !Guid.TryParse(request.id, out _) || (request.operation != "drain" && string.IsNullOrWhiteSpace(request.value)))
-                        throw new ArgumentException("Invalid avatar request.");
-                    if (request.operation == "load-model" || request.operation == "load-package") { LoadModel(request); continue; }
-                    if (request.operation == "validate-package") { ValidatePackage(request); continue; }
-                    if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready) throw new InvalidOperationException("角色尚未就绪。");
-                    switch (request.operation)
-                    {
-                        case "dance": StartDance(request); break;
-                        case "desktop-affect":
-                            if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var affect) || !_runtime.Snapshot.Capabilities.SupportsAffect(affect)) throw new ArgumentException("表情不可用。");
-                            _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, 1f)); Reply(request); break;
-                        case "desktop-action-stop":
-                            if (!_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
-                            if (_danceRequest?.value == request.value) CancelDance("舞蹈已停止。");
-                            else if (_runtime is IAvatarActionControl stopControl) {
-                                var action = _runtime.AvailableActions.First(a => a.Id == request.value);
-                                if (action.Kind == "loop") stopControl.FinishAction(request.value);
-                                else stopControl.CancelAction(request.value);
-                            }
-                            Reply(request); break;
-                        case "desktop-action":
-                            if (request.value != "none" && !_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
-                            CancelDance(request.value == "none" ? "舞蹈已停止。" : "已切换动作，舞蹈已中止。");
-                            if (request.value != "none" && _runtime.AvailableActions.Any(a => a.Id == request.value && a.IsDance)) { StartDance(request); break; }
-                            if (request.value == "none") {
-                                if (_runtime is IAvatarActionControl control) {
-                                    // Release temporary gestures first, then naturally exit the
-                                    // restored loops. Other action selections keep independent lanes.
-                                    foreach (var action in _runtime.AvailableActions.Where(a => a.Kind != "loop"))
-                                        if (control.GetActionInstanceId(action.Id) != null) control.CancelAction(action.Id);
-                                    foreach (var action in _runtime.AvailableActions.Where(a => a.Kind == "loop"))
-                                        if (control.GetActionInstanceId(action.Id) != null) control.FinishAction(action.Id);
-                                } else _runtime.CancelAction();
-                            } else {
-                                RequireNoDance();
-                                var result = _runtime.RequestAction(request.value);
-                                if (result.Outcome != AvatarActionRequestOutcome.Started) throw new InvalidOperationException(result.Error ?? "动作不可用。");
-                            }
-                            Reply(request); break;
-                        case "background":
-                            if (_rig == null) throw new InvalidOperationException("角色画面尚未就绪。");
-                            _rig.SetBackground(request.value); Reply(request); break;
-                        case "gaze":
-                            var gazeMode = request.value switch {
-                                "none" => AvatarGazeTrackingMode.None,
-                                "mouse" => AvatarGazeTrackingMode.Mouse,
-                                "camera" => AvatarGazeTrackingMode.Camera,
-                                _ => throw new InvalidOperationException("视线追踪模式无效。"),
-                            };
-                            _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithGazeTracking(gazeMode)); Reply(request); break;
-                        case "outline": _runtime.ApplyPresentation(_runtime.Snapshot.Presentation.WithSoftOutline(request.value == "true")); Reply(request); break;
-                        case "speech":
-                            RequireNoDance();
-                            if (_speech == null) throw new InvalidOperationException("Speech player is unavailable.");
-                            StartCoroutine(SpeakManual(request));
-                            break;
-                        case "speech-stop":
-                            _speech?.Stop(request.value);
-                            break;
-                        case "drain":
-                            CompleteText();
-                            RejectUnmatchedCommands();
-                            _timeline.Enqueue(new TimelineItem { Kind = "drain", Command = request });
-                            EnsureTimeline();
-                            break;
-                        case "dance-cancel":
-                            if (_danceRequest?.id != request.value && !_endedDances.Contains(request.value)) throw new ArgumentException("该舞蹈不属于当前会话或已经释放。");
-                            if (_danceRequest?.id == request.value) CancelDance("舞蹈已停止。");
-                            if (string.IsNullOrEmpty(request.toolCallId)) Reply(request);
-                            else AcceptCommand(request);
-                            break;
-                        case "performance":
-                            RequireNoDance();
-                            AcceptCommand(request); break;
-                        case "performance-finish":
-                        case "performance-cancel":
-                            AcceptCommand(request); break;
-                        case "action":
-                        case "action-finish":
-                        case "action-cancel":
-                            RequireNoDance();
-                            if (!_runtime.AvailableActions.Any(a => a.Id == request.value)) throw new ArgumentException("动作不可用。");
-                            if (_runtime.AvailableActions.Any(a => a.Id == request.value && a.IsDance)) throw new ArgumentException("舞蹈需要独立播放。");
-                            if (request.operation == "action" && !request.allowSpeech && _runtime.AvailableActions.Any(a => a.Id == request.value && a.Kind == "loop")) throw new ArgumentException("持续姿态需要允许同时说话。");
-                            AcceptCommand(request); break;
-                        case "expression":
-                            RequireNoDance();
-                            if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var preset)
-                                || !_runtime.Snapshot.Capabilities.SupportsAffect(preset)) throw new ArgumentException("当前模型不支持此表情。");
-                            AcceptCommand(request); break;
-                        default: throw new ArgumentException("未知角色操作。");
-                    }
-                }
-                catch (Exception error) {
-                    if (request == null) continue;
-                    if (!string.IsNullOrEmpty(request.toolCallId) && _toolNodes.TryGetValue(request.toolCallId, out var rejected)) {
-                        rejected.Kind = "skip"; _toolNodes.Remove(request.toolCallId); EnsureTimeline();
-                    }
-                    Reply(request, error.Message);
+                    Send(presentation);
+                    _lastPresentation = presentation;
                 }
             }
+        }
+
+        private void DispatchRequest(Request request)
+        {
+            // Output commands also work before the avatar is ready.
+            switch (request?.operation)
+            {
+                case "live-start":
+                    _liveOutput.Begin(request.value);
+                    Reply(request);
+                    return;
+                case "live-update":
+                    _liveOutput.UpdateSettings(request.value);
+                    Reply(request);
+                    return;
+                case "live-danmaku":
+                    _liveOutput.UpdateDanmaku(request.value);
+                    if (!string.IsNullOrEmpty(request.id)) Reply(request);
+                    return;
+                case "live-stop":
+                    _liveOutput.End();
+                    Reply(request);
+                    return;
+            }
+
+            switch (request?.type)
+            {
+                case "binding":
+                    _epoch = request.epoch;
+                    ClearSubtitle();
+                    return;
+                case "window-layout":
+                    _window?.ApplyLayout(request.value);
+                    return;
+                case "window-input-zones":
+                    _window?.ApplyInputZones(request.value);
+                    return;
+                case "run-start":
+                    if (_danceRequest != null && _danceRequest.runId != request.runId)
+                        _chatOnlyRuns.Add(request.runId);
+                    return;
+                case "user-subtitle":
+                    if (_runtime.Snapshot.RuntimeState == AvatarRuntimeState.Ready)
+                        ShowUserSubtitle(request.text);
+                    return;
+                case "event":
+                    ConsumeEvent(request.@event, request.runId, request.speechEnabled);
+                    return;
+                case "dialogue-text":
+                    if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var text))
+                        text.SpokenText = request.text ?? "";
+                    return;
+                case "dialogue-audio":
+                    if (_dialogues.TryGetValue(request.runId + ":" + request.dialogueId, out var dialogue))
+                        dialogue.Audio = request;
+                    return;
+            }
+
+            switch (request?.operation)
+            {
+                case "cancel-validation":
+                    if (_validations.TryGetValue(request.value, out var validation)) validation.Cancel();
+                    return;
+                case "session-reset":
+                    ResetSession(request.value);
+                    Reply(request);
+                    return;
+                case "run-cancel":
+                    CancelRun(request.value);
+                    Reply(request);
+                    return;
+                case "voice-pause":
+                case "voice-resume":
+                    if (request.value == _playingRunId)
+                    {
+                        var paused = request.operation == "voice-pause";
+                        if (paused) _speech?.Pause();
+                        else _speech?.Resume();
+                        Send(JsonUtility.ToJson(new PlaybackEvent {
+                            runId = request.value, active = true, state = paused ? "paused" : "playing"
+                        }));
+                    }
+                    return;
+                case "voice-interrupt":
+                    CancelRun(request.value);
+                    foreach (var dialogue in _dialogues.Values)
+                        if (dialogue.RunId == request.value) dialogue.SpeechEnabled = false;
+                    if (_playingRunId == request.value) _speech?.Stop();
+                    ClearSubtitle();
+                    return;
+            }
+
+            if (request == null || !Guid.TryParse(request.id, out _)
+                || (request.operation != "drain" && string.IsNullOrWhiteSpace(request.value)))
+                throw new ArgumentException("Invalid avatar request.");
+
+            switch (request.operation)
+            {
+                case "load-model":
+                case "load-package":
+                    LoadModel(request);
+                    return;
+                case "validate-package":
+                    ValidatePackage(request);
+                    return;
+            }
+            if (_runtime.Snapshot.RuntimeState != AvatarRuntimeState.Ready)
+                throw new InvalidOperationException("角色尚未就绪。");
+
+            DispatchReadyCommand(request);
+        }
+
+        private void ResetSession(string value)
+        {
+            CancelDance("会话已切换。");
+            _packageCancellation?.Cancel();
+            ClearPerformances();
+            StopAllCoroutines();
+            if (int.TryParse(value, out var epoch)) _epoch = epoch;
+            _speech?.Stop();
+            _runtime.CancelAction();
+            _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(AvatarAffectPreset.Neutral, 0f));
+            _timeline.Clear();
+            _toolNodes.Clear();
+            _commands.Clear();
+            _textBlocks.Clear();
+            _dialogues.Clear();
+            _mutedRuns.Clear();
+            _chatOnlyRuns.Clear();
+            _endedDances.Clear();
+            _activeRunId = null;
+            _playingRunId = null;
+            _manualSpeech = false;
+            _timelineRunning = false;
+            _blockingActions.Clear();
+            _pendingActions.Clear();
+            _runningActions.Clear();
+            _userSubtitleActive = false;
+            ClearSubtitle();
+        }
+
+        private void DispatchReadyCommand(Request request)
+        {
+            switch (request.operation)
+            {
+                case "dance":
+                    StartDance(request);
+                    break;
+                case "desktop-affect":
+                    if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var affect)
+                        || !_runtime.Snapshot.Capabilities.SupportsAffect(affect))
+                        throw new ArgumentException("表情不可用。");
+                    _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithAffect(affect, 1f));
+                    Reply(request);
+                    break;
+                case "desktop-action-stop":
+                    var stoppedAction = _runtime.AvailableActions.FirstOrDefault(action => action.Id == request.value);
+                    if (stoppedAction.Id == null) throw new ArgumentException("动作不可用。");
+                    if (_danceRequest?.value == request.value) CancelDance("舞蹈已停止。");
+                    else if (_runtime is IAvatarActionControl stopControl)
+                    {
+                        if (stoppedAction.Kind == "loop") stopControl.FinishAction(request.value);
+                        else stopControl.CancelAction(request.value);
+                    }
+                    Reply(request);
+                    break;
+                case "desktop-action":
+                    var stopAll = request.value == "none";
+                    var selectedAction = stopAll
+                        ? default
+                        : _runtime.AvailableActions.FirstOrDefault(action => action.Id == request.value);
+                    if (!stopAll && selectedAction.Id == null) throw new ArgumentException("动作不可用。");
+                    CancelDance(stopAll ? "舞蹈已停止。" : "已切换动作，舞蹈已中止。");
+                    if (selectedAction.IsDance)
+                    {
+                        StartDance(request);
+                        break;
+                    }
+                    if (stopAll)
+                    {
+                        if (_runtime is IAvatarActionControl control)
+                        {
+                            // Release temporary gestures first, then naturally exit the
+                            // restored loops. Other action selections keep independent lanes.
+                            foreach (var action in _runtime.AvailableActions.Where(a => a.Kind != "loop"))
+                                if (control.GetActionInstanceId(action.Id) != null) control.CancelAction(action.Id);
+                            foreach (var action in _runtime.AvailableActions.Where(a => a.Kind == "loop"))
+                                if (control.GetActionInstanceId(action.Id) != null) control.FinishAction(action.Id);
+                        }
+                        else _runtime.CancelAction();
+                    }
+                    else
+                    {
+                        RequireNoDance();
+                        var result = _runtime.RequestAction(request.value);
+                        if (result.Outcome != AvatarActionRequestOutcome.Started) throw new InvalidOperationException(result.Error ?? "动作不可用。");
+                    }
+                    Reply(request);
+                    break;
+                case "background":
+                    if (_rig == null) throw new InvalidOperationException("角色画面尚未就绪。");
+                    _rig.SetBackground(request.value);
+                    Reply(request);
+                    break;
+                case "gaze":
+                    var gazeMode = request.value switch {
+                        "none" => AvatarGazeTrackingMode.None,
+                        "mouse" => AvatarGazeTrackingMode.Mouse,
+                        "camera" => AvatarGazeTrackingMode.Camera,
+                        _ => throw new InvalidOperationException("视线追踪模式无效。"),
+                    };
+                    _runtime.ApplyBehavior(_runtime.Snapshot.Behavior.WithGazeTracking(gazeMode));
+                    Reply(request);
+                    break;
+                case "outline":
+                    _runtime.ApplyPresentation(_runtime.Snapshot.Presentation.WithSoftOutline(request.value == "true"));
+                    Reply(request);
+                    break;
+                case "speech":
+                    RequireNoDance();
+                    if (_speech == null) throw new InvalidOperationException("Speech player is unavailable.");
+                    StartCoroutine(SpeakManual(request));
+                    break;
+                case "speech-stop":
+                    _speech?.Stop(request.value);
+                    break;
+                case "drain":
+                    CompleteText();
+                    RejectUnmatchedCommands();
+                    _timeline.Enqueue(new TimelineItem { Kind = "drain", Command = request });
+                    EnsureTimeline();
+                    break;
+                case "dance-cancel":
+                    if (_danceRequest?.id != request.value && !_endedDances.Contains(request.value)) throw new ArgumentException("该舞蹈不属于当前会话或已经释放。");
+                    if (_danceRequest?.id == request.value) CancelDance("舞蹈已停止。");
+                    if (string.IsNullOrEmpty(request.toolCallId)) Reply(request);
+                    else AcceptCommand(request);
+                    break;
+                case "performance":
+                    RequireNoDance();
+                    AcceptCommand(request);
+                    break;
+                case "performance-finish":
+                case "performance-cancel":
+                    AcceptCommand(request);
+                    break;
+                case "action":
+                case "action-finish":
+                case "action-cancel":
+                    RequireNoDance();
+                    RequireActionCommand(request);
+                    AcceptCommand(request);
+                    break;
+                case "expression":
+                    RequireNoDance();
+                    if (!Enum.TryParse<AvatarAffectPreset>(request.value, true, out var preset)
+                        || !_runtime.Snapshot.Capabilities.SupportsAffect(preset))
+                        throw new ArgumentException("当前模型不支持此表情。");
+                    AcceptCommand(request);
+                    break;
+                default:
+                    throw new ArgumentException("未知角色操作。");
+            }
+        }
+
+        private void RequireActionCommand(Request request)
+        {
+            var action = _runtime.AvailableActions.FirstOrDefault(candidate => candidate.Id == request.value);
+            if (action.Id == null)
+                throw new ArgumentException("动作不可用。");
+            if (action.IsDance)
+                throw new ArgumentException("舞蹈需要独立播放。");
+            if (request.operation == "action" && !request.allowSpeech && action.Kind == "loop")
+                throw new ArgumentException("持续姿态需要允许同时说话。");
         }
 
         private void SendCapabilities(bool force = false)

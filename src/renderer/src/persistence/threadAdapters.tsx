@@ -5,7 +5,6 @@ import {
   type MessageFormatItem,
   type RemoteThreadListAdapter,
   type ThreadHistoryAdapter,
-  type ThreadMessage,
   useAui,
 } from "@assistant-ui/react";
 import type { ExportedMessageRepositoryItem } from "@assistant-ui/react";
@@ -15,6 +14,7 @@ import { useMemo, type PropsWithChildren } from "react";
 import { notify } from "../notifications";
 import { useLiveState } from "../live/liveState";
 import { parseAssetUrl } from "../../../shared/ipc";
+import { toThreadTitleMessages } from "../../../shared/threadTitle";
 import type { AgentAccessDraftStore } from "../chat/AgentAccessDraftContext";
 
 function extractAssetIds(value: unknown): string[] {
@@ -47,26 +47,6 @@ function createTitleStream(title?: string) {
   return createAssistantStream((controller) => {
     if (title !== undefined) controller.appendText(title);
   });
-}
-
-function toThreadTitleMessages(messages: readonly ThreadMessage[]) {
-  return messages
-    .filter(
-      (message): message is ThreadMessage & { role: "user" | "assistant" } =>
-        message.role === "user" || message.role === "assistant",
-    )
-    .map((message) => ({
-      role: message.role,
-      text: message.content
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 2000),
-    }))
-    .filter((message) => message.text.length > 0)
-    .slice(0, 12);
 }
 
 class KataruneThreadHistoryAdapter implements ThreadHistoryAdapter {
@@ -225,7 +205,7 @@ export function createKataruneThreadListAdapter(
       });
     },
     generateTitle: async (remoteId, messages) => {
-      const titleMessages = toThreadTitleMessages(messages);
+      const titleMessages = toThreadTitleMessages(messages, message => message.content);
       if (titleMessages.length === 0) return createTitleStream();
       try {
         const { title } = await window.katarune.generateThreadTitle({

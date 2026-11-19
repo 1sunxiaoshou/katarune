@@ -1,4 +1,5 @@
 import * as z from "zod/mini";
+import { THREAD_TITLE_MAX_EXCERPT, THREAD_TITLE_MAX_MESSAGES } from "./threadTitle";
 import type { DiagnosticsApi } from "./diagnostics";
 import type { Asset } from "./assets";
 import {
@@ -189,13 +190,13 @@ export const initializeThreadResponseSchema = z.strictObject({
 
 export const threadTitleMessageSchema = z.strictObject({
   role: z.enum(["user", "assistant"]),
-  text: z.string().check(z.minLength(1), z.maxLength(2000)),
+  text: z.string().check(z.minLength(1), z.maxLength(THREAD_TITLE_MAX_EXCERPT)),
 });
 
 export const generateThreadTitleRequestSchema = z.strictObject({
   threadId: nonEmptyStringSchema,
   characterId: z.uuid(),
-  messages: z.array(threadTitleMessageSchema).check(z.minLength(1), z.maxLength(12)),
+  messages: z.array(threadTitleMessageSchema).check(z.minLength(1), z.maxLength(THREAD_TITLE_MAX_MESSAGES)),
 });
 
 export const generateThreadTitleResponseSchema = z.strictObject({

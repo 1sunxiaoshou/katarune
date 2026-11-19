@@ -7,7 +7,7 @@ import { mkdir, writeFile, readFile, appendFile } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
-import { runtimePackage } from './runtimePackage.mjs';
+import { loadDefaultRuntimePackage } from './runtimePackage.mjs';
 
 const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
 const backgroundId=process.env.KATARUNE_TEST_BACKGROUND??'film';
@@ -38,9 +38,8 @@ const danmaku = [
   ['长昵称测试观众', '这是一条用于检查昵称和正文是否在同一段里换行的合成弹幕，<b>这里也是普通文字</b>。'],
 ];
 const characterRoot=resolve('resources/characters/default-package'), packageFile=join(output,'avatar-package.json');
-await writeFile(packageFile,JSON.stringify(runtimePackage(
-  JSON.parse(await readFile(join(characterRoot,'manifest.json'),'utf8')),
-  JSON.parse(await readFile(join(characterRoot,'action-ids.json'),'utf8')),characterRoot)));
+const { runtime: characterPackage } = await loadDefaultRuntimePackage(characterRoot);
+await writeFile(packageFile, JSON.stringify(characterPackage));
 const messages=[]; let socket, child, playerFailure; let previews=0;
 const server=createServer(connection=>{
   socket=connection; connection.setEncoding('utf8'); let buffer='';

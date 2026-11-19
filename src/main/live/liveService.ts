@@ -18,6 +18,7 @@ import type { AiRuntime } from "../ai/runtime";
 import { resolveCharacterSpeechVoice } from "../../shared/speechSelection";
 import { LiveOperationError, LivePortInUseError, LiveMediaError } from "./errors";
 import { liveOutputProfile } from "./outputProfile";
+import { toThreadTitleMessages } from "../../shared/threadTitle";
 
 function parseLiveSettings(value: unknown) {
   const settings = liveSettingsSchema.parse(value);
@@ -428,8 +429,9 @@ export class LiveService {
       if (latest && !signal.aborted) {
         this.persist(latest, threadId, characterId, true);
         if (!this.titled) {
+          const messages = toThreadTitleMessages([incoming, latest], message => message.parts);
           this.titled = true;
-          await this.chat.generateTitle({ threadId, characterId, messages: [incoming, latest].map((message): { role: "assistant" | "user"; text: string } => ({ role: message.role === "assistant" ? "assistant" : "user", text: message.parts.filter(part => part.type === "text").map(part => part.text).join("").slice(0, 2000) })).filter(message => message.text.length > 0) }, signal);
+          await this.chat.generateTitle({ threadId, characterId, messages }, signal);
         }
       }
     } catch (error) { if (!signal.aborted) this.failure("live.round-failed", error); }

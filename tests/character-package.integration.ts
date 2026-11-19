@@ -71,13 +71,22 @@ void app
       const oldPortrait = db.listCharacters().characters[0]!.portraitAssetId;
       await service.initialize();
       const builtin = service.detail(DEFAULT_PACKAGE_ID);
-      assert.equal(builtin.actions.length, 68);
+      assert.deepEqual(
+        builtin.actions.map(action => action.key).sort(),
+        builtin.manifest.actions.map(action => action.key).sort(),
+      );
       assert.equal(builtin.manifest.formatVersion, 3);
       const builtinRuntime = service.runtime(DEFAULT_PACKAGE_ID);
       assert.equal(builtinRuntime.model, join(images, "default-package/avatar/model.vrm"));
       assert.equal(builtinRuntime.actions.find(a => a.id === builtinRuntime.idle.base)?.playback.motion, join(images, "default-package/actions/idle/motion.bundle"));
       assert.deepEqual(builtinRuntime.idle.variations.map(id => builtinRuntime.actions.find(a => a.id === id)?.key), ["idle-variation-01", "idle-variation-02"]);
-      assert.equal(builtinRuntime.bindings.length, 19);
+      const actionKeysById = new Map(builtin.actions.map(action => [action.id, action.key]));
+      assert.deepEqual(
+        Object.fromEntries(builtinRuntime.bindings.map(binding => [
+          binding.role, actionKeysById.get(binding.actionId),
+        ])),
+        builtin.manifest.bindings ?? {},
+      );
       const builtinDance = builtinRuntime.actions.find(action => action.key === "sad-water");
       assert.ok(builtinDance?.playback.kind === "performance");
       assert.equal(builtinDance.playback.motion, join(images, "default-package/actions/sad-water/motion.vrma"));
@@ -175,6 +184,8 @@ void app
       const firstZip = await makeZip("first"),
         secondZip = await makeZip("second");
       const first = await service.import(firstZip, randomUUID(), () => {});
+      const firstRuntime = service.runtime(first.id);
+      assert.deepEqual(firstRuntime.idle.variations, builtinRuntime.idle.variations);
       const repeated = await service.import(firstZip, randomUUID(), () => {});
       assert.equal(repeated.id, first.id);
       assert.equal(repeated.actions[0]!.id, first.actions[0]!.id);
@@ -184,11 +195,11 @@ void app
       assert.notEqual(second.id, first.id);
       assert.notEqual(second.actions[0]!.id, first.actions[0]!.id);
       assert.equal(
-        service.runtime(first.id).model,
+        firstRuntime.model,
         service.runtime(second.id).model,
       );
       assert.equal(
-        service.runtime(first.id).actions[0]!.playback.motion,
+        firstRuntime.actions[0]!.playback.motion,
         service.runtime(second.id).actions[0]!.playback.motion,
       );
       const role = db.createCharacter({

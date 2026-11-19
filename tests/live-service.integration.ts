@@ -18,6 +18,7 @@ import { LiveMedia } from "../src/main/live/media";
 import { LiveService } from "../src/main/live/liveService";
 import { DEFAULT_LIVE_SETTINGS, type LiveEvent } from "../src/shared/live";
 import type { AvatarBinding } from "../src/shared/avatar";
+import type { GenerateThreadTitleRequest } from "../src/shared/ipc";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate: () => boolean) {
@@ -84,6 +85,7 @@ try {
   database.saveLiveConfig({ ...DEFAULT_LIVE_SETTINGS, characterId: character.id, width: 1280, replyIntervalSeconds: 5, idleSeconds: 45, thankGifts: false, proactive: false });
   let now = 100_000;
   let failNextRound = false;
+  let firstTitleExcerpts: GenerateThreadTitleRequest["messages"] | undefined;
   const calls: { text: string; signal: AbortSignal; controller: ReadableStreamDefaultController<UIMessageChunk> }[] = [];
   const secrets = new Map<string, string>();
   let credentialNumber = 0;
@@ -116,9 +118,13 @@ try {
         if (failNextRound) { failNextRound = false; controller.error(new Error("Synthetic model failure")); return; }
         controller.enqueue({ type: "start", messageId: `assistant-${calls.length}` });
         controller.enqueue({ type: "text-start", id: "text" });
-        controller.enqueue({ type: "text-delta", id: "text", delta: "合成回复" });
+        controller.enqueue({ type: "text-delta", id: "text", delta: "  合成回复" });
         signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
-      } }), generateTitle: async () => ({ title: "沿用会话标题机制" }),
+      } }),
+      generateTitle: async request => {
+        firstTitleExcerpts ??= request.messages;
+        return { title: "沿用会话标题机制" };
+      },
     },
   });
   assert.equal(service.status.settings.replyIntervalSeconds, 15);
@@ -197,6 +203,9 @@ try {
   assert.ok(!calls[0]!.text.includes("未确认开播"));
   now += 60_000; emit("忙时收到", "danmaku", { id: "web:danmaku:synthetic", userId: "0", userName: "" }); await delay(650); assert.equal(calls.length, 1);
   avatar.playbackBusy = true; finish(); await until(() => !service!.status.generating);
+  assert.deepEqual(firstTitleExcerpts?.at(-1), {
+    role: "assistant", text: "合成回复",
+  });
   now += 16000; await delay(650); assert.equal(calls.length, 1, "Playback completion must gate the next round");
   avatar.playbackBusy = false; await until(() => calls.length === 2); assert.ok(calls[1]!.text.includes("忙时收到"));
   assert.deepEqual(interactions(1), { 弹幕: [{ 观众: { platform: "bilibili", id: null, name: null }, 内容: "忙时收到" }] });

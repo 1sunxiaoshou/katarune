@@ -1,16 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  stat,
-  unlink,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProviderType } from "../../shared/ipc";
+import { createSpeechCacheFiles } from "./speechCacheFiles";
 
 export const TTS_CACHE_MAX_BYTES = 512 * 1024 * 1024;
 export const TTS_CACHE_VERSION = 2;
@@ -68,57 +60,21 @@ export function createTtsCache({
   readonly directory: string;
   readonly maxBytes?: number;
 }): TtsCache {
+  const files = createSpeechCacheFiles(directory, maxBytes, CACHE_FILE_PATTERN, { removeEmpty: true });
   let initialized: Promise<void> | undefined;
-  let writeQueue = Promise.resolve();
 
-  const removeIfPresent = async (path: string): Promise<void> => {
-    await unlink(path).catch((error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    });
-  };
-
-  const prune = async (): Promise<void> => {
+  const prepareDirectory = async (): Promise<void> => {
     await mkdir(directory, { recursive: true });
-    const entries = await readdir(directory, { withFileTypes: true });
-    const cacheFiles: Array<{
-      readonly path: string;
-      readonly size: number;
-      readonly mtimeMs: number;
-    }> = [];
-
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (
-        entry.isFile() &&
-        (entry.name.includes(".tmp-") || entry.name.endsWith(".tmp"))
-      ) {
-        await removeIfPresent(path);
-        continue;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isFile() && (entry.name.includes(".tmp-") || entry.name.endsWith(".tmp"))) {
+        await rm(join(directory, entry.name), { force: true });
       }
-      if (!entry.isFile() || !CACHE_FILE_PATTERN.test(entry.name)) continue;
-      const metadata = await stat(path);
-      if (metadata.size === 0) {
-        await removeIfPresent(path);
-        continue;
-      }
-      cacheFiles.push({
-        path,
-        size: metadata.size,
-        mtimeMs: metadata.mtimeMs,
-      });
     }
-
-    let totalBytes = cacheFiles.reduce((sum, file) => sum + file.size, 0);
-    cacheFiles.sort((left, right) => left.mtimeMs - right.mtimeMs);
-    for (const file of cacheFiles) {
-      if (totalBytes <= maxBytes) break;
-      await removeIfPresent(file.path);
-      totalBytes -= file.size;
-    }
+    await files.prune();
   };
 
   const ensureInitialized = (): Promise<void> => {
-    initialized ??= prune();
+    initialized ??= prepareDirectory();
     return initialized;
   };
 
@@ -137,7 +93,7 @@ export function createTtsCache({
       try {
         const audio = new Uint8Array(await readFile(path));
         if (audio.byteLength === 0 || !validateAudio(audio)) {
-          await removeIfPresent(path);
+          await rm(path, { force: true });
           return null;
         }
         const now = new Date();
@@ -157,24 +113,15 @@ export function createTtsCache({
         return;
       }
       await ensureInitialized();
-      const task = writeQueue.then(async () => {
-        if (abortSignal?.aborted) return;
-        const destination = cachePath(key, format);
-        const temporary = join(directory, `${key}.tmp-${randomUUID()}`);
-        try {
-          await writeFile(temporary, audio, { flag: "wx" });
-          if (abortSignal?.aborted) return;
-          await rename(temporary, destination).catch(async (error: unknown) => {
-            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-            await removeIfPresent(temporary);
-          });
-          await prune();
-        } finally {
-          await removeIfPresent(temporary);
-        }
-      });
-      writeQueue = task.catch(() => undefined);
-      await task;
+      if (abortSignal?.aborted) return;
+      try {
+        await files.put(cachePath(key, format), () => audio, abortSignal);
+      } catch (error) {
+        if (abortSignal?.aborted && (
+          error === abortSignal.reason || (error instanceof Error && error.name === "AbortError")
+        )) return;
+        throw error;
+      }
     },
   };
 }

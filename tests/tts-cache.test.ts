@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -94,7 +94,11 @@ describe("TTS content-addressed cache", () => {
     await cache.put(key, "wav", wavAudio, isWav);
     await cache.put(key, "mp3", mp3Audio, isMp3);
 
+    const wavPath = join(directory, `${key}.wav`);
+    await utimes(wavPath, 1000, 1000);
+    const previousWriteTime = (await stat(wavPath)).mtimeMs;
     expect(await cache.get(key, "wav", isWav)).toEqual(wavAudio);
+    expect((await stat(wavPath)).mtimeMs).toBeGreaterThan(previousWriteTime);
     expect(await cache.get(key, "mp3", isMp3)).toEqual(mp3Audio);
     expect((await readdir(directory)).sort()).toEqual(
       [`${key}.mp3`, `${key}.wav`].sort(),

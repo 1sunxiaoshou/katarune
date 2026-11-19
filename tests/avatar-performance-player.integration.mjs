@@ -1,4 +1,4 @@
-import { runtimePackage } from "./runtimePackage.mjs";
+import { loadDefaultRuntimePackage } from "./runtimePackage.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -10,9 +10,7 @@ const executable = resolve(process.argv[2] ?? "unity/KataruneAvatar/Builds/Windo
 const output = resolve(".test-dist/avatar-performance", String(Date.now()));
 await mkdir(output, { recursive: true });
 const root = resolve("resources/characters/default-package");
-const manifest = JSON.parse(await readFile(join(root, "manifest.json"), "utf8"));
-const ids = JSON.parse(await readFile(join(root, "action-ids.json"), "utf8"));
-const pack = runtimePackage(manifest, ids, root);
+const { runtime: pack, actionIds: ids } = await loadDefaultRuntimePackage(root);
 const packageFile = join(output, "package.json");
 await writeFile(packageFile, JSON.stringify(pack));
 // Six seconds of silence exercise the real AudioSource clock without producing a test tone.

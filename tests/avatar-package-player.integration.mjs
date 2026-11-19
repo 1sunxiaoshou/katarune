@@ -1,4 +1,4 @@
-import { runtimePackage } from "./runtimePackage.mjs";
+import { loadDefaultRuntimePackage } from "./runtimePackage.mjs";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -26,8 +26,7 @@ const base = {
   formatVersion: 3, id: "builtin:default", version: "1.0.0", model,
   idle: { variations: [] }, actions: [], bindings: [],
 };
-const builtinManifest = JSON.parse(await readFile(join(builtinRoot, "manifest.json"), "utf8"));
-const builtinIds = JSON.parse(await readFile(join(builtinRoot, "action-ids.json"), "utf8"));
+const { runtime: builtin, actionIds: builtinIds } = await loadDefaultRuntimePackage(builtinRoot);
 const nativeMotions = JSON.parse(await readFile(join(builtinRoot, "native-motions.json"), "utf8"));
 async function nativeMotion(path) {
   const relative = path.slice(builtinRoot.length + 1).replaceAll("\\", "/");
@@ -37,7 +36,6 @@ async function nativeMotion(path) {
   assert.ok(metadata.duration > 0);
   return metadata;
 }
-const builtin = runtimePackage(builtinManifest, builtinIds, builtinRoot);
 const nativeFixtures = process.env.KATARUNE_NATIVE_MOTION_FIXTURES;
 const nativeIdleId=randomUUID(), nativeWalkId=randomUUID(), nativeNodId=randomUUID();
 const nativePack = nativeFixtures ? { ...base, id: randomUUID(), idle: {base:nativeIdleId,variations:[]}, actions:[

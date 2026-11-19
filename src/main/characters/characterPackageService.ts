@@ -14,14 +14,12 @@ import {
   packageAudioFiles,
   packageSubtitleFiles,
   packageCameraFiles,
-  type ActionPlayback,
 } from "../../shared/characterPackages";
 import type { AssetService } from "../assets/assetService";
 import type {
   DatabaseRuntime,
   ReadyAssetRegistration,
 } from "../database/types";
-import type { StoredCharacterPackage } from "../database/characterPackageRepository";
 import {
   extractPackage,
   hashFile,
@@ -30,6 +28,7 @@ import {
   readImageHeader,
   validatePackageSrt,
 } from "./packageArchive";
+import { createRuntimeCharacterPackage } from "./runtimeCharacterPackage";
 
 export class CharacterPackageService {
   private readonly jobs = new Map<string, AbortController>();
@@ -127,66 +126,21 @@ export class CharacterPackageService {
   }
   runtime(id: string): RuntimeCharacterPackage {
     const pack = this.db.fetchCharacterPackage(id);
-    const fallback = this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID);
-    const resolve = (owner: StoredCharacterPackage, path: string): string => {
-      if (owner.builtin) return join(this.builtinResources, path);
-      const resource = owner.resources.find((r) => r.path === path);
+    if (pack.builtin) {
+      return createRuntimeCharacterPackage(pack, file => join(this.builtinResources, file));
+    }
+
+    return createRuntimeCharacterPackage(pack, file => {
+      const resource = pack.resources.find(resource => resource.path === file);
       if (!resource) throw new Error("角色包资源引用已损坏。");
       return this.assets.resolveManagedPath(resource.assetId);
-    };
-    return this.descriptor(
-      pack,
-      (path) => resolve(pack, path),
-      (path) => resolve(fallback, path),
-    );
+    }, () => this.runtimeDefaults());
   }
-  private descriptor(
-    pack: Pick<StoredCharacterPackage, "id" | "manifest" | "actions">,
-    resolve: (path: string) => string,
-    fallback: (path: string) => string,
-  ): RuntimeCharacterPackage {
-    const defaults = this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID);
-    const resolvePlayback = (playback: ActionPlayback, resolvePath: (path: string) => string): ActionPlayback => {
-      const layer = playback.layer ?? "body";
-      const common = { motion: resolvePath(playback.motion), layer, blending: playback.blending ?? (layer === "head" ? "additive" : "override"), blendSeconds: playback.blendSeconds ?? .2 };
-      if (playback.kind === "performance") return {
-        ...playback, ...common, layer: "body", blending: "override",
-        ...(playback.audio ? { audio: resolvePath(playback.audio) } : {}),
-        ...(playback.subtitles ? { subtitles: resolvePath(playback.subtitles) } : {}),
-        ...(playback.camera?.kind === "track" ? { camera: { ...playback.camera, file: resolvePath(playback.camera.file) } } : {}),
-      };
-      return {
-        ...playback, ...common,
-        ...(playback.reference ? { reference: resolvePath(playback.reference) } : {}),
-        ...(playback.kind === "loop" && playback.enter ? { enter: resolvePath(playback.enter) } : {}),
-        ...(playback.kind === "loop" && playback.exit ? { exit: resolvePath(playback.exit) } : {}),
-      };
-    };
-    const actions = pack.actions.map(a => ({ ...a, playback: resolvePlayback(a.playback, resolve) }));
-    const actionId = (key: string) => {
-      const action = actions.find(a => a.key === key);
-      if (!action) throw new Error("角色包动作引用已损坏。");
-      return action.id;
-    };
-    let variations: string[];
-    if (pack.manifest.idle?.variations !== undefined) variations = pack.manifest.idle.variations.map(actionId);
-    else {
-      variations = (defaults.manifest.idle?.variations ?? []).map(key => {
-        const action = defaults.actions.find(a => a.key === key);
-        if (!action) throw new Error("默认包待机引用已损坏。");
-        if (!actions.some(a => a.id === action.id)) {
-          let key = action.key;
-          while (actions.some(a => a.key === key)) key = `fallback-${key}`;
-          actions.push({ ...action, key, playback: resolvePlayback(action.playback, fallback) });
-        }
-        return action.id;
-      });
-    }
+
+  private runtimeDefaults() {
     return {
-      formatVersion: 3, id: pack.id, version: pack.manifest.version,
-      model: resolve(pack.manifest.model), actions,
-      idle: { ...(pack.manifest.idle?.base ? { base: actionId(pack.manifest.idle.base) } : {}), variations },
-      bindings: Object.entries(pack.manifest.bindings ?? {}).flatMap(([role, key]) => key === undefined ? [] : [{ role, actionId: actionId(key) }]),
+      pack: this.db.fetchCharacterPackage(DEFAULT_PACKAGE_ID),
+      resolvePath: (file: string) => join(this.builtinResources, file),
     };
   }
   async import(
@@ -378,10 +332,10 @@ export class CharacterPackageService {
       const actions = manifest.actions.map(a => ({ ...a, id: randomUUID() }));
       progress({ requestId, phase: "validating", files: files.length });
       await this.validate(
-        this.descriptor(
+        createRuntimeCharacterPackage(
           { id, manifest, actions },
           (file) => join(stage!, file),
-          (file) => join(this.builtinResources, file),
+          () => this.runtimeDefaults(),
         ),
         signal,
       );

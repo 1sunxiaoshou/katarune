@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSpeechArtifactCache } from "../src/main/speech/speechArtifactCache";
@@ -23,8 +23,11 @@ it("evicts the complete artifact as a unit", async () => {
 it("publishes audio and alignment together and rejects corrupted audio", async () => {
   const { root, cache } = await fixture();
   await cache.put(key, artifact, new AbortController().signal);
-  expect(await cache.get(key)).toEqual(artifact);
   const file = join(root, "timestamped-v1", `${key}.json`);
+  await utimes(file, 1000, 1000);
+  const previousWriteTime = (await stat(file)).mtimeMs;
+  expect(await cache.get(key)).toEqual(artifact);
+  expect((await stat(file)).mtimeMs).toBe(previousWriteTime);
   const value = JSON.parse(await readFile(file, "utf8"));
   value.audio = "BAUG";
   await writeFile(file, JSON.stringify(value));
