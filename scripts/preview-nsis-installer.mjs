@@ -14,6 +14,8 @@ if (compiled.status !== 0) process.exit(compiled.status ?? 1);
 const output = join(stage, "Katarune-UI-Preview.exe");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const script = `Unicode true
+ManifestDPIAware true
+ManifestDPIAwareness PerMonitorV2
 ; This preview intentionally never executes sections.
 !pragma warning disable 8000
 RequestExecutionLevel user

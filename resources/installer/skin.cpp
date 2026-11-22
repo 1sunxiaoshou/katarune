@@ -10,6 +10,7 @@
 #include <shellapi.h>
 #include <gdiplus.h>
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,7 +24,7 @@ HWND window, pathEdit, choice, action, browse, closeButton, minimizeButton;
 WNDPROC previous;
 ULONG_PTR gdiplus;
 std::unique_ptr<Image> background, logo;
-std::vector<HFONT> fonts;
+HFONT pathFont;
 std::wstring version, currentPath, progressLog;
 int page = 0, percent = 0;
 int progressBase = 0, progressSpan = 10;
@@ -38,6 +39,10 @@ HGDIOBJ originalBackdrop;
 constexpr int Width = 950, Height = 612;
 constexpr int PathId = 2001, ChoiceId = 2002, ActionId = 2003, BrowseId = 2004;
 constexpr int CloseId = 2005, MinimizeId = 2006;
+struct ControlBounds { int x, y, width, height; };
+constexpr ControlBounds PathBounds{540, 380, 317, 22}, BrowseBounds{862, 375, 34, 28};
+constexpr ControlBounds ChoiceBounds{532, 416, 366, 27}, ActionBounds{532, 483, 366, 48};
+constexpr ControlBounds CloseBounds{906, 4, 40, 36}, MinimizeBounds{860, 4, 40, 36};
 constexpr UINT_PTR ProgressTimer = 0x4b41;
 int px(float value);
 #ifdef KATARUNE_SKIN_TEST
@@ -55,7 +60,9 @@ void trace(const char* event, const RECT* rect = nullptr) {
         event, page, percent, progressBase, (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) ? "true" : "false",
         roundedWindow ? "true" : "false", pathEdit && (GetWindowLongPtrW(pathEdit, GWL_STYLE) & ES_MULTILINE) ? "true" : "false",
         regionType, IsIconic(window) ? "true" : "false",
-        rect ? rect->left : 0, rect ? rect->top : 0, rect ? rect->right - rect->left : 0, rect ? rect->bottom - rect->top : 0);
+        rect ? std::lround(rect->left / scale) : 0, rect ? std::lround(rect->top / scale) : 0,
+        rect ? std::lround(rect->right / scale) - std::lround(rect->left / scale) : 0,
+        rect ? std::lround(rect->bottom / scale) - std::lround(rect->top / scale) : 0);
     fclose(file);
 }
 #endif
@@ -86,20 +93,32 @@ void backdrop(Graphics& g) {
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
     g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
-    g.Clear(Color(255, 250, 248, 245));
-    if (background) g.DrawImage(background.get(), RectF(0, 0, Width, Height));
-    // Fade the scene into white before the controls; keep the left artwork clear.
-    // Multiple stops create a broad white surface without a visible panel edge.
-    // Cover the whole canvas and mirror the brush edges, so sampling at the
-    // transparent start cannot wrap around to the opaque white endpoint.
-    LinearGradientBrush veil(PointF(0, 0), PointF(Width, 0),
-        Color(0, 255, 255, 255), Color(255, 255, 255, 255));
-    Color veilColors[]{Color(0, 255, 255, 255), Color(0, 255, 255, 255), Color(220, 255, 255, 255),
-        Color(246, 255, 255, 255), Color(255, 255, 255, 255)};
-    REAL veilStops[]{0.f, 420.f / Width, 526.f / Width, 711.5f / Width, 1.f};
-    veil.SetInterpolationColors(veilColors, veilStops, 5);
-    veil.SetWrapMode(WrapModeTileFlipX);
-    g.FillRectangle(&veil, 0.f, 0.f, static_cast<float>(Width), static_cast<float>(Height));
+    g.Clear(Color(255, 255, 255, 255));
+    if (background && background->GetHeight()) {
+        const float artworkWidth = float(Height) * background->GetWidth() / background->GetHeight();
+        const float fadeWidth = artworkWidth * .23f;
+        const float fadeStart = artworkWidth - fadeWidth;
+        g.DrawImage(background.get(), RectF(0, 0, artworkWidth, Height));
+
+        // A Gaussian-blurred step is the normal CDF. Apply it to the white mask only.
+        constexpr int sampleCount = 25;
+        constexpr float sigmaExtent = 3.f;
+        const Color transparent(0, 255, 255, 255);
+        const Color white(255, 255, 255, 255);
+        Color colors[sampleCount];
+        REAL positions[sampleCount];
+        for (int i = 0; i < sampleCount; ++i) {
+            const float t = float(i) / (sampleCount - 1);
+            const float z = (2.f * t - 1.f) * sigmaExtent;
+            const float opacity = .5f * std::erfc(-z / std::sqrt(2.f));
+            positions[i] = t;
+            colors[i] = Color(static_cast<BYTE>(std::lround(255.f * opacity)), 255, 255, 255);
+        }
+        LinearGradientBrush mask(PointF(fadeStart, 0), PointF(artworkWidth, 0), transparent, white);
+        mask.SetWrapMode(WrapModeTileFlipX);
+        mask.SetInterpolationColors(colors, positions, sampleCount);
+        g.FillRectangle(&mask, fadeStart, 0.f, fadeWidth, float(Height));
+    }
     if (logo) g.DrawImage(logo.get(), RectF(640, 64, 150, 150));
     FontFamily titleFamily(L"Segoe Print");
     StringFormat titleFormat;
@@ -190,29 +209,75 @@ void invalidateContent() {
     RECT area{px(530), px(343), px(904), px(534)};
     InvalidateRect(window, &area, FALSE);
 }
-HFONT font(int size, int weight = FW_NORMAL) {
-    auto value = CreateFontW(-px(size), 0, 0, 0, weight, FALSE, FALSE, FALSE,
+void updatePathFont() {
+    if (!pathEdit) return;
+    auto replacement = CreateFontW(-std::max(1, px(12)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH, L"Microsoft YaHei UI");
-    fonts.push_back(value);
-    return value;
+    if (!replacement) return;
+    SendMessageW(pathEdit, WM_SETFONT, reinterpret_cast<WPARAM>(replacement), TRUE);
+    if (pathFont) DeleteObject(pathFont);
+    pathFont = replacement;
 }
 HWND control(const wchar_t* kind, const wchar_t* label, DWORD style, int id,
-             int x, int y, int w, int h, int size = 13, int weight = FW_NORMAL) {
-    HWND value = CreateWindowExW(0, kind, label, WS_CHILD | WS_VISIBLE | WS_TABSTOP | style,
-        px(x), px(y), px(w), px(h), window, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
-    SendMessageW(value, WM_SETFONT, reinterpret_cast<WPARAM>(font(size, weight)), TRUE);
-    return value;
+             const ControlBounds& bounds) {
+    return CreateWindowExW(0, kind, label, WS_CHILD | WS_VISIBLE | WS_TABSTOP | style,
+        px(bounds.x), px(bounds.y), px(bounds.width), px(bounds.height),
+        window, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
 }
-void layout() {
-    RECT screen;
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &screen, 0);
-    int w = px(Width), h = px(Height);
-    SetWindowPos(window, nullptr, screen.left + (screen.right - screen.left - w) / 2,
-        screen.top + (screen.bottom - screen.top - h) / 2, w, h,
-        SWP_NOZORDER | SWP_FRAMECHANGED);
+void positionControl(HWND value, const ControlBounds& bounds) {
+    if (value) SetWindowPos(value, nullptr, px(bounds.x), px(bounds.y), px(bounds.width), px(bounds.height),
+        SWP_NOZORDER | SWP_NOACTIVATE);
+}
+float windowDpiScale() {
+    static const auto getDpi = reinterpret_cast<UINT(WINAPI*)(HWND)>(
+        GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+    const UINT dpi = getDpi ? getDpi(window) : 0;
+    return dpi ? dpi / 96.f : 1.f;
+}
+struct WindowLayout { float scale; RECT bounds; };
+WindowLayout fitLayout(const RECT& work, float requestedScale, const RECT* anchor) {
+    const LONG workWidth = std::max(1L, work.right - work.left);
+    const LONG workHeight = std::max(1L, work.bottom - work.top);
+    const float fittedScale = std::min({requestedScale, float(workWidth) / Width, float(workHeight) / Height});
+    const LONG w = std::clamp(std::lround(Width * fittedScale), 1L, workWidth);
+    const LONG h = std::clamp(std::lround(Height * fittedScale), 1L, workHeight);
+    const LONG x = anchor ? std::clamp(anchor->left, work.left, work.left + workWidth - w)
+                          : work.left + (workWidth - w) / 2;
+    const LONG y = anchor ? std::clamp(anchor->top, work.top, work.top + workHeight - h)
+                          : work.top + (workHeight - h) / 2;
+    return {fittedScale, {x, y, x + w, y + h}};
+}
+void layout(float requestedScale, const RECT* anchor = nullptr) {
+    RECT work{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    const HMONITOR target = anchor ? MonitorFromRect(anchor, MONITOR_DEFAULTTONEAREST)
+                                   : MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monitor{sizeof(monitor)};
+    if (GetMonitorInfoW(target, &monitor))
+        work = monitor.rcWork;
+    else
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    const auto fitted = fitLayout(work, requestedScale, anchor);
+    const RECT& bounds = fitted.bounds;
+    const bool resize = !anchor || fitted.scale != scale;
+    scale = fitted.scale;
+    const int w = bounds.right - bounds.left, h = bounds.bottom - bounds.top;
+    SetWindowPos(window, nullptr, bounds.left, bounds.top, w, h,
+        SWP_NOZORDER | SWP_NOACTIVATE | (resize ? SWP_FRAMECHANGED : 0));
+    if (!resize) return;
     // A real window region also works on Windows 10, independent of DWM heuristics.
-    SetWindowRgn(window, CreateRoundRectRgn(0, 0, w + 1, h + 1, px(24), px(24)), TRUE);
+    if (auto region = CreateRoundRectRgn(0, 0, w + 1, h + 1, px(24), px(24))) {
+        if (!SetWindowRgn(window, region, TRUE)) DeleteObject(region);
+    }
+    cacheBackdrop();
+    positionControl(pathEdit, PathBounds);
+    positionControl(browse, BrowseBounds);
+    positionControl(choice, ChoiceBounds);
+    positionControl(action, ActionBounds);
+    positionControl(closeButton, CloseBounds);
+    positionControl(minimizeButton, MinimizeBounds);
+    updatePathFont();
+    InvalidateRect(window, nullptr, FALSE);
 }
 void drawControl(DRAWITEMSTRUCT* item) {
     HDC target = item->hDC;
@@ -339,6 +404,8 @@ void clearPage() {
     }
     for (auto h : {pathEdit, choice, action, browse}) if (h) DestroyWindow(h);
     pathEdit = choice = action = browse = nullptr;
+    if (pathFont) DeleteObject(pathFont);
+    pathFont = nullptr;
 }
 void showPage(int mode, const wchar_t* path) {
     std::wstring target = path;
@@ -353,12 +420,13 @@ void showPage(int mode, const wchar_t* path) {
     EnableWindow(closeButton, !busy);
     if (page == 0) {
         checked = true;
-        pathEdit = control(L"EDIT", target.c_str(), ES_AUTOHSCROLL, PathId, 540, 380, 317, 22, 12);
-        browse = control(L"BUTTON", L"选择安装位置", BS_OWNERDRAW, BrowseId, 862, 375, 34, 28);
-        choice = control(L"BUTTON", L"创建桌面快捷方式", BS_AUTOCHECKBOX, ChoiceId, 532, 416, 366, 27);
+        pathEdit = control(L"EDIT", target.c_str(), ES_AUTOHSCROLL, PathId, PathBounds);
+        updatePathFont();
+        browse = control(L"BUTTON", L"选择安装位置", BS_OWNERDRAW, BrowseId, BrowseBounds);
+        choice = control(L"BUTTON", L"创建桌面快捷方式", BS_AUTOCHECKBOX, ChoiceId, ChoiceBounds);
     } else if (page == 3) {
         checked = false;
-        choice = control(L"BUTTON", L"删除全部本地数据", BS_AUTOCHECKBOX, ChoiceId, 532, 416, 366, 27);
+        choice = control(L"BUTTON", L"删除全部本地数据", BS_AUTOCHECKBOX, ChoiceId, ChoiceBounds);
     }
     if (choice) {
         SetWindowSubclass(choice, choiceProcedure, 1, 0);
@@ -366,7 +434,7 @@ void showPage(int mode, const wchar_t* path) {
     }
     const wchar_t* caption = page == 0 ? L"立即安装" : page == 1 ? L"正在安装" :
         page == 2 ? L"启动Katarune" : page == 3 ? L"卸载" : page == 4 ? L"正在卸载" : L"完成";
-    if (!busy) action = control(L"BUTTON", caption, BS_OWNERDRAW, ActionId, 532, 483, 366, 48, 20);
+    if (!busy) action = control(L"BUTTON", caption, BS_OWNERDRAW, ActionId, ActionBounds);
     if (busy) SetTimer(window, ProgressTimer, 60, nullptr); else KillTimer(window, ProgressTimer);
     // NSIS may show its native page after the custom callback returns. Keep
     // that page alive for its engine/progress, but place it outside our canvas.
@@ -434,22 +502,18 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
         if (point.y < px(60) && point.x < px(850)) return HTCAPTION;
         return HTCLIENT;
     }
-    case WM_DPICHANGED: {
-        const int savedPercent = percent, savedBase = progressBase, savedSpan = progressSpan;
-        const auto savedLog = progressLog;
-        scale = HIWORD(wp) / 96.f;
-        layout();
-        cacheBackdrop();
-        SetWindowPos(closeButton, nullptr, px(906), px(4), px(40), px(36), SWP_NOZORDER);
-        SetWindowPos(minimizeButton, nullptr, px(860), px(4), px(40), px(36), SWP_NOZORDER);
-        showPage(page, currentPath.c_str());
-        percent = savedPercent;
-        progressBase = savedBase;
-        progressSpan = savedSpan;
-        progressLog = savedLog;
-        InvalidateRect(hwnd, nullptr, FALSE);
+    case WM_DPICHANGED:
+        layout(HIWORD(wp) / 96.f, reinterpret_cast<const RECT*>(lp));
         return 0;
+    case WM_EXITSIZEMOVE: {
+        RECT bounds;
+        if (GetWindowRect(hwnd, &bounds)) layout(windowDpiScale(), &bounds);
+        break;
     }
+    case WM_NCDESTROY:
+        if (pathFont) DeleteObject(pathFont);
+        pathFont = nullptr;
+        break;
     case WM_TIMER:
 #ifdef KATARUNE_SKIN_TEST
         if (wp == TestTimer) {
@@ -613,15 +677,12 @@ __declspec(dllexport) void __cdecl Attach(HWND parent, const wchar_t* assets, co
     GdiplusStartup(&gdiplus, &input, nullptr);
     background = std::make_unique<Image>((std::wstring(assets) + L"\\background.png").c_str());
     logo = std::make_unique<Image>((std::wstring(assets) + L"\\logo.png").c_str());
-    auto dpi = reinterpret_cast<UINT(WINAPI*)(HWND)>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
-    scale = dpi ? dpi(parent) / 96.f : 1;
     SetWindowLongPtrW(window, GWL_STYLE, WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN);
     SetWindowLongPtrW(window, GWL_EXSTYLE, WS_EX_APPWINDOW);
     previous = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(procedure)));
-    layout();
-    cacheBackdrop();
-    closeButton = control(L"BUTTON", L"关闭", BS_OWNERDRAW, CloseId, 906, 4, 40, 36);
-    minimizeButton = control(L"BUTTON", L"最小化", BS_OWNERDRAW, MinimizeId, 860, 4, 40, 36);
+    layout(windowDpiScale());
+    closeButton = control(L"BUTTON", L"关闭", BS_OWNERDRAW, CloseId, CloseBounds);
+    minimizeButton = control(L"BUTTON", L"最小化", BS_OWNERDRAW, MinimizeId, MinimizeBounds);
     SetWindowSubclass(closeButton, captionButtonProcedure, 1, 0);
     SetWindowSubclass(minimizeButton, captionButtonProcedure, 1, 0);
 #ifdef KATARUNE_SKIN_TEST

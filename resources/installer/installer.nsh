@@ -1,3 +1,6 @@
+ManifestDPIAware true
+ManifestDPIAwareness PerMonitorV2
+
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !include "nsDialogs.nsh"
