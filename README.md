@@ -31,7 +31,7 @@ Katarune，创造与你共同生活的数字世界。
 
 目前为 Alpha 版本，支持 Windows x64。下载安装后，在设置中配置模型供应商和 API Key 即可使用。
 
-[下载 Windows 安装包](https://github.com/1sunxiaoshou/katarune/releases/download/v0.1.0/Katarune-Setup-0.1.0.exe)
+[下载 Windows 安装包](https://github.com/1sunxiaoshou/katarune/releases/download/v0.1.1/Katarune-Setup-0.1.1.exe)
 
 ## 从源码开始
 
