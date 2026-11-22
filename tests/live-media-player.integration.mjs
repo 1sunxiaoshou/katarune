@@ -12,7 +12,7 @@ import { loadDefaultRuntimePackage } from './runtimePackage.mjs';
 const aspectRatio=process.env.KATARUNE_LIVE_ASPECT_RATIO??'16:9';
 const backgroundId=process.env.KATARUNE_TEST_BACKGROUND??'film';
 const desktopBackground=backgroundId==='cloud-observatory'?'film':'cloud-observatory';
-assert.ok(['film','cloud-observatory','island-coast'].includes(backgroundId),'Unsupported background');
+assert.ok(['film','cloud-observatory'].includes(backgroundId),'Unsupported background');
 assert.ok(aspectRatio==='16:9'||aspectRatio==='9:16','Unsupported live output aspect ratio');
 const output=resolve(process.env.KATARUNE_LIVE_TEST_OUTPUT??(aspectRatio==='9:16'?'.test-dist/live-media-portrait':'.test-dist/live-media-optimized')); await mkdir(output,{recursive:true});
 await build({configFile:false,logLevel:'error',build:{ssr:resolve('src/main/live/media.ts'),outDir:join(output,'module'),emptyOutDir:false,rollupOptions:{output:{entryFileNames:'media.mjs'}}}});

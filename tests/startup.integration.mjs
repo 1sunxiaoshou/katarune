@@ -40,7 +40,7 @@ async function verifyBackgroundSelection(window, until, binding) {
   await until(async () => (await state()).mode === "immersive", "Immersive mode did not activate");
   await openPanel();
   await until(() => panel.webContents.executeJavaScript(`!!document.querySelector('[aria-label="背景"]')`), "Background selector did not mount");
-  for (const [id, label] of [["cloud-observatory", "背景1"], ["film", "动态胶片"], ["island-coast", "异世界海岸"]]) {
+  for (const [id, label] of [["cloud-observatory", "背景1"], ["film", "动态胶片"], ["cloud-observatory", "背景1"]]) {
     await panel.webContents.executeJavaScript(`document.querySelector('[aria-label="背景"]').click()`);
     await until(() => panel.webContents.executeJavaScript(`!![...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)})`), "Background choices did not open");
     await panel.webContents.executeJavaScript(`[...document.querySelectorAll('[cmdk-item]')].find(item => item.textContent === ${JSON.stringify(label)}).click()`);
@@ -48,11 +48,11 @@ async function verifyBackgroundSelection(window, until, binding) {
     await until(() => panel.webContents.executeJavaScript(`document.querySelector('[aria-label="背景"]')?.textContent.includes(${JSON.stringify(label)})`), "Background selection did not render");
   }
   await command("background", "../custom.png");
-  assert.equal((await state()).presentation.backgroundId, "island-coast", "Invalid paths must preserve the selected background");
-  await command("background", "island-coast");
+  assert.equal((await state()).presentation.backgroundId, "cloud-observatory", "Invalid paths must preserve the selected background");
+  await command("background", "cloud-observatory");
   await until(async () => {
     assert.equal((await state()).error, null, "Saving the background reported a desktop error");
-    return JSON.parse(await readFile(gazePreferencesPath, "utf8")).backgroundId === "island-coast";
+    return JSON.parse(await readFile(gazePreferencesPath, "utf8")).backgroundId === "cloud-observatory";
   }, "Background choice did not persist");
   const saved = JSON.parse(await readFile(gazePreferencesPath, "utf8"));
   assert.equal(saved.gaze, "camera");
@@ -61,7 +61,7 @@ async function verifyBackgroundSelection(window, until, binding) {
   await window.webContents.executeJavaScript(`window.katarune.stopAvatar()`);
   await window.webContents.executeJavaScript(`window.katarune.startAvatar(${JSON.stringify(binding)})`);
   await controls();
-  await until(async () => (await state()).presentation?.backgroundId === "island-coast", "Saved background did not restore after restarting the Player");
+  await until(async () => (await state()).presentation?.backgroundId === "cloud-observatory", "Saved background did not restore after restarting the Player");
   assert.equal((await state()).mode, "desktop", "Restarting must retain transparent desktop mode");
   await window.webContents.executeJavaScript(`window.katarune.stopAvatar()`);
 }

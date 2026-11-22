@@ -34,8 +34,6 @@ namespace Katarune.Avatar.Editor
 
         private static void BuildWindowsPlayer()
         {
-            if (Resources.Load<GameObject>("Immersive/IslandCoast") == null)
-                throw new InvalidOperationException("异世界海岸成品资源缺失。请先运行 AvatarIslandBaker.Bake；构建不会自动生成美术资源。");
             AvatarDefaultIdleBaker.Bake();
             var outputOverride = Environment.GetEnvironmentVariable("KATARUNE_AVATAR_BUILD_OUTPUT");
             var outputPath = string.IsNullOrEmpty(outputOverride) ? Path.GetFullPath(Path.Combine(

@@ -49,16 +49,6 @@ namespace Katarune.Avatar.Editor
                 backdrop.SetBackground("cloud-observatory");
                 SaveFrame(camera,1920,1080,Path.Combine(output,"cloud-observatory-landscape.png"));
                 SaveFrame(camera,1080,1920,Path.Combine(output,"cloud-observatory-portrait.png"));
-                backdrop.SetBackground("island-coast");
-                camera.fieldOfView = 28;
-                camera.transform.position = new Vector3(0,1.15f,4.1f);
-                camera.transform.LookAt(new Vector3(0,.86f,0));
-                SaveFrame(camera,1920,1080,Path.Combine(output,"island-coast-fullbody.png"));
-                SaveFrame(camera,1080,1920,Path.Combine(output,"island-coast-portrait.png"));
-                camera.fieldOfView = 26;
-                camera.transform.position = new Vector3(0,1.4f,2.25f);
-                camera.transform.LookAt(new Vector3(0,1.3f,0));
-                SaveFrame(camera,1920,1080,Path.Combine(output,"island-coast-dialogue.png"));
             }
             finally
             {

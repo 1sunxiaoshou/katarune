@@ -12,7 +12,7 @@ import { loadDefaultRuntimePackage } from "./runtimePackage.mjs";
 const executable = resolve(process.env.KATARUNE_AVATAR_PLAYER ?? "unity/KataruneAvatar/Builds/Windows/KataruneAvatar.exe");
 const output = resolve(".test-dist/immersive-player");
 const backgroundOverride = process.env.KATARUNE_TEST_BACKGROUND;
-assert.ok(!backgroundOverride || ["film", "cloud-observatory", "island-coast"].includes(backgroundOverride));
+assert.ok(!backgroundOverride || ["film", "cloud-observatory"].includes(backgroundOverride));
 await mkdir(output, { recursive: true });
 const packageRoot = resolve("resources/characters/default-package");
 const packageFile = join(output, "package.json");

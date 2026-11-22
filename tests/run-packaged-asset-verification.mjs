@@ -33,7 +33,7 @@ async function waitForPage(port) {
       const pages = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) =>
         response.json(),
       );
-      const page = pages.find((entry) => entry.type === "page");
+      const page = pages.find((entry) => entry.type === "page" && entry.url.startsWith("file:") && new URL(entry.url).pathname.endsWith("/renderer/index.html"));
       if (page?.webSocketDebuggerUrl !== undefined) return page;
     } catch {
       // The packaged app has not opened its debugging endpoint yet.
@@ -70,7 +70,7 @@ async function evaluate(webSocketDebuggerUrl, expression) {
       );
     });
     if (result.exceptionDetails !== undefined) {
-      throw new Error(result.exceptionDetails.text);
+      throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
     }
     return result.result.value;
   } finally {
